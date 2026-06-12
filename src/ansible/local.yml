@@ -1,0 +1,77 @@
+---
+# ==============================================================================
+# GDC Node First-Boot Self-Test & Verification Playbook
+# ==============================================================================
+# This playbook executes locally on first boot to test service readiness,
+# output baseline system parameters, and check basic network connectivity.
+# ==============================================================================
+
+- name: GDC Ready-Linux First-Boot Self-Test Suite
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    # --------------------------------------------------------------------------
+    # Stage 1: Local Service Readiness Checks (Hubs)
+    # --------------------------------------------------------------------------
+    - name: "GDC-VERIFY-001 | Check Gitea Service Hub Readiness (Port 3000)"
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 3000
+        state: started
+        timeout: 30
+        msg: "Timeout waiting for Gitea to listen on local port 3000. Check target logs."
+
+    - name: "GDC-VERIFY-002 | Check Nexus Service Hub Readiness (Port 8081)"
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 8081
+        state: started
+        timeout: 30
+        msg: "Timeout waiting for Nexus to listen on local port 8081. Check target logs."
+
+    - name: "GDC-VERIFY-003 | Confirm Service Endpoints are Accessible"
+      ansible.builtin.debug:
+        msg: "Success: Local Service Boundary Hubs (Gitea on Port 3000 and Nexus on Port 8081) are fully accessible."
+
+    # --------------------------------------------------------------------------
+    # Stage 2: Playbook Hello World Check
+    # --------------------------------------------------------------------------
+    - name: "GDC-VERIFY-004 | Hello World Probe"
+      ansible.builtin.debug:
+        msg: "Hello World! GDC local ansible-pull playbooks have pulled and are executing flawlessly."
+
+    # --------------------------------------------------------------------------
+    # Stage 3: Retrieve Disk and Block Partition Layout
+    # --------------------------------------------------------------------------
+    - name: "GDC-VERIFY-005 | Query System Block Devices (lsblk)"
+      ansible.builtin.command: lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINTS
+      register: lsblk_result
+      changed_when: false
+
+    - name: "GDC-VERIFY-006 | Print Partition Layout"
+      ansible.builtin.debug:
+        var: lsblk_result.stdout_lines
+
+    # --------------------------------------------------------------------------
+    # Stage 4: Test Outbound Network (With air-gap fallback)
+    # --------------------------------------------------------------------------
+    - name: "GDC-VERIFY-007 | Ping External DNS Server (8.8.8.8)"
+      ansible.builtin.command: ping -c 3 8.8.8.8
+      register: ping_result
+      changed_when: false
+      ignore_errors: true
+
+    - name: "GDC-VERIFY-008 | Report Outbound Network State"
+      ansible.builtin.debug:
+        msg: >
+          {% if ping_result.rc == 0 %}
+          Outbound Internet Network Ping succeeded! Server has route to the public internet.
+          {% else %}
+          Outbound Internet Network Ping failed or is blocked. Running in offline/air-gapped mode.
+          {% endif %}
+
+    - name: "GDC-VERIFY-009 | Print Outbound Ping Details"
+      ansible.builtin.debug:
+        var: ping_result.stdout_lines

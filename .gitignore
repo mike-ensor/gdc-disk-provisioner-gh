@@ -11,6 +11,7 @@ bin/
 dist/
 out/
 build/
+!src/build/
 target/
 
 # Opencode custom skills
@@ -23,3 +24,5 @@ skills/
 .env
 .env.local
 .env.*.local
+.env.schema
+.envrc

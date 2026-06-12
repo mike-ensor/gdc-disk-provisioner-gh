@@ -8,6 +8,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 * [x] **GDC-SPEC-001: ISO Generation & Build Pipeline** — Written & Approved
 * [x] **GDC-SPEC-002: Baseline Installer & LVM Storage Layout** — Written & Approved
 * [x] **GDC-SPEC-003: Ready-Linux Provisioning & Sideloading** — Written & Approved
+* [x] **GDC-SPEC-004: ISO Verification & QEMU E2E Testing** — Written & Approved
 * [x] **Governance Rules (`GEMINI.md`)** — Documented
 * [x] **Domain Glossary (`DICTIONARY.md`)** — Documented
 
@@ -81,3 +82,21 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   * [ ] Write Nexus API upload scripts for APT debs
   * [ ] Write Docker registry push wrapper scripts
   * [ ] Write LLM weights Raw upload sync tooling
+
+---
+
+### Phase 5: ISO Verification & Testing Framework
+* [x] **First-Boot Self-Test Playbook (local.yml)**
+  * [x] Service Port readiness checks (Gitea 3000, Nexus 8081)
+  * [x] Execution verification (Hello World task)
+  * [x] Partition block querying task (lsblk)
+  * [x] Outbound gateway ping test task (ping 8.8.8.8)
+* [x] **Static Verification (Tier 1)**
+  * [x] Create `test/validate_iso_static.sh` script
+  * [x] Integrate cloud-init schema and YAML syntax verification
+* [x] **Headless E2E Boot Testing (Tier 2)**
+  * [x] Create `test/run_qemu_e2e.sh` script
+  * [x] Implement sparse 400G virtual disk allocation schema
+  * [x] Script serial log console monitoring with automated polling and timeout boundaries
+  * [ ] Implement software TPM emulator (`swtpm`) local port bindings
+  * [ ] Implement remote port-forwarding SSH assertion suite

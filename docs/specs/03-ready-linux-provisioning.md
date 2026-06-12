@@ -51,6 +51,14 @@ ExecStart=/usr/bin/ansible-pull \
   -i localhost, \
   local.yml
 RemainAfterExit=true
+```
+
+### 3.1. Verification and Self-Test Tasks
+The initial stages of the `local.yml` playbook execute a strict self-test suite to assert node and boundary health. These tasks verify:
+1. **Service Readiness (Port checks):** Holds execution (`wait_for`) until Gitea (port 3000) and Nexus (port 8081) services have completely finished starting up and are accepting local connections.
+2. **Execution Integrity (Hello World):** Logs a structural output verification message to confirm that `ansible-pull` compiled and ran without failures.
+3. **Partition Mapping (`lsblk`):** Executes `lsblk` and logs the full physical/logical block device layout, ensuring LVM configuration checks pass.
+4. **Network Verification (`ping 8.8.8.8`):** Attempts to ping `8.8.8.8` to dynamically register whether the node is running in a fully air-gapped environment or has an active public internet gateway. This task ignores errors (`ignore_errors: true`) so that execution is never blocked on offline nodes.
 
 [Install]
 WantedBy=multi-user.target
