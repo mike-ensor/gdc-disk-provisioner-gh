@@ -1,0 +1,7 @@
+{
+  // Local project-level opencode settings
+  "$schema": "https://opencode.ai/config.json",
+  "skills": {
+    "paths": ["skills"]
+  }
+}

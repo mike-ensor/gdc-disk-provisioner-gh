@@ -1,0 +1,25 @@
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Project-specific / generic outputs
+bin/
+dist/
+out/
+build/
+target/
+
+# Opencode custom skills
+skills/
+
+# Log files
+*.log
+
+# Local environment / secrets (just in case)
+.env
+.env.local
+.env.*.local
