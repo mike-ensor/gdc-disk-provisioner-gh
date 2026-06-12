@@ -5,6 +5,7 @@
 # ==============================================================================
 # Automatically handles download, non-root extraction, injection of configs,
 # bootloader modification, and compilation of the customized bootable ISO.
+# Includes variable review and interactive approval before building.
 # ==============================================================================
 
 set -euo pipefail
@@ -17,7 +18,6 @@ cd "${PROJECT_ROOT}"
 # Load environment configuration
 ENV_FILE="${SCRIPT_DIR}/build.env"
 if [[ -f "${ENV_FILE}" ]]; then
-    echo "[-] Loading build configuration from ${ENV_FILE}"
     # shellcheck source=/dev/null
     source "${ENV_FILE}"
 else
@@ -26,12 +26,73 @@ else
 fi
 
 # ==============================================================================
+# 0. Interactive Variables Review & Confirmation
+# ==============================================================================
+AUTO_APPROVE=false
+
+# Parse command line flags
+for arg in "$@"; do
+    case $arg in
+        -y|--y|--yes|--auto-approve)
+            AUTO_APPROVE=true
+            shift
+            ;;
+        *)
+            # Ignore other flags for the baseline script
+            ;;
+    esac
+done
+
+# Output the variables block
+echo "=============================================================================="
+echo " GDC ISO REMASTERING ENGINE - CONFIGURATION REVIEW"
+echo "=============================================================================="
+echo "  [Base OS Settings]"
+echo "  - Blessed ISO Source URL:  ${SOURCE_ISO_URL}"
+echo "  - Blessed ISO Filename:    ${SOURCE_ISO_FILENAME}"
+echo ""
+echo "  [Output ISO Tags & Settings]"
+echo "  - Custom Version Tag:      ${ISO_VERSION}"
+echo "  - Custom Name Prefix:      ${ISO_NAME_PREFIX}"
+echo ""
+echo "  [Publication Destinations]"
+echo "  - GCS Bucket Deploy:       ${ENABLE_GCS} (${GCS_BUCKET:-N/A})"
+echo "  - Local NFS Deploy:        ${ENABLE_NFS} (${NFS_DEPLOY_PATH:-N/A})"
+echo "=============================================================================="
+
+# Ask for user confirmation in interactive shells
+if [[ "${AUTO_APPROVE}" = "false" ]]; then
+    if [[ -t 0 ]]; then
+        read -rp "[-] Proceed with the GDC ISO compilation? [y/N]: " confirm
+        case "${confirm}" in
+            [yY][eE][sS]|[yY])
+                echo "[-] Confirmation received. Starting build process..."
+                ;;
+            *)
+                echo "[!] Build aborted by user."
+                exit 0
+                ;;
+        esac
+    else
+        echo "[-] Non-interactive terminal detected and --auto-approve not set."
+        echo "[-] Automatically proceeding with the build..."
+    fi
+else
+    echo "[-] Unattended execution (--auto-approve active). Proceeding..."
+fi
+
+# ==============================================================================
 # Paths and Workspace Definitions
 # ==============================================================================
 WORKSPACE="${PROJECT_ROOT}/build-workspace"
-CACHE_DIR="${WORKSPACE}/cache"
 EXTRACT_DIR="${WORKSPACE}/custom-iso"
 OUTPUT_DIR="${WORKSPACE}/output"
+
+# Centralized Local Caching Structure (Scoped by item space)
+CACHE_ROOT="${PROJECT_ROOT}/.cache"
+ISO_CACHE_DIR="${CACHE_ROOT}/isos"
+BIN_CACHE_DIR="${CACHE_ROOT}/binaries"
+BLOB_CACHE_DIR="${CACHE_ROOT}/blobs"
 
 # Output versioned filename
 BUILD_DATE=$(date +%Y%m%d-%H%M%S)
@@ -39,7 +100,7 @@ FINAL_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}-${BUILD_DATE}.iso"
 FINAL_ISO_PATH="${OUTPUT_DIR}/${FINAL_ISO_NAME}"
 
 # Setup clean directories
-mkdir -p "${CACHE_DIR}" "${EXTRACT_DIR}" "${OUTPUT_DIR}"
+mkdir -p "${ISO_CACHE_DIR}" "${BIN_CACHE_DIR}" "${BLOB_CACHE_DIR}" "${EXTRACT_DIR}" "${OUTPUT_DIR}"
 
 # ==============================================================================
 # Dependency Checking
@@ -56,7 +117,7 @@ echo "[-] Dependency check passed."
 # ==============================================================================
 # 1. Download "Blessed" Source ISO
 # ==============================================================================
-SOURCE_ISO="${CACHE_DIR}/${SOURCE_ISO_FILENAME}"
+SOURCE_ISO="${ISO_CACHE_DIR}/${SOURCE_ISO_FILENAME}"
 if [[ ! -f "${SOURCE_ISO}" ]]; then
     echo "[-] Source ISO not found locally. Downloading from official provider..."
     echo "[-] URL: ${SOURCE_ISO_URL}"
@@ -131,6 +192,35 @@ chmod +x "${EXTRACT_DIR}/custom-data/gitea/gitea"
 echo "#!/bin/bash" > "${EXTRACT_DIR}/custom-data/nexus/nexus"
 echo "echo 'Nexus Placeholder'" >> "${EXTRACT_DIR}/custom-data/nexus/nexus"
 chmod +x "${EXTRACT_DIR}/custom-data/nexus/nexus"
+
+# Clone the upstream playbook repository as a read-only mirror (cloned at ISO creation time)
+GITEA_REPOS_DIR="${EXTRACT_DIR}/custom-data/gitea/repos"
+mkdir -p "${GITEA_REPOS_DIR}"
+TARGET_BARE_REPO="${GITEA_REPOS_DIR}/bootstrap-playbooks.git"
+
+echo "[-] Cloning upstream GDC playbooks repository at ISO creation time..."
+echo "[-] Repository Source: ${UPSTREAM_PLAYBOOKS_REPO}"
+
+# Create a bare mirror repository
+# (We handle fallback to local dummy initialization if upstream clone fails during development)
+if git clone --bare "${UPSTREAM_PLAYBOOKS_REPO}" "${TARGET_BARE_REPO}" &>/dev/null; then
+    echo "[-] Upstream repository cloned successfully."
+else
+    echo "[!] Warning: Could not clone upstream repository ${UPSTREAM_PLAYBOOKS_REPO}. Creating local dummy repository for build development."
+    git init --bare "${TARGET_BARE_REPO}" &>/dev/null
+fi
+
+# Configure Gitea's Git repository to be read-only (pull-only from upstream, no pushing)
+# We enforce this by disabling push actions via a local pre-receive hook
+mkdir -p "${TARGET_BARE_REPO}/hooks"
+cat <<'EOF' > "${TARGET_BARE_REPO}/hooks/pre-receive"
+#!/usr/bin/env bash
+echo "[-] [GGD SECURITY ERROR] Direct pushing to Gitea's local bootstrap repository is strictly forbidden." >&2
+echo "[-] This repository is READ-ONLY. It can only pull updates from the upstream origin." >&2
+exit 1
+EOF
+chmod +x "${TARGET_BARE_REPO}/hooks/pre-receive"
+echo "[-] Gitea read-only bare mirror repository pre-seeded successfully."
 
 # ==============================================================================
 # 4. Modify GRUB Boot Options

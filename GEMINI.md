@@ -20,6 +20,30 @@ All implementations in this repository must align with the following core archit
 * **Directive:** All target machines must tie root encryption and device certificates to physical hardware.
 * **Enforcement:** Remanded LUKS partitions must enroll PCR indices `0+2+7` on the TPM 2.0 chip using `systemd-cryptenroll`. SSH host keys and device administrative identities must be backed by the local TPM, with soft fallbacks only permitted for development test builds.
 
+### Rule 1.4: Binary Integrity & Supply Chain Mitigation
+* **Directive:** Standalone third-party binaries (such as Gitea, OpenJDK, and Nexus) baked into the ISO must have their supply chain integrity cryptographically verified.
+* **Enforcement:** The build pipeline must define a hardcoded list of expected SHA-256 hashes. Every build must download/locate the binaries, compute their active hashes, and abort with a critical error if a mismatch is detected.
+
+### Rule 1.5: Credential Leakage Prevention (MANDATORY)
+* **Directive:** No static passwords, credentials, private API keys, or raw SSH private keys may be baked onto the ISO or stored inside playbooks.
+* **Enforcement:**
+  * Administrator and system service password hashes inside cloud-init/subiquity must be encrypted using salted SHA-512 rounds.
+  * Node private SSH keys must be bound dynamically to the target TPM 2.0 chip during the provisioning stage instead of being pre-generated and stored statically.
+  * A secret scanner pre-flight task must run prior to every ISO compilation to block builds containing raw credentials.
+
+### Rule 1.6: Network Exposure Mitigation (MANDATORY)
+* **Directive:** Gitea and Nexus services running on the Live ISO during the install phase must not expose administration ports (3000 and 8081) to the wider physical network.
+* **Enforcement:**
+  * Ephemeral services running on the Live ISO must bind strictly to the local loopback interface (`127.0.0.1`).
+  * A verification test task must query local sockets (`ss -tulpn` or `netstat`) during headless boot tests to assert that ports 3000 and 8081 are isolated from external interfaces.
+
+### Rule 1.7: Layered Asset Caching Strategy
+* **Directive:** Large binary objects, caches, and weight files (such as Hugging Face LLM model weights) are prohibited from being compressed inside the core SquashFS or base ISO filesystem to avoid rebuild latency and deployment memory exhaustion.
+* **Enforcement:**
+  * The core ISO size is capped at 5 GB, containing only base system packages and service binaries.
+  * Heavy caches must reside in a dedicated workspace directory on the physical USB drive labeled `GDC-SEED-CACHE`.
+  * Gitea/Nexus startup layers must execute dynamic mounting loops to hook this storage directory into their local cache blobs upon boot.
+
 ---
 
 ## 2. Coding & Tooling Standards
@@ -52,3 +76,5 @@ Before declaring any change or feature "completed", agents must verify the follo
 1. **Autoinstall Validation:** Run `cloud-init schema --config-file src/nocloud/user-data` to guarantee that Subiquity schemas are syntactically flawless.
 2. **Ansible Linting:** Run `ansible-lint` against all playbooks in `src/ansible/`.
 3. **Idempotency Test:** Verify that running the playbooks twice sequentially yields `changed=0` on the second run.
+4. **Credential Leakage Test:** Scan the `src/` directory for raw keys or passwords before packing.
+5. **Network Exposure Test:** During dynamic QEMU boot tests, execute remote checks to ensure ports 3000 and 8081 are strictly listening on local loopback `127.0.0.1`.

@@ -7,6 +7,12 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 ## [Unreleased] - 2026-06-12
 
 ### Added
+- **GCP Logging Variables & Proxy Design:** Incorporated target `PROJECT_ID` and `REGION` variables in the build workspace (`src/build/build.env`). Evaluated the feasibility of live-boot logging, selecting an un-compromised, highly secure webhook proxy model (using Subiquity webhooks targeting the local Admin Workstation) to prevent service account credential leaks on the physical bootloader ISOs.
+- **Service Boundary Integration Tests:** Implemented a new, dedicated test script (`test/verify_service_integration.sh`) that dynamically validates:
+  1. Gitea's read-only push prohibition by attempting an unauthorized local commit push and asserting hook rejection.
+  2. Gitea's local read-only fetch and replication capability.
+  3. Nexus's OCI proxy registry pull capabilities using the newly introduced, fully configurable `TEST_PULL_OCI_IMAGE` parameter.
+- **Local Build Caching & Isolation:** Developed a localized, non-checked-in caching folder (`.cache/`) to hold large binary assets. Specifically established `.cache/isos/` (for caching official base OS releases), `.cache/binaries/` (for Gitea/Nexus installers), and `.cache/blobs/` (for offline registry sync caches). Added `.cache/` and `build-workspace/` to `.gitignore` to protect the repository from accidental multi-gigabyte check-ins.
 - **First-Boot Self-Test Playbook:** Created our initial GDC Ansible bootstrap playbook (`src/ansible/local.yml`) which runs on first-boot as part of the `ansible-pull` sequence. It holds execution until Gitea (port 3000) and Nexus (port 8081) have started, registers a "Hello World" task, queries and logs target partition structures (`lsblk`), and tests external network connectivity (`ping 8.8.8.8`) with graceful fallbacks.
 - **ISO Verification & Testing Suite:** Scaffolded a dual-tier testing suite (`test/validate_iso_static.sh` and `test/run_qemu_e2e.sh`) to perform non-root file inventory/schema checks, dynamically provision 400G virtual disks in QEMU/KVM, and programmatically monitor serial logs headlessly for installation success signals.
 - **Specification `GDC-SPEC-004` (ISO Verification & E2E Testing):** Formulated the verification framework spec, detailings static schema checks, emulated hardware profiles, `swtpm` TPM 2.0 mapping, and SSH assertion suites.

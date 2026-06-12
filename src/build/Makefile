@@ -90,4 +90,4 @@ clean:
 	rm -rf $(WORKSPACE)/custom-iso
 	rm -rf $(WORKSPACE)/output
 	rm -f $(WORKSPACE)/build_meta.env
-	@echo "[-] Workspace cleaned. Downloaded cache files in '$(WORKSPACE)/cache' have been preserved."
+	@echo "[-] Workspace cleaned. Downloaded cache files in '.cache/' have been preserved."
