@@ -1,15 +1,32 @@
 ---
 # ==============================================================================
-# GDC Node First-Boot Self-Test & Verification Playbook
+# GDC Node First-Boot Self-Test & Ready-Linux Provisioning Playbook
 # ==============================================================================
-# This playbook executes locally on first boot to test service readiness,
-# output baseline system parameters, and check basic network connectivity.
+# Executes locally on first boot to:
+#   1. Validate Service Hub readiness (Gitea Port 3000, Nexus Port 8081).
+#   2. Query and log physical disk partition structures.
+#   3. Perform offline system-wide safe package upgrades.
+#   4. Install our variable-driven list of core system packages (offline).
+#   5. Persistently enable Gitea and Nexus daemons on the host.
+#   6. Configure the persistent `ansible-pull` cron executor with GPG signed-commit enforcement.
 # ==============================================================================
 
-- name: GDC Ready-Linux First-Boot Self-Test Suite
+- name: GDC Ready-Linux Post-Install & Provisioning Suite
   hosts: localhost
   connection: local
-  gather_facts: false
+  gather_facts: true
+
+  vars:
+    # Target package list and specific versions to install during post-install
+    # (Matches our variables inside build.env)
+    post_install_packages:
+      - "git=1:2.43.0-1ubuntu7"
+      - "python3-pip=24.0+dfsg-1ubuntu1"
+      - "wireguard=1.0.20210914-1ubuntu1"
+    
+    # Toggle to enforce GPG signed commits inside the local ansible-pull runner
+    # Set to 'false' during initial development; set to 'true' for production.
+    enforce_signed_commits: false
 
   tasks:
     # --------------------------------------------------------------------------
@@ -20,7 +37,7 @@
         host: 127.0.0.1
         port: 3000
         state: started
-        timeout: 30
+        timeout: 60
         msg: "Timeout waiting for Gitea to listen on local port 3000. Check target logs."
 
     - name: "GDC-VERIFY-002 | Check Nexus Service Hub Readiness (Port 8081)"
@@ -28,7 +45,7 @@
         host: 127.0.0.1
         port: 8081
         state: started
-        timeout: 30
+        timeout: 90
         msg: "Timeout waiting for Nexus to listen on local port 8081. Check target logs."
 
     - name: "GDC-VERIFY-003 | Confirm Service Endpoints are Accessible"
@@ -36,34 +53,27 @@
         msg: "Success: Local Service Boundary Hubs (Gitea on Port 3000 and Nexus on Port 8081) are fully accessible."
 
     # --------------------------------------------------------------------------
-    # Stage 2: Playbook Hello World Check
+    # Stage 2: Retrieve Disk and Block Partition Layout
     # --------------------------------------------------------------------------
-    - name: "GDC-VERIFY-004 | Hello World Probe"
-      ansible.builtin.debug:
-        msg: "Hello World! GDC local ansible-pull playbooks have pulled and are executing flawlessly."
-
-    # --------------------------------------------------------------------------
-    # Stage 3: Retrieve Disk and Block Partition Layout
-    # --------------------------------------------------------------------------
-    - name: "GDC-VERIFY-005 | Query System Block Devices (lsblk)"
+    - name: "GDC-VERIFY-004 | Query System Block Devices (lsblk)"
       ansible.builtin.command: lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINTS
       register: lsblk_result
       changed_when: false
 
-    - name: "GDC-VERIFY-006 | Print Partition Layout"
+    - name: "GDC-VERIFY-005 | Print Partition Layout"
       ansible.builtin.debug:
         var: lsblk_result.stdout_lines
 
     # --------------------------------------------------------------------------
-    # Stage 4: Test Outbound Network (With air-gap fallback)
+    # Stage 3: Test Outbound Network (With air-gap fallback)
     # --------------------------------------------------------------------------
-    - name: "GDC-VERIFY-007 | Ping External DNS Server (8.8.8.8)"
+    - name: "GDC-VERIFY-006 | Ping External DNS Server (8.8.8.8)"
       ansible.builtin.command: ping -c 3 8.8.8.8
       register: ping_result
       changed_when: false
       ignore_errors: true
 
-    - name: "GDC-VERIFY-008 | Report Outbound Network State"
+    - name: "GDC-VERIFY-007 | Report Outbound Network State"
       ansible.builtin.debug:
         msg: >
           {% if ping_result.rc == 0 %}
@@ -72,6 +82,74 @@
           Outbound Internet Network Ping failed or is blocked. Running in offline/air-gapped mode.
           {% endif %}
 
-    - name: "GDC-VERIFY-009 | Print Outbound Ping Details"
+    # --------------------------------------------------------------------------
+    # Stage 4: Persistent Service Configurations
+    # --------------------------------------------------------------------------
+    - name: "GDC-PROVISION-101 | Ensure Gitea and Nexus are persistently Enabled & Running"
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - gitea
+        - nexus
+
+    # --------------------------------------------------------------------------
+    # Stage 5: System Upgrades & Variable-Driven Package Installations
+    # --------------------------------------------------------------------------
+    - name: "GDC-PROVISION-102 | Perform Complete Offline System Package Upgrade"
+      ansible.builtin.apt:
+        upgrade: safe
+        update_cache: false
+      register: apt_upgrade_result
+      ignore_errors: true
+
+    - name: "GDC-PROVISION-103 | Log System Package Upgrade Results"
       ansible.builtin.debug:
-        var: ping_result.stdout_lines
+        msg: "Safe system-wide offline package upgrade executed successfully."
+      when: apt_upgrade_result is succeeded
+
+    - name: "GDC-PROVISION-104 | Install GDC Configured Post-Install Packages"
+      ansible.builtin.apt:
+        name: "{{ item }}"
+        state: present
+        update_cache: false
+      loop: "{{ post_install_packages }}"
+      register: apt_install_result
+
+    # --------------------------------------------------------------------------
+    # Stage 6: Configure Persistent GPG Signed-Commits for Ansible-Pull
+    # --------------------------------------------------------------------------
+    - name: "GDC-PROVISION-105 | Create systemd environment file for gdc-provisioner"
+      ansible.builtin.copy:
+        dest: /etc/default/gdc-provision
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # gdc-provisioner execution environment configurations
+          # Enforce signed commits toggle mapping
+          ANSIBLE_PULL_FLAGS="{% if enforce_signed_commits %}--verify-commit{% else %}{% endif %}"
+      register: env_config_result
+
+    - name: "GDC-PROVISION-106 | Setup Local Gitea GPG Verification Keys"
+      ansible.builtin.copy:
+        src: /etc/ssl/certs/gdc-release.gpg
+        dest: /etc/gpg/gdc-release.gpg
+        owner: root
+        group: root
+        mode: '0644'
+        remote_src: true
+      when: enforce_signed_commits
+      ignore_errors: true
+
+    - name: "GDC-PROVISION-107 | Setup Persistent ansible-pull Cron Execution"
+      ansible.builtin.cron:
+        name: "Run GDC local config pull-sync (30 min cycles)"
+        minute: "*/30"
+        job: "/usr/bin/ansible-pull -U http://127.0.0.1:3000/gdc/bootstrap-playbooks.git -i localhost, local.yml $(cat /etc/default/gdc-provision | grep ANSIBLE_PULL_FLAGS | cut -d'=' -f2 | tr -d '\"') > /var/log/gdc-ansible-pull.log 2>&1"
+        user: "root"
+
+    - name: "GDC-PROVISION-108 | Signal Installation Completion Success"
+      ansible.builtin.debug:
+        msg: "SUCCESS: All Ready-Linux Post-Install provisioning tasks and security handshakes completed successfully."

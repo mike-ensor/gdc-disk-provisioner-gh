@@ -50,16 +50,30 @@ Requires=gitea.service nexus.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/ansible-pull \
+EnvironmentFile=-/etc/default/gdc-provision
+ExecStart=/bin/bash -c "/usr/bin/ansible-pull \
   -U http://127.0.0.1:3000/gdc/bootstrap-playbooks.git \
   -i localhost, \
-  --verify-commit \
-  local.yml
+  $ANSIBLE_PULL_FLAGS \
+  local.yml"
 RemainAfterExit=true
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+### 3.2. Environmental Signed-Commits Toggle (`/etc/default/gdc-provision`)
+To support frictionless initial development while enforcing absolute security in production, the GPG signature checks are bound to a configuration file written at build time:
+* **Development Mode (`ENFORCE_SIGNED_COMMITS=false`):**
+  ```text
+  # /etc/default/gdc-provision
+  ANSIBLE_PULL_FLAGS=""
+  ```
+* **Production Mode (`ENFORCE_SIGNED_COMMITS=true`):**
+  ```text
+  # /etc/default/gdc-provision
+  ANSIBLE_PULL_FLAGS="--verify-commit"
+  ```
 
 ---
 
@@ -97,24 +111,38 @@ Container images sideloaded into Nexus (`gdc-docker-hosted`) or cached via proxy
 ---
 
 ## 5. Playbook Tasks: Ready-Linux Configuration
+To maximize idempotence and declarative engineering standards, the entire GDC post-install setup is handled as a structured Ansible playbook (`local.yml`) executed via the local `ansible-pull` cron cycles.
 
-### 5.1. Administrative User Setup
+### 5.1. Persistent Local Hub Configuration (Gitea & Nexus)
+*   **Action:** Validates Gitea and Nexus are running permanently on the host backed by the high-capacity, persistent LVM storage mounts `/var/lib/gitea` and `/var/lib/nexus`.
+*   **Enforcement:** Configures target OS systemd units to permanently `enable` and `start` the local boundary service hubs, ready to serve package, repository, and OCI requests locally.
+
+### 5.2. Offline Safe Package Upgrades (System Upgrade)
+*   **Action:** Performs a safe system upgrade (`apt-get upgrade`) using the localized APT mirror running on the node.
+*   **Enforcement:** Points the node's APT configuration exclusively to the local GDC Nexus proxy server on port 8081, satisfying all package, kernel-patch, or dependency upgrades completely offline without outside internet connections.
+
+### 5.3. Variable-Driven Core Package Installation
+*   **Action:** Dynamically parses and installs the specific list of critical system packages and explicit versions configured during the Phase 1 build.
+*   **Config Reference:** The package list and version matrix is declared inside the central build configuration `src/build/build.env` under the `POST_INSTALL_PACKAGES` list.
+*   **Loop Execution:** The Ansible playbook loops through the list dynamically, running `apt-get install` to install them (e.g. `git`, `python3-pip`, `wireguard`).
+
+### 5.4. Administrative User Setup
 * Creates the system user `gdc-admin`.
 * Drops administrative sudo permissions securely under `/etc/sudoers.d/gdc-admin` utilizing passwordless parameters:
   ```text
   gdc-admin ALL=(ALL) NOPASSWD:ALL
   ```
 
-### 5.2. TPM 2.0 Cryptographic Binding & Automated Boot-Unlocking
+### 5.5. TPM 2.0 Cryptographic Binding & Automated Boot-Unlocking
 *   **Action:** Registers and seals LUKS storage decryption keys to the hardware TPM 2.0 chip using Platform Configuration Registers (PCRs) `0` (Firmware), `2` (PCI Configurations), and `7` (Secure Boot State).
 *   **Unlocking Config:** Writes target `/etc/crypttab` pointing to `tpm2-device=auto,discard`.
 *   **Cleanup:** Generates an escrow LVM recovery passphrase, wipes the temporary bootstrap password from metadata keyslots, and purges temporary files.
 
-### 5.3. Remote Attestation & Cloud-Validated Device Identity
+### 5.6. Remote Attestation & Cloud-Validated Device Identity
 *   **Handshake:** Generates an Attestation Key (AK) and takes a TPM PCR boot quote signed with a dynamic cloud-challenge nonce.
 *   **TLS Enrollment:** Requests GDC Device TLS identity certificates from GCP Cloud CAs using an un-extractable RSA private key generated inside the TPM's secure PKCS#11 enclave.
 
-### 5.4. CIS Hardening and OS Slimming
+### 5.7. CIS Hardening and OS Slimming
 *   Applies CIS Benchmark Level 2 controls (SSH limits, FIPS ciphers, auditd, and sysctl controls).
 *   Purges `snapd`, compiler runtimes, and unnecessary baseline GUI tools.
 

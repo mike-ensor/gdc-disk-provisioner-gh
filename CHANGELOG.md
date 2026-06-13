@@ -7,6 +7,12 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 ## [Unreleased] - 2026-06-12
 
 ### Added
+- **Ready-Linux Post-Install Configuration & Provisioning:** Expanded the localized Ansible bootstrap playbook (`src/ansible/local.yml`) and upgraded the specification `GDC-SPEC-003` to orchestrate complete post-install provisioning on first boot. Key features include:
+  1. Persistently enabling and starting local Gitea and Nexus service daemons on the host target OS.
+  2. Executing safe offline system-wide upgrades (`apt-get upgrade`) directed completely at the local Nexus proxy on port 8081.
+  3. Designing a variable-driven package installation task that parses the space-separated `POST_INSTALL_PACKAGES` list from `build.env` and loops through them dynamically (e.g. `git`, `python3-pip`, `wireguard`).
+  4. Formulating an environment configuration file `/etc/default/gdc-provision` setting `ANSIBLE_PULL_FLAGS` to dynamically toggle GPG `--verify-commit` on and off during development vs production.
+  5. Deploying the local `ansible-pull` runner as a persistent root cron job.
 - **Cryptographic Sideload Verification & Headless USB Updates:** Upgraded specification `GDC-SPEC-003` to introduce:
   1. Mandated local cryptographic validation of all sideloaded code and container images using GPG commit verification in `ansible-pull` and **Sigstore/Cosign** signature validations inside `containerd` image pulls.
   2. Designed a headless, automated USB updates trigger using custom `udev` rules, a systemd runner (`gdc-usb-updater.service`), and an automated shell script (`gdc-headless-update.sh`) that mounts updates on USB drives labeled `GDC-UPDATE-USB`, cryptographically validates the package signature, executes Git bundle/REST API imports to Gitea/Nexus, and generates console audio warning/success beep signals to the local operator.

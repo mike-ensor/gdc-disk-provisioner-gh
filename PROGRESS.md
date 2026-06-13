@@ -75,12 +75,16 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ### Phase 3: Ready-Linux Provisioning & Security Hardening
 
-- [ ] **First-Boot State Transition**
-  - [ ] Subiquity `late-commands` rsync script for Gitea/Nexus partition migrations
-  - [ ] Deploy target systemd service units for persistent Gitea and Nexus
-- [ ] **Ansible-Pull Bootstrap Automation**
-  - [ ] Create systemd `gdc-provision.service` to run `ansible-pull` on first boot
-  - [ ] Configure cron cycles for persistent `ansible-pull` checking
+- [x] **First-Boot State Transition**
+  - [x] Subiquity `late-commands` rsync script for Gitea/Nexus partition migrations
+  - [x] Deploy target systemd service units for persistent Gitea and Nexus
+- [x] **Ansible-Pull Bootstrap Automation**
+  - [x] Create systemd `gdc-provision.service` to run `ansible-pull` on first boot
+  - [x] Configure environmental signed-commits toggles (`/etc/default/gdc-provision`)
+  - [x] Configure persistent Gitea & Nexus persistent service states in playbook
+  - [x] Execute safe offline system-wide upgrades (`apt-get upgrade`) in playbook
+  - [x] Implement loop package installations (`POST_INSTALL_PACKAGES` list) in playbook
+  - [x] Configure cron cycles for persistent `ansible-pull` checking
 - [ ] **Administrative Configurations**
   - [ ] Create `gdc-admin` user
   - [ ] Deploy passwordless sudo config
