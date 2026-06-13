@@ -99,7 +99,10 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ### Phase 4: Sideloading & Maintenance Interfaces
 
-- [ ] **USB Sideload Integration**
+- [x] **USB Sideload Integration**
+  - [x] Design headless automated USB updater (`udev` rules & systemd triggers)
+  - [x] Formulate cryptographic signature verification standards (GPG commit checks & Cosign OCI signatures)
+  - [x] Script headless update execution loops (`gdc-headless-update.sh` with console audio beeps)
   - [ ] Create `gdc-update` CLI tool to detect, mount, and pull USB bundles
   - [ ] Write update sync script for Git Bundles to Gitea
 - [ ] **API Upload Sync Pipelines**
