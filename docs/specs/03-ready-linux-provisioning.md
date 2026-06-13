@@ -76,16 +76,161 @@ WantedBy=multi-user.target
   ```
 * Generates authorized keys mapping passwordless SSH connectivity.
 
-### 4.2. TPM 2.0 Cryptographic Binding
-To enforce extreme offline edge security, the node leverages its TPM 2.0 chip:
-1. **LUKS Disk Decryption:** Binds the physical storage block (`/dev/nvme0n1p3`) to TPM PCR measurements `0` (firmware), `2` (option ROMs), and `7` (Secure Boot state):
+### 4.2. TPM 2.0 Cryptographic Binding & Automated Boot-Unlocking
+To enforce extreme offline edge security, the GDC node leverages its physical Trusted Platform Module (TPM 2.0) chip to automatically decrypt and unlock the storage drive during the initial boot phase without human intervention. This passwordless auto-unlock is bound to the server's Secure Boot state and firmware measurements, preventing data theft if the hard drive is physically removed from the chassis or if the BIOS firmware is tampered with.
+
+The automated boot-unlocking architecture operates across the following step-by-step sequence:
+
+```mermaid
+sequenceDiagram
+    participant Boot as BIOS / GRUB Bootloader
+    participant Init as Initramfs (systemd-cryptsetup)
+    participant TPM as TPM 2.0 Secure Chip
+    participant LUKS as Encrypted Partition (nvme0n1p3)
+    participant OS as Target Operating System (vg_system)
+
+    Boot->>Init: Load Kernel & Initramfs
+    Init->>TPM: Measure Firmware & Secure Boot States (PCR 0+2+7)
+    Init->>LUKS: Query crypttab & read LUKS2 metadata keyslot
+    Init->>TPM: Request decryption key (sealed to measured PCRs)
+    alt PCR measurements match GDC baseline (unaltered hardware/firmware)
+        TPM-->>Init: Release unsealed decryption key
+        Init->>LUKS: Decrypt and map /dev/mapper/dm_crypt
+        Init->>OS: Scan LVM, mount lv_root, boot OS
+    else Firmware tampered with or Secure Boot disabled
+        TPM-->>Init: REJECT key release
+        Init->>Boot: Fallback to interactive administrative recovery passphrase prompt
+    end
+```
+
+#### Step-by-Step Implementation Sequence:
+
+1. **Subiquity Preparation (Phase 2):**
+   Subiquity formats `/dev/nvme0n1p3` as an encrypted container (`dm_crypt`) utilizing a temporary bootstrap passcode:
+   ```text
+   temporary_bootstrap_key_to_be_enrolled_to_tpm
+   ```
+   This ensures no raw unencrypted bytes are written to the LVM volumes during baseline OS setup.
+
+2. **TPM 2.0 Enrollment (Phase 3 - Playbook Task):**
+   Our Ansible provisioning playbook executes `systemd-cryptenroll` to dynamically generate a new random decryption key, store it in a LUKS2 keyslot, and seal it to the TPM chip's hardware Platform Configuration Registers (PCRs):
+   * **`PCR 0`**: Core System Firmware / BIOS integrity.
+   * **`PCR 2`**: Option ROMs / Expansion PCI devices.
+   * **`PCR 7`**: Secure Boot validation state and active keys.
+   
    ```bash
+   # Enroll the TPM 2.0 hardware auto-unlock key
    systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+7 /dev/nvme0n1p3
    ```
-2. **TPM-Backed SSH Agent:** Instructs OpenSSH host key creation to generate keys stored inside the TPM enclave using `ssh-tpm-agent`.
-3. **Device Identity:** Employs step-ca clients to request identity certificates signed by a TPM endorsement key to establish cryptographically verifiable node authentication.
 
-### 4.3. CIS Hardening Implementation
+3. **Configuring the Crypttab (`/etc/crypttab`):**
+   To tell the systemd boot loader to attempt hardware auto-unlock instead of prompting for a passphrase, the `/etc/crypttab` on the target system must be configured with the `tpm2-device=auto` option:
+   ```text
+   # /etc/crypttab
+   dm_crypt_nvme0n1p3 UUID=a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d none tpm2-device=auto,discard
+   ```
+   *Note: The `discard` option is added to support SSD TRIM operations, which is critical for NVMe wear-leveling and performance on physical bare metal.*
+
+4. **Rebuilding Initramfs Hooks:**
+   The `initramfs` (early user-space ramdisk) must possess the kernel modules and systemd helper utilities (`systemd-cryptsetup`) necessary to interface with the TPM 2.0 chip and decrypt the volume before mounting the root Logical Volume:
+   * Ensure `tpm_tis` and `tpm` are included in `/etc/initramfs-tools/modules`.
+   * Rebuild the system's ramdisks:
+     ```bash
+     update-initramfs -u -k all
+     ```
+
+5. **Passcode Protection & Emergency Recovery Keys:**
+   Once TPM enrollment is successfully verified, we do NOT want to leave the temporary bootstrap passcode active, as it is a static, known string. However, we must retain a secure recovery path in case of motherboard or TPM hardware failure.
+   * **Step A: Generate a cryptographic Recovery Key (Escrow Key):**
+     ```bash
+     # Generates a randomized recovery key (formatted as a string of numbers) to be saved in secure vault escrow
+     systemd-cryptenroll --recovery-key /dev/nvme0n1p3 > /var/lib/gdc-admin/luks-recovery.txt
+     ```
+   * **Step B: Wipe the insecure temporary passcode slot:**
+     ```bash
+     # Erases the original text password slot from the LUKS2 metadata, leaving only the TPM keyslot and recovery keyslot
+     systemd-cryptenroll --wipe-slot=password /dev/nvme0n1p3
+     ```
+
+### 4.3. Remote Attestation & Cloud-Validated Device Identity
+To cryptographically prove to a cloud application that an on-premise physical server was bootstrapped using our "blessed" remastered ISO, the node undergoes a remote attestation enrollment during its initial first-boot provisioning sequence. This process binds a secure GDC Device Identity TLS certificate directly to the server's unique physical TPM 2.0 silicon enclave.
+
+```mermaid
+sequenceDiagram
+    participant Node as GDC Node (TPM 2.0 Client)
+    participant TPM as Physical TPM 2.0 Chip
+    participant Cloud as GCP Cloud Enrollment App
+
+    note over Node, TPM: Step 1: Query Local Cryptographic State
+    Node->>TPM: Retrieve Vendor-Signed Endorsement Key (EK) Cert
+    Node->>TPM: Generate restricted, TPM-bound Attestation Key (AK)
+    Node->>TPM: Generate Local Device Identity (LID) Key & CSR
+
+    note over Node, Cloud: Step 2: Request Challenge/Nonce
+    Node->>Cloud: Request Enrollment Challenge
+    Cloud-->>Node: Return cryptographically random Nonce (Challenge)
+
+    note over Node, TPM: Step 3: Measure Boot State
+    Node->>TPM: Generate Quote (Signed PCRs 0,2,4,7,9 + Nonce via AK)
+    TPM-->>Node: Return PCR Quote Binary & Signature
+
+    note over Node, Cloud: Step 4: Submit Proofs & Validate
+    Node->>Cloud: Submit EK-Cert + AK-Public + PCR-Quote + LID-CSR
+    note over Cloud: 1. Validate EK-Cert against TPM Manufacturer Root CA<br/>2. Validate PCR Quote using AK-Public<br/>3. Verify PCR Measurements match "Blessed" ISO hashes
+    alt Verification Successful (Genuine TPM + unaltered Blessed ISO)
+        Cloud->>Cloud: Sign LID-CSR utilizing GDC Intermediate CA
+        Cloud-->>Node: Issue GDC Device Identity TLS Certificate
+        Node->>Node: Store TLS Certificate locally bound to TPM-LID
+    else Verification Failed (Mismatched PCRs or Spoofed TPM)
+        Cloud-->>Node: REJECT Enrollment (Log Security Threat)
+    end
+```
+
+#### Verification & Setup Command Tasks:
+
+1. **Vendor EK Certificate Recovery:**
+   Reads the hardware vendor-signed Endorsement Key (EK) certificate from NVRAM, proving the client possesses a genuine physical TPM 2.0 chip:
+   ```bash
+   tpm2_getekcertificate -o /etc/ssl/certs/tpm_ek_vendor.der
+   ```
+
+2. **Attestation Key (AK) Generation:**
+   Spawns a restricted signing-only key pair inside the TPM that is linked to the EK:
+   ```bash
+   tpm2_createek -c /tmp/ek.ctx
+   tpm2_createak -C /tmp/ek.ctx -c /tmp/ak.ctx -G rsa -g sha256 -p ak_pass
+   tpm2_evictcontrol -c /tmp/ak.ctx 0x81010001
+   ```
+
+3. **Active Boot State Quote Execution:**
+   Obtains a random challenge nonce from the GCP Cloud Enrollment service to defeat replay attacks, then commands the TPM to sign the active Platform Configuration Registers (including Secure Boot PCR 7 and Custom-ISO file configuration PCR 9) incorporating the nonce:
+   ```bash
+   tpm2_quote -c 0x81010001 \
+     -l sha256:0,2,4,7,9 \
+     -q "random_nonce_from_gcp_cloud" \
+     -m /tmp/pcr_quote.bin \
+     -s /tmp/pcr_signature.bin
+   ```
+
+4. **TPM-Bound TLS Client Key & CSR Creation:**
+   Generates a TLS Client Key inside the TPM's secure enclave (mapped via PKCS#11) so the private key is mathematically un-extractable from host user space, and creates a Certificate Signing Request:
+   ```bash
+   # Initialize PKCS#11 slot and generate un-extractable RSA key
+   tpm2_ptool createobj --userpin=gdc-pin --type=key --label=gdc-lid-key
+   
+   # Build TLS CSR referencing the PKCS#11 token path
+   openssl req -new \
+     -key "pkcs11:token=GDC-LID;object=gdc-lid-key" \
+     -out /tmp/gdc_device_identity.csr \
+     -subj "/CN=gdc-node-$(cat /sys/class/dmi/id/product_uuid)/O=Google Distributed Cloud"
+   ```
+
+5. **Cloud Signature & TLS Certificate Drop:**
+   The node submits the EK Cert, AK Public Key, PCR Quote binary and signature, and the TLS CSR to the GCP cloud app. Once validated, the Cloud CA issues a TLS Client certificate which the node stores in `/etc/ssl/certs/gdc-device-identity.crt`, enabling secure, cryptographically validated TLS tunnels.
+
+---
+
+### 4.4. CIS Hardening Implementation
 Ansible plays enforce CIS Benchmark Level 2 controls:
 * Configures auditd rules to monitor execution behavior, file mounts, and permission alterations.
 * Restricts SSH configurations: disables root logins, restricts cipher-suites to FIPS-approved algorithms.

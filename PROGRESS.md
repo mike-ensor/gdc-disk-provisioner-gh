@@ -79,9 +79,11 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [ ] Deploy passwordless sudo config
   - [ ] Inject passwordless SSH key pair
 - [ ] **Hardware Security (TPM 2.0)**
-  - [ ] LUKS decryption enrollment using `systemd-cryptenroll` for PCR `0+2+7`
+  - [x] LUKS decryption enrollment using `systemd-cryptenroll` for PCR `0+2+7`
+  - [x] Configure target `/etc/crypttab` with `tpm2-device=auto` and rebuild `initramfs` ramdisks
+  - [x] Establish secure randomized Recovery Key and wipe insecure temporary passcode slot
   - [ ] SSH host key TPM-secure binding using `ssh-tpm-agent`
-  - [ ] Generate TPM-backed device identity certs via step-ca
+  - [x] Generate TPM-backed device identity certs via Step-CA (Remote Attestation, Quote & Cloud CSR verification)
 - [ ] **CIS Hardening & Slimming**
   - [ ] Implement Ansible roles for CIS Level 2 benchmark rules
   - [ ] Implement Ansible tasks to purge unneeded packages (snapd, x11, etc.)
