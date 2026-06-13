@@ -168,7 +168,75 @@ EOF
 
 ---
 
-## 5. Preflight Verification Metrics
+## 5. Smart Installation Logging & Cryptic Failure Mitigation
+The standard Subiquity reporting output can be extremely cryptic when storage partitioning or configuration tasks fail. To enforce highly-visible, human-readable installation logging and facilitate immediate on-site diagnostics, the baseline installation runs under a strict **Goal-Based Logging Wrapper**.
+
+### 5.1. The Logging Standard
+Before performing any shell operation inside `early-commands`, `late-commands`, or other custom installation scripts, the system must invoke a structured logging wrapper that writes to both the active installation TTY console and the system's syslog (`/var/log/syslog` / systemd-journald):
+
+*   **Format for Goals:**
+    `[GDC-INSTALL-GOAL] Starting Task: <High-Level Activity and Intent>`
+*   **Format for Failures:**
+    `[GDC-INSTALL-FAIL] Critical Failure: <Descriptive activity name>! Details: <Error Message, Line Number, and Exit Code>`
+
+### 5.2. Example Execution Wrapper (Shell Trap Method)
+All scripts executed during the baseline installer phase must implement automatic error trapping. This translates raw bash crashes into explicit diagnostic blocks:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 1. Diagnostic Helpers
+log_goal() {
+    local goal_desc="$1"
+    echo "=============================================================================="
+    echo "[GDC-INSTALL-GOAL] Starting Task: ${goal_desc}"
+    echo "=============================================================================="
+    logger -t gdc-provisioner "[GOAL] ${goal_desc}"
+}
+
+log_fail() {
+    local fail_desc="$1"
+    local error_msg="${2:-No extra context provided}"
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
+    echo "[GDC-INSTALL-FAIL] Critical Failure: ${fail_desc}" >&2
+    echo "[GDC-INSTALL-FAIL] Diagnostic Details: ${error_msg}" >&2
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
+    logger -p user.err -t gdc-provisioner "[FAILURE] ${fail_desc} - Details: ${error_msg}"
+}
+
+# 2. Automated Crash Handler
+failure_handler() {
+    local last_line="$1"
+    local last_code="$2"
+    log_fail "The disk partitioning script crashed unexpectedly!" "Exit Code: ${last_code} on line ${last_line}"
+}
+trap 'failure_handler ${LINENO} $?' ERR
+
+# 3. Instrumented Execution
+log_goal "Scanning hardware block devices for GDC-compliant storage drives (>= 250 GiB)"
+# (Disk Scanning logic...)
+
+log_goal "Activating SINGLE-DISK LVM storage configuration"
+# (Partitioning execution...)
+```
+
+### 5.3. Subiquity YAML Webhook Reporting
+To stream these structured goal logs and failures to the centralized GCP log monitoring gateway via our local admin workstation proxy (as defined in `GDC-SPEC-001`), Subiquity's webhook reporting is hooked directly into the autoinstall config:
+
+```yaml
+autoinstall:
+  reporting:
+    gdc-gateway:
+      type: webhook
+      url: http://10.0.0.1:8080/v1/install-logs
+      level: info
+```
+This guarantees that any fail signal is instantly captured and centralized for network-wide visibility.
+
+---
+
+## 6. Preflight Verification Metrics
 
 Before deploying any configuration, testing engines must execute and assert:
 1. **Schema Check:** Confirm `/nocloud/user-data` validates completely using `cloud-init schema --config-file user-data`.

@@ -10,6 +10,34 @@
 
 set -euo pipefail
 
+# ==============================================================================
+# Smart Logging, Diagnostics, and Error-Trapping Helpers
+# ==============================================================================
+log_goal() {
+    local goal_desc="$1"
+    echo "=============================================================================="
+    echo "[GDC-INSTALL-GOAL] Starting Task: ${goal_desc}"
+    echo "=============================================================================="
+    logger -t gdc-provisioner "[GOAL] ${goal_desc}"
+}
+
+log_fail() {
+    local fail_desc="$1"
+    local error_msg="${2:-No extra context provided}"
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!================!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
+    echo "[GDC-INSTALL-FAIL] Critical Failure: ${fail_desc}" >&2
+    echo "[GDC-INSTALL-FAIL] Diagnostic Details: ${error_msg}" >&2
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!================!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
+    logger -p user.err -t gdc-provisioner "[FAILURE] ${fail_desc} - Details: ${error_msg}"
+}
+
+failure_handler() {
+    local last_line="$1"
+    local last_code="$2"
+    log_fail "The disk partitioning script crashed unexpectedly!" "Exit Code: ${last_code} on line ${last_line}"
+}
+trap 'failure_handler ${LINENO} $?' ERR
+
 DRY_RUN=false
 if [[ "${1:-}" == "--dry-run" || "${1:-}" == "-d" ]]; then
     DRY_RUN=true
@@ -18,7 +46,8 @@ fi
 # ==============================================================================
 # 1. Disk Detection & Sorting Heuristics
 # ==============================================================================
-# Find all disks >= 240 GB (sector size >= 503,316,480)
+log_goal "Scanning hardware block devices for GDC-compliant storage drives (>= 250 GiB)"
+
 # Sort disks ascending by size so the smaller disk is always allocated to System
 RAW_DISKS=$(lsblk -dno NAME,TYPE,SIZE | grep disk | cut -d' ' -f1)
 DETECTED_DISKS=()
@@ -85,6 +114,7 @@ if [[ ${NUM_DISKS} -eq 1 ]]; then
     # To prevent disk exhaustion, we scale down Gitea, Nexus, and Local-Disk
     # to guarantee they fit within a tight 250GB boundary.
     DISK_1="${SORTED_DISKS[0]}"
+    log_goal "Activating SINGLE-DISK GDC LVM storage configuration on /dev/${DISK_1}"
     echo "[-] Activating SINGLE-DISK GDC Topology on /dev/${DISK_1}..." >&2
 
     cat <<EOF >&3
@@ -122,6 +152,7 @@ else
     # - Disk 2 (Larger) is dedicated to heavy storage blocks (/customer/local-disk and /customer/sds).
     DISK_1="${SORTED_DISKS[0]}"
     DISK_2="${SORTED_DISKS[1]}"
+    log_goal "Activating DUAL-DISK GDC LVM performance configuration (System on /dev/${DISK_1}, Data on /dev/${DISK_2})"
     echo "[-] Activating DUAL-DISK GDC Performance Topology..." >&2
     echo "[-] System Drive (Disk 1):  /dev/${DISK_1}" >&2
     echo "[-] Data Drive (Disk 2):    /dev/${DISK_2}" >&2

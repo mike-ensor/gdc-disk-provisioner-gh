@@ -55,6 +55,8 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 ### Phase 2: Baseline Installer (Boot & Execute)
 
 - [ ] **Autoinstall Configurations**
+  - [x] Design smart installation logging structures (`log_goal` and `log_fail`)
+  - [x] Integrate automated error traps and exit-line captures inside partition scripts
   - [ ] Create `/nocloud/user-data` autoinstall schema
   - [ ] Configure DHCP networking settings
   - [ ] Redirect autoinstall APT source to local live Nexus APT proxy
