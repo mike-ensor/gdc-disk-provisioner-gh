@@ -10,6 +10,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [x] **GDC-SPEC-002: Baseline Installer & LVM Storage Layout** — Written & Approved
 - [x] **GDC-SPEC-003: Ready-Linux Provisioning & Sideloading** — Written & Approved
 - [x] **GDC-SPEC-004: ISO Verification & QEMU E2E Testing** — Written & Approved
+- [x] **GDC-SPEC-005: Machine Database & Cloud Verification Requirements** — Written & Approved
 - [x] **Governance Rules (`GEMINI.md`)** — Documented
 - [x] **Domain Glossary (`DICTIONARY.md`)** — Documented
 
