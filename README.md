@@ -73,6 +73,44 @@ flowchart TD
 
 ---
 
+## GDC Node Bootstrap Lifecycle Sequence
+
+```mermaid
+flowchart TD
+    classDef start fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px;
+    classDef stage fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px;
+    classDef final fill:#efebe9,stroke:#5d4037,stroke-width:2px;
+
+    Start(["Blessed Ubuntu 24.04 LTS ISO"])
+    
+    subgraph S1 ["Stage 1: ISO Generation & Build Pipeline (IaC Build)"]
+        Stage1["<b>Description:</b> Remasters original ISO with uncompressed outer payloads.<br/><b>Action:</b> Pre-seeds Gitea, Nexus proxy/hosted groups, and GRUB default boot configs.<br/><b>Main Outcomes:</b> Secure, versioned offline GDC Bootloader ISO (&lt; 5 GB)."]
+    end
+    
+    subgraph S2 ["Stage 2: Baseline OS & LVM Setup (Boot & Install)"]
+        Stage2["<b>Description:</b> Headless UEFI boot launching Subiquity with NoCloud configuration.<br/><b>Action:</b> Discovers block topology and runs dynamic 1-or-2 disk LVM auto-partitioning.<br/><b>Main Outcomes:</b> Encrypted LUKS system partitions containing GDC-isolated LVM logical blocks."]
+    end
+    
+    subgraph S3 ["Stage 3: Ready-Linux Provisioning (Crypto-Sealing & Hardening)"]
+        Stage3["<b>Description:</b> First boot, service port handshakes, and local ansible-pull runs.<br/><b>Action:</b> Enrolls TPM 2.0 LUKS keys, creates gdc-admin, and executes CIS Level 2 hardening.<br/><b>Main Outcomes:</b> Hardware-attested GDC Production Node with secure TPM Device Identity."]
+    end
+    
+    subgraph S4 ["Stage 4: Sideloading & Maintenance (On-going Updates)"]
+        Stage4["<b>Description:</b> Offline code, package, and container image synchronization.<br/><b>Action:</b> Headless GDC-UPDATE-USB triggers with GPG and Cosign verification.<br/><b>Main Outcomes:</b> Cryptographically verified node updates with zero configuration drift."]
+    end
+
+    Start --> S1
+    S1 --> S2
+    S2 --> S3
+    S3 --> S4
+
+    class Start start;
+    class Stage1,Stage2,Stage3 stage;
+    class Stage4 final;
+```
+
+---
+
 ## Core Project Goals
 
 1. **Automated Baseline Installation:** Boot from a remastered Ubuntu 24.04 LTS ISO using `subiquity` and `cloud-init` (NoCloud) to establish standard networking and partition schemes without manual intervention.
