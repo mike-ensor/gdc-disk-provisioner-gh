@@ -7,6 +7,10 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 ## [Unreleased] - 2026-06-12
 
 ### Added
+- **Ansible Playbook Verification Suite:** Implemented an automated testing harness (`test/verify_ansible.sh`) to validate the syntax, logic, and best-practice compliance of GDC playbooks. The suite supports:
+  1. Tier 1 Static Syntax Checks (`ansible-playbook --syntax-check`) to detect compile errors or broken schemas.
+  2. Tier 2 Local Dry-Run Check Mode (`ansible-playbook --check --diff`) to simulate task execution without host modifications, dynamically bypassing signed-commit validations during development.
+  3. Tier 3 Best-Practice Linting (`ansible-lint`) to guarantee clean, standard-compliant, and fully idempotent code.
 - **Ready-Linux Post-Install Configuration & Provisioning:** Expanded the localized Ansible bootstrap playbook (`src/ansible/local.yml`) and upgraded the specification `GDC-SPEC-003` to orchestrate complete post-install provisioning on first boot. Key features include:
   1. Persistently enabling and starting local Gitea and Nexus service daemons on the host target OS.
   2. Executing safe offline system-wide upgrades (`apt-get upgrade`) directed completely at the local Nexus proxy on port 8081.

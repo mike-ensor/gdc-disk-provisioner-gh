@@ -120,4 +120,40 @@ Once the success token is observed in the logs, the test runner utilizes SSH via
    ```bash
    ssh -p 2222 gdc-admin@localhost "systemd-analyze security"
    ```
-4. **Clean Termination:** Shutdown the QEMU process, kill `swtpm`, and delete temporary disk files.
+5. **Clean Termination:** Shutdown the QEMU process, kill `swtpm`, and delete temporary disk files.
+
+---
+
+## 5. Playbook Verification Tiers (Ansible Testing Suite)
+To guarantee that GDC bootstrap playbooks compile correctly, run without exceptions, and execute in an idempotent manner, developers utilize a three-tiered testing hierarchy:
+
+```text
+       [ TIER 1: LINT & SYNTAX CHECKS ]
+       • Execute "ansible-playbook --syntax-check local.yml"
+       • Execute "ansible-lint local.yml"
+                    │
+                    ▼
+       [ TIER 2: LOCAL DRY-RUN (CHECK MODE) ]
+       • Execute "ansible-playbook --check --diff local.yml"
+       • Simulates task effects without host modifications
+                    │
+                    ▼
+       [ TIER 3: DYNAMIC VM E2E (QEMU & SWTPM) ]
+       • Runs active playbook on bare-metal emulated host
+       • Verifies LVM partitioning, Gitea/Nexus services, and TPM seals
+       • Runs twin executions to verify Idempotency (changed=0)
+```
+
+### 5.1. Automated Verification Script (`test/verify_ansible.sh`)
+The project provides a unified, portable testing harness (`test/verify_ansible.sh`) that automates Tiers 1 and 2:
+* **Syntax Validation:** Fails the build immediately if the playbook contains incorrect YAML indentation, missing variable bindings, or unrecognized Ansible statements.
+* **Local Check-Mode:** Runs a local simulation using `--check --diff` to log expected configuration changes. It dynamically sets `enforce_signed_commits=false` during development mode to prevent key verification crashes.
+* **Best-Practice Linting:** Uses `ansible-lint` to assert compliance with modern, idempotent task structures and detect deprecated module parameters.
+* **Portable Execution:** If executed in environments where Ansible is missing (e.g. baseline workspaces), the script outputs a structured tutorial and instruction guide before exiting with a success code.
+
+### 5.2. Idempotency Assertion Standards
+Any playbook written or modified inside `src/ansible` must meet strict **idempotency standards**:
+1. Run the playbook the first time: Tasks execute and return `changed` or `ok` status codes.
+2. Run the playbook a second time: Every single task must return `ok` (no changes made). The final execution report must read:
+   `changed=0 failures=0`
+3. Tasks using `command` or `shell` modules must define `changed_when` parameters to prevent breaking this standard. GDC continuous integration builds automatically reject any playbooks that do not satisfy this idempotency condition.

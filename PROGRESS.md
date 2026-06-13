@@ -124,6 +124,8 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Verify Gitea local fetch/pull capabilities
   - [x] Verify Nexus OCI proxy routing query schemas (via `TEST_PULL_OCI_IMAGE` variable)
 - [x] **First-Boot Self-Test Playbook (local.yml)**
+  - [x] Create `test/verify_ansible.sh` playbook testing harness
+  - [x] Implement Tier 1 Syntax validation and Tier 2 local dry-run check-mode checks
   - [x] Service Port readiness checks (Gitea 3000, Nexus 8081)
   - [x] Execution verification (Hello World task)
   - [x] Partition block querying task (lsblk)
