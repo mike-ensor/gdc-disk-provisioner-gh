@@ -90,7 +90,7 @@ qemu-system-x86_64 -enable-kvm -m 8192 -smp 4 \
   -cdrom build-workspace/output/gdc-bootstrap.iso \
   -nographic \
   -serial file:/tmp/serial.log \
-  -net nic -net user,hostfwd=tcp::2222-:22 \
+  -net nic -net user,hostfwd=tcp:127.0.0.1:2222-:22 \
   -chardev socket,id=chrtpm,path="${TPM_TEMP_DIR}/swtpm-sock" \
   -tpmdev emulator,id=tpm0,chardev=chrtpm \
   -device tpm-tis,tpmdev=tpm0 \
@@ -98,8 +98,10 @@ qemu-system-x86_64 -enable-kvm -m 8192 -smp 4 \
 ```
 
 ### 3.3. Secure Ephemeral SSH Key Injections
-* **The Threat:** Forwarding guest port 22 to host port 2222 allows any other process or local user on a shared CI/CD host to intercept or attempt brute-force authentication.
-* **The Mitigation:** Standard password-based SSH access is disabled on our test builds. Instead, the test runner dynamically generates a short-lived ephemeral SSH key pair during the build stage, injects the public key onto the ISO's `/nocloud/user-data` file, and uses the private key to authenticate the remote post-boot validation queries. The keys are immediately deleted upon test cleanup.
+* **The Threat:** Forwarding guest port 22 to host port 2222 on all interfaces allows other machines on the local area network (LAN) or unauthorized users on a shared CI/CD host to connect to the GDC guest VM.
+* **The Mitigation:** Standard password-based SSH access is disabled on our test builds. Instead, we implement two core defenses:
+  1. **Strict Loopback Binding:** The port forwarding is explicitly bound to `127.0.0.1` (`hostfwd=tcp:127.0.0.1:2222-:22`), preventing any external LAN machines from attempting connections.
+  2. **Short-Lived Ephemeral Keys:** The test runner dynamically generates a short-lived ephemeral SSH key pair during the build stage, injects the public key onto the ISO's `/nocloud/user-data` file, and uses the private key to authenticate the remote post-boot validation queries. The keys are immediately deleted upon test cleanup.
 
 ### 3.4. Serial Log Verification (Success Signaling)
 During the post-install setup (`GDC-SPEC-003`), our Ansible bootstrap playbooks or cloud-init late-commands append a distinct success token to the serial console device `/dev/ttyS0` once provisioning has succeeded completely:
@@ -167,3 +169,16 @@ Any playbook written or modified inside `src/ansible` must meet strict **idempot
 2. Run the playbook a second time: Every single task must return `ok` (no changes made). The final execution report must read:
    `changed=0 failures=0`
 3. Tasks using `command` or `shell` modules must define `changed_when` parameters to prevent breaking this standard. GDC continuous integration builds automatically reject any playbooks that do not satisfy this idempotency condition.
+
+---
+
+## 6. Security & Operational Mitigations in E2E Testing
+Running bare-metal emulation and hardware cryptography tests inside shared CI/CD hosts introduces specific threats. The verification harness enforces the following mitigations:
+
+| Threat Category | Potential Attack Vector / Operational Failure | Engineered Mitigation Solution |
+| :--- | :--- | :--- |
+| **Port Collision & Eavesdropping** | Multiple parallel test agents attempt to bind port `2222`, causing resource crashes. Other users on the same host can access GDC node ports. | **Strict Local Loopback Binding (`127.0.0.1`):** QEMU port forwarding binds strictly to local loopback (`hostfwd=tcp:127.0.0.1:2222-:22`), preventing external network access. Parallel test runners use a dynamic port discovery algorithm to allocate unique host ports. |
+| **TPM State Corruption** | Parallel execution runs overwrite the standard `/tmp/mytpm` software TPM socket, leading to locks and test failures. | **Isolated Temporary Directories (`mktemp`):** Each run instantiates an isolated software TPM (`swtpm`) state directory using randomized temporary folder hashes, completely preventing crosstalk. |
+| **Credential Exposure** | Leaving test SSH keys or administrative access backdoors active on the finished GDC node image. | **Secure Ephemeral Key Injection:** Test SSH keys are dynamically generated on the fly, injected at build time, used strictly during assertions, and permanently wiped from the host upon test completion. Standard password login is strictly disabled. |
+| **KVM Performance Starvation** | Standard cloud build runners lack nested KVM virtualization (`/dev/kvm`), causing software emulation (TCG) to slow E2E runs to >45 minutes. | **Dynamic Virtualization Detection & Dedicated Runners:** The orchestrator detects `/dev/kvm` presence and falls back gracefully with prominent warning outputs, advising administrators to use GCE nested-virtualization VM instances. |
+| **Resource & Billing Leakage** | Canceled or timed-out test runs leave orphaned background QEMU or `swtpm` processes running, consuming CPU/RAM and cloud costs. | **Global Signal Trap Cleanup (`trap EXIT`):** The orchestrator implements a robust exit trap that executes a forced termination command (`kill`) on all spawned subprocess PIDs and purges temporary files on any interrupt signal. |
