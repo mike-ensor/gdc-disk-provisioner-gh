@@ -59,6 +59,9 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [ ] Configure DHCP networking settings
   - [ ] Redirect autoinstall APT source to local live Nexus APT proxy
 - [ ] **Enterprise LVM Provisioning Automation**
+  - [x] Formulate dynamic 1-or-2 disk auto-sizing script (`generate_storage_config.sh`)
+  - [x] Optimize dual-disk setups (isolate etcd/OS to Disk 1; dedicate Disk 2 to SDS)
+  - [x] Formulate single-disk scaling algorithms (scale Gitea, Nexus, and local-disk to fit 250GB)
   - [ ] Define `/boot/efi` (1 GiB) and `/boot` (2 GiB) physical partitions
   - [ ] Initialize Volume Group `vg_system`
   - [ ] Allocate System Logical Volumes (`lv_root`, `lv_var`, `lv_var_log`, `lv_var_opt_metrics`)

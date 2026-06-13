@@ -56,6 +56,21 @@ The primary target SSD/NVMe drive is formatted with three partitions:
 
 *Note on etcd mounts: Specifying `commit=1` forces write barriers to sync metadata changes in under 1 second, reducing etcd database write latency to guarantee cluster consensus loops under high load.*
 
+### 3.3. Dynamic Multi-Disk (1 or 2 Disks) Storage Architecture
+To support hardware nodes containing either **1 or 2 physical disks** of varying sizes ($\ge 250\text{GB}$), the installer executes a dynamic block analyzer script (`src/build/generate_storage_config.sh`) during the early stages of cloud-init boot.
+
+This script outputs a tailored, GDC-compliant Subiquity storage layout block based on the discovered disk count:
+
+#### A. Single-Disk Topology (1x NVMe/SSD $\ge 250\text{GB}$)
+* **The Sizing Constraint:** Because the sum of default logical volumes exceeds 400 GiB, booting on a 250GB drive requires dynamic scaling.
+* **The Resolution:** Gitea, Nexus, and local-disk partitions are scaled down (Gitea to 15G, Nexus to 60G, Local-Disk to 25G) to guarantee they fit within 250GB, leaving the remaining block capacity (~20GB) to `/customer/sds`.
+
+#### B. Dual-Disk Topology (2x NVMe/SSD $\ge 250\text{GB}$)
+* **Workload Separation (Separation of Concerns):** To maximize performance and satisfy etcd leader latency parameters, we isolate standard system operations from high-volume customer storage pipelines across the two physical drives:
+  * **Disk 1 (System Disk):** Holds EFI, Boot, and the core encrypted OS volume group (`vg_system`), carrying the operating system, logging, containerd CRI, etcd databases, and local Service Hubs (Gitea and Nexus). This consumes ~240GB, fitting perfectly on a 250GB drive.
+  * **Disk 2 (Data Disk):** Initialized as a separate encrypted volume group (`vg_data`), dedicated entirely to `/customer/local-disk` (100G) and `/customer/sds` (remainder of Disk 2). If Disk 2 is a 1TB SSD, `/customer/sds` automatically receives the remaining ~800GB.
+  * *Result:* Heavy container image extractions and customer storage I/O on Disk 2 are mathematically isolated from the low-latency consensus database of etcd on Disk 1.
+
 ---
 
 ## 4. Subiquity Autoinstall User-Data (`/nocloud/user-data`)
