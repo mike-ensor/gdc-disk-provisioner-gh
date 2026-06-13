@@ -7,16 +7,16 @@
 ---
 
 ## 1. Executive Summary & Purpose
-This specification details the transition from a freshly installed baseline OS to a fully hardened, secure "Ready-Linux" node. It governs administrative profiles, persistent Service Hub boundaries (Gitea and Nexus), and advanced hardware security (TPM 2.0). 
+This specification details the transition from a baseline OS installation to a fully hardened, secure "Ready-Linux" GDC node. It covers the post-install sequence of operations, persistent Gitea and Nexus service hub configurations, variable-driven system package installations, and hardware cryptography (TPM 2.0).
 
-Additionally, it specifies the standard **GDC Offline Sideloading Interface**, detailing how operators apply offline code, binary, and container updates via local API pushes or headless USB "Sneakernet" media syncs. This is backed by cryptographic verification standards (GPG and Sigstore/Cosign) to prevent rogue code execution.
+Additionally, it specifies the standard **GDC Offline Sideloading Interface** (for Git playbook updates, deb packages, and OCI container layers) and defines the roadmap to transition from local development to strict GPG-signed commit enforcement.
 
 ---
 
 ## 2. The First-Boot Migration & Service Transition
 
 ### 2.1. Late-Command Sync Script & Space Guardrails
-During Subiquity's `late-commands`, the pre-loaded Gitea repositories, systemd units, and Nexus cache directories are cloned from the read-only ISO media (`/cdrom/custom-data/`) to the persistent logical volumes mounted under `/target/`.
+During Subiquity's `late-commands`, pre-loaded configurations and caches are cloned from the read-only ISO media (`/cdrom/custom-data/`) to the persistent logical volumes mounted under `/target/`.
 
 *   **Operational Guardrail (Sizing Caps):** In Single-Disk topologies (`GDC-SPEC-002-SEQ`), `lv_nexus` is compressed to 60 GiB. To prevent installation crashes ("No space left on device"), the Phase 1 build engine enforces a strict **40 GB maximum footprint cap** on pre-seeded ISO files inside `/custom-data/nexus/`.
 
@@ -35,6 +35,17 @@ autoinstall:
     - cp /cdrom/custom-data/systemd/nexus.service /target/etc/systemd/system/
     - curtin in-target -- systemctl enable gitea.service nexus.service
 ```
+
+### 2.2. Bootstrapping Ansible & Git (Offline Installation)
+To avoid manual package installation hacks post-boot, the baseline Subiquity installer pre-installs `ansible` and `git` on the target root filesystem during installation.
+*   **Enforcement:** We add `ansible` and `git` to the autoinstall `packages` section:
+    ```yaml
+    autoinstall:
+      packages:
+        - ansible
+        - git
+    ```
+*   Because the installation redirects APT fetches to our local live-ISO Nexus server (`http://127.0.0.1:8081/repository/gdc-apt-proxy/`), these packages are installed cleanly and completely offline.
 
 ---
 
@@ -63,7 +74,7 @@ WantedBy=multi-user.target
 ```
 
 ### 3.2. Environmental Signed-Commits Toggle (`/etc/default/gdc-provision`)
-To support frictionless initial development while enforcing absolute security in production, the GPG signature checks are bound to a configuration file written at build time:
+To support frictionless initial development while enforcing absolute security in production, GPG commit verification is managed via an environment file written at build time:
 * **Development Mode (`ENFORCE_SIGNED_COMMITS=false`):**
   ```text
   # /etc/default/gdc-provision
@@ -96,13 +107,13 @@ Because the node operates in air-gapped or low-internet environments, standard o
 ```
 
 ### 4.1. GPG Commit Verification for `ansible-pull`
-To prevent unauthorized playbook execution, `ansible-pull` is executed with the `--verify-commit` flag.
+To prevent unauthorized playbook execution, `ansible-pull` is executed with the `--verify-commit` flag in Production Mode.
 *   **Enforcement:** The local Git configuration inside the target OS is locked to verify commit signatures against GDC's pre-loaded GPG public keyring stored in `/etc/gpg/gdc-release.gpg`.
 *   Unsigned commits or commits signed by untrusted keys are instantly rejected, aborting playbook runs before host modifications can execute.
 
 ### 4.2. Cosign OCI Image Verification (Nexus Proxy)
 Container images sideloaded into Nexus (`gdc-docker-hosted`) or cached via proxy are signed using **Sigstore/Cosign**.
-*   **Enforcement:** Before the local Kubernetes Kubelet or containerd runtime extracts and deploys an OCI container image, a admission webhook (e.g. Policy Controller / Kyverno) intercepts the request and verifies the signature using the local GDC public key:
+*   **Enforcement:** Before the local Kubernetes Kubelet or containerd runtime extracts and deploys an OCI container image, an admission webhook (e.g. Policy Controller / Kyverno) intercepts the request and verifies the signature using the local GDC public key:
     ```bash
     cosign verify --key /etc/cosign/gdc-k8s-signing.pub localhost:5001/gdc/my-image:latest
     ```
@@ -152,22 +163,22 @@ To maximize idempotence and declarative engineering standards, the entire GDC po
 For nodes operating on remote edge sites without direct administration networks, updates are delivered by inserting a physical USB drive containing signed updates. We automate this workflow cleanly and headlessly.
 
 ```text
- [ Operator inserts USB ]
-           │
-           ▼
-  (Udev Rule Triggers)
-           │
-           ▼
-[ gdc-usb-updater.service ]
-           │
-           ├── 1. Verify USB crypt-signature file
-           ├── 2. Mount USB to /media/gdc-update/
-           ├── 3. Execute Gitea git-bundle sync
-           ├── 4. Upload APT debs & OCI tars to local Nexus API
-           ├── 5. Unmount USB
-           │
-           ▼
- [ Play Sound / Beep ] ---> (Operator removes USB safely)
+  [ Operator inserts USB ]
+             │
+             ▼
+    (Udev Rule Triggers)
+             │
+             ▼
+  [ gdc-usb-updater.service ]
+             │
+             ├── 1. Verify USB crypt-signature file
+             ├── 2. Mount USB to /media/gdc-update/
+             ├── 3. Execute Gitea git-bundle sync
+             ├── 4. Upload APT debs & OCI tars to local Nexus API
+             ├── 5. Unmount USB
+             │
+             ▼
+   [ Play Sound / Beep ] ---> (Operator removes USB safely)
 ```
 
 ### 6.1. The Udev Auto-Trigger Rule
