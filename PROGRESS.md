@@ -140,7 +140,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Automate GCE serial log polling and mandatory cloud VM teardown
 - [x] **Headless E2E Boot Testing (Tier 2)**
   - [x] Create `test/run_qemu_e2e.sh` script
-  - [x] Implement sparse 400G virtual disk allocation schema
+  - [x] Implement dual-disk sparse block device allocations (250G and 350G SSD targets)
   - [x] Script serial log console monitoring with automated polling and timeout boundaries
-  - [ ] Implement software TPM emulator (`swtpm`) local port bindings
+  - [x] Implement software TPM emulator (`swtpm`) isolated socket mapping via `mktemp`
   - [ ] Implement remote port-forwarding SSH assertion suite

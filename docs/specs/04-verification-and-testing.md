@@ -1,7 +1,7 @@
 # Specification: GDC ISO Verification & QEMU End-to-End Testing
 
 **Spec Identifier:** `GDC-SPEC-004`  
-**Status:** DRAFT  
+**Status:** APPROVED (Spec-Review Pass)  
 **Author:** GDC Disk Provisioner Architecture Team  
 
 ---
@@ -53,45 +53,55 @@ To verify the complex interactions of Subiquity partitioning, local Gitea/Nexus 
        ▼                               ▼
  [ swtpm socket ]             [ QEMU/KVM VM Process ]
   (Emulated TPM)               ├── -cdrom gdc-bootstrap.iso
-       │                       ├── -drive test-ssd.qcow2 (400G sparse)
+  (Unique mktemp)              ├── -drive disk-sys.qcow2 (250G sparse SSD)
+       │                       ├── -drive disk-data.qcow2 (350G sparse SSD)
        └─> Mapped into VM <────├── -nographic (Headless)
                                ├── -serial file:serial.log <─── (Writes success token)
-                               └── -net user,hostfwd=tcp::2222-:22
+                               └── -net user,hostfwd=tcp::2222-:22 (Secure Ephemeral Key)
 ```
 
-### 3.1. Emulated TPM 2.0 Configuration
-Because GDC requires LUKS disk encryption and SSH host key binding to a TPM 2.0 chip, standard QEMU must be integrated with a software-emulated TPM state. This is accomplished using `swtpm`:
+### 3.1. Emulated TPM 2.0 Configuration (Isolated Socket Mapping)
+Because GDC requires LUKS disk encryption and SSH host key binding to a TPM 2.0 chip, standard QEMU must be integrated with a software-emulated TPM state. This is accomplished using `swtpm`.
+* **Isolated Multi-Agent Directory Pattern:** To support concurrent test runs on the same build host without socket collisions or locked state crosstalk, the script creates a unique, isolated temp directory on every run:
 
 ```bash
-# Start the software TPM emulator on the host
-mkdir -p /tmp/mytpm
-swtpm socket --tpmstate dir=/tmp/mytpm \
+# Start an isolated software TPM emulator in background
+TPM_TEMP_DIR=$(mktemp -d -t gdc-tpm-XXXXXX)
+swtpm socket --tpmstate dir="${TPM_TEMP_DIR}" \
   --tpm2 \
-  --ctrl type=unixio,path=/tmp/mytpm/swtpm-sock \
+  --ctrl type=unixio,path="${TPM_TEMP_DIR}/swtpm-sock" \
   --daemon
 ```
 
-### 3.2. Headless QEMU Invocation
-A virtual SSD is created as a sparse QCOW2 file. Though allocated at 400 GiB (satisfying GDC partition minima), it occupies 0 bytes of physical host disk initially:
+### 3.2. Headless Dual-Disk QEMU Invocation
+To thoroughly test our dynamic auto-partitioning script (`generate_storage_config.sh`) live on physical-emulated multi-drive topologies, the runner provisions and attaches **two** separate sparse virtual SSD drives (System and Data):
+
 ```bash
-qemu-img create -f qcow2 /tmp/test-ssd.qcow2 400G
+# Create sparse virtual SSD drives (takes 0 bytes of physical host disk)
+qemu-img create -f qcow2 /tmp/gdc-test-sys.qcow2 250G
+qemu-img create -f qcow2 /tmp/gdc-test-data.qcow2 350G
 ```
 
-The VM is then executed headlessly:
+The VM is then executed headlessly with 8 GB RAM and 4 vCPUs:
 ```bash
 qemu-system-x86_64 -enable-kvm -m 8192 -smp 4 \
-  -drive file=/tmp/test-ssd.qcow2,if=virtio,cache=writeback \
+  -drive file=/tmp/gdc-test-sys.qcow2,if=virtio,cache=writeback \
+  -drive file=/tmp/gdc-test-data.qcow2,if=virtio,cache=writeback \
   -cdrom build-workspace/output/gdc-bootstrap.iso \
   -nographic \
   -serial file:/tmp/serial.log \
   -net nic -net user,hostfwd=tcp::2222-:22 \
-  -chardev socket,id=chrtpm,path=/tmp/mytpm/swtpm-sock \
+  -chardev socket,id=chrtpm,path="${TPM_TEMP_DIR}/swtpm-sock" \
   -tpmdev emulator,id=tpm0,chardev=chrtpm \
   -device tpm-tis,tpmdev=tpm0 \
   -boot d &
 ```
 
-### 3.3. Serial Log Verification (Success Signaling)
+### 3.3. Secure Ephemeral SSH Key Injections
+* **The Threat:** Forwarding guest port 22 to host port 2222 allows any other process or local user on a shared CI/CD host to intercept or attempt brute-force authentication.
+* **The Mitigation:** Standard password-based SSH access is disabled on our test builds. Instead, the test runner dynamically generates a short-lived ephemeral SSH key pair during the build stage, injects the public key onto the ISO's `/nocloud/user-data` file, and uses the private key to authenticate the remote post-boot validation queries. The keys are immediately deleted upon test cleanup.
+
+### 3.4. Serial Log Verification (Success Signaling)
 During the post-install setup (`GDC-SPEC-003`), our Ansible bootstrap playbooks or cloud-init late-commands append a distinct success token to the serial console device `/dev/ttyS0` once provisioning has succeeded completely:
 
 ```bash
