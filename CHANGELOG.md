@@ -7,6 +7,7 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 ## [Unreleased] - 2026-06-12
 
 ### Added
+- **Isolated Cloud Sandbox Testing (GCE):** Scaffolded an on-demand, isolated cloud-testing framework (`test/gce_startup_test.sh` and `test/provision_gce_sandbox.sh`) that provisions a 250GB GCE Ubuntu 24.04 server. It loads our active Ansible playbooks at first-boot, mocks localhost Gitea and Nexus port sockets using netcat-loops to satisfy preflight checks, runs the complete provisioning suite in isolation, streams/polls GCE's serial console port for success logs, and executes mandatory cloud teardowns to guarantee zero cost-drift on build runners.
 - **Ansible Playbook Verification Suite:** Implemented an automated testing harness (`test/verify_ansible.sh`) to validate the syntax, logic, and best-practice compliance of GDC playbooks. The suite supports:
   1. Tier 1 Static Syntax Checks (`ansible-playbook --syntax-check`) to detect compile errors or broken schemas.
   2. Tier 2 Local Dry-Run Check Mode (`ansible-playbook --check --diff`) to simulate task execution without host modifications, dynamically bypassing signed-commit validations during development.

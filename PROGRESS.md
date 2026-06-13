@@ -133,6 +133,11 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [x] **Static Verification (Tier 1)**
   - [x] Create `test/validate_iso_static.sh` script
   - [x] Integrate cloud-init schema and YAML syntax verification
+- [x] **Isolated Cloud Sandbox Testing (GCE)**
+  - [x] Create `test/gce_startup_test.sh` first-boot startup script
+  - [x] Create `test/provision_gce_sandbox.sh` lifecycle orchestrator
+  - [x] Program local port socket-mocks for Gitea/Nexus during playbook validation
+  - [x] Automate GCE serial log polling and mandatory cloud VM teardown
 - [x] **Headless E2E Boot Testing (Tier 2)**
   - [x] Create `test/run_qemu_e2e.sh` script
   - [x] Implement sparse 400G virtual disk allocation schema
