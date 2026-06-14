@@ -10,36 +10,48 @@ The project implements a **Hub-and-Spoke Sideloading Architecture** that enables
 
 ```mermaid
 flowchart TD
-    classDef start fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px;
-    classDef stage fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px;
-    classDef final fill:#efebe9,stroke:#5d4037,stroke-width:2px;
+    %% Define Google Brand Styles
+    classDef start fill:#F1F3F4,stroke:#9AA0A6,stroke-width:2px,color:#202124;
+    classDef blue fill:#4285F4,stroke:#1A73E8,stroke-width:2px,color:#FFFFFF;
+    classDef red fill:#EA4335,stroke:#C5221F,stroke-width:2px,color:#FFFFFF;
+    classDef yellow fill:#FBBC05,stroke:#F29900,stroke-width:2px,color:#202124;
+    classDef green fill:#34A853,stroke:#137333,stroke-width:2px,color:#FFFFFF;
+    classDef note fill:#FFFFFF,stroke:#DADCE0,stroke-width:1px,color:#202124;
 
+    %% Nodes
     Start(["Blessed Ubuntu 24.04 LTS ISO"])
     
-    subgraph S1 ["Stage 1: ISO Generation & Build Pipeline (IaC Build)"]
-        Stage1["<b>Description:</b> Remasters original ISO with uncompressed outer payloads.<br/><b>Action:</b> Pre-seeds Gitea, Nexus proxy/hosted groups, and GRUB default boot configs.<br/><b>Main Outcomes:</b> Secure, versioned offline GDC Bootloader ISO (&lt; 5 GB)."]
-    end
+    Stage1["Stage 1: ISO Generation & Build (IaC Build)"]
+    Note1["<b>Description:</b> Remasters original ISO with uncompressed outer payloads.<br/><b>Action:</b> Pre-seeds Gitea, Nexus proxy/hosted groups, and GRUB default boot configs.<br/><b>Main Outcomes:</b> Secure, versioned offline GDC Bootloader ISO (&lt; 5 GB)."]
     
-    subgraph S2 ["Stage 2: Baseline OS & LVM Setup (Boot & Install)"]
-        Stage2["<b>Description:</b> Headless UEFI boot launching Subiquity with NoCloud configuration.<br/><b>Action:</b> Discovers block topology and runs dynamic 1-or-2 disk LVM auto-partitioning.<br/><b>Main Outcomes:</b> Encrypted LUKS system partitions containing GDC-isolated LVM logical blocks."]
-    end
+    Stage2["Stage 2: Baseline OS & LVM Setup (Boot & Install)"]
+    Note2["<b>Description:</b> Headless UEFI boot launching Subiquity with NoCloud configuration.<br/><b>Action:</b> Discovers block topology and runs dynamic 1-or-2 disk LVM auto-partitioning.<br/><b>Main Outcomes:</b> Encrypted LUKS system partitions containing GDC-isolated LVM logical blocks."]
     
-    subgraph S3 ["Stage 3: Ready-Linux Provisioning (Crypto-Sealing & Hardening)"]
-        Stage3["<b>Description:</b> First boot, service port handshakes, and local ansible-pull runs.<br/><b>Action:</b> Enrolls TPM 2.0 LUKS keys, creates gdc-admin, and executes CIS Level 2 hardening.<br/><b>Main Outcomes:</b> Hardware-attested GDC Production Node with secure TPM Device Identity."]
-    end
+    Stage3["Stage 3: Ready-Linux Provisioning (Crypto-Sealing)"]
+    Note3["<b>Description:</b> First boot, service port handshakes, and local ansible-pull runs.<br/><b>Action:</b> Enrolls TPM 2.0 LUKS keys, creates gdc-admin, and executes CIS Level 2 hardening.<br/><b>Main Outcomes:</b> Hardware-attested GDC Production Node with secure TPM Device Identity."]
     
-    subgraph S4 ["Stage 4: Sideloading & Maintenance (On-going Updates)"]
-        Stage4["<b>Description:</b> Offline code, package, and container image synchronization.<br/><b>Action:</b> Headless GDC-UPDATE-USB triggers with GPG and Cosign verification.<br/><b>Main Outcomes:</b> Cryptographically verified node updates with zero configuration drift."]
-    end
+    Stage4["Stage 4: Sideloading & Maintenance (On-going Updates)"]
+    Note4["<b>Description:</b> Offline code, package, and container image synchronization.<br/><b>Action:</b> Headless GDC-UPDATE-USB triggers with GPG and Cosign verification.<br/><b>Main Outcomes:</b> Cryptographically verified node updates with zero configuration drift."]
 
-    Start --> S1
-    S1 --> S2
-    S2 --> S3
-    S3 --> S4
+    %% Connections
+    Start --> Stage1
+    Stage1 --> Stage2
+    Stage2 --> Stage3
+    Stage3 --> Stage4
 
+    %% Side-by-side Note alignments
+    Stage1 -.-> Note1
+    Stage2 -.-> Note2
+    Stage3 -.-> Note3
+    Stage4 -.-> Note4
+
+    %% Apply Styles
     class Start start;
-    class Stage1,Stage2,Stage3 stage;
-    class Stage4 final;
+    class Stage1 blue;
+    class Stage2 red;
+    class Stage3 yellow;
+    class Stage4 green;
+    class Note1,Note2,Note3,Note4 note;
 ```
 
 ---
