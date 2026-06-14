@@ -25,6 +25,11 @@ flowchart LR
     Stage3["Stage 3: Ready-Linux Provisioning"]
     Stage4["Stage 4: GDC Bootstrapping"]
     Stage5["Stage 5: Cluster Turnup"]
+    
+    %% Stage 6: Update Lifecycle Branches
+    Stage6A["Stage 6A: Low-Internet Update (Offline Sideload)"]
+    Stage6B["Stage 6B: Connected Update (Reverse Tunnel)"]
+    UpdatedOS(["Updated OS & GDC Platform"])
 
     %% Connections
     Start --> Stage1
@@ -32,6 +37,12 @@ flowchart LR
     Stage2 --> Stage3
     Stage3 --> Stage4
     Stage4 --> Stage5
+    
+    %% Update Flow Branching
+    Stage5 -->|Low-Internet Sideload| Stage6A
+    Stage5 -->|Connected Tunnel| Stage6B
+    Stage6A --> UpdatedOS
+    Stage6B --> UpdatedOS
 
     %% Apply Styles
     class Start start;
@@ -40,6 +51,9 @@ flowchart LR
     class Stage3 yellow;
     class Stage4 green;
     class Stage5 orange;
+    class Stage6A blue;
+    class Stage6B yellow;
+    class UpdatedOS green;
 ```
 
 ### Enumeration of Lifecycle Stages
@@ -68,6 +82,16 @@ flowchart LR
 *   **Description:** Initiates and spawns GDC Bare Metal Kubernetes orchestrators completely offline.
 *   **Action:** Executes automated cluster turnup commands (via GDC's `bmctl` or GKE On-Prem API interfaces) pulling system layers locally from the Nexus port `5001` group OCI registry.
 *   **Main Outcomes:** Active, highly secure, production-ready Google Distributed Cloud bare-metal cluster running active user workloads.
+
+#### **Stage 6A: Low-Internet Update (Offline Sideload)**
+*   **Description:** An offline-first operational pathway to execute system and platform updates via localized physical media or secure regional GCS bucket caching.
+*   **Action:** Downloads updated playbooks, deb packages, and OCI image layers on a connected workstation, copies them onto a physical USB drive labeled `GDC-UPDATE-USB` with a crypt-signature, and inserts it into the node. The headless `udev` daemon automatically triggers a systemd update, REST-uploading files into our local Gitea and Nexus interfaces.
+*   **Main Outcomes:** Safe, cryptographically verified (GPG and Cosign) host operating system and platform upgrades with zero network configuration drift.
+
+#### **Stage 6B: Connected Update (Reverse Tunnel)**
+*   **Description:** A centralized, network-connected pathway to execute system and platform updates via secure outbound-only VPN tunnels.
+*   **Action:** Establishes an encrypted, outbound-only reverse VPN tunnel (e.g. WireGuard, SSH, or GDC Tunnel) to the GCP administrative gateway. The node's local Gitea mirror uses this secure tunnel to run a `git pull` from the production `UPSTREAM_PLAYBOOKS_REPO`, automatically triggering the local `ansible-pull` cron cycles.
+*   **Main Outcomes:** Centralized, automated, and secure system upgrades and playbook synchronizations.
 
 ---
 

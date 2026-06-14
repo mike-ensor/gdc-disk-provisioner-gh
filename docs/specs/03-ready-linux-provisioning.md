@@ -252,3 +252,48 @@ logger -t gdc-usb-updater "[GOAL] Headless USB update finished successfully. Saf
 echo -e "\a" > /dev/console
 exit 0
 ```
+
+---
+
+## 7. Lifecycle Update Flows (Low-Internet vs. Connected Pathways)
+To maintain the node's long-term health after Stage 5 Cluster Turnup, the GDC platform supports an on-going update and maintenance loop. Operators can execute updates via two separate, standardized pathways: the **Low-Internet (Sideloaded)** option or the **Connected (Tunnel-Sync)** option. Both converge on the exact same endpoint: a fully updated host operating system and GDC platform.
+
+```text
+                                [ POST-STAGE 5 COMPLETED NODE ]
+                                               │
+                    ┌──────────────────────────┴──────────────────────────┐
+                    ▼                                                     ▼
+     [ Option A: Low-Internet Sideload ]                   [ Option B: Connected Tunnel ]
+     • Acquire updated assets on workstation               • Establish secure reverse WireGuard tunnel
+     • Load assets to GCS or GDC-UPDATE-USB                • Push/Pull playbooks from upstream Git
+     • Sideload assets to node (Udev auto-run)             • Execute "ansible-pull" locally on node
+     • Run "ansible-pull" locally on node                  • Complete safe system packages upgrade
+                    │                                                     │
+                    └──────────────────────────┬──────────────────────────┘
+                                               ▼
+                                 [ UPDATED OS & PLATFORM ]
+```
+
+### 7.1. Option A: The Low-Internet Sideload update Pathway
+Designed for completely isolated, air-gapped, or bandwidth-starved edge systems. It relies on the local Service Hub (Gitea and Nexus) boundaries to ingest assets offline.
+
+1.  **Download/Acquire Updated Assets:**
+    On an internet-connected workstation, the build pipeline is executed (`remaster.sh --full`) to compile updated Ansible playbook Git bundles, latest APT `.deb` package revisions, and patched OCI container image layers.
+2.  **Load Assets:**
+    The generated update assets are copied onto a physical USB drive formatted with the filesystem label `GDC-UPDATE-USB` and cryptographically signed (generating `update.sig` via private GDC deployment keys), or uploaded to an authenticated Google Cloud Storage (GCS) bucket.
+3.  **Sideload Assets to Machine(s):**
+    *   *Physical USB Sideload:* The operator plugs the USB drive into the node's chassis. The `udev` daemon automatically triggers our headless script (`gdc-headless-update.sh`), verifying the signature and running local REST API transfers to push git bundles, OCI layers, and debs into local Gitea and Nexus.
+    *   *GCS Bucket Sideload:* If the local network has restricted outbound GCS endpoints allowed, the node queries GCS directly, copying the updated assets into Gitea and Nexus.
+4.  **Run Updates via Ansible Pull:**
+    The local system cron triggers the `ansible-pull` executor. It connects to the updated Gitea mirror locally on port `3000`, pulls the verified playbook changes, and executes the updates on the node. Packages and containers are pulled directly from local Nexus caches on port `8081` and `5001`.
+
+### 7.2. Option B: The Connected Tunnel Update Pathway
+Designed for edge environments where a secure outbound network route exists, allowing centralized management.
+
+1.  **Acquire Reverse Connection Tunnel:**
+    The GDC node initiates a secure, outbound-only **Reverse VPN Connection Tunnel** (using WireGuard, standard GDC Connect Tunnel, or an SSH reverse socket) to the central Google Cloud / administrative gateway. This establishes a secure, private, bi-directional loopback path.
+2.  **Update Ansible Repository (git pull):**
+    The local Gitea service on the node leverages the reverse tunnel to execute a secure `git fetch` or `git pull` from the `UPSTREAM_PLAYBOOKS_REPO` origin, syncing the local bare repository (`bootstrap-playbooks.git`) with the latest production-approved playbook revision.
+3.  **Run Updates via Ansible Pull:**
+    Just as in Option A, the local `ansible-pull` cron cycles detect the new commits in the Gitea repo, execute the updated playbooks, pull packages/images through the proxy pass-thru of Nexus, and apply OS/Platform upgrades to the node.
+
