@@ -7,6 +7,8 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 ## [Unreleased] - 2026-06-12
 
 ### Added
+- **GDC Offline Cluster Turnup Spec (`GDC-SPEC-005-TURNUP`):** Designed the technical sequence for GDC standalone cluster turnup completely offline, using pre-seeded local container image groups inside Nexus port `5001` and configuring `bmctl` configuration YAMLs with dedicated `registryMirror` endpoints.
+- **GDC Lifecycle Update Flows Spec (`GDC-SPEC-006`):** Documented both the **Stage 6A Low-Internet update (Offline Sideload)** and **Stage 6B Connected update (Reverse Tunnel)** pathways. Explicitly specified GDC-UPDATE-USB layouts, cryptographic manifest signatures, udev-triggering update daemons, outbound reverse VPN tunnels, Gitea pull-mirror sync configurations, and local operator warning/success audio beeps.
 - **GDC Master Dependency Matrix (`GDC-SPEC-DEP-001`):** Created a unified, comprehensive dependency reference mapping all required binaries, tools, operating system packages, and pre-seeded cached assets utilized or updated during each of the five GDC bootstrap phases.
 - **GDC Bootstrapping & Cluster Turnup Architecture (Stages 4 & 5):** Refined our core architectural roadmap inside `README.md` and spec `GDC-SPEC-003`:
   1. Relabeled and redefined **Stage 4 as "GDC Bootstrapping"**, representing Gitea and Nexus as **Bootstrap Dependency Interfaces** that serve Git playbooks, OCI container layers, Debian packages, and raw LLM weights completely offline.
