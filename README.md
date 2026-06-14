@@ -9,7 +9,7 @@ The project implements a **Hub-and-Spoke Sideloading Architecture** that enables
 ## GDC Node Bootstrap Lifecycle Sequence
 
 ```mermaid
-flowchart TD
+flowchart LR
     %% Define Google Brand Styles
     classDef start fill:#F1F3F4,stroke:#9AA0A6,stroke-width:2px,color:#202124;
     classDef blue fill:#4285F4,stroke:#1A73E8,stroke-width:2px,color:#FFFFFF;
@@ -17,25 +17,14 @@ flowchart TD
     classDef yellow fill:#FBBC05,stroke:#F29900,stroke-width:2px,color:#202124;
     classDef green fill:#34A853,stroke:#137333,stroke-width:2px,color:#FFFFFF;
     classDef orange fill:#F57C00,stroke:#E65100,stroke-width:2px,color:#FFFFFF;
-    classDef note fill:#FFFFFF,stroke:#DADCE0,stroke-width:1px,color:#202124;
 
     %% Nodes
     Start(["Blessed Ubuntu 24.04 LTS ISO"])
-    
-    Stage1["Stage 1: ISO Generation & Build (IaC Build)"]
-    Note1["<b>Description:</b> Remasters original ISO with uncompressed outer payloads.<br/><b>Action:</b> Pre-seeds Gitea, Nexus proxy/hosted groups, and GRUB default boot configs.<br/><b>Main Outcomes:</b> Secure, versioned offline GDC Bootloader ISO (&lt; 5 GB)."]
-    
-    Stage2["Stage 2: Baseline OS & LVM Setup (Boot & Install)"]
-    Note2["<b>Description:</b> Headless UEFI boot launching Subiquity with NoCloud configuration.<br/><b>Action:</b> Discovers block topology and runs dynamic 1-or-2 disk LVM auto-partitioning.<br/><b>Main Outcomes:</b> Encrypted LUKS system partitions containing GDC-isolated LVM logical blocks."]
-    
-    Stage3["Stage 3: Ready-Linux Provisioning (Crypto-Sealing)"]
-    Note3["<b>Description:</b> First boot, service port handshakes, and local ansible-pull runs.<br/><b>Action:</b> Enrolls TPM 2.0 LUKS keys, creates gdc-admin, and executes CIS Level 2 hardening.<br/><b>Main Outcomes:</b> Hardware-attested GDC Production Node with secure TPM Device Identity."]
-    
-    Stage4["Stage 4: GDC Bootstrapping (Local Dependency Integration)"]
-    Note4["<b>Description:</b> Establishes Gitea and Nexus as Bootstrap Dependency Interfaces.<br/><b>Action:</b> Hosts and serves GGD containers, Git repositories, LLM weight assets, and Debian packages fully offline.<br/><b>Main Outcomes:</b> Node completely self-sufficient with local dependency mirrors and offline updater cron tools."]
-    
-    Stage5["Stage 5: Cluster Turnup (Cluster Creation)"]
-    Note5["<b>Description:</b> Spawns GDC Bare Metal orchestrators entirely offline on validated hardware.<br/><b>Action:</b> Triggers local GDC cluster creation routines (via bmctl or GKE On-Prem APIs).<br/><b>Main Outcomes:</b> Fully operational, production-ready Google Distributed Cloud cluster running user workloads."]
+    Stage1["Stage 1: ISO Generation & Build"]
+    Stage2["Stage 2: Baseline OS & LVM Setup"]
+    Stage3["Stage 3: Ready-Linux Provisioning"]
+    Stage4["Stage 4: GDC Bootstrapping"]
+    Stage5["Stage 5: Cluster Turnup"]
 
     %% Connections
     Start --> Stage1
@@ -44,13 +33,6 @@ flowchart TD
     Stage3 --> Stage4
     Stage4 --> Stage5
 
-    %% Side-by-side Note alignments
-    Stage1 -.-> Note1
-    Stage2 -.-> Note2
-    Stage3 -.-> Note3
-    Stage4 -.-> Note4
-    Stage5 -.-> Note5
-
     %% Apply Styles
     class Start start;
     class Stage1 blue;
@@ -58,8 +40,34 @@ flowchart TD
     class Stage3 yellow;
     class Stage4 green;
     class Stage5 orange;
-    class Note1,Note2,Note3,Note4,Note5 note;
 ```
+
+### Enumeration of Lifecycle Stages
+
+#### **Stage 1: ISO Generation & Build (IaC Build)**
+*   **Description:** Remasters the original provider's "blessed" ISO by injecting outer payloader directories without touching the heavy SquashFS, ensuring < 10-second compilation cycles.
+*   **Action:** Downloads dependencies, pre-seeds Gitea repositories, registers Nexus proxy/hosted groups, and writes default bootloader GRUB files.
+*   **Main Outcomes:** A secure, versioned, unprivileged, completely self-contained GDC Bootloader ISO (`< 5 GB`).
+
+#### **Stage 2: Baseline OS & LVM Setup (Boot & Install)**
+*   **Description:** UEFI-boots the custom GDC ISO headlessly, launching Subiquity and cloud-init under a `NoCloud` automated profile.
+*   **Action:** Automatically scans host devices, executes dynamic 1-or-2 disk LVM auto-partitioning, maps an initial LUKS-encrypted container, formats LVM partitions, and copies the baseline OS image.
+*   **Main Outcomes:** Encrypted baseline operating system containing isolated, GDC-compliant LVM volumes (such as containerd, log buffers, metrics space, and consensus-latencies protected etcd block storage).
+
+#### **Stage 3: Ready-Linux Provisioning (Crypto-Sealing & Hardening)**
+*   **Description:** Boots the target operating system for the first time, executing local playbooks via the automated `gdc-provision.service` and `ansible-pull` cron cycles.
+*   **Action:** Performs wait-for-port service handshakes, creates `gdc-admin` with passwordless sudo, enrolls and seals LUKS disk encryption keys to the hardware TPM 2.0 chip, and executes standard CIS Level 2 hardening.
+*   **Main Outcomes:** Fully hardened, hardware-attested GDC Production Node with un-extractable TPM-bound identity certificates.
+
+#### **Stage 4: GDC Bootstrapping (Local Dependency Integration)**
+*   **Description:** Launches Gitea and Sonatype Nexus persistently to act as offline **Bootstrap Dependency Interfaces**.
+*   **Action:** Serves pre-cached container image layers, playbook Git repositories, Debian package mirrors, and raw LLM weight assets locally on the host. Handles headless "Sneakernet" physical USB updates automatically utilizing custom `udev` rules and motherboard speaker status beeps.
+*   **Main Outcomes:** Node is completely self-sufficient and isolated, capable of receiving offline patches and upgrades with zero network configuration drift.
+
+#### **Stage 5: Cluster Turnup (Cluster Creation)**
+*   **Description:** Initiates and spawns GDC Bare Metal Kubernetes orchestrators completely offline.
+*   **Action:** Executes automated cluster turnup commands (via GDC's `bmctl` or GKE On-Prem API interfaces) pulling system layers locally from the Nexus port `5001` group OCI registry.
+*   **Main Outcomes:** Active, highly secure, production-ready Google Distributed Cloud bare-metal cluster running active user workloads.
 
 ---
 
