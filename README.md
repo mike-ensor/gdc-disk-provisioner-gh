@@ -16,6 +16,7 @@ flowchart TD
     classDef red fill:#EA4335,stroke:#C5221F,stroke-width:2px,color:#FFFFFF;
     classDef yellow fill:#FBBC05,stroke:#F29900,stroke-width:2px,color:#202124;
     classDef green fill:#34A853,stroke:#137333,stroke-width:2px,color:#FFFFFF;
+    classDef orange fill:#F57C00,stroke:#E65100,stroke-width:2px,color:#FFFFFF;
     classDef note fill:#FFFFFF,stroke:#DADCE0,stroke-width:1px,color:#202124;
 
     %% Nodes
@@ -30,20 +31,25 @@ flowchart TD
     Stage3["Stage 3: Ready-Linux Provisioning (Crypto-Sealing)"]
     Note3["<b>Description:</b> First boot, service port handshakes, and local ansible-pull runs.<br/><b>Action:</b> Enrolls TPM 2.0 LUKS keys, creates gdc-admin, and executes CIS Level 2 hardening.<br/><b>Main Outcomes:</b> Hardware-attested GDC Production Node with secure TPM Device Identity."]
     
-    Stage4["Stage 4: Sideloading & Maintenance (On-going Updates)"]
-    Note4["<b>Description:</b> Offline code, package, and container image synchronization.<br/><b>Action:</b> Headless GDC-UPDATE-USB triggers with GPG and Cosign verification.<br/><b>Main Outcomes:</b> Cryptographically verified node updates with zero configuration drift."]
+    Stage4["Stage 4: GDC Bootstrapping (Local Dependency Integration)"]
+    Note4["<b>Description:</b> Establishes Gitea and Nexus as Bootstrap Dependency Interfaces.<br/><b>Action:</b> Hosts and serves GGD containers, Git repositories, LLM weight assets, and Debian packages fully offline.<br/><b>Main Outcomes:</b> Node completely self-sufficient with local dependency mirrors and offline updater cron tools."]
+    
+    Stage5["Stage 5: Cluster Turnup (Cluster Creation)"]
+    Note5["<b>Description:</b> Spawns GDC Bare Metal orchestrators entirely offline on validated hardware.<br/><b>Action:</b> Triggers local GDC cluster creation routines (via bmctl or GKE On-Prem APIs).<br/><b>Main Outcomes:</b> Fully operational, production-ready Google Distributed Cloud cluster running user workloads."]
 
     %% Connections
     Start --> Stage1
     Stage1 --> Stage2
     Stage2 --> Stage3
     Stage3 --> Stage4
+    Stage4 --> Stage5
 
     %% Side-by-side Note alignments
     Stage1 -.-> Note1
     Stage2 -.-> Note2
     Stage3 -.-> Note3
     Stage4 -.-> Note4
+    Stage5 -.-> Note5
 
     %% Apply Styles
     class Start start;
@@ -51,7 +57,8 @@ flowchart TD
     class Stage2 red;
     class Stage3 yellow;
     class Stage4 green;
-    class Note1,Note2,Note3,Note4 note;
+    class Stage5 orange;
+    class Note1,Note2,Note3,Note4,Note5 note;
 ```
 
 ---

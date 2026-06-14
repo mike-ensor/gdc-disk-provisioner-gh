@@ -101,7 +101,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ---
 
-### Phase 4: Sideloading & Maintenance Interfaces
+### Phase 4: GDC Bootstrapping (Local Dependency Integration)
 
 - [x] **USB Sideload Integration**
   - [x] Design headless automated USB updater (`udev` rules & systemd triggers)
@@ -144,3 +144,12 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Script serial log console monitoring with automated polling and timeout boundaries
   - [x] Implement software TPM emulator (`swtpm`) isolated socket mapping via `mktemp`
   - [ ] Implement remote port-forwarding SSH assertion suite
+
+---
+
+### Phase 6: Cluster Turnup (Cluster Creation)
+
+- [ ] **Offline Cluster Deployment**
+  - [ ] Seed GDC bootstrap workstation credentials
+  - [ ] Create bmctl configuration file defining target cluster IP networks and VIPs
+  - [ ] Execute `bmctl create cluster` offline using pre-seeded container layers in local Nexus group registry
