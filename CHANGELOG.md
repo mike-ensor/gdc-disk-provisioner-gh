@@ -7,6 +7,7 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 ## [Unreleased] - 2026-06-12
 
 ### Added
+- **GDC Master Dependency Matrix (`GDC-SPEC-DEP-001`):** Created a unified, comprehensive dependency reference mapping all required binaries, tools, operating system packages, and pre-seeded cached assets utilized or updated during each of the five GDC bootstrap phases.
 - **GDC Bootstrapping & Cluster Turnup Architecture (Stages 4 & 5):** Refined our core architectural roadmap inside `README.md` and spec `GDC-SPEC-003`:
   1. Relabeled and redefined **Stage 4 as "GDC Bootstrapping"**, representing Gitea and Nexus as **Bootstrap Dependency Interfaces** that serve Git playbooks, OCI container layers, Debian packages, and raw LLM weights completely offline.
   2. Created a new **Stage 5 called "Cluster Turnup"**, modeling the final offline GDC cluster deployment using local pre-seeded container registries via `bmctl` or GKE On-Prem APIs.
