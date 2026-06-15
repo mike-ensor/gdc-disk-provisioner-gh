@@ -6,7 +6,7 @@ The project implements a **Hub-and-Spoke Sideloading Architecture** that enables
 
 ---
 
-## GDC Node Bootstrap Lifecycle Sequence
+## GDC Node Bootstrap & Turnup Sequence
 
 ```mermaid
 flowchart LR
@@ -25,11 +25,6 @@ flowchart LR
     Stage3["Stage 3: Ready-Linux Provisioning"]
     Stage4["Stage 4: GDC Bootstrapping"]
     Stage5["Stage 5: Cluster Turnup"]
-    
-    %% Stage 6: Update Lifecycle Branches
-    Stage6A["Stage 6A: Low-Internet Update (Offline Sideload)"]
-    Stage6B["Stage 6B: Connected Update (Reverse Tunnel)"]
-    UpdatedOS(["Updated OS & GDC Platform"])
 
     %% Connections
     Start --> Stage1
@@ -37,12 +32,6 @@ flowchart LR
     Stage2 --> Stage3
     Stage3 --> Stage4
     Stage4 --> Stage5
-    
-    %% Update Flow Branching
-    Stage5 -->|Low-Internet Sideload| Stage6A
-    Stage5 -->|Connected Tunnel| Stage6B
-    Stage6A --> UpdatedOS
-    Stage6B --> UpdatedOS
 
     %% Apply Styles
     class Start start;
@@ -50,6 +39,34 @@ flowchart LR
     class Stage2 red;
     class Stage3 yellow;
     class Stage4 green;
+    class Stage5 orange;
+```
+
+## GDC Node Updates & Upgrades Sequence
+
+```mermaid
+flowchart LR
+    %% Define Google Brand Styles
+    classDef start fill:#F1F3F4,stroke:#9AA0A6,stroke-width:2px,color:#202124;
+    classDef blue fill:#4285F4,stroke:#1A73E8,stroke-width:2px,color:#FFFFFF;
+    classDef red fill:#EA4335,stroke:#C5221F,stroke-width:2px,color:#FFFFFF;
+    classDef yellow fill:#FBBC05,stroke:#F29900,stroke-width:2px,color:#202124;
+    classDef green fill:#34A853,stroke:#137333,stroke-width:2px,color:#FFFFFF;
+    classDef orange fill:#F57C00,stroke:#E65100,stroke-width:2px,color:#FFFFFF;
+
+    %% Nodes
+    Stage5(["Stage 5: Cluster Turnup"])
+    Stage6A["Stage 6A: Low-Internet Update (Offline Sideload)"]
+    Stage6B["Stage 6B: Connected Update (Reverse Tunnel)"]
+    UpdatedOS(["Updated OS & GDC Platform"])
+
+    %% Connections
+    Stage5 -->|Low-Internet Sideload| Stage6A
+    Stage5 -->|Connected Tunnel| Stage6B
+    Stage6A --> UpdatedOS
+    Stage6B --> UpdatedOS
+
+    %% Apply Styles
     class Stage5 orange;
     class Stage6A blue;
     class Stage6B yellow;
