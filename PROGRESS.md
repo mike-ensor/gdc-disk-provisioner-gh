@@ -2,6 +2,9 @@
 
 This document tracks the ongoing implementation and delivery of the GDC Offline Bootloader ISO process. It acts as an active checklist compared to our technical specification files (`docs/specs/`).
 
+> [!IMPORTANT]
+> **Implementation Notice:** Code files currently present under `src/` or other development directories may not be fully valid or functional at this stage. They should be treated strictly as **boilerplate** and **templates**. We are currently in the final stages of cementing our architecture specifications, security guidelines, and design matrices, and will transition into active, full-scale implementation mode soon.
+
 ---
 
 ## 1. Specification Stage (Docs & Architecture)
@@ -98,6 +101,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Establish secure randomized Recovery Key and wipe insecure temporary passcode slot
   - [ ] SSH host key TPM-secure binding using `ssh-tpm-agent`
   - [x] Generate TPM-backed device identity certs via Step-CA (Remote Attestation, Quote & Cloud CSR verification)
+  - [ ] **NodeAgent mTLS Certificate Pre-Seeding:** Address the generation and automated injection of unique Server CA, Client CA, and Node Server Cert/Key to enable 100% Zero-SSH bootstrapping.
 - [ ] **CIS Hardening & Slimming**
   - [ ] Implement Ansible roles for CIS Level 2 benchmark rules
   - [ ] Implement Ansible tasks to purge unneeded packages (snapd, x11, etc.)

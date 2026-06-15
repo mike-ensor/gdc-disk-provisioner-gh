@@ -161,9 +161,47 @@ To maximize idempotence and declarative engineering standards, the entire GDC po
 *   Applies CIS Benchmark Level 2 controls (SSH limits, FIPS ciphers, auditd, and sysctl controls).
 *   Purges `snapd`, compiler runtimes, and unnecessary baseline GUI tools.
 
-### 5.8. GDC NodeAgent Pre-Installation & Image Staging
+### 5.8. GDC NodeAgent Pre-Installation & mTLS Trust Pre-Seeding (Zero-SSH ISO Strategy)
 To enable on-node health monitoring and automated lifecycle management right after cluster turnup, the **GDC NodeAgent** is pre-installed/staged during the Ready-Linux phase.
-*   **Image Caching:** The NodeAgent OCI container image layers (e.g., `gcr.io/gke-release/node-agent-amd64`) are verified and pre-seeded directly into the local `gdc-docker-hosted` repository on Nexus Port `5002`. This guarantees the image can be pulled 100% offline during subsequent phases.
+
+If GGD's automated provisioning process (such as our custom ISO, Kickstart, or Cloud-Init) injects the NodeAgent binary, configures its systemd unit file, and starts the service automatically, **the deployment process can completely avoid SSH bootstrapping, but with one critical catch: Trust.**
+
+The GDC orchestration engine (`bmctl` or the cluster controller) does not strictly care *how* NodeAgent got onto the machine; it only cares that it can talk to it over port `9192`. However, because NodeAgent communicates strictly via **mutual TLS (mTLS)**, we must solve the **initial trust problem** during ISO provisioning.
+
+#### A. The Strict Requirement: The mTLS Pre-Seed
+For NodeAgent to accept commands from the deployment workstation or local standalone control plane, it requires specific cryptographic identities *at the exact moment it boots*. If our ISO just drops a generic NodeAgent binary onto the disk, it will sit there failing to initialize because it lacks credentials.
+
+If we want a **100% Zero-SSH** deployment pipeline, GGD's automated Ready-Linux provisioning playbook must inject the following files into the node's local storage:
+1.  **The Server CA Certificate:** So NodeAgent can validate that incoming cluster controller requests are authentic.
+2.  **The Node's Local Server Certificate & Private Key:** So the node can identify itself securely to the controller.
+3.  **The Client CA Certificate:** To enforce authorization on incoming gRPC connections.
+
+These paths must match exactly what you declare in the top section of your `CLUSTER_NAME.yaml` file (e.g., `nodeAgentServerCACertificatePath`, etc.).
+
+#### B. Architectural Comparison: Legacy SSH vs. Zero-SSH ISO
+
+```
+[Legacy SSH Method]
+bmctl Workstation ----( SSH / Port 22 )----> Blank Target OS (Pushes Binary + Certs)
+                                                    │
+                                                    ▼
+                                           NodeAgent Running
+
+[Zero-SSH ISO Method]
+Custom ISO / Pre-seed ----( Installs Binary + Valid mTLS Certs )----> Active Target OS
+                                                                            │
+                                                                            ▼
+bmctl Workstation <---( Secure mTLS gRPC / Port 9192 )------------ NodeAgent Listening
+```
+
+*   **Scenario A: Unique Certificates Pre-Seeding via ISO (GGD Standard):**
+    *   **Result:** **No SSH required at all.**
+    *   When you run `bmctl create cluster`, the workstation will skip trying to connect over port 22 and immediately initiate the secure gRPC handshake over port `9192`.
+*   **Scenario B: ISO installs the agent WITHOUT unique certificates (Fallback):**
+    *   **Result:** **SSH bootstrap is still required.**
+    *   If the ISO only provisions a generic base image, you must still provide `bmctl` with temporary SSH credentials. You would then run `bmctl nodeagent deploy --cluster CLUSTER_NAME`. This command connects via SSH purely to generate, securely transfer, and apply the initial cryptographic certificates to the asset, after which SSH can be disabled.
+
+*   **Image Caching:** The NodeAgent OCI container image layers (e.g., `gcr.io/gke-release/node-agent-amd64`) are verified and pre-seeded directly into the local `gdc-docker-hosted` repository on Nexus Port `5002` to support 100% offline retrieval.
 *   **Host Helpers:** Any required administrative configurations, host validation utilities, or environment parameters used by NodeAgent are pre-staged in `/etc/gdc/nodeagent/` by the post-install Ansible playbook.
 
 ### 5.9. Core GDC OCI Image Ingestion

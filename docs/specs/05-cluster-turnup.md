@@ -35,11 +35,19 @@ By utilizing the GDC **NodeAgent** combined with TPM 2.0-bound host hardware att
 
 ```yaml
 # cluster-config.yaml
+# --- GDC NODEAGENT mTLS SECURITY CREDENTIALS (TOP-LEVEL CONFIG) ---
+nodeAgentServerCACertificatePath: bmctl-workspace/gdc-edge-cluster/nodeagent-creds/server_ca_cert.pem
+nodeAgentServerCAPrivateKeyPath: bmctl-workspace/gdc-edge-cluster/nodeagent-creds/server_ca_key.pem
+nodeAgentClientCACertificatePath: bmctl-workspace/gdc-edge-cluster/nodeagent-creds/client_ca_cert.pem
+---
 apiVersion: baremetal.cluster.gke.io/v1
 kind: Cluster
 metadata:
   name: gdc-edge-cluster
   namespace: cluster-gdc-edge-cluster
+  annotations:
+    # Instructs GDC to deploy and manage the NodeAgent daemon natively
+    baremetal.cluster.gke.io/enable-node-agent: ""
 spec:
   type: standalone
   profile: default
@@ -125,3 +133,85 @@ The playbook executes the deployment command (aligned with the [GDC Bare Metal b
 ```
 
 The NodeAgent is deployed into the GDC cluster namespace and immediately spawns daemonset pods on the target nodes to monitor system resources, manage OS configurations, and coordinate ongoing system lifecycle activities.
+
+### 4.3. Standalone NodeAgent Architecture & mTLS Handshake
+You **do not need a separate admin cluster** to leverage NodeAgent. You can absolutely use NodeAgent mode with GDC's **Standalone cluster architecture**.
+
+#### How It Works Together
+In Google Distributed Cloud (GDC) bare metal, a **Standalone cluster** is a single, self-contained cluster that handles its own management control plane while simultaneously running your local user workloads.
+
+When you enable NodeAgent mode on a standalone deployment, the internal architecture shifts seamlessly:
+1.  **The Internal Controller:** The standalone cluster's own internal control plane hosts GDC's controllers.
+2.  **The Local Target:** The `NodeAgent` systemd service is deployed right alongside it on the target bare-metal nodes.
+3.  **The Connection:** The standalone cluster's management control plane talks directly to its local `NodeAgent` via a secure, internal **mTLS gRPC** channel on the specified port (defaulting to `9192`).
+
+#### The Tradeoff to Keep in Mind
+While a standalone configuration saves significant local hardware resources (perfect for edge setups or compact lab environments), keep in mind that **the local node still needs initial SSH bootstrapping**. The `bmctl` tool running on your deployment workstation will use SSH to push the `NodeAgent` binary and seed the initial mTLS certificates to the standalone node machine. Once that bootstrap phase finishes, the cluster switches completely over to the agent-driven model for its day-to-day configuration updates.
+
+---
+
+## 5. Multi-Node (3-Node) Cluster Coordination Plan
+
+While the baseline GGD architecture is designed to turn up a Single-Node standalone cluster on loopback `127.0.0.1`, production deployments frequently demand high-availability (HA) control planes consisting of **3 or more node machines**. 
+
+When the upstream **machine database** (or local Gitea-synced cluster variables) specifies a multi-node cluster topology, GGD's Ansible-pull and turnup layers dynamically pivot to orchestrate safe, fully offline multi-node coordination.
+
+```
+                  [ NODE 1 (Bootstrap / Primary) ]
+                  • Gitea & Nexus Active (Registry on 10.0.0.10:5001)
+                  • Holds cluster private key & bmctl CLI
+                  • Runs 'bmctl create cluster'
+                     /                           \
+                    /                             \
+     (SSH deploy / Pull OCI)               (SSH deploy / Pull OCI)
+                  v                                 v
+     [ NODE 2 (Secondary CP) ]         [ NODE 3 (Secondary CP) ]
+     • Ready-Linux Hardened            • Ready-Linux Hardened
+     • Local APT pointed to Nexus      • Local APT pointed to Nexus
+     • Registry Mirror: 10.0.0.10      • Registry Mirror: 10.0.0.10
+```
+
+### 5.1. Discovery & Role Designation
+During the `ready-linux` phase, each node queries the cluster variables database and assigns machine roles dynamically:
+*   **Primary Node (Node 1 - Bootstrap):** Acting as the primary control plane node, Node 1 is responsible for hosting Gitea/Nexus service hubs, maintaining GDC system configuration templates, and executing the cluster installation.
+*   **Secondary Nodes (Node 2 & Node 3):** These nodes complete their baseline OS installation, execute CIS Level 2 hardening, register GPG keyrings, and wait passively for SSH connection handshakes from Node 1.
+
+### 5.2. Offline SSH Trust & Key Exchange
+GDC Bare Metal requires passwordless root SSH access from the bootstrap node to all cluster nodes (including itself) to execute the install. 
+1.  **Workstation Generation:** During Phase 1 ISO build, a cluster-scoped deployment SSH keypair is generated and baked securely into Gitea.
+2.  **Ready-Linux Provisioning:** 
+    *   On **Node 1**, GGD's Ansible playbook writes the private key to `/root/.ssh/id_rsa`.
+    *   On **Node 2 & Node 3**, GGD's playbook writes the corresponding public key to `/root/.ssh/authorized_keys`.
+3.  **Mutual Node Trust:** This establishes automated, secure SSH access across all three nodes completely offline, satisfying GDC's strict root access pre-requisites.
+
+### 5.3. Multi-Node Registry Mirror & Networking Configuration
+Because Node 2 and Node 3 do not run heavy local Nexus image registries (to preserve CPU/RAM), they must retrieve container layers from Node 1's local OCI proxy mirror over the high-speed local network.
+
+1.  **Registry Mirror Hostname Configuration:** In `cluster-config.yaml`, the `registryMirror` endpoint is configured using Node 1's private, static cluster IP (e.g. `10.0.0.10`) instead of localhost:
+    ```yaml
+    # cluster-config.yaml
+    spec:
+      registryMirror:
+        endpoint: http://10.0.0.10:5001
+    ```
+2.  **Control Plane IP Allocations:** The cluster configuration dynamically maps out the three node control plane addresses:
+    ```yaml
+    # cluster-config.yaml
+    spec:
+      controlPlane:
+        nodePoolSpec:
+          nodes:
+            - address: 10.0.0.10 # Node 1 (Bootstrap)
+            - address: 10.0.0.11 # Node 2 (Secondary)
+            - address: 10.0.0.12 # Node 3 (Secondary)
+    ```
+
+### 5.4. Orchestrated Execution & Fallbacks
+The Ansible first-boot playbook on Node 1 manages the multi-node sync flow:
+1.  **Reachability Barrier:** Node 1 blocks executing `bmctl` until both Node 2 and Node 3 answer SSH handshakes on port 22 and respond to ICMP pings.
+2.  **Preflight Dependencies Execution:**
+    *   Node 1 starts Gitea/Nexus.
+    *   Node 2 and Node 3 utilize their local APT configs (which point to Node 1's Nexus proxy or local cache) to run `apt-get install` for the pre-requisite GDC system packages (e.g. `socat`, `conntrack`, `iproute2`), with `addPackageRepo: false` ensuring public external keys are ignored.
+3.  **HA Cluster Turnup:** Node 1 executes `bmctl create cluster -c gdc-edge-cluster`. The utility connects to all three nodes, pulls control plane container layers from `10.0.0.10:5001` (Nexus OCI proxy/hosted group), and forms a highly available 3-node standalone cluster.
+4.  **NodeAgent DaemonSet Deployment:** Once the cluster is fully constructed, the playbook triggers `bmctl deploy nodeagent`, which spawns the NodeAgent daemonset across all 3 nodes to manage ongoing lifecycle and monitoring.
+

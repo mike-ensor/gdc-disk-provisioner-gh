@@ -4,6 +4,10 @@
 
 The project implements a **Hub-and-Spoke Sideloading Architecture** that enables nodes to bootstrap, configure, and receive updates completely offline in low-internet or air-gapped environments, while supporting proxy-pass-thru when internet connectivity is active.
 
+## :alert: ALPHA STATE :alert:
+
+NOTE: This project is in very early alpha state and should not be considered runable or usable at this current point in time.
+
 ---
 
 ## GDC Node Bootstrap & Turnup Sequence
@@ -92,7 +96,7 @@ flowchart LR
 
     subgraph Machine["GDC Node (Host Machine)"]
         direction TB
-        
+
         subgraph AppLayer["Application Layer (User space)"]
             Pods["Pods & User Apps"]:::green
         end
@@ -110,7 +114,7 @@ flowchart LR
     subgraph LocalHub["Local Boundary Services"]
         direction TB
         Gitea["Gitea Mirror<br>(Git Configs & Playbooks)"]:::gray
-        
+
         subgraph Nexus["Nexus Repository Manager"]
             direction TB
             NexusOCI["Container/OCI Proxy<br>(Port 5001)"]:::blue
