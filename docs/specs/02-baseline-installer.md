@@ -71,6 +71,11 @@ This script outputs a tailored, GDC-compliant Subiquity storage layout block bas
   * **Disk 2 (Data Disk):** Initialized as a separate encrypted volume group (`vg_data`), dedicated entirely to `/customer/local-disk` (100G) and `/customer/sds` (remainder of Disk 2). If Disk 2 is a 1TB SSD, `/customer/sds` automatically receives the remaining ~800GB.
   * *Result:* Heavy container image extractions and customer storage I/O on Disk 2 are mathematically isolated from the low-latency consensus database of etcd on Disk 1.
 
+### 3.4. Pre-seeded Storage & Docker Group Repository
+To facilitate immediate offline operations post-boot, the persistent storage allocated to `/var/lib/nexus` is pre-seeded during the late-commands phase with a configured Nexus Repository Manager instance. This instance implements a **Docker Group Repository** pattern to aggregate and serve OCI container images.
+* **Pre-seeded Content:** At ISO creation time, all required OCI container images for the **Cluster** (Kubernetes, etcd, CoreDNS, etc.), **Platform** (management controllers, logging agents), and **Applications** (user workloads and microservices)—complete with their specific semantic versions at the time of compilation—are pre-fetched, packed, and placed inside the ISO's pre-seed structure (`/custom-data/nexus/`).
+* **Storage Allocation:** On Single-Disk topologies, the scaled-down 60 GiB `/var/lib/nexus` logical volume is carefully size-budgeted to ensure the pre-seeded OCI image layers and deb packages cleanly fit within the allocation bounds.
+
 ---
 
 ## 4. Subiquity Autoinstall User-Data (`/nocloud/user-data`)

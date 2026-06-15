@@ -19,6 +19,9 @@ T = 0.0m     BIOS/UEFI Boot Phase         • Node powers on, reads custom GRUB 
 
 T = 1.0m     Live Service Hub Phase       • systemd starts live Gitea (port 3000) & Nexus (8081)
                                             listening on loopback 127.0.0.1 in RAM overlayfs.
+                                          • Nexus initializes pre-seeded repositories, including the
+                                            Docker Group Repository aggregating hosted (local versioned
+                                            OCI images) and proxy-cache endpoints.
                                           • Subiquity installer launches.
 
 T = 2.0m     LVM Partitioning Phase       • Subiquity matches the largest SSD (e.g. /dev/nvme0n1).
@@ -32,7 +35,11 @@ T = 5.0m     OS Writing Phase             • Subiquity writes core Ubuntu 24.04
                                           • APT pulls standard updates offline from live Nexus proxy port 8081.
 
 T = 12.0m    Late-Command Migration       • Subiquity late-commands copy persistent configurations, Gitea
-                                            repositories, and Nexus caches to the LVM var partition.
+                                            repositories, and Nexus caches to their respective persistent
+                                            LVM partitions (lv_gitea and lv_nexus).
+                                          • The Nexus cache holds the entire pre-seeded OCI library:
+                                            all Cluster (Kubernetes), Platform, and Application container
+                                            images with their exact version tags defined at ISO creation.
                                           • Copies Gitea, Nexus, and `gdc-provision.service` systemd units.
                                           • Writes a temporary, un-checked keyfile /boot/temp_key.key and
                                             maps it in /etc/crypttab to allow one-time passwordless boot.

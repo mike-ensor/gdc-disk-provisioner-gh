@@ -111,13 +111,17 @@ To prevent unauthorized playbook execution, `ansible-pull` is executed with the 
 *   **Enforcement:** The local Git configuration inside the target OS is locked to verify commit signatures against GDC's pre-loaded GPG public keyring stored in `/etc/gpg/gdc-release.gpg`.
 *   Unsigned commits or commits signed by untrusted keys are instantly rejected, aborting playbook runs before host modifications can execute.
 
-### 4.2. Cosign OCI Image Verification (Nexus Proxy)
-Container images sideloaded into Nexus (`gdc-docker-hosted`) or cached via proxy are signed using **Sigstore/Cosign**.
-*   **Enforcement:** Before the local Kubernetes Kubelet or containerd runtime extracts and deploys an OCI container image, an admission webhook (e.g. Policy Controller / Kyverno) intercepts the request and verifies the signature using the local GDC public key:
+### 4.2. Cosign OCI Image Verification & Docker Group Repository Structure
+All container images—whether sideloaded/pre-seeded into Nexus or dynamically cached from upstream—are managed via a **Docker Group Repository** (`gdc-docker-group` on port 5001). This aggregates two underlying repositories:
+1. **Hosted Repository (`gdc-docker-hosted`):** A read-write storage area for local and sideloaded images. During the ISO build process (Phase 1), every OCI image required for **Cluster** bootstrapping, **Platform** operations, and initial **Applications** (along with their exact semantic version tags) is fetched and pushed directly into this hosted registry. This establishes the absolute offline source of truth.
+2. **Proxy Repository (`gdc-docker-proxy`):** A read-only cache configuration that proxies upstream registries (such as `gcr.io` or `docker.io`) for dynamic pulls when online connectivity is active.
+
+Before the local Kubernetes Kubelet or containerd runtime extracts and deploys any OCI container image from the unified group port `5001`, its layers are cryptographically verified using **Sigstore/Cosign**:
+*   **Enforcement:** An admission webhook (e.g., Policy Controller or Kyverno) intercepts the pod scheduling request and asserts image signature validity against the GDC node's public key store:
     ```bash
-    cosign verify --key /etc/cosign/gdc-k8s-signing.pub localhost:5001/gdc/my-image:latest
+    cosign verify --key /etc/cosign/gdc-k8s-signing.pub localhost:5001/gdc/my-image:1.24.0-gdc.1
     ```
-*   Unsigned container layers or signature mismatches abort the Pod deployment, preventing arbitrary image executions.
+*   Unsigned container layers or signature mismatches instantly abort the Pod deployment, block container creation, and prevent execution of arbitrary images.
 
 ---
 
@@ -156,6 +160,16 @@ To maximize idempotence and declarative engineering standards, the entire GDC po
 ### 5.7. CIS Hardening and OS Slimming
 *   Applies CIS Benchmark Level 2 controls (SSH limits, FIPS ciphers, auditd, and sysctl controls).
 *   Purges `snapd`, compiler runtimes, and unnecessary baseline GUI tools.
+
+### 5.8. GDC NodeAgent Pre-Installation & Image Staging
+To enable on-node health monitoring and automated lifecycle management right after cluster turnup, the **GDC NodeAgent** is pre-installed/staged during the Ready-Linux phase.
+*   **Image Caching:** The NodeAgent OCI container image layers (e.g., `gcr.io/gke-release/node-agent-amd64`) are verified and pre-seeded directly into the local `gdc-docker-hosted` repository on Nexus Port `5002`. This guarantees the image can be pulled 100% offline during subsequent phases.
+*   **Host Helpers:** Any required administrative configurations, host validation utilities, or environment parameters used by NodeAgent are pre-staged in `/etc/gdc/nodeagent/` by the post-install Ansible playbook.
+
+### 5.9. Core GDC OCI Image Ingestion
+To guarantee that GDC standalone cluster turnup can be executed completely offline, all required GDC system, control plane, and platform container images are populated into the persistent local registry mirror.
+*   **Image Sources:** The specific GDC Bare Metal release container images (e.g., control plane, CNI, storage drivers, MetalLB)—whose versions are pinned at ISO compilation time—are bundled inside the ISO file structure (`/custom-data/nexus/`).
+*   **Ready-Linux Ingestion:** During first boot, the automated `gdc-provision.service` Ansible playbook triggers an import task. It loads the bundled images into the host container engine, retags them, and pushes them directly into the local `gdc-docker-hosted` repository on loopback Port `5002` (authenticated via internal bootstrap credentials). This populates the local registry mirror ahead of cluster turnup.
 
 ---
 

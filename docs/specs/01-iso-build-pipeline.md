@@ -156,13 +156,15 @@ Sonatype Nexus is configured utilizing **Repository Groups** (formerly known as 
        • Stores custom localized images               • Caches pulled images offline
 ```
 
-* **The OCI/Docker Group Registry:**
+* **The OCI/Docker Group Registry & Build-Time Pinning:**
   * We configure a Nexus Repository Group `gdc-docker-group` bound to local port `5001`.
-  * **Hosted Member (`gdc-docker-hosted`):** Allows administrative tools and deployment scripts to execute direct, fully-tagged image pushes:
+  * **Hosted Member (`gdc-docker-hosted`):** Bound to port `5002`. Allows administrative tools, GDC utilities, and deployment scripts to execute direct, fully-tagged image pushes:
     ```bash
-    docker tag my-image:1.0 localhost:5001/gdc/my-image:1.0
-    docker push localhost:5001/gdc/my-image:1.0
+    docker tag my-image:1.0 localhost:5002/gdc/my-image:1.0
+    docker push localhost:5002/gdc/my-image:1.0
     ```
+  * **Build-Time Version Pinning & Pre-fetching:** The GDC Bare Metal release version is a critical variable specified in `build.env` (e.g., `GDC_BM_VERSION=1.32.400-gke.68`). During Phase 1 ISO compilation, the workstation downloads GDC's package bundle `bmpackages_$VERSION.tar.xz`, extracts the container images, pulls them, and bakes them directly into the ISO's local staging folder (`/custom-data/nexus/`).
+  * **First-Boot Ingestion:** On target OS first boot (the `ready-linux` phase), the local Ansible playbook takes these pre-packed container layers from the ISO mount, authenticates, and pushes them directly into the local `gdc-docker-hosted` repository (on Port `5002`). This populates the offline cache for subsequent standalone cluster turnup.
   * **Proxy Member (`gdc-docker-proxy`):** Points to upstream public OCI registries (e.g. Docker Hub, Google Artifact Registry). When a node requests an image, Nexus fetches it from upstream, caches it in the local blob store, and serves it. Subsequent offline pulls fetch entirely from Nexus's cache.
 * **The APT and LLM Groups:**
   * **APT Group (`gdc-apt-group`):** Group of `gdc-apt-hosted` (local updates) and `gdc-apt-proxy` (mirroring upstream Ubuntu security archives).

@@ -111,11 +111,36 @@ The GDC node initiates a secure, outbound-only **Reverse VPN Tunnel** (e.g. via 
 
 ---
 
-## 4. Diagnostic Audio Indicators (Local Operator Feedback)
+## 4. Pre-Update Safety: Local Cluster Backup (`bmctl backup cluster`)
+
+To prevent catastrophic cluster data loss during OS upgrades, GDC platform updates, or Ansible playbook executions, a local, automated **Pre-Update Cluster Backup** is mandatory. This must be executed as the very first task before any host modifications or platform updates are applied.
+
+### 4.1. Backup Mechanics
+We leverage the GDC native command-line backup utility (documented in [GDC Bare Metal bmctl Command Reference](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/reference/bmctl#backup_cluster)). 
+
+The local Ansible playbook or update script executes:
+```bash
+bmctl backup cluster \
+  --cluster=gdc-edge-cluster \
+  --kubeconfig=/root/bmctl-workspace/gdc-edge-cluster/gdc-edge-cluster-kubeconfig
+```
+
+### 4.2. Operational Guardrails
+1.  **Backup Storage Location:** The backup utility outputs a tarball containing the cluster's etcd consensus state, certificates, and critical control plane Custom Resources. This is saved to `bmctl-workspace/gdc-edge-cluster/gdc-edge-cluster-backup-<timestamp>.tar.gz` located on the target node's high-capacity persistent volume (`lv_var` or `/root`).
+2.  **Verification Check:** The backup task must successfully exit with `code 0` and write its completion token to the installer log before the update sequence is permitted to proceed:
+    ```bash
+    [GDC-UPDATE-GOAL] Starting Task: Pre-Update local Cluster Backup via bmctl
+    [GDC-UPDATE-SUCCESS] Local Cluster Backup completed successfully. Archive: /root/bmctl-workspace/...tar.gz
+    ```
+3.  **Failure Path:** If the `bmctl backup cluster` task fails or fails to write the backup archive, the update run is aborted immediately, the node's configuration is left in its previous stable state, and the PC speaker triggers the rapid error warning beep.
+
+---
+
+## 5. Diagnostic Audio Indicators (Local Operator Feedback)
 Since edge nodes are booted headlessly and updates execute without a screen, the update script utilizes the server's internal PC Speaker (`beep` / `/dev/console` write) to output clear diagnostic signals to the physical operator:
 
 *   **Error Signal (Two Rapid, Loud Beeps):**
-    *   *Triggers on:* Signature verification failure (untrusted USB) or directory copy crash.
+    *   *Triggers on:* Signature verification failure (untrusted USB), directory copy crash, or **Pre-Update Cluster Backup failure**.
     *   *Frequency:* 400Hz, duration 0.2s, pause 0.2s.
     *   *Operator Action:* Do NOT remove USB. Connect serial console to check `/var/log/syslog` for `[GDC-INSTALL-FAIL]` diagnostic details.
 *   **Success Signal (One Long, High-Pitch Beep):**

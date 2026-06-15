@@ -41,6 +41,13 @@ A persistent Sonatype Nexus Repository Manager installed on the target GDC node.
 
 A set of centralized configuration representing the desired state of a configurable distinct layer of the system. Often these are "platform", "operating-system" and "applications". The configuration is peformed in a "reconcillation loop" consisting of "observe", "diff", and "reconcile" loop allowing a system to maintain a desired state until given a new state. Pull-based configuration means that each entity polls and pulls down the configuration in which to be come consistent with. Pull-based configuration is also known as "Desired State" configuration
 
+#### 5. Docker Group Repository
+
+An OCI registry pattern in Sonatype Nexus that aggregates multiple repositories under a single unified endpoint URL to simplify container image retrieval:
+- **Hosted Repository:** A read-write repository (e.g., `docker-internal`) used for manually pushing or sideloading custom and pre-downloaded OCI container images.
+- **Proxy Repository:** A read-only cache repository (e.g., `docker-upstream`) that lazily fetches and caches images from public/upstream registries (like `gcr.io` or `docker.io`).
+- **Unified Workflow:** Container runtimes (CRI/Kubelet) pull exclusively from the single Group Repository URL. Nexus automatically resolves requests by checking the Hosted repository first for sideloaded images, falling back to the Proxy repository to fetch and cache from upstream when online.
+
 ---
 
 ### Provisioning & Storage

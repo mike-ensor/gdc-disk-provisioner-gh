@@ -56,18 +56,21 @@ flowchart LR
 
     %% Nodes
     Stage5(["Stage 5: Cluster Turnup"])
+    Backup["Pre-Update Safety: Local Cluster Backup"]
     Stage6A["Stage 6A: Low-Internet Update (Offline Sideload)"]
     Stage6B["Stage 6B: Connected Update (Reverse Tunnel)"]
     UpdatedOS(["Updated OS & GDC Platform"])
 
     %% Connections
-    Stage5 -->|Low-Internet Sideload| Stage6A
-    Stage5 -->|Connected Tunnel| Stage6B
+    Stage5 --> Backup
+    Backup -->|Low-Internet Sideload| Stage6A
+    Backup -->|Connected Tunnel| Stage6B
     Stage6A --> UpdatedOS
     Stage6B --> UpdatedOS
 
     %% Apply Styles
     class Stage5 orange;
+    class Backup red;
     class Stage6A blue;
     class Stage6B yellow;
     class UpdatedOS green;
@@ -96,6 +99,7 @@ flowchart LR
 
         subgraph K8sLayer["Orchestration Layer (Kubernetes)"]
             K8s["Cluster Control Plane / Kubelet"]:::orange
+            NodeAgent["GDC NodeAgent DaemonSet"]:::orange
         end
 
         subgraph OSLayer["Operating System Layer (Host OS)"]
@@ -126,6 +130,7 @@ flowchart LR
     %% Connections within the Node/Machine to Local Hub
     HostOS -->|"Fetches apt updates"| NexusAPT
     K8s -->|"Pulls cluster components"| NexusOCI
+    NodeAgent -->|"Pulls system images"| NexusOCI
     Pods -->|"Pulls container images"| NexusOCI
     Pods -->|"Loads LLM weights"| NexusLLM
 
@@ -141,7 +146,7 @@ flowchart LR
     class NexusAPT red;
     class NexusLLM yellow;
     class Pods green;
-    class K8s orange;
+    class K8s,NodeAgent orange;
     class HostOS red;
     class UpstreamGit gray;
     class UpstreamOCI blue;
@@ -165,18 +170,18 @@ flowchart LR
 
 #### **Stage 3: Ready-Linux Provisioning (Crypto-Sealing & Hardening)**
 *   **Description:** Boots the target operating system for the first time, executing local playbooks via the automated `gdc-provision.service` and `ansible-pull` cron cycles.
-*   **Action:** Performs wait-for-port service handshakes, creates `gdc-admin` with passwordless sudo, enrolls and seals LUKS disk encryption keys to the hardware TPM 2.0 chip, and executes standard CIS Level 2 hardening.
-*   **Main Outcomes:** Fully hardened, hardware-attested GDC Production Node with un-extractable TPM-bound identity certificates.
+*   **Action:** Performs wait-for-port service handshakes, creates `gdc-admin` with passwordless sudo, enrolls and seals LUKS disk encryption keys to the hardware TPM 2.0 chip, executes standard CIS Level 2 hardening, and pre-stages GDC NodeAgent helper files and container image layers.
+*   **Main Outcomes:** Fully hardened, hardware-attested GDC Production Node with un-extractable TPM-bound identity certificates and offline-cached NodeAgent assets.
 
 #### **Stage 4: GDC Bootstrapping (Local Dependency Integration)**
 *   **Description:** Launches Gitea and Sonatype Nexus persistently to act as offline **Bootstrap Dependency Interfaces**.
 *   **Action:** Serves pre-cached container image layers, playbook Git repositories, Debian package mirrors, and raw LLM weight assets locally on the host. Handles headless "Sneakernet" physical USB updates automatically utilizing custom `udev` rules and motherboard speaker status beeps.
 *   **Main Outcomes:** Node is completely self-sufficient and isolated, capable of receiving offline patches and upgrades with zero network configuration drift.
 
-#### **Stage 5: Cluster Turnup (Cluster Creation)**
+#### **Stage 5: Cluster Turnup (Cluster Creation & NodeAgent Deployment)**
 *   **Description:** Initiates and spawns GDC Bare Metal Kubernetes orchestrators completely offline.
-*   **Action:** Executes automated cluster turnup commands (via GDC's `bmctl` or GKE On-Prem API interfaces) pulling system layers locally from the Nexus port `5001` group OCI registry.
-*   **Main Outcomes:** Active, highly secure, production-ready Google Distributed Cloud bare-metal cluster running active user workloads.
+*   **Action:** Executes automated cluster turnup commands (via GDC's `bmctl` tool) pulling system layers locally from the Nexus port `5001` group OCI registry, and deploys the pre-staged GDC NodeAgent onto node machines post-creation.
+*   **Main Outcomes:** Active, highly secure, production-ready Google Distributed Cloud bare-metal cluster running active user workloads with the GDC NodeAgent fully operational.
 
 #### **Stage 6A: Low-Internet Update (Offline Sideload)**
 *   **Description:** An offline-first operational pathway to execute system and platform updates via localized physical media or secure regional GCS bucket caching.
