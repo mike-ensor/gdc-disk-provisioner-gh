@@ -73,6 +73,84 @@ flowchart LR
     class UpdatedOS green;
 ```
 
+---
+
+## Hub-and-Spoke Sideloading & Proxy Pass-Thru Architecture
+
+```mermaid
+flowchart LR
+    %% Define Google Brand Styles
+    classDef gray fill:#F1F3F4,stroke:#9AA0A6,stroke-width:2px,color:#202124;
+    classDef blue fill:#4285F4,stroke:#1A73E8,stroke-width:2px,color:#FFFFFF;
+    classDef red fill:#EA4335,stroke:#C5221F,stroke-width:2px,color:#FFFFFF;
+    classDef yellow fill:#FBBC05,stroke:#F29900,stroke-width:2px,color:#202124;
+    classDef green fill:#34A853,stroke:#137333,stroke-width:2px,color:#FFFFFF;
+    classDef orange fill:#F57C00,stroke:#E65100,stroke-width:2px,color:#FFFFFF;
+
+    subgraph Machine["GDC Node (Host Machine)"]
+        direction TB
+        
+        subgraph AppLayer["Application Layer (User space)"]
+            Pods["Pods & User Apps"]:::green
+        end
+
+        subgraph K8sLayer["Orchestration Layer (Kubernetes)"]
+            K8s["Cluster Control Plane / Kubelet"]:::orange
+        end
+
+        subgraph OSLayer["Operating System Layer (Host OS)"]
+            HostOS["Host OS (Ubuntu 24.04)"]:::red
+        end
+    end
+
+    subgraph LocalHub["Local Boundary Services"]
+        direction TB
+        Gitea["Gitea Mirror<br>(Git Configs & Playbooks)"]:::gray
+        
+        subgraph Nexus["Nexus Repository Manager"]
+            direction TB
+            NexusOCI["Container/OCI Proxy<br>(Port 5001)"]:::blue
+            NexusAPT["APT/Debian Proxy<br>(Port 8081)"]:::red
+            NexusLLM["LLM/Hugging Face Proxy<br>(Port 8081/raw)"]:::yellow
+        end
+    end
+
+    subgraph Upstream["Upstream Source Registries (Internet / Intranet)"]
+        direction TB
+        UpstreamGit["Upstream Git Repo<br>(GCP Source Repo / GitHub)"]:::gray
+        UpstreamOCI["Upstream Container Registries<br>(gcr.io, docker.io, etc.)"]:::blue
+        UpstreamAPT["Upstream Debian Mirrors<br>(archive.ubuntu.com, apt.company.com)"]:::red
+        UpstreamLLM["Upstream Model Sources<br>(Hugging Face, GCS)"]:::yellow
+    end
+
+    %% Connections within the Node/Machine to Local Hub
+    HostOS -->|"Fetches apt updates"| NexusAPT
+    K8s -->|"Pulls cluster components"| NexusOCI
+    Pods -->|"Pulls container images"| NexusOCI
+    Pods -->|"Loads LLM weights"| NexusLLM
+
+    %% Local Hub to External Upstreams (Pass-thru / Proxy)
+    Gitea -->|"Clones / Pulls / Forks"| UpstreamGit
+    NexusOCI -->|"Proxies requests"| UpstreamOCI
+    NexusAPT -->|"Proxies requests"| UpstreamAPT
+    NexusLLM -->|"Proxies requests"| UpstreamLLM
+
+    %% Apply Styles
+    class Gitea gray;
+    class NexusOCI blue;
+    class NexusAPT red;
+    class NexusLLM yellow;
+    class Pods green;
+    class K8s orange;
+    class HostOS red;
+    class UpstreamGit gray;
+    class UpstreamOCI blue;
+    class UpstreamAPT red;
+    class UpstreamLLM yellow;
+```
+
+---
+
 ### Enumeration of Lifecycle Stages
 
 #### **Stage 1: ISO Generation & Build (IaC Build)**
