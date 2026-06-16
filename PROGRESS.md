@@ -76,6 +76,9 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [ ] Allocate GDC Logical Volumes (`lv_containerd`, `lv_etcd`, `lv_etcd_events`)
   - [ ] Allocate Service Logical Volumes (`lv_gitea`, `lv_nexus`)
   - [ ] Allocate Customer Logical Volumes (`lv_local_disk` [100GiB max], `lv_sds` [remainder])
+- [ ] **FUTURE INVESTIGATION: Linux VRF for Multi-IP Isolation**
+  - [ ] Explore Linux VRF to support two IPs on a single physical interface (see `docs/future/linux-vrf.md`)
+  - [ ] Complete full technical specification for VRF-based routing isolation
 
 ---
 
