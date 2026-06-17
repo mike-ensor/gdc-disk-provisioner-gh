@@ -1,0 +1,102 @@
+# ==============================================================================
+# GDC Bootloader - Google Cloud Build Pipeline Configuration
+# ==============================================================================
+# This pipeline builds the custom GDC bootstrap ISO completely in the cloud.
+# To avoid uploading large files, it retrieves the "blessed" source ISO from
+# GCS, remasters it in a secure, non-root step, and uploads the compiled
+# versioned ISO back to GCS.
+# ==============================================================================
+
+steps:
+  # ==========================================
+  # Step 1: Pull "Blessed" ISO from GCS
+  # ==========================================
+  # Pulls the official Ubuntu 24.04 ISO from your GCS bucket source folder 
+  # directly into the local build cache workspace.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'pull-source-iso'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "[-] Creating local cache directory structure..."
+        mkdir -p .cache/isos
+        
+        # Determine source bucket for the blessed ISO
+        if [ -n "${_ISO_BLESSED_GCS_BUCKET}" ]; then
+          BLESSED_BUCKET=$(echo "${_ISO_BLESSED_GCS_BUCKET}" | sed 's/^gs:\/\///')
+        else
+          BLESSED_BUCKET=$(echo "${_GCS_BUCKET_NAME}" | sed 's/^gs:\/\///')
+        fi
+        
+        echo "[-] Checking GCS for source ISO at gs://$${BLESSED_BUCKET}/source/${_SOURCE_ISO_FILENAME}..."
+        if gcloud storage objects describe gs://$${BLESSED_BUCKET}/source/${_SOURCE_ISO_FILENAME} &>/dev/null; then
+          echo "[-] Downloading blessed ISO from GCS bucket..."
+          gcloud storage cp gs://$${BLESSED_BUCKET}/source/${_SOURCE_ISO_FILENAME} .cache/isos/${_SOURCE_ISO_FILENAME}
+          echo "[-] Download complete."
+        else
+          echo "[!] Error: Source ISO not found at gs://$${BLESSED_BUCKET}/source/${_SOURCE_ISO_FILENAME}." >&2
+          echo "[!] Please upload the blessed ISO to your bucket first to avoid heavy internet downloads." >&2
+          exit 1
+        fi
+
+  # ==========================================
+  # Step 2: ISO Compilation / Remastering
+  # ==========================================
+  # Uses pre-built custom builder container with xorriso, rsync, git, and make
+  # pre-installed to minimize startup latency and ensure reproducibility.
+  - name: '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/gdc-build-images/iso-builder:${_BUILD_VERSION}'
+    id: 'compile-custom-iso'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "[-] Configuring dynamic version tag in build.env to: ${_ISO_VERSION}..."
+        sed -i 's/^ISO_VERSION=.*/ISO_VERSION=${_ISO_VERSION}/g' src/build/build.env
+        
+        echo "[-] Launching GDC ISO Remastering Engine..."
+        # remaster.sh automatically reads .cache/isos/ for the blessed base image
+        ./src/build/remaster.sh --auto-approve
+
+  # ==========================================
+  # Step 3: Publish Customized ISO to GCS
+  # ==========================================
+  # Uses gcloud container to parse build metadata and securely upload the 
+  # final compiled ISO to the specified destination GCS bucket.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'publish-custom-iso'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        BUILD_META="build-workspace/build_meta.env"
+        if [ ! -f "$${BUILD_META}" ]; then
+          echo "[!] Error: Compilation metadata file not found at $${BUILD_META}." >&2
+          exit 1
+        fi
+        
+        # Import variables from remaster.sh output
+        source "$${BUILD_META}"
+        echo "[-] Found compiled ISO: $${ISO_OUTPUT_NAME} at $${ISO_OUTPUT_PATH}"
+        
+        BUCKET_NAME=$(echo "${_GCS_BUCKET_NAME}" | sed 's/^gs:\/\///')
+        
+        echo "[-] Uploading compiled ISO to gs://$${BUCKET_NAME}/$${ISO_OUTPUT_NAME}..."
+        gcloud storage cp "$${ISO_OUTPUT_PATH}" "gs://$${BUCKET_NAME}/$${ISO_OUTPUT_NAME}"
+        echo "[-] Upload complete."
+
+# Default substitutions for local development / manual runs
+substitutions:
+  _GCS_BUCKET_NAME: 'gdc-disk-provisioner-isos'
+  _SOURCE_ISO_FILENAME: 'ubuntu-24.04-live-server-amd64.iso'
+  _ISO_VERSION: '1.0.0'
+  _BUILD_VERSION: '1.0.0'
+  _REGION: 'us-central1'
+  _PROJECT_ID: 'my-gcp-project-id'
+  _ISO_BLESSED_GCS_BUCKET: ''
+
+# Extend timeout to 30 minutes in case of larger asset synchronization
+timeout: '1800s'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

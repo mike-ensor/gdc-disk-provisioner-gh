@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# GDC Bootloader - Google Cloud Build Trigger
+# ==============================================================================
+# Initiates the custom GDC ISO compilation pipeline in Google Cloud Build.
+# Enforces that all critical environment variables are set before execution.
+# ==============================================================================
+
+set -euo pipefail
+
+# ==========================================
+# 1. Enforce Mandatory Environment Variables
+# ==========================================
+MISSING_VARS=0
+for var in PROJECT_ID BUILD_VERSION REGION ISO_VERSION; do
+    if [[ -z "${!var:-}" ]]; then
+        echo "[!] Error: Mandatory environment variable '${var}' is not set." >&2
+        MISSING_VARS=1
+    fi
+done
+
+if [[ "${MISSING_VARS}" -eq 1 ]]; then
+    echo "" >&2
+    echo "Please set the required environment variables before running this script:" >&2
+    echo "  export PROJECT_ID=\"your-gcp-project-id\"" >&2
+    echo "  export BUILD_VERSION=\"1.0.0\"" >&2
+    echo "  export REGION=\"us-central1\"" >&2
+    echo "  export ISO_VERSION=\"1.0.0\"" >&2
+    exit 1
+fi
+
+# Find script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${SCRIPT_DIR}"
+ENV_FILE="${PROJECT_ROOT}/src/build/build.env"
+
+# ==========================================
+# 2. Parse Defaults from build.env
+# ==========================================
+GCS_BUCKET_DEFAULT=""
+SOURCE_ISO_DEFAULT="ubuntu-24.04-live-server-amd64.iso"
+
+if [[ -f "${ENV_FILE}" ]]; then
+    GCS_BUCKET_DEFAULT=$(grep "^GCS_BUCKET=" "${ENV_FILE}" | cut -d'=' -f2 | tr -d '"'\')
+    SOURCE_ISO_DEFAULT=$(grep "^SOURCE_ISO_FILENAME=" "${ENV_FILE}" | cut -d'=' -f2 | tr -d '"'\')
+fi
+
+# Initialize runtime variables
+GCS_BUCKET="${GCS_BUCKET_DEFAULT}"
+SOURCE_ISO_FILENAME="${SOURCE_ISO_DEFAULT}"
+
+# ==========================================
+# 3. Help and Usage Menu
+# ==========================================
+show_help() {
+    echo "GDC ISO Cloud Build Launcher"
+    echo "Usage: $0 [options]"
+    echo ""
+    echo "Options:"
+    echo "  -b, --bucket VALUE       GCS Bucket Name (default: ${GCS_BUCKET_DEFAULT:-None})"
+    echo "  -f, --filename VALUE     Blessed Source ISO Filename (default: ${SOURCE_ISO_DEFAULT})"
+    echo "  -h, --help               Show this help menu"
+    echo ""
+    echo "Environment Variables (Enforced):"
+    echo "  PROJECT_ID               Active GCP Project ID"
+    echo "  BUILD_VERSION            Custom builder image tag (iso-builder:BUILD_VERSION)"
+    echo "  REGION                   GCP Region for registry and metadata lookup"
+    echo "  ISO_VERSION              Version tag for the custom GDC ISO"
+    echo ""
+    echo "Example:"
+    echo "  export PROJECT_ID=\"my-project\" BUILD_VERSION=\"1.0.0\" REGION=\"us-central1\" ISO_VERSION=\"1.0.2\""
+    echo "  $0 --bucket gdc-disk-provisioner-isos"
+    exit 0
+}
+
+# ==========================================
+# 4. Parse Command Line Arguments
+# ==========================================
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -b|--bucket)
+            GCS_BUCKET="$2"
+            shift 2
+            ;;
+        -f|--filename)
+            SOURCE_ISO_FILENAME="$2"
+            shift 2
+            ;;
+        -h|--help)
+            show_help
+            ;;
+        *)
+            echo "[!] Error: Unknown argument '$1'" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# ==========================================
+# 4. Apply Environment Overrides
+# ==========================================
+if [[ -n "${ISO_OUTPUT_BUCKET:-}" ]]; then
+    echo "[-] Environment variable ISO_OUTPUT_BUCKET is set. Overriding target bucket to: ${ISO_OUTPUT_BUCKET}"
+    GCS_BUCKET="${ISO_OUTPUT_BUCKET}"
+fi
+
+# Strip gs:// prefix from bucket name for clean Cloud Build substitution
+GCS_BUCKET_NAME=$(echo "${GCS_BUCKET}" | sed 's/^gs:\/\///')
+ISO_BLESSED_GCS_BUCKET_NAME=$(echo "${ISO_BLESSED_GCS_BUCKET:-}" | sed 's/^gs:\/\///')
+
+# ==========================================
+# 5. Input Validations
+# ==========================================
+if [[ -z "${GCS_BUCKET_NAME}" ]]; then
+    echo "[!] Error: GCS Bucket Name is required. Please set GCS_BUCKET in build.env or pass --bucket." >&2
+    exit 1
+fi
+
+# ==========================================
+# 6. Launch Cloud Build
+# ==========================================
+echo "=============================================================================="
+echo " LAUNCHING GDC ISO CLOUD BUILD PIPELINE"
+echo "=============================================================================="
+echo "  GCP Project ID:  ${PROJECT_ID}"
+echo "  GCP Region:      ${REGION}"
+echo "  Builder Version: ${BUILD_VERSION}"
+echo "  Target ISO Ver:  ${ISO_VERSION}"
+echo "  Dest GCS Bucket: gs://${GCS_BUCKET_NAME}"
+if [[ -n "${ISO_BLESSED_GCS_BUCKET_NAME}" ]]; then
+echo "  Source GCS Bkt:  gs://${ISO_BLESSED_GCS_BUCKET_NAME}"
+else
+echo "  Source GCS Bkt:  gs://${GCS_BUCKET_NAME} (Fallback)"
+fi
+echo "  Source ISO Name: ${SOURCE_ISO_FILENAME}"
+echo "=============================================================================="
+echo "[-] Initiating gcloud builds submit..."
+
+gcloud builds submit "${PROJECT_ROOT}" \
+    --config="${PROJECT_ROOT}/cloudbuild.yaml" \
+    --project="${PROJECT_ID}" \
+    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME}"
+
+echo "[-] Cloud Build job finished successfully."

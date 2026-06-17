@@ -8,11 +8,17 @@
 # Default Shell configuration
 SHELL := /usr/bin/env bash
 
-# Load Environment Configuration
+# Load Environment Configuration (only set defaults if not already set in shell)
 ENV_FILE := build.env
 ifneq ("$(wildcard $(ENV_FILE))","")
-    include $(ENV_FILE)
-    export $(shell sed 's/=.*//' $(ENV_FILE))
+    $(foreach line,$(shell grep -v '^[[:space:]]*\#' $(ENV_FILE) | grep '='), \
+        $(eval KEY := $(word 1,$(subst =, ,$(line)))) \
+        $(eval VAL := $(patsubst $(KEY)=%,%,$(line))) \
+        $(if $(filter undefined default,$(origin $(KEY))), \
+            $(eval $(KEY) := $(VAL)) \
+            $(eval export $(KEY)) \
+        ) \
+    )
 endif
 
 # Internal Paths

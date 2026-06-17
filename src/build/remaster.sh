@@ -15,11 +15,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${PROJECT_ROOT}"
 
-# Load environment configuration
+# Load environment configuration (only load if not already set in the environment)
 ENV_FILE="${SCRIPT_DIR}/build.env"
 if [[ -f "${ENV_FILE}" ]]; then
-    # shellcheck source=/dev/null
-    source "${ENV_FILE}"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Skip comments and empty lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$line" ]] && continue
+        if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            value="${BASH_REMATCH[2]}"
+            # Strip quotes if present
+            value="${value#\"}"
+            value="${value%\"}"
+            value="${value#\'}"
+            value="${value%\'}"
+            # Export only if not already set in active shell
+            if [[ -z "${!key:-}" ]]; then
+                export "${key}"="${value}"
+            fi
+        fi
+    done < "${ENV_FILE}"
 else
     echo "[!] Error: Configuration file build.env not found in ${SCRIPT_DIR}" >&2
     exit 1
@@ -256,15 +272,44 @@ fi
 # ==============================================================================
 echo "[-] Compiling bootable custom GDC ISO..."
 
+# ==============================================================================
+# 5. Compile & Repack Bootable ISO (using xorriso)
+# ==============================================================================
+echo "[-] Extracting embedded EFI system partition from original ISO dynamically..."
+PART_INFO=$(xorriso -indev "${SOURCE_ISO}" -report_el_torito as_mkisofs 2>/dev/null | grep "\-append_partition 2")
+
+if [[ -n "${PART_INFO}" ]]; then
+    INTERVAL=$(echo "${PART_INFO}" | grep -o -E "[0-9]+d-[0-9]+d")
+    START_SECTOR=$(echo "${INTERVAL}" | cut -d'-' -f1 | tr -d 'd')
+    END_SECTOR=$(echo "${INTERVAL}" | cut -d'-' -f2 | tr -d 'd')
+    COUNT=$((END_SECTOR - START_SECTOR + 1))
+    
+    echo "[-] Found EFI partition sectors: ${START_SECTOR} to ${END_SECTOR} (Count: ${COUNT})"
+    mkdir -p "$(dirname "${EXTRACT_DIR}/boot/grub/efi.img")"
+    dd if="${SOURCE_ISO}" of="${EXTRACT_DIR}/boot/grub/efi.img" bs=512 skip="${START_SECTOR}" count="${COUNT}" status=none
+    echo "[-] EFI system partition extracted successfully."
+else
+    echo "[!] Warning: No appended EFI partition found in original ISO. Attempting fallback..."
+fi
+
+echo "[-] Compiling bootable custom GDC ISO..."
+
 # Ubuntu 24.04 live ISO uses standard grub-efi booting
 # We compile back referencing the extracted grub-boot records
-xorriso -as mkisofs -r -V "GDC-BOOTSTRAP" \
-  -J -b boot/grub/efi.img -c boot.catalog \
+XORRISO_LOG=$(mktemp)
+if ! xorriso -as mkisofs -r -V "GDC-BOOTSTRAP" \
+  -J -b boot/grub/i386-pc/eltorito.img -c boot.catalog \
   -no-emul-boot -boot-load-size 4 -boot-info-table \
-  -elt-torito-alt-boot -e boot/grub/efi.img -no-emul-boot \
+  -eltorito-alt-boot -e boot/grub/efi.img -no-emul-boot \
   -isohybrid-gpt-basdat \
   -o "${FINAL_ISO_PATH}" \
-  "${EXTRACT_DIR}" &>/dev/null
+  "${EXTRACT_DIR}" >"${XORRISO_LOG}" 2>&1; then
+    echo "[!] Error: xorriso compilation failed!" >&2
+    cat "${XORRISO_LOG}" >&2
+    rm -f "${XORRISO_LOG}"
+    exit 5
+fi
+rm -f "${XORRISO_LOG}"
 
 echo "[-] ISO generated successfully!"
 echo "[-] Location: ${FINAL_ISO_PATH}"

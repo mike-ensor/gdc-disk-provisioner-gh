@@ -1,0 +1,24 @@
+# ==============================================================================
+# GDC Bootloader - Gcloud Ignore File
+# ==============================================================================
+# Prevents uploading heavy local cache directories and build outputs to 
+# Google Cloud Build during "gcloud builds submit".
+# ==============================================================================
+
+# Git files
+.git
+.gitignore
+
+# Local build workspaces (can be multi-gigabyte)
+build-workspace/
+
+# Local cache directory (contains raw ISOs, heavy binaries, blobs)
+.cache/
+
+# Local build artifacts
+*.iso
+*.log
+
+# Synology sync key files/logs for safety
+*gcp-sa-key.json
+*sync.log
