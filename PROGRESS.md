@@ -20,6 +20,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [x] **GDC-SPEC-DEP-001: GDC Master Dependency Matrix** — Written & Approved
 - [x] **Governance Rules (`GEMINI.md`)** — Documented
 - [x] **Domain Glossary (`DICTIONARY.md`)** — Documented
+- [x] **Architecture User Guides (`docs/DISKS.md`, `docs/NETWORK.md`, `docs/SECURITY.md`, `docs/POST-INSTALL.md`)** — Documented & Aligned
 
 ---
 
@@ -79,6 +80,11 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [ ] **FUTURE INVESTIGATION: Linux VRF for Multi-IP Isolation**
   - [ ] Explore Linux VRF to support two IPs on a single physical interface (see `docs/future/linux-vrf.md`)
   - [ ] Complete full technical specification for VRF-based routing isolation
+- [ ] **FUTURE INVESTIGATION: Installation Companion Webhook Receiver ("install-companion")**
+  - [ ] Research/Design a secure, lightweight deployment companion app (running locally or in the cloud, pointed to in configuration via IP/DNS).
+  - [ ] The companion will act as the native Subiquity webhook log recipient and translate/forward logs to GCP Cloud Logging.
+  - [ ] Explore other potential installer helper hooks (e.g. dynamic state verification, network checks).
+  - [ ] **FUTURE FEATURE:** Reach out to the "companion" API during build-time inside `remaster.sh` to dynamically retrieve target VLAN tags, subnets, and gateways.
 
 ---
 

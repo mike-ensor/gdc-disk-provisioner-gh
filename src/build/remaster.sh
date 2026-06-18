@@ -170,34 +170,240 @@ local-hostname: gdc-standalone-node
 EOF
 
 # B. Inject Autoinstall user-data
-# Note: For this pipeline specimen, we stub a clean autoinstall block that satisfies GDC parameters
+# Production-grade user-data enforcing dynamic LVM schemes, SSH enablement, webhook reporting, and robust error logging.
 cat <<'EOF' > "${EXTRACT_DIR}/nocloud/user-data"
 #cloud-config
 autoinstall:
   version: 1
   identity:
-    hostname: gdc-node-bootstrap
+    hostname: gdc-standalone-node
     username: temporary-installer
-    password: "$6$rounds=4096$rounds_salt$placeholder_hash"
+    password: "$6$lXNktB5evbvaOJPd$xytpJZFOGTZ0Lj9c4EWIMrMfyOC7qkT5sO0baZckP3bx3AvIFFpl3j4FYbWXMuvfd1/pbWgPQZSv4/LvV9MQP/"
   locale: en_US.UTF-8
   keyboard: {layout: us}
   network:
     network:
       version: 2
+      renderer: networkd
       ethernets:
-        all-en:
-          match:
-            name: "e*"
-          dhcp4: true
-  storage:
-    layout:
-      name: direct
+        eth0:
+          dhcp4: no
+          dhcp6: no
+          link-local: []
+      vlans:
+        eth0.__MACHINE_VLAN_ID__:
+          id: __MACHINE_VLAN_ID__
+          link: eth0
+          addresses: [__MACHINE_IP_CIDR__]
+          routes:
+            - to: default
+              via: __MACHINE_GATEWAY__
+              metric: 100
+          nameservers:
+            addresses: [__MACHINE_DNS_1__, __MACHINE_DNS_2__]
+        eth0.__K8S_VLAN_ID__:
+          id: __K8S_VLAN_ID__
+          link: eth0
+          addresses: [__K8S_IP_CIDR__]
+          routes:
+            - to: default
+              via: __K8S_GATEWAY__
+              metric: 200
+          nameservers:
+            addresses: [__K8S_DNS__]
+      vrfs:
+        vrf-machine:
+          table: 10
+          interfaces: [eth0.__MACHINE_VLAN_ID__]
+        vrf-k8s:
+          table: 20
+          interfaces: [eth0.__K8S_VLAN_ID__]
+  ssh:
+    install-server: true
+    allow-pw: true
+  packages:
+    - ansible
+    - git
+  reporting:
+    gdc-gateway:
+      type: webhook
+      url: http://10.0.0.1:8080/v1/install-logs
+      level: info
+  early-commands:
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Scanning block devices and generating dynamic storage config"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Scanning block devices and generating dynamic storage config"
+      cp /cdrom/custom-data/generate_storage_config.sh /tmp/generate_storage_config.sh
+      chmod +x /tmp/generate_storage_config.sh
+      if /tmp/generate_storage_config.sh; then
+        echo "=============================================================================="
+        echo "[GDC-INSTALL-GOAL] Task Succeeded: Dynamic storage config generated successfully"
+        echo "=============================================================================="
+        logger -t gdc-provisioner "[GOAL] Dynamic storage config generated successfully"
+      else
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Dynamic storage configuration generation failed!"
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        logger -p user.err -t gdc-provisioner "[FAILURE] Dynamic storage configuration generation failed"
+        exit 1
+      fi
+      # Merge generated storage config into /autoinstall.yaml
+      python3 -c "import yaml; c=yaml.safe_load(open('/autoinstall.yaml')); s=yaml.safe_load(open('/run/autoinstall-storage.yaml')); c['autoinstall']['storage'] = s['storage']; yaml.safe_dump(c, open('/autoinstall.yaml', 'w'))"
+  late-commands:
+    # Sync pre-seeded assets cleanly and set up service persistent storage
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Syncing Gitea & Nexus pre-seeded data and systemd units"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Syncing Gitea & Nexus pre-seeded data and systemd units"
+      mkdir -p /target/var/lib/gitea /target/var/lib/nexus
+      if rsync -a --sparse /cdrom/custom-data/gitea/ /target/var/lib/gitea/ && \
+         rsync -a --sparse /cdrom/custom-data/nexus/ /target/var/lib/nexus/; then
+        logger -t gdc-provisioner "[GOAL] Asset synchronization completed"
+      else
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Syncing pre-seeded assets failed!"
+        exit 1
+      fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Deploying and enabling systemd service units"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Deploying and enabling systemd service units"
+      cp /cdrom/custom-data/systemd/gitea.service /target/etc/systemd/system/
+      cp /cdrom/custom-data/systemd/nexus.service /target/etc/systemd/system/
+      cp /cdrom/custom-data/systemd/gdc-provision.service /target/etc/systemd/system/
+      curtin in-target -- systemctl enable gitea.service nexus.service gdc-provision.service
+    # Ssh and passwordless root-unlock setup for transition gap
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Configuring passwordless boot-unlock key file"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Configuring passwordless boot-unlock key file"
+      mkdir -p /target/etc/keys
+      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /target/etc/keys/temp_key.key
+      chmod 400 /target/etc/keys/temp_key.key
+      CRYPT_DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -n 1)
+      if [ -n "$CRYPT_DEV" ]; then
+        echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /tmp/pass.txt
+        if cryptsetup luksAddKey --key-file=/tmp/pass.txt "$CRYPT_DEV" /target/etc/keys/temp_key.key; then
+          logger -t gdc-provisioner "[GOAL] Added key to LUKS device $CRYPT_DEV"
+          sed -i 's/ none / \/etc\/keys\/temp_key.key /' /target/etc/crypttab
+          logger -t gdc-provisioner "[GOAL] Updated crypttab to use key file"
+        else
+          echo "[GDC-INSTALL-FAIL] Critical Failure: Failed to add key to LUKS device!"
+          exit 1
+        fi
+        rm -f /tmp/pass.txt
+      else
+        logger -t gdc-provisioner "[GOAL] No LUKS device found, skipping key enrollment"
+      fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Rebuilding initramfs ramdisks"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Rebuilding initramfs ramdisks"
+      if curtin in-target -- update-initramfs -u -k all; then
+        echo "=============================================================================="
+        echo "[GDC-INSTALL-GOAL] All custom late commands succeeded!"
+        echo "=============================================================================="
+        logger -t gdc-provisioner "[GOAL] Rebuilding initramfs succeeded"
+      else
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Rebuilding initramfs failed!"
+        exit 1
+      fi
 EOF
+
+# Dynamically replace build-time network variables inside the user-data template
+python3 -c "
+import os
+ud_path = '${EXTRACT_DIR}/nocloud/user-data'
+with open(ud_path, 'r') as f:
+    content = f.read()
+
+replacements = {
+    '__MACHINE_VLAN_ID__': os.environ.get('MACHINE_VLAN_ID', '10'),
+    '__K8S_VLAN_ID__': os.environ.get('K8S_VLAN_ID', '20'),
+    '__MACHINE_IP_CIDR__': os.environ.get('MACHINE_IP_CIDR', '192.168.10.5/24'),
+    '__MACHINE_GATEWAY__': os.environ.get('MACHINE_GATEWAY', '192.168.10.1'),
+    '__MACHINE_DNS_1__': os.environ.get('MACHINE_DNS_1', '8.8.8.8'),
+    '__MACHINE_DNS_2__': os.environ.get('MACHINE_DNS_2', '8.8.4.4'),
+    '__K8S_IP_CIDR__': os.environ.get('K8S_IP_CIDR', '192.168.20.5/24'),
+    '__K8S_GATEWAY__': os.environ.get('K8S_GATEWAY', '192.168.20.1'),
+    '__K8S_DNS__': os.environ.get('K8S_DNS', '1.1.1.1'),
+}
+
+for placeholder, val in replacements.items():
+    content = content.replace(placeholder, str(val))
+
+with open(ud_path, 'w') as f:
+    f.write(content)
+"
 
 # C. Inject Custom Services Directory (Hub and Spoke structures)
 mkdir -p "${EXTRACT_DIR}/custom-data/gitea"
 mkdir -p "${EXTRACT_DIR}/custom-data/nexus"
 mkdir -p "${EXTRACT_DIR}/custom-data/systemd"
+
+# Copy the dynamic LVM layout generator script onto the ISO
+cp "${SCRIPT_DIR}/generate_storage_config.sh" "${EXTRACT_DIR}/custom-data/"
+chmod +x "${EXTRACT_DIR}/custom-data/generate_storage_config.sh"
+
+# Write out Gitea, Nexus, and GDC provisioning systemd service configurations
+cat <<'EOF' > "${EXTRACT_DIR}/custom-data/systemd/gitea.service"
+[Unit]
+Description=Gitea (Git with a cup of tea)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/lib/gitea
+ExecStart=/var/lib/gitea/gitea web --config /var/lib/gitea/custom/conf/app.ini
+Restart=always
+Environment=USER=root HOME=/var/lib/gitea GITEA_WORK_DIR=/var/lib/gitea
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat <<'EOF' > "${EXTRACT_DIR}/custom-data/systemd/nexus.service"
+[Unit]
+Description=nexus service
+After=network.target
+
+[Service]
+Type=forking
+LimitNOFILE=65536
+ExecStart=/var/lib/nexus/nexus-bin/bin/nexus start
+ExecStop=/var/lib/nexus/nexus-bin/bin/nexus stop
+User=root
+Restart=on-abort
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat <<'EOF' > "${EXTRACT_DIR}/custom-data/systemd/gdc-provision.service"
+[Unit]
+Description=GDC Ready-Linux First Boot Provisioner
+After=gitea.service nexus.service network.target
+Requires=gitea.service nexus.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/gdc-provision
+ExecStart=/bin/bash -c "/usr/bin/ansible-pull \
+  -U http://127.0.0.1:3000/gdc/bootstrap-playbooks.git \
+  -i localhost, \
+  $ANSIBLE_PULL_FLAGS \
+  local.yml"
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
 
 # Create placeholder binaries to establish the files/directory structure
 echo "#!/bin/bash" > "${EXTRACT_DIR}/custom-data/gitea/gitea"
@@ -209,7 +415,8 @@ echo "echo 'Nexus Placeholder'" >> "${EXTRACT_DIR}/custom-data/nexus/nexus"
 chmod +x "${EXTRACT_DIR}/custom-data/nexus/nexus"
 
 # Clone the upstream playbook repository as a read-only mirror (cloned at ISO creation time)
-GITEA_REPOS_DIR="${EXTRACT_DIR}/custom-data/gitea/repos"
+# Organized under the "gdc" owner namespace to allow direct localhost:3000/gdc/bootstrap-playbooks.git fetches
+GITEA_REPOS_DIR="${EXTRACT_DIR}/custom-data/gitea/repos/gdc"
 mkdir -p "${GITEA_REPOS_DIR}"
 TARGET_BARE_REPO="${GITEA_REPOS_DIR}/bootstrap-playbooks.git"
 
@@ -275,7 +482,7 @@ echo "[-] Compiling bootable custom GDC ISO..."
 # 5. Compile & Repack Bootable ISO (using xorriso)
 # ==============================================================================
 echo "[-] Extracting embedded EFI system partition from original ISO dynamically..."
-PART_INFO=$(xorriso -indev "${SOURCE_ISO}" -report_el_torito as_mkisofs 2>/dev/null | grep "\-append_partition 2")
+PART_INFO=$(xorriso -indev "${SOURCE_ISO}" -report_el_torito as_mkisofs 2>/dev/null | grep "\-append_partition 2" || true)
 
 if [[ -n "${PART_INFO}" ]]; then
     INTERVAL=$(echo "${PART_INFO}" | grep -o -E "[0-9]+d-[0-9]+d")

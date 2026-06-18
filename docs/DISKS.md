@@ -1,0 +1,94 @@
+# Google Distributed Cloud (GDC) Enterprise LVM Storage & Disk Partitioning Map
+
+This document specifies the design, dynamic discovery heuristics, partitioning mechanics, and LVM logical volume layouts implemented by the GDC Offline Bootloader ISO and installer. 
+
+To satisfy Google Distributed Cloud (GDC) Bare Metal pre-flight requirements, the storage pipeline automates disk analysis, deploys baseline LUKS encryption, separates latency-sensitive etcd consensus logs from write-heavy container/registry workloads, and preserves raw block devices for Software-Defined Storage (SDS).
+
+---
+
+## 1. Storage Architecture Overview
+
+GDC Bare Metal requires strict isolation of disk workloads to prevent resource contention, write-exhaustion, and etcd transaction delays. The GDC installer achieves this by automatically analyzing the host's block device layout at boot, selecting either a **Single-Disk** or **Dual/Multi-Disk** performance topology, and deploying a secured, encrypted, and tuned LVM structure.
+
+```text
+                                  [ DISK DISCOVERY ]
+                                          │
+                     ┌────────────────────┴────────────────────┐
+                     ▼                                         ▼
+        [ Single-Disk Topology ]                  [ Multi-Disk Topology ]
+        • 1x NVMe/SSD >= 250 GiB                 • >= 2x NVMe/SSD >= 250 GiB
+        • Scales down local services             • Dedicates Disk 1 to OS & etcd
+        • Combines OS & SDS onto Disk 1          • Dedicates Disk 2 to local-disk & SDS
+                                                 • Leaves Disks 3 & 4 completely pristine
+```
+
+---
+
+## 2. Disk Detection & Filtering Heuristics
+
+The dynamic disk analyzer script (`src/build/generate_storage_config.sh`) executes during the early stage of cloud-init boot. It scans block devices using the following heuristics:
+
+1. **Size Filtering:** Only devices with a capacity $\ge 240\text{ GiB}$ ($503,316,480$ sectors of 512 bytes) are registered as GDC-compliant target drives. Smaller storage targets are ignored.
+2. **Device Exclusion:** System loopback devices (`/dev/loop*`) and the installer's active bootable optical/CD-ROM media (`/dev/sr*`, `/dev/cdrom`) are explicitly filtered out.
+3. **Ascending Size Sorting:** Disks are sorted ascending by sector count. The smaller physical drive is always allocated as the **System Disk (Disk 1)**, while the larger drive is designated as the **Data Disk (Disk 2)**. This ensures optimal utilization of high-capacity storage on dense hardware platforms.
+
+---
+
+## 3. Dynamic Topology & Scaling Rules
+
+### A. Single-Disk Topology (1x NVMe/SSD $\ge 250\text{ GiB}$)
+* **The Constraint:** The sum of standard GDC Logical Volume targets exceeds 400 GiB. Installing onto a single 250GB-500GB SSD requires active partition scaling to prevent volume group exhaustion.
+* **The Resolution:** Gitea, Nexus, and local-disk volumes are automatically scaled down:
+  * `lv_gitea` is scaled to **15 GiB**.
+  * `lv_nexus` (registry mirror) is scaled to **60 GiB**.
+  * `lv_local_disk` is scaled to **25 GiB**.
+  * `lv_sds` (Software-Defined Storage) is assigned all remaining capacity (approx. 280 GiB on a 500GB drive).
+* **LUKS Container:** A single encrypted DM-Crypt container (`crypt-system`) is initialized, backing the Volume Group `vg_system`.
+
+### B. Dual/Multi-Disk Topology (2x to 4x+ NVMe/SSD $\ge 250\text{ GiB}$)
+* **Workload Isolation (Separation of Concerns):** To maximize IOPS performance and satisfy etcd's low-latency requirements under high loads, system processes and customer container data pipelines are physically separated across independent physical drives:
+  * **Disk 1 (System Disk):** Automatically partitioned and mapped under the encrypted volume group `vg_system`. It hosts `/`, `/var`, `/var/log`, `containerd`, `etcd`, Gitea, and Nexus. Since local storage blocks are moved to Disk 2, the installer removes the sizing limits on local mirrors, allowing `lv_nexus` to scale to the **entire remainder of Disk 1** (e.g. ~1.8 TB on a 2TB drive) to cache massive registries.
+  * **Disk 2 (Data Disk):** Initialized under a separate encrypted LVM Volume Group `vg_data`. This drive is dedicated entirely to high-volume user data: `/customer/local-disk` (100 GiB) and `/customer/sds` (remainder of Disk 2, e.g. ~1.9 TB on a 2TB drive).
+  * **Outcome:** Write-heavy container extractions on Disk 2 do not cause I/O latency spikes on Disk 1, ensuring the etcd consensus database maintains uninterrupted quorum.
+
+### C. Pristine Block Preservation (Disks 3 and 4)
+* **The Rule:** Any additional drives beyond the first two (e.g., Disk 3 and Disk 4 in a 4-disk system) are **completely ignored** by the installer's partitioning routines.
+* **The Importance for SDS:** Kubernetes Software-Defined Storage (SDS) systems (such as GDC local-volume-provisioner, Ceph/Rook, or Portworx) require raw, unpartitioned physical drives for volume pooling. Writing LVM structures to these additional disks would cause the SDS auto-discovery agents to skip them. Leaving them pristine allows the SDS storage controllers to detect, format, and claim them dynamically post-install.
+
+---
+
+## 4. LVM Storage Layout & Partition Map
+
+The primary target drives are partitioned and formatted based on the detected topology. Under both topologies, the core OS layout maps the following logical volumes inside LVM:
+
+### System Volume Group (`vg_system`) - Mounted on Disk 1
+
+| Logical Volume | Mount Point | Default Size | Filesystem | Mount Options | GDC Compliance Role & Tuning |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `lv_root` | `/` | 20 GiB | EXT4 | `defaults` | Host operating system binaries & basic tools. |
+| `lv_var` | `/var` | 20 GiB | EXT4 | `defaults,noatime` | Kubelet states and runtime data directories. |
+| `lv_var_log` | `/var/log` | 15 GiB | EXT4 | `defaults,noatime` | **Logs Isolation:** Fluent-bit buffers (12 GiB required) are isolated from system root. |
+| `lv_var_opt_metrics` | `/var/opt/buffered-metrics` | 10 GiB | EXT4 | `defaults,noatime` | **Metrics Isolation:** GDC metrics collection buffer (10,016 MiB required). |
+| `lv_containerd` | `/var/lib/containerd` | 30 GiB | XFS | `defaults,noatime,prjquota` | **CRI Isolation:** Container image storage; enforces XFS Project Quotas (`prjquota`). |
+| `lv_etcd` | `/var/lib/etcd` | 20 GiB | EXT4 | `noatime,nodiratime,commit=1` | **Performance Isolation:** Core etcd database. `commit=1` minimizes consensus write latency. |
+| `lv_etcd_events` | `/var/lib/etcd-events` | 5 GiB | EXT4 | `noatime,nodiratime,commit=1` | **Performance Isolation:** etcd events database. `commit=1` minimizes event write latency. |
+| `lv_gitea` | `/var/lib/gitea` | 20 GiB | EXT4 | `defaults,noatime` | Local Gitea mirror git repositories storage boundary. |
+| `lv_nexus` | `/var/lib/nexus` | 150 GiB* | EXT4 | `defaults,noatime` | Local Nexus cache and blob stores (APT, OCI registry layers, LLMs). |
+
+*\* Note: On Single-Disk topologies, `lv_gitea` is scaled to 15 GiB, `lv_nexus` to 60 GiB, and `lv_root`/`lv_var` to 15 GiB each. On Dual-Disk topologies, `lv_nexus` consumes the entire remainder of Disk 1 (`size: -1`).*
+
+### Data Volume Group (`vg_data`) - Mounted on Disk 2 (Multi-Disk Only)
+
+| Logical Volume | Mount Point | Default Size | Filesystem | Mount Options | GDC Compliance Role & Tuning |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `lv_local_disk` | `/customer/local-disk` | 100 GiB | XFS | `defaults,noatime,prjquota` | GDC standalone `local-disk` storage provisioner boundary. |
+| `lv_sds` | `/customer/sds` | Remainder | XFS | `defaults,noatime` | Allocated as backing storage for our custom SDS engine. |
+
+---
+
+## 5. Performance Mount Tuning
+
+To guarantee cluster performance under heavy workloads:
+* **`commit=1`:** Forced on `/var/lib/etcd` and `/var/lib/etcd-events` to force metadata write barriers in under 1 second. This guarantees metadata consistency and keeps etcd database disk latency within bare metal consensus requirements.
+* **`noatime` / `nodiratime`:** Applied across all active datastores to completely bypass write overhead from updating inode access timestamps on read commands.
+* **`prjquota`:** Enforced on XFS filesystems (`/var/lib/containerd` and `/customer/local-disk`) to support strict container directory disk limits and directory project quotas.

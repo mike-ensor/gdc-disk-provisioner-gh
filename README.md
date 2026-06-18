@@ -217,6 +217,7 @@ This project is organized as a spec-driven engineering effort:
     *   `01-iso-build-pipeline.md`: The Infrastructure-as-Code (IaC) pipeline to remaster the base ISO using a reproducible `Makefile` and `xorriso`.
     *   `02-baseline-installer.md`: The Subiquity Autoinstall configuration and GDC Bare Metal enterprise LVM partition map.
     *   `03-ready-linux-provisioning.md`: The first-boot transition, local Gitea/Nexus persistence setup, local `ansible-pull` automation, TPM 2.0 configuration, CIS hardening, and the offline update/sideloading mechanics.
+*   **`docs/DISKS.md`**: Comprehensive breakdown of dynamic disk detection, single/dual-disk partitioning rules, enterprise LVM layout, and performance mount tunings.
 *   **`src/`**: Declarative playbooks, custom update utilities, and scripts.
 *   **`test/`**: Verification scripts, VM-based bootstrap tests, and pre-flight validation.
 
@@ -224,21 +225,9 @@ This project is organized as a spec-driven engineering effort:
 
 ## Storage & Partition Map
 
-The installation process automates the following LVM partitioning scheme (isolated volume group `vg_system`), satisfying all pre-flight and performance constraints of GDC Bare Metal:
+The installation process automates the dynamic partitioning of physical block devices into GDC-compliant enterprise LVM structures. For details on dynamic disk scanning, 1-disk vs 2-disk partition scaling, preservation of raw SDS block storage, and performance mount options, refer to:
 
-| Logical Volume | Mount Point | Size | Purpose |
-| :--- | :--- | :--- | :--- |
-| `lv_root` | `/` | 20 GiB | Baseline OS system binaries & core utilities |
-| `lv_var` | `/var` | 20 GiB | Shared runtime directories, including `/var/lib/kubelet` |
-| `lv_var_log` | `/var/log` | 15 GiB | Isolated logging (fluent-bit log buffers immune to system exhaustion) |
-| `lv_var_opt_metrics` | `/var/opt/buffered-metrics` | 10 GiB | Isolated GDC metrics collector store |
-| `lv_containerd` | `/var/lib/containerd` | 30 GiB | GDC local container images and volumes |
-| `lv_etcd` | `/var/lib/etcd` | 20 GiB | etcd state database (latency isolated) |
-| `lv_etcd_events` | `/var/lib/etcd-events` | 5 GiB | etcd events database (latency isolated) |
-| `lv_gitea` | `/var/lib/gitea` | 20 GiB | Persistent Gitea git storage for localized configurations |
-| `lv_nexus` | `/var/lib/nexus` | 150 GiB | Persistent Nexus repository for cached packages and LLMs |
-| `lv_local_disk` | `/customer/local-disk` | 100 GiB | GDC standalone `local-disk` provisioner boundary |
-| `lv_sds` | `/customer/sds` | *Remainder* | Storage boundary allocated for the custom SDS system |
+👉 **[docs/DISKS.md](docs/DISKS.md)**
 
 ---
 

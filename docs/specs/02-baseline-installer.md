@@ -92,13 +92,43 @@ autoinstall:
   locale: en_US.UTF-8
   keyboard: {layout: us}
   network:
+    # AUTOMATED MULTI-IP VRF SEGREGATION ON INITIAL PROVISION
     network:
       version: 2
+      renderer: networkd
       ethernets:
-        all-en:
-          match:
-            name: "e*"
-          dhcp4: true
+        eth0:
+          dhcp4: no
+          dhcp6: no
+          link-local: []
+      vlans:
+        eth0.10:
+          id: 10
+          link: eth0
+          addresses: [192.168.10.5/24]
+          routes:
+            - to: default
+              via: 192.168.10.1
+              metric: 100
+          nameservers:
+            addresses: [8.8.8.8, 8.8.4.4]
+        eth0.20:
+          id: 20
+          link: eth0
+          addresses: [192.168.20.5/24]
+          routes:
+            - to: default
+              via: 192.168.20.1
+              metric: 200
+          nameservers:
+            addresses: [1.1.1.1]
+      vrfs:
+        vrf-machine:
+          table: 10
+          interfaces: [eth0.10]
+        vrf-k8s:
+          table: 20
+          interfaces: [eth0.20]
   apt:
     # REDIRECT APT TO LOCAL EPHEMERAL NEXUS PROXIES DURING INSTALL
     primary:
