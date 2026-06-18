@@ -111,8 +111,7 @@ BIN_CACHE_DIR="${CACHE_ROOT}/binaries"
 BLOB_CACHE_DIR="${CACHE_ROOT}/blobs"
 
 # Output versioned filename
-BUILD_DATE=$(date +%Y%m%d-%H%M%S)
-FINAL_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}-${BUILD_DATE}.iso"
+FINAL_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}.iso"
 FINAL_ISO_PATH="${OUTPUT_DIR}/${FINAL_ISO_NAME}"
 
 # Setup clean directories

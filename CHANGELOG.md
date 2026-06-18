@@ -4,6 +4,25 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [Unreleased] - 2026-06-18
+
+### Added
+- **GDC ISO Google Cloud Build Integration (`cloudbuild.yaml`):** Built a secure, unprivileged Google Cloud Build pipeline that retrieves the "blessed" source Ubuntu ISO from a dedicated source GCS bucket (`ISO_BLESSED_GCS_BUCKET`), remasters it inside a customized builder container, and uploads the completed, versioned GDC bootstrap ISO back to your GCS output bucket (`ISO_OUTPUT_BUCKET`).
+- **GCS Folder-Scoped Lifecycle and Retention Policy:** Programmed an automated GCS retention sweep at the end of every Cloud Build run. Pushes new ISOs into a GCS `/sync/` folder, lists and sorts files chronologically, maintains a maximum of 5 active ISO builds in the `/sync/` folder, and automatically archives older ones to the `/archived/` folder.
+- **Custom Builder Container (`Dockerfile`):** Authored an optimized Dockerfile inside `src/build/` to package standard remastering dependencies (`xorriso`, `rsync`, `git`, `make`, `curl`) as a reusable CI/CD container in Artifact Registry (GAR), shaving startup overhead and removing public network dependency.
+- **Google Cloud Build Trigger Script (`build.sh`):** Developed a robust workstation trigger script enforcing the validation of mandatory environment variables (`PROJECT_ID`, `BUILD_VERSION`, `REGION`, `ISO_VERSION`) and support for the `ISO_OUTPUT_BUCKET` environment variable.
+- **Self-Healing Container Build Script (`src/build/build.sh`):** Created a container builder script that compiles the custom builder Dockerfile and dynamically verifies/creates the target Artifact Registry repository if missing, guaranteeing smooth initialization.
+- **Dynamic Variable Fallbacks in Makefile & Shell:** Upgraded `Makefile` and `remaster.sh` to load `build.env` defaults conditionally, allowing exported terminal environment variables to seamlessly take precedence without modifying committed configurations.
+- **Synology NAS GCS Cloud Sync Integration:** Documented DSM's native Cloud Sync configuration mapping GCS's `/sync/` directory down to your local PXE volume `/volume1/iso_share/sync/`, ignoring the `/archived/` folder to save local NAS disk space.
+- **Bootimus Automation CLI (`bootimus.py`):** Developed a Python 3 CLI tool (`src/build/bootimus.py`) to automate local PXE booting:
+  * Securely authenticates via environment credentials or dynamically retrieves them from **Infisical**.
+  * Triggers a remote filesystem scan (`POST /api/scan`) on the Bootimus server to discover newly synchronized GCS ISOs.
+  * Corrected `api_request` header behavior to bypass server-side empty JSON parsing crashes.
+  * Filters scan results via exact local filename matching to prevent index collisions.
+  * Automates kernel/initrd extraction from newly imported ISOs, polling progress asynchronously until complete.
+  * Formats and updates Bootimus's distro to `"ubuntu"`, boot method to `"kernel"`, and boot parameters dynamically matching exact local web-server paths.
+  * Renders beautiful, Unicode tree-views of all registered ISOs and folders on your network boot server with exact extraction state auditing (using the **`🚧`** emoji next to unextracted ISOs) and group-based filtering (`--filter`).
+
 ## [Unreleased] - 2026-06-12
 
 ### Added

@@ -47,12 +47,12 @@ def get_bootimus_credentials():
 def api_request(url, method="GET", data=None, token=None):
     """Utility wrapper to perform HTTP API requests using urllib standard library."""
     req = urllib.request.Request(url, method=method)
-    req.add_header("Content-Type", "application/json")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
         
     encoded_data = None
-    if data:
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
         encoded_data = json.dumps(data).encode("utf-8")
         
     try:
@@ -65,17 +65,99 @@ def api_request(url, method="GET", data=None, token=None):
         print(f"[!] Request Error: {e}")
         raise
 
+def print_tree(grouped_images, group_filter=None):
+    """Renders grouped images in a beautiful Unicode tree format."""
+    groups_to_show = list(grouped_images.keys())
+    if group_filter:
+        groups_to_show = [g for g in groups_to_show if group_filter.lower() in g.lower()]
+        if not groups_to_show:
+            print(f"[-] No groups/folders found matching filter: '{group_filter}'")
+            return
+            
+    # Sort groups so ungrouped is always at the bottom, and others are sorted alphabetically
+    sorted_groups = sorted([g for g in groups_to_show if g != "ungrouped"])
+    if "ungrouped" in groups_to_show:
+        sorted_groups.append("ungrouped")
+        
+    for i, group in enumerate(sorted_groups):
+        is_last_group = (i == len(sorted_groups) - 1)
+        group_prefix = "└── " if is_last_group else "├── "
+        print(f"{group_prefix}{group}")
+        
+        # Sort files alphabetically by filename
+        sorted_images = sorted(grouped_images[group], key=lambda x: x["filename"])
+        for j, img in enumerate(sorted_images):
+            is_last_file = (j == len(sorted_images) - 1)
+            parent_indent = "    " if is_last_group else "│   "
+            file_prefix = "└── " if is_last_file else "├── "
+            extracted_indicator = "" if img["extracted"] else " 🚧"
+            print(f"{parent_indent}{file_prefix}{img['filename']}{extracted_indicator}")
+
+def show_help():
+    print("==============================================================================")
+    print(" BOOTIMUS AUTOMATION CLI - HELP MENU")
+    print("==============================================================================")
+    print("Usage:")
+    print("  ./src/build/bootimus.py <iso_filename> [options]    Ingest & configure an ISO.")
+    print("  ./src/build/bootimus.py -l, --list [options]        List groups and images.")
+    print("  ./src/build/bootimus.py -h, --help                  Show this help menu.")
+    print("")
+    print("Options:")
+    print("  -f, --force                Force re-extraction of kernel/initrd boot files.")
+    print("  --filter <group_name>      Filter the tree list to a specific group/folder.")
+    print("")
+    print("Environment Variables:")
+    print("  BOOTIMUS_API_HOST          Bootimus Server IP (default: 192.168.254.12)")
+    print("  BOOTIMUS_API_PORT          Bootimus API Port (default: 26000)")
+    print("  BOOTIMUS_HTTP_PORT         Bootimus HTTP assets Port (default: 16000)")
+    print("  BOOTIMUS_USER              API username (falls back to Infisical 'bootimus_creds')")
+    print("  BOOTIMUS_PASS              API password (falls back to Infisical 'bootimus_creds')")
+    print("==============================================================================")
+
 def main():
+    args = sys.argv[1:]
+    
+    # Trigger help if no arguments are provided or help flags are passed
+    if not args or "--help" in args or "-h" in args:
+        show_help()
+        sys.exit(0)
+
     print("==============================================================================")
     print(" BOOTIMUS ISO INGEST & PXE LOADER ENGINE")
     print("==============================================================================")
     
-    # 1. Determine Target ISO Filename
-    # Read filename from CLI or fall back to the dynamic build_meta.env if running post-build
+    # 1. Determine Target ISO Filename & Options
+    # Read filename and force flag from CLI, or fall back to dynamic build_meta.env post-build
     filename = None
-    if len(sys.argv) > 1:
-        filename = sys.argv[1]
-    else:
+    force_extract = False
+    list_only = False
+    group_filter = None
+    
+    if "--force" in args:
+        force_extract = True
+        args.remove("--force")
+    if "-f" in args:
+        force_extract = True
+        args.remove("-f")
+        
+    if "--list" in args or "-l" in args:
+        list_only = True
+        if "--list" in args: args.remove("--list")
+        if "-l" in args: args.remove("-l")
+        
+    if "--filter" in args:
+        idx = args.index("--filter")
+        if idx + 1 < len(args):
+            group_filter = args[idx+1]
+            args.pop(idx+1)
+            args.pop(idx)
+        else:
+            print("[!] Error: --filter requires a value.")
+            sys.exit(1)
+            
+    if len(args) > 0:
+        filename = args[0]
+    elif not list_only:
         # Check workspace metadata
         meta_file = "build-workspace/build_meta.env"
         if os.path.exists(meta_file):
@@ -86,15 +168,20 @@ def main():
                         break
                         
     # Ensure correct relative folder prefix matching GCS structure
-    if filename and not filename.startswith("sync/"):
+    if filename and not filename.startswith("sync/") and not list_only:
         filename = f"sync/{filename}"
         
-    if not filename:
+    if not filename and not list_only:
         print("[!] Error: No target ISO filename specified or found in metadata.")
-        print("    Usage: ./bootimus_ingest.py <iso_filename>")
+        print("    Usage:")
+        print("      Ingest/Extract ISO:  ./bootimus.py <iso_filename> [--force]")
+        print("      List groups/ISOs:    ./bootimus.py --list [--filter <group_name>]")
         sys.exit(1)
         
-    print(f"[-] Target Ingest Image: {filename}")
+    if list_only:
+        print("[-] Target Action: Render Bootimus image tree list" + (f" (Filter: '{group_filter}')" if group_filter else ""))
+    else:
+        print(f"[-] Target Ingest Image: {filename} (Force Re-extract: {force_extract})")
     
     # 2. Authenticate
     username, password = get_bootimus_credentials()
@@ -111,6 +198,34 @@ def main():
         print(f"[!] Authentication failed: {e}")
         sys.exit(1)
         
+    # 3. If list_only, fetch images, render tree, and exit
+    if list_only:
+        print("[-] Fetching images from Bootimus...")
+        try:
+            images_res = api_request(f"{API_BASE}/images", token=token)
+            grouped_images = {}
+            for img in images_res.get("data", []):
+                group_name = "ungrouped"
+                if img.get("group") and img["group"].get("name"):
+                    group_name = img["group"]["name"]
+                
+                if group_name not in grouped_images:
+                    grouped_images[group_name] = []
+                grouped_images[group_name].append({
+                    "filename": img.get("filename", "unknown.iso"),
+                    "extracted": img.get("extracted", False)
+                })
+                
+            print("==============================================================================")
+            print(" BOOTIMUS IMAGES AND GROUPS TREE")
+            print("==============================================================================")
+            print_tree(grouped_images, group_filter)
+            print("==============================================================================")
+            sys.exit(0)
+        except Exception as e:
+            print(f"[!] Error listing images: {e}")
+            sys.exit(1)
+        
     # 3. Trigger Filesystem Scan
     print("[-] Triggering Bootimus file scanner for newly synchronized GCS ISOs...")
     api_request(f"{API_BASE}/scan", method="POST", token=token)
@@ -123,9 +238,12 @@ def main():
     while retries > 0:
         images_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
         if images_res.get("success") and images_res.get("data"):
-            image_data = images_res["data"][0]
-            print(f"[x] Located image: {image_data['name']} (Size: {image_data['size']} bytes)")
-            break
+            # Manually filter returned images by exact filename to avoid defaulting to the first item (cascade1)
+            matching_images = [img for img in images_res["data"] if img.get("filename") == filename]
+            if matching_images:
+                image_data = matching_images[0]
+                print(f"[x] Located image: {image_data['name']} (Size: {image_data['size']} bytes)")
+                break
         print(f"[-] Still searching... ({retries} retries left)")
         time.sleep(3)
         retries -= 1
@@ -134,9 +252,12 @@ def main():
         print(f"[!] Error: Could not locate '{filename}' in Bootimus. Verify Synology Cloud Sync.")
         sys.exit(1)
         
-    # 5. Extract Kernel/Initrd from ISO if not already done
-    if not image_data.get("extracted"):
-        print(f"[-] Image is not extracted. Triggering kernel/initrd extraction...")
+    # 5. Extract Kernel/Initrd from ISO if not already done or if forced
+    if not image_data.get("extracted") or force_extract:
+        if force_extract:
+            print(f"[-] Forcing kernel/initrd extraction on target...")
+        else:
+            print(f"[-] Image is not extracted. Triggering kernel/initrd extraction...")
         api_request(f"{API_BASE}/images/extract?filename={urllib.parse.quote(filename)}", method="POST", token=token)
         
         # Poll extraction progress
@@ -146,13 +267,17 @@ def main():
                 f"{API_BASE}/images/extract-progress?filename={urllib.parse.quote(filename)}",
                 token=token
             )
-            # The progress structure can vary, handle both direct number or nested dictionary
+            # The progress structure can vary, handle both direct number, nested dictionary, or "percent"
             data = progress_res.get("data", {})
-            progress = data.get("progress", 0) if isinstance(data, dict) else data
-            status = data.get("status", "") if isinstance(data, dict) else ""
+            if isinstance(data, dict):
+                progress = data.get("percent", data.get("progress", 0))
+                status = data.get("status", "")
+            else:
+                progress = data
+                status = ""
             
             print(f"    [-] Progress: {progress}% - Status: {status or 'Running'}")
-            if progress >= 100 or status == "completed":
+            if progress >= 100 or status in ["done", "completed", "idle"]:
                 break
             time.sleep(4)
         print("[-] Extraction complete.")

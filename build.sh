@@ -35,7 +35,35 @@ PROJECT_ROOT="${SCRIPT_DIR}"
 ENV_FILE="${PROJECT_ROOT}/src/build/build.env"
 
 # ==========================================
-# 2. Parse Defaults from build.env
+# 2. Auto-Increment ISO_VERSION Patch in .envrc
+# ==========================================
+if [[ "${ISO_VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    MAJOR="${BASH_REMATCH[1]}"
+    MINOR="${BASH_REMATCH[2]}"
+    PATCH="${BASH_REMATCH[3]}"
+    NEW_PATCH=$((PATCH + 1))
+    NEW_ISO_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+    
+    echo "[-] Auto-incrementing ISO_VERSION in .envrc: ${ISO_VERSION} -> ${NEW_ISO_VERSION}"
+    
+    # Update .envrc on disk
+    ENVRC_FILE="${PROJECT_ROOT}/.envrc"
+    if [[ -f "${ENVRC_FILE}" ]]; then
+        # Use standard sed to replace the ISO_VERSION line
+        sed -i "s/export ISO_VERSION=.*/export ISO_VERSION=\"${NEW_ISO_VERSION}\"/g" "${ENVRC_FILE}"
+        echo "[-] Successfully updated ${ENVRC_FILE}."
+    else
+        echo "[!] Warning: .envrc file not found at ${ENVRC_FILE}. Skipping disk update." >&2
+    fi
+    
+    # Update our runtime variable to use the newly incremented version
+    ISO_VERSION="${NEW_ISO_VERSION}"
+else
+    echo "[!] Warning: ISO_VERSION '${ISO_VERSION}' does not match semver format. Skipping auto-increment." >&2
+fi
+
+# ==========================================
+# 3. Parse Defaults from build.env
 # ==========================================
 GCS_BUCKET_DEFAULT=""
 SOURCE_ISO_DEFAULT="ubuntu-24.04-live-server-amd64.iso"
@@ -50,7 +78,7 @@ GCS_BUCKET="${GCS_BUCKET_DEFAULT}"
 SOURCE_ISO_FILENAME="${SOURCE_ISO_DEFAULT}"
 
 # ==========================================
-# 3. Help and Usage Menu
+# 4. Help and Usage Menu
 # ==========================================
 show_help() {
     echo "GDC ISO Cloud Build Launcher"
@@ -74,7 +102,7 @@ show_help() {
 }
 
 # ==========================================
-# 4. Parse Command Line Arguments
+# 5. Parse Command Line Arguments
 # ==========================================
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -97,7 +125,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ==========================================
-# 4. Apply Environment Overrides
+# 6. Apply Environment Overrides
 # ==========================================
 if [[ -n "${ISO_OUTPUT_BUCKET:-}" ]]; then
     echo "[-] Environment variable ISO_OUTPUT_BUCKET is set. Overriding target bucket to: ${ISO_OUTPUT_BUCKET}"
@@ -109,7 +137,7 @@ GCS_BUCKET_NAME=$(echo "${GCS_BUCKET}" | sed 's/^gs:\/\///')
 ISO_BLESSED_GCS_BUCKET_NAME=$(echo "${ISO_BLESSED_GCS_BUCKET:-}" | sed 's/^gs:\/\///')
 
 # ==========================================
-# 5. Input Validations
+# 7. Input Validations
 # ==========================================
 if [[ -z "${GCS_BUCKET_NAME}" ]]; then
     echo "[!] Error: GCS Bucket Name is required. Please set GCS_BUCKET in build.env or pass --bucket." >&2
@@ -117,7 +145,22 @@ if [[ -z "${GCS_BUCKET_NAME}" ]]; then
 fi
 
 # ==========================================
-# 6. Launch Cloud Build
+# 8. Check for GCS Target Collision
+# ==========================================
+ISO_NAME_PREFIX="gdc-bootstrap-ubuntu-24.04"
+TARGET_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}.iso"
+
+echo "[-] Checking GCS destination bucket for filename collisions..."
+if gcloud storage objects describe "gs://${GCS_BUCKET_NAME}/sync/${TARGET_ISO_NAME}" --project="${PROJECT_ID}" &>/dev/null; then
+    echo "[!] Collision Error: GCS target 'gs://${GCS_BUCKET_NAME}/sync/${TARGET_ISO_NAME}' already exists!" >&2
+    echo "[!] Please increment your ISO_VERSION in .envrc or check GCS state." >&2
+    exit 1
+else
+    echo "[-] No collision detected. Target filename '${TARGET_ISO_NAME}' is unique."
+fi
+
+# ==========================================
+# 9. Launch Cloud Build
 # ==========================================
 echo "=============================================================================="
 echo " LAUNCHING GDC ISO CLOUD BUILD PIPELINE"

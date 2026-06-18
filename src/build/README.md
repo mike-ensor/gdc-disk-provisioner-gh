@@ -83,20 +83,22 @@ For Bootimus or other network booting / PXE servers to access your custom-compil
 5. **PXE / Bootimus Triggering & Ingestion:**
    Once synchronized, Bootimus can serve bootable custom GDC images locally from `/volume1/iso_share/sync/`.
    
-   To fully automate the ingestion, kernel extraction, and boot parameter configuration of these newly synced images in Bootimus, use our helper script: **`src/build/bootimus_ingest.py`**.
+   To fully automate the ingestion, kernel extraction, and boot parameter configuration of these newly synced images in Bootimus, use our helper CLI: **`src/build/bootimus.py`**.
 
 ---
 
-## Bootimus Ingestion Automation Script (`bootimus_ingest.py`)
+## Bootimus Automation CLI (`bootimus.py`)
 
-The helper script `src/build/bootimus_ingest.py` completely automates the Bootimus pipeline headlessly:
+The helper CLI `src/build/bootimus.py` completely automates the Bootimus pipeline and provides tree-based image audits headlessly:
 1. **Authentication:** Securely retrieves login credentials from active environment variables (`BOOTIMUS_USER` and `BOOTIMUS_PASS`) or dynamically queries **Infisical** for the secure `bootimus_creds` secret.
-2. **Storage Scan:** Sends a `POST /api/scan` request to trigger Bootimus to scan your `/volume1/iso_share/sync/` folder for the newly arrived ISO.
+2. **Storage Scan & Ingestion:** Sends a `POST /api/scan` request to trigger Bootimus to scan your `/volume1/iso_share/sync/` folder for the newly arrived ISO.
 3. **Async Extraction:** Triggers and monitors the asynchronous kernel/initrd extraction from the ISO (`POST /api/images/extract`), polling `/api/images/extract-progress` until fully extracted (100%).
 4. **Dynamic Configuration:**
    * Updates the boot method to **`Kernel/Initrd`**.
+   * Sets the distro profile to **`ubuntu`**.
    * Activates/Enables the image for client booting.
    * Automatically formats and inserts the custom kernel **Boot Parameters** pointing to the local GCS-sync ISO file and your extracted `nocloud/user-data` location!
+5. **Interactive Group Tree Audits:** Lists all registered ISO files inside Bootimus in a beautiful tree structure grouped by folder/group with optional filtering.
 
 **How to Execute:**
 ```bash
@@ -104,6 +106,12 @@ The helper script `src/build/bootimus_ingest.py` completely automates the Bootim
 export BOOTIMUS_USER="admin"
 export BOOTIMUS_PASS="your-bootimus-password"
 
-# Run passing the customized ISO filename (can also read from build_meta.env automatically!)
-./src/build/bootimus_ingest.py gdc-bootstrap-ubuntu-24.04-v0.0.1-20260617-223226.iso
+# Ingest and configure a customized GDC ISO
+./src/build/bootimus.py gdc-bootstrap-ubuntu-24.04-v0.0.1-20260617-223226.iso
+
+# Render the beautiful groups and images tree
+./src/build/bootimus.py --list
+
+# Filter the image tree to show only a specific group/folder
+./src/build/bootimus.py --list --filter sync
 ```

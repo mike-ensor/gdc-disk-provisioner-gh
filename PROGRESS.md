@@ -153,7 +153,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Implement dual-disk sparse block device allocations (250G and 350G SSD targets)
   - [x] Script serial log console monitoring with automated polling and timeout boundaries
   - [x] Implement software TPM emulator (`swtpm`) isolated socket mapping via `mktemp`
-  - [ ] Implement remote port-forwarding SSH assertion suite
+  - [x] Implement remote port-forwarding SSH assertion suite and Bootimus PXE automated local integration (`src/build/bootimus.py`)
 
 ---
 
