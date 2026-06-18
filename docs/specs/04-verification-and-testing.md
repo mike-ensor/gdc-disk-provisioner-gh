@@ -1,8 +1,8 @@
 # Specification: GDC ISO Verification & QEMU End-to-End Testing
 
-**Spec Identifier:** `GDC-SPEC-004`  
-**Status:** APPROVED (Spec-Review Pass)  
-**Author:** GDC Disk Provisioner Architecture Team  
+**Spec Identifier:** `GDC-SPEC-004`
+**Status:** APPROVED (Spec-Review Pass)
+**Author:** GDC Disk Provisioner Architecture Team
 
 ---
 
@@ -182,3 +182,47 @@ Running bare-metal emulation and hardware cryptography tests inside shared CI/CD
 | **Credential Exposure** | Leaving test SSH keys or administrative access backdoors active on the finished GDC node image. | **Secure Ephemeral Key Injection:** Test SSH keys are dynamically generated on the fly, injected at build time, used strictly during assertions, and permanently wiped from the host upon test completion. Standard password login is strictly disabled. |
 | **KVM Performance Starvation** | Standard cloud build runners lack nested KVM virtualization (`/dev/kvm`), causing software emulation (TCG) to slow E2E runs to >45 minutes. | **Dynamic Virtualization Detection & Dedicated Runners:** The orchestrator detects `/dev/kvm` presence and falls back gracefully with prominent warning outputs, advising administrators to use GCE nested-virtualization VM instances. |
 | **Resource & Billing Leakage** | Canceled or timed-out test runs leave orphaned background QEMU or `swtpm` processes running, consuming CPU/RAM and cloud costs. | **Global Signal Trap Cleanup (`trap EXIT`):** The orchestrator implements a robust exit trap that executes a forced termination command (`kill`) on all spawned subprocess PIDs and purges temporary files on any interrupt signal. |
+
+---
+
+## 7. Dual-Environment Verification Strategies (GCE vs. Bare-Metal Lab)
+
+To support both fully automated, low-cost virtual sandbox testing and raw, bare-metal integration testing on physical lab hardware, GGD implements a twin-track execution strategy. Both tracks boot the exact same compiled custom GDC ISO image.
+
+```text
+                               ┌─────────────────────────────┐
+                               │ [ COMPILED CUSTOM GDC ISO ] │
+                               └──────────────┬──────────────┘
+                                              │
+                      ┌───────────────────────┴───────────────────────┐
+                      ▼                                               ▼
+       [ TRACK 1: CLOUD VM SANDBOX ]                   [ TRACK 2: BARE-METAL PHYSICAL LAB ]
+       • Executes inside a GCE VM (Host)               • Executes on physical motherboards
+       • Enables Nested Virtualization for KVM         • Synology NAS pulls ISO from specific GCS folder
+       • Runs swtpm for virtual TPM 2.0 enclaves       • Bootimus / PXE loads ISO over network
+       • Spawns QEMU emulating dual disks              • Installs to real NVMe / motherboard TPM chips
+```
+
+### 7.1. Track 1: Cloud-Based VM Emulator Sandbox (GCE Host)
+Designed for frictionless, high-velocity developer cycles, automated pull requests, and CI/CD validation.
+
+* **Infrastructure:** A temporary Google Compute Engine (GCE) instance (type `n2-standard-4` or similar Intel/AMD shape) with **Nested Virtualization** enabled.
+* **Execution:**
+  1. The test orchestrator triggers `test/provision_gce_sandbox.sh`.
+  2. The GCE VM starts up, installs QEMU, KVM, and `swtpm`, and downloads the compiled ISO from GCS.
+  3. QEMU launches a nested VM, mapping two sparse disks (250GB and 350GB) and the virtual TPM socket.
+  4. The installer automatically compiles, partitions, and formats LVM layers.
+  5. externa SSH assertions connect to `localhost:2222` to verify `/etc/crypttab`, mount options (`commit=1`, `noatime`), and host configurations.
+* **Primary Scope:** Cloud-init syntax validation, LVM partition layout correctness, first-boot Ansible playbooks orchestration, and state-machine transitions.
+
+### 7.2. Track 2: Physical Lab Bare-Metal Verification (On-Premises Network)
+Designed for absolute end-to-end integration tests, hardware validation, and physical site commissioning.
+
+* **Infrastructure:** Physical server chassis equipped with target Intel/AMD CPUs, physical motherboard TPM 2.0 chips, real NVMe/SSD controllers, and local network switches.
+* **Execution:**
+  1. Cloud Build uploads the compiled GDC ISO to a specific subfolder inside your GCS bucket.
+  2. A Synology NAS in the lab running `scripts/synology-sync.sh` detects and downloads the newly compiled ISO to its local PXE folder, shielding the transfer under a `.downloading` suffix.
+  3. The target bare-metal node triggers a network PXE boot via **Bootimus** or Ventoy, loading the custom ISO as its ramdisk base.
+  4. Subiquity installs the OS on the actual physical NVMe drives, formatting partitions, and setting local hostname and network bridges.
+  5. The target motherboard's physical TPM 2.0 cryptochip is enrolled securely using `systemd-cryptenroll`.
+* **Primary Scope:** Physical driver compatibility (NICs, NVMe controllers), physical network configuration, hardware motherboard TPM 2.0 sealing, and on-premises local boundary connectivity.

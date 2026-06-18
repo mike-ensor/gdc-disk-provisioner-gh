@@ -59,10 +59,10 @@ steps:
         ./src/build/remaster.sh --auto-approve
 
   # ==========================================
-  # Step 3: Publish Customized ISO to GCS
+  # Step 3: Publish Customized ISO to GCS & Clean Up
   # ==========================================
-  # Uses gcloud container to parse build metadata and securely upload the 
-  # final compiled ISO to the specified destination GCS bucket.
+  # Uses gcloud container to parse build metadata, securely upload the 
+  # final compiled ISO, and archive older versions (keeping only the last 5).
   - name: 'gcr.io/cloud-builders/gcloud'
     id: 'publish-custom-iso'
     entrypoint: 'bash'
@@ -81,9 +81,35 @@ steps:
         
         BUCKET_NAME=$(echo "${_GCS_BUCKET_NAME}" | sed 's/^gs:\/\///')
         
-        echo "[-] Uploading compiled ISO to gs://$${BUCKET_NAME}/$${ISO_OUTPUT_NAME}..."
-        gcloud storage cp "$${ISO_OUTPUT_PATH}" "gs://$${BUCKET_NAME}/$${ISO_OUTPUT_NAME}"
+        echo "[-] Uploading compiled ISO to gs://$${BUCKET_NAME}/sync/$${ISO_OUTPUT_NAME}..."
+        gcloud storage cp "$${ISO_OUTPUT_PATH}" "gs://$${BUCKET_NAME}/sync/$${ISO_OUTPUT_NAME}"
         echo "[-] Upload complete."
+        
+        echo "[-] Performing bucket retention cleanup (keeping last 5 ISOs in sync/)..."
+        # List all ISOs in the sync/ directory of the bucket
+        ISO_LIST=$(gcloud storage ls "gs://$${BUCKET_NAME}/sync/*.iso" 2>/dev/null | sort || true)
+        
+        if [ -n "$${ISO_LIST}" ]; then
+          ISO_COUNT=$(echo "$${ISO_LIST}" | wc -l)
+          echo "[-] Found $${ISO_COUNT} ISOs in the sync/ folder."
+          
+          if [ "$${ISO_COUNT}" -gt 5 ]; then
+            ARCHIVE_COUNT=$((ISO_COUNT - 5))
+            echo "[-] Archiving $${ARCHIVE_COUNT} older ISOs to the archived/ folder..."
+            ARCHIVE_LIST=$(echo "$${ISO_LIST}" | head -n "$${ARCHIVE_COUNT}")
+            
+            while IFS= read -r iso_path; do
+              if [ -n "$${iso_path}" ]; then
+                filename=$$(basename "$${iso_path}")
+                echo "[-] Archiving: $${filename} -> gs://$${BUCKET_NAME}/archived/$${filename}"
+                gcloud storage mv "$${iso_path}" "gs://$${BUCKET_NAME}/archived/$${filename}"
+              fi
+            done <<< "$${ARCHIVE_LIST}"
+            echo "[-] Retention cleanup complete."
+          else
+            echo "[-] ISO count ($${ISO_COUNT}) is <= 5. No archiving needed in sync/."
+          fi
+        fi
 
 # Default substitutions for local development / manual runs
 substitutions:
