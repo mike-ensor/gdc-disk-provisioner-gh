@@ -182,13 +182,12 @@ autoinstall:
   locale: en_US.UTF-8
   keyboard: {layout: us}
   network:
-    network:
-      version: 2
-      ethernets:
-        all-en:
-          match:
-            name: "e*"
-          dhcp4: true
+    version: 2
+    ethernets:
+      all-en:
+        match:
+          name: "e*"
+        dhcp4: true
   ssh:
     install-server: true
     allow-pw: true
