@@ -291,13 +291,13 @@ def main():
     
     # Dynamic URLs matching user specifications
     iso_url = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_HTTP_PORT}/isos/{filename}"
-    cloud_config_url = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_HTTP_PORT}/isos/{iso_name_no_ext}/iso/nocloud/user-data"
+    seed_url = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_HTTP_PORT}/isos/{iso_name_no_ext}/iso/nocloud/"
     
     boot_params = (
         f"boot=casper initrd=initrd ip=dhcp netboot=url "
         f"url={iso_url} "
         f"root=/dev/ram0 ramdisk_size=4500000 autoinstall "
-        f"cloud-config-url={cloud_config_url}"
+        f"ds=nocloud-net;s={seed_url}"
     )
     
     print("[-] Updating boot method to 'kernel', setting distro to 'ubuntu', and configuring parameters...")
