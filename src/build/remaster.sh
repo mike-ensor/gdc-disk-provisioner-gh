@@ -661,6 +661,18 @@ else
 fi
 
 # ==============================================================================
+# 4.5. Regenerate ISO MD5 Checksums
+# ==============================================================================
+# Since we overwrote bootloader files and added custom configurations, we must
+# regenerate the md5sum.txt file to prevent Casper integrity check failures
+# during boot, which can cause Subiquity to drop back to interactive mode.
+if [[ -f "${EXTRACT_DIR}/md5sum.txt" ]]; then
+    echo "[-] Regenerating md5sum.txt to reflect customized bootloader and configuration files..."
+    (cd "${EXTRACT_DIR}" && find . -type f -not -name "md5sum.txt" -print0 | xargs -0 md5sum > md5sum.txt)
+    echo "[-] md5sum.txt updated successfully."
+fi
+
+# ==============================================================================
 # 5. Compile & Repack Bootable ISO (using xorriso)
 # ==============================================================================
 echo "[-] Compiling bootable custom GDC ISO..."
