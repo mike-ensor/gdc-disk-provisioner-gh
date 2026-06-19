@@ -143,12 +143,16 @@
       when: enforce_signed_commits
       ignore_errors: true
 
-    - name: "GDC-PROVISION-107 | Setup Persistent ansible-pull Cron Execution"
+    - name: "GDC-PROVISION-107 | Ensure legacy cron job is absent"
       ansible.builtin.cron:
         name: "Run GDC local config pull-sync (30 min cycles)"
-        minute: "*/30"
-        job: "/usr/bin/ansible-pull -U http://127.0.0.1:3000/gdc/bootstrap-playbooks.git -i localhost, local.yml $(cat /etc/default/gdc-provision | grep ANSIBLE_PULL_FLAGS | cut -d'=' -f2 | tr -d '\"') > /var/log/gdc-ansible-pull.log 2>&1"
-        user: "root"
+        state: absent
+
+    - name: "GDC-PROVISION-107b | Ensure daily systemd timer is enabled and running"
+      ansible.builtin.systemd:
+        name: gdc-provision.timer
+        enabled: true
+        state: started
 
     - name: "GDC-PROVISION-108 | Signal Installation Completion Success"
       ansible.builtin.debug:

@@ -137,16 +137,24 @@ autoinstall:
         cat /cdrom/custom-data/boot-banner.txt > /dev/console 2>/dev/null || true
         cat /cdrom/custom-data/boot-banner.txt
       fi
-    # 2. Scanning and Dynamic Storage Layout Generation
+    # 2. Activate Live ISO network on VLAN 10 and map GDC Companion hosts mapping
+    - |
+      PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
+      ip link add link "${PHYS_IFACE}" name "${PHYS_IFACE}.10" type vlan id 10 2>/dev/null || true
+      ip link set dev "${PHYS_IFACE}.10" up || true
+      ip addr add 192.168.10.5/24 dev "${PHYS_IFACE}.10" 2>/dev/null || true
+      ip route add default via 192.168.10.1 dev "${PHYS_IFACE}.10" 2>/dev/null || true
+      echo "192.168.1.53 gdc-companion.ensor-labs.com" >> /etc/hosts
+    # 3. Scanning and Dynamic Storage Layout Generation
     - |
       cp /cdrom/custom-data/generate_storage_config.sh /tmp/generate_storage_config.sh
       chmod +x /tmp/generate_storage_config.sh
       /tmp/generate_storage_config.sh
-    # 3. Detecting network cards and generating dynamic Netplan VRF config
+    # 4. Detecting network cards and generating dynamic Netplan VRF config
     - |
       PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
       sed "s/__PHYS_IFACE__/${PHYS_IFACE}/g" /cdrom/custom-data/network-template.yaml > /run/autoinstall-network.yaml
-    # 4. Merge storage and network configs into standard autoinstall files
+    # 5. Merge storage and network configs into standard autoinstall files
     - |
       python3 -c "
       import os, yaml
@@ -166,9 +174,9 @@ autoinstall:
       os.makedirs('/run/installer', exist_ok=True)
       yaml.safe_dump(c, open('/run/installer/autoinstall-user-data', 'w'))
       "
-    # 5. Network pre-flight check: Poll connection to GDC Installation Companion
+    # 6. Network pre-flight check: Poll connection to GDC Installation Companion
     - |
-      COMPANION_URL="http://192.168.10.1:8080/v1/install-logs"
+      COMPANION_URL="http://gdc-companion.ensor-labs.com:8080/v1/install-logs"
       SUCCESS=false
       for i in {1..3}; do
         if curl -s -I --connect-timeout 2 "${COMPANION_URL}" &>/dev/null; then

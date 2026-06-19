@@ -210,6 +210,32 @@ autoinstall:
       fi
     - |
       echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Activating Live ISO network segment"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Activating Live ISO network segment"
+      PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
+      
+      # Configure Live ISO network interface based on VLAN ID
+      VLAN_ID="__MACHINE_VLAN_ID__"
+      if [ -z "${VLAN_ID}" ] || [ "${VLAN_ID}" = "0" ]; then
+        # Untagged native configuration (directly on physical interface!)
+        echo "[-] Activating untagged native configuration on physical dev ${PHYS_IFACE}..."
+        ip link set dev "${PHYS_IFACE}" up || true
+        ip addr add __MACHINE_IP_CIDR__ dev "${PHYS_IFACE}" 2>/dev/null || true
+        ip route add default via __MACHINE_GATEWAY__ dev "${PHYS_IFACE}" 2>/dev/null || true
+      else
+        # Tagged VLAN configuration
+        echo "[-] Activating tagged VLAN ${VLAN_ID} configuration on ${PHYS_IFACE}..."
+        ip link add link "${PHYS_IFACE}" name "${PHYS_IFACE}.${VLAN_ID}" type vlan id "${VLAN_ID}" 2>/dev/null || true
+        ip link set dev "${PHYS_IFACE}.${VLAN_ID}" up || true
+        ip addr add __MACHINE_IP_CIDR__ dev "${PHYS_IFACE}.${VLAN_ID}" 2>/dev/null || true
+        ip route add default via __MACHINE_GATEWAY__ dev "${PHYS_IFACE}.${VLAN_ID}" 2>/dev/null || true
+      fi
+      
+      # Add static DNS host mapping for GDC Companion resolving
+      echo "__COMPANION_RESOLVED_IP__ __COMPANION_HOST__" >> /etc/hosts
+    - |
+      echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Scanning block devices and generating dynamic storage config"
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Scanning block devices and generating dynamic storage config"
@@ -292,12 +318,13 @@ autoinstall:
     # Sync pre-seeded assets cleanly and set up service persistent storage
     - |
       echo "=============================================================================="
-      echo "[GDC-INSTALL-GOAL] Starting Task: Syncing Gitea & Nexus pre-seeded data and systemd units"
+      echo "[GDC-INSTALL-GOAL] Starting Task: Syncing Gitea, Nexus, & Ansible collections"
       echo "=============================================================================="
-      logger -t gdc-provisioner "[GOAL] Syncing Gitea & Nexus pre-seeded data and systemd units"
-      mkdir -p /target/var/lib/gitea /target/var/lib/nexus
+      logger -t gdc-provisioner "[GOAL] Syncing Gitea, Nexus, & Ansible collections"
+      mkdir -p /target/var/lib/gitea /target/var/lib/nexus /target/usr/share/ansible/collections
       if rsync -a --sparse /cdrom/custom-data/gitea/ /target/var/lib/gitea/ && \
-         rsync -a --sparse /cdrom/custom-data/nexus/ /target/var/lib/nexus/; then
+         rsync -a --sparse /cdrom/custom-data/nexus/ /target/var/lib/nexus/ && \
+         { [ ! -d /cdrom/custom-data/ansible/collections ] || rsync -a /cdrom/custom-data/ansible/collections/ /target/usr/share/ansible/collections/; }; then
         logger -t gdc-provisioner "[GOAL] Asset synchronization completed"
       else
         echo "[GDC-INSTALL-FAIL] Critical Failure: Syncing pre-seeded assets failed!"
@@ -305,13 +332,14 @@ autoinstall:
       fi
     - |
       echo "=============================================================================="
-      echo "[GDC-INSTALL-GOAL] Starting Task: Deploying and enabling systemd service units"
+      echo "[GDC-INSTALL-GOAL] Starting Task: Deploying and enabling systemd service units & timers"
       echo "=============================================================================="
-      logger -t gdc-provisioner "[GOAL] Deploying and enabling systemd service units"
+      logger -t gdc-provisioner "[GOAL] Deploying and enabling systemd service units & timers"
       cp /cdrom/custom-data/systemd/gitea.service /target/etc/systemd/system/
       cp /cdrom/custom-data/systemd/nexus.service /target/etc/systemd/system/
       cp /cdrom/custom-data/systemd/gdc-provision.service /target/etc/systemd/system/
-      curtin in-target -- systemctl enable gitea.service nexus.service gdc-provision.service
+      cp /cdrom/custom-data/systemd/gdc-provision.timer /target/etc/systemd/system/
+      curtin in-target -- systemctl enable gitea.service nexus.service gdc-provision.service gdc-provision.timer
     # Ssh and passwordless root-unlock setup for transition gap
     - |
       echo "=============================================================================="
@@ -356,66 +384,136 @@ EOF
 mkdir -p "${EXTRACT_DIR}/custom-data/gitea"
 mkdir -p "${EXTRACT_DIR}/custom-data/nexus"
 mkdir -p "${EXTRACT_DIR}/custom-data/systemd"
+mkdir -p "${EXTRACT_DIR}/custom-data/ansible/collections"
+
+echo "[-] Pre-packaging Ansible collections for offline use..."
+COLLECTIONS_DIR="${EXTRACT_DIR}/custom-data/ansible"
+if command -v ansible-galaxy &>/dev/null; then
+    echo "[-] Pre-installing community.general via ansible-galaxy..."
+    ansible-galaxy collection install community.general -p "${COLLECTIONS_DIR}/collections"
+else
+    echo "[-] ansible-galaxy not found on host. Downloading community.general collection archive directly..."
+    # Download community.general 8.6.0 (stable and highly compatible)
+    GALAXY_URL="https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/community-general-8.6.0.tar.gz"
+    TEMP_TAR="/tmp/community-general.tar.gz"
+    mkdir -p "${COLLECTIONS_DIR}/collections/ansible_collections/community/general"
+    if curl -sSL -o "${TEMP_TAR}" "${GALAXY_URL}"; then
+        echo "[-] Successfully downloaded community.general collection archive."
+        tar -xzf "${TEMP_TAR}" -C "${COLLECTIONS_DIR}/collections/ansible_collections/community/general"
+        rm -f "${TEMP_TAR}"
+        echo "[-] community.general collection extracted successfully."
+    else
+        echo "[!] Warning: Failed to download community.general collection offline asset. Building without it."
+    fi
+fi
 
 # Generate the custom boot-banner containing compilation version and timestamp
 "${SCRIPT_DIR}/generate_banner.py" "${EXTRACT_DIR}/custom-data/boot-banner.txt" "${ISO_VERSION}"
 
-# Write out the Network Netplan template with placeholders for physical interfaces
-cat <<'EOF' > "${EXTRACT_DIR}/custom-data/network-template.yaml"
-network:
+# Dynamically generate the Network Netplan template and substitute variables in user-data using Python (dependency-free)
+python3 -c "
+import os, urllib.parse, socket
+
+paths = ['${EXTRACT_DIR}/nocloud/user-data']
+
+companion_url = os.environ.get('INSTALL_COMPANION_URL', 'http://192.168.10.1:8080/v1/install-logs')
+parsed_url = urllib.parse.urlparse(companion_url)
+companion_host = parsed_url.hostname or '192.168.10.1'
+
+try:
+    companion_ip = socket.gethostbyname(companion_host)
+except Exception:
+    companion_ip = '192.168.1.53'
+
+machine_vlan = os.environ.get('MACHINE_VLAN_ID', '10').strip()
+k8s_vlan = os.environ.get('K8S_VLAN_ID', '20').strip()
+
+# Build the Netplan string dynamically using robust Python string operations
+vlan_block = ''
+vrf_interfaces = \"['__PHYS_IFACE__']\"
+
+if machine_vlan and machine_vlan != '0':
+    vlan_block = f'''
+  vlans:
+    __PHYS_IFACE__.{machine_vlan}:
+      id: {machine_vlan}
+      link: __PHYS_IFACE__
+      addresses: [{os.environ.get('MACHINE_IP_CIDR', '192.168.9.5/29')}]
+      routes:
+        - to: default
+          via: {os.environ.get('MACHINE_GATEWAY', '192.168.9.1')}
+          metric: 100
+      nameservers:
+        addresses: [{os.environ.get('MACHINE_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')}]'''
+    vrf_interfaces = f\"['__PHYS_IFACE__.{machine_vlan}']\"
+
+ethernet_ips = ''
+if not machine_vlan or machine_vlan == '0':
+    ethernet_ips = f'''
+      addresses: [{os.environ.get('MACHINE_IP_CIDR', '192.168.9.5/29')}]
+      routes:
+        - to: default
+          via: {os.environ.get('MACHINE_GATEWAY', '192.168.9.1')}
+          metric: 100
+      nameservers:
+        addresses: [{os.environ.get('MACHINE_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')}]'''
+
+k8s_vlan_block = ''
+k8s_vrf_block = ''
+if k8s_vlan and k8s_vlan != '0':
+    k8s_vlan_block = f'''
+    __PHYS_IFACE__.{k8s_vlan}:
+      id: {k8s_vlan}
+      link: __PHYS_IFACE__
+      addresses: [{os.environ.get('K8S_IP_CIDR', '192.168.9.10/29')}]
+      routes:
+        - to: default
+          via: {os.environ.get('K8S_GATEWAY', '192.168.9.9')}
+          metric: 200
+      nameservers:
+        addresses: [{os.environ.get('K8S_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')}]'''
+        
+    k8s_vrf_block = f'''
+    vrf-k8s:
+      table: 20
+      interfaces: [\\'__PHYS_IFACE__.{k8s_vlan}\\']'''
+
+# Combine vlan blocks
+all_vlans = ''
+if vlan_block or k8s_vlan_block:
+    all_vlans = '\\n  vlans:' + vlan_block.replace('\\n  vlans:\\n', '\\n') + k8s_vlan_block
+
+netcfg_text = f'''network:
   version: 2
   renderer: networkd
   ethernets:
     __PHYS_IFACE__:
       dhcp4: no
       dhcp6: no
-      link-local: []
-  vlans:
-    __PHYS_IFACE__.__MACHINE_VLAN_ID__:
-      id: __MACHINE_VLAN_ID__
-      link: __PHYS_IFACE__
-      addresses: [__MACHINE_IP_CIDR__]
-      routes:
-        - to: default
-          via: __MACHINE_GATEWAY__
-          metric: 100
-      nameservers:
-        addresses: [__MACHINE_DNS_1__, __MACHINE_DNS_2__]
-    __PHYS_IFACE__.__K8S_VLAN_ID__:
-      id: __K8S_VLAN_ID__
-      link: __PHYS_IFACE__
-      addresses: [__K8S_IP_CIDR__]
-      routes:
-        - to: default
-          via: __K8S_GATEWAY__
-          metric: 200
-      nameservers:
-        addresses: [__K8S_DNS__]
+      link-local: []{ethernet_ips}{all_vlans}
   vrfs:
     vrf-machine:
       table: 10
-      interfaces: [__PHYS_IFACE__.__MACHINE_VLAN_ID__]
-    vrf-k8s:
-      table: 20
-      interfaces: [__PHYS_IFACE__.__K8S_VLAN_ID__]
-EOF
+      interfaces: {vrf_interfaces}{k8s_vrf_block}
+'''
 
-# Dynamically replace build-time network variables inside the templates (user-data & network-template.yaml)
-python3 -c "
-import os
-paths = ['${EXTRACT_DIR}/nocloud/user-data', '${EXTRACT_DIR}/custom-data/network-template.yaml']
+os.makedirs(os.path.dirname('${EXTRACT_DIR}/custom-data/network-template.yaml'), exist_ok=True)
+with open('${EXTRACT_DIR}/custom-data/network-template.yaml', 'w') as f:
+    f.write(netcfg_text)
 
+# Substitutes standard variables in user-data on-the-fly
 replacements = {
-    '__MACHINE_VLAN_ID__': os.environ.get('MACHINE_VLAN_ID', '10'),
-    '__K8S_VLAN_ID__': os.environ.get('K8S_VLAN_ID', '20'),
-    '__MACHINE_IP_CIDR__': os.environ.get('MACHINE_IP_CIDR', '192.168.10.5/24'),
-    '__MACHINE_GATEWAY__': os.environ.get('MACHINE_GATEWAY', '192.168.10.1'),
-    '__MACHINE_DNS_1__': os.environ.get('MACHINE_DNS_1', '8.8.8.8'),
-    '__MACHINE_DNS_2__': os.environ.get('MACHINE_DNS_2', '8.8.4.4'),
-    '__K8S_IP_CIDR__': os.environ.get('K8S_IP_CIDR', '192.168.20.5/24'),
-    '__K8S_GATEWAY__': os.environ.get('K8S_GATEWAY', '192.168.20.1'),
-    '__K8S_DNS__': os.environ.get('K8S_DNS', '1.1.1.1'),
-    '__INSTALL_COMPANION_URL__': os.environ.get('INSTALL_COMPANION_URL', 'http://192.168.10.1:8080/v1/install-logs'),
+    '__MACHINE_VLAN_ID__': machine_vlan,
+    '__K8S_VLAN_ID__': k8s_vlan,
+    '__MACHINE_IP_CIDR__': os.environ.get('MACHINE_IP_CIDR', '192.168.9.5/29'),
+    '__MACHINE_GATEWAY__': os.environ.get('MACHINE_GATEWAY', '192.168.9.1'),
+    '__MACHINE_DNS__': os.environ.get('MACHINE_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4'),
+    '__K8S_IP_CIDR__': os.environ.get('K8S_IP_CIDR', '192.168.9.10/29'),
+    '__K8S_GATEWAY__': os.environ.get('K8S_GATEWAY', '192.168.9.9'),
+    '__K8S_DNS__': os.environ.get('K8S_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4'),
+    '__INSTALL_COMPANION_URL__': companion_url,
+    '__COMPANION_HOST__': companion_host,
+    '__COMPANION_RESOLVED_IP__': companion_ip,
 }
 
 for path in paths:
@@ -480,11 +578,23 @@ ExecStart=/bin/bash -c "/usr/bin/ansible-pull \
   -U http://127.0.0.1:3000/gdc/bootstrap-playbooks.git \
   -i localhost, \
   $ANSIBLE_PULL_FLAGS \
-  local.yml"
+  ansible/local.yml"
 RemainAfterExit=true
 
 [Install]
 WantedBy=multi-user.target
+EOF
+
+cat <<EOF > "${EXTRACT_DIR}/custom-data/systemd/gdc-provision.timer"
+[Unit]
+Description=Daily GDC Ready-Linux Configuration Pull Sync
+
+[Timer]
+OnCalendar=*-*-* ${ANSIBLE_PULL_SCHEDULE}
+Persistent=true
+
+[Install]
+WantedBy=timers.target
 EOF
 
 # Create placeholder binaries to establish the files/directory structure
@@ -541,7 +651,7 @@ set default=0
 
 menuentry "Google Distributed Cloud (GDC) Automated Bootstrap" {
     set gfxpayload=keep
-    linux /casper/vmlinuz quiet autoinstall ds=nocloud;s=/cdrom/nocloud/ ip=dhcp ---
+    linux /casper/vmlinuz quiet autoinstall ds=nocloud;s=/cdrom/nocloud/ ip=none ---
     initrd /casper/initrd
 }
 
