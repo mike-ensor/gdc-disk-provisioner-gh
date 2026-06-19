@@ -276,19 +276,19 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] Verifying connectivity to GDC Installation Companion"
       COMPANION_URL="__INSTALL_COMPANION_URL__"
       SUCCESS=false
-      for i in {1..3}; do
+      for i in 1 2 3; do
         echo "[-] Attempt $i of 3: Connecting to GDC Companion at ${COMPANION_URL}..."
         if curl -s -I --connect-timeout 2 "${COMPANION_URL}" &>/dev/null; then
           echo "[-] Connection to GDC Installation Companion established successfully!"
           SUCCESS=true
           break
         fi
-        if [ $i -lt 3 ]; then
+        if [ "$i" -lt 3 ]; then
           echo "[!] Connection failed. Retrying in 5 seconds..."
           sleep 5
         fi
       done
-      if [[ "${SUCCESS}" = "false" ]]; then
+      if [ "${SUCCESS}" = "false" ]; then
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
         echo "[GDC-INSTALL-FAIL] Critical Failure: Connectivity to GDC Installation Companion could not be verified after 3 attempts!"
         echo "[GDC-INSTALL-FAIL] Ensure that the companion server is running and accessible."
