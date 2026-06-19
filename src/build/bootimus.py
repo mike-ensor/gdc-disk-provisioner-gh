@@ -205,14 +205,22 @@ def main():
             images_res = api_request(f"{API_BASE}/images", token=token)
             grouped_images = {}
             for img in images_res.get("data", []):
+                filename_val = img.get("filename", "unknown.iso")
+                # Filter out extracted test/internal ISO files nested inside other ISOs
+                if "/iso/" in filename_val or "/extracted/" in filename_val or "tests/" in filename_val:
+                    continue
+                
                 group_name = "ungrouped"
                 if img.get("group") and img["group"].get("name"):
                     group_name = img["group"]["name"]
                 
+                if group_name == "files":
+                    continue
+                
                 if group_name not in grouped_images:
                     grouped_images[group_name] = []
                 grouped_images[group_name].append({
-                    "filename": img.get("filename", "unknown.iso"),
+                    "filename": filename_val,
                     "extracted": img.get("extracted", False)
                 })
                 
