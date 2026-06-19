@@ -215,21 +215,19 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] Activating Live ISO network segment"
       PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
       
-      # Configure Live ISO network interface based on VLAN ID
+      # Configure Live ISO network interface based on VLAN ID using DHCP
       VLAN_ID="__MACHINE_VLAN_ID__"
       if [ -z "${VLAN_ID}" ] || [ "${VLAN_ID}" = "0" ]; then
         # Untagged native configuration (directly on physical interface!)
-        echo "[-] Activating untagged native configuration on physical dev ${PHYS_IFACE}..."
+        echo "[-] Running on untagged native network. Retaining existing DHCP configuration."
         ip link set dev "${PHYS_IFACE}" up || true
-        ip addr add __MACHINE_IP_CIDR__ dev "${PHYS_IFACE}" 2>/dev/null || true
-        ip route add default via __MACHINE_GATEWAY__ dev "${PHYS_IFACE}" 2>/dev/null || true
       else
         # Tagged VLAN configuration
-        echo "[-] Activating tagged VLAN ${VLAN_ID} configuration on ${PHYS_IFACE}..."
+        echo "[-] Running on tagged VLAN ${VLAN_ID}. Activating VLAN interface..."
         ip link add link "${PHYS_IFACE}" name "${PHYS_IFACE}.${VLAN_ID}" type vlan id "${VLAN_ID}" 2>/dev/null || true
         ip link set dev "${PHYS_IFACE}.${VLAN_ID}" up || true
-        ip addr add __MACHINE_IP_CIDR__ dev "${PHYS_IFACE}.${VLAN_ID}" 2>/dev/null || true
-        ip route add default via __MACHINE_GATEWAY__ dev "${PHYS_IFACE}.${VLAN_ID}" 2>/dev/null || true
+        echo "[-] Requesting DHCP address on VLAN interface..."
+        dhclient "${PHYS_IFACE}.${VLAN_ID}" 2>/dev/null || systemctl restart systemd-networkd || true
       fi
       
       # Add static DNS host mapping for GDC Companion resolving
@@ -254,20 +252,7 @@ autoinstall:
         exit 1
       fi
     - |
-      echo "=============================================================================="
-      echo "[GDC-INSTALL-GOAL] Starting Task: Detecting network cards and generating dynamic Netplan VRF config"
-      echo "=============================================================================="
-      logger -t gdc-provisioner "[GOAL] Detecting network cards and generating dynamic Netplan VRF config"
-      PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
-      echo "[-] Detected physical network interface: ${PHYS_IFACE}"
-      if sed "s/__PHYS_IFACE__/${PHYS_IFACE}/g" /cdrom/custom-data/network-template.yaml > /run/autoinstall-network.yaml; then
-        logger -t gdc-provisioner "[GOAL] Generated dynamic network config block"
-      else
-        echo "[GDC-INSTALL-FAIL] Critical Failure: Failed to substitute interface in network-template.yaml!"
-        exit 1
-      fi
-    - |
-      # Merge both storage and network configs into /autoinstall.yaml and Subiquity autoinstall configurations
+      # Merge storage config into /autoinstall.yaml and Subiquity autoinstall configurations
       python3 -c "
       import os, yaml
       base_path = '/cdrom/nocloud/user-data'
@@ -277,10 +262,7 @@ autoinstall:
           c = yaml.safe_load(f)
       with open('/run/autoinstall-storage.yaml', 'r') as f:
           s = yaml.safe_load(f)
-      with open('/run/autoinstall-network.yaml', 'r') as f:
-          n = yaml.safe_load(f)
       c['autoinstall']['storage'] = s['storage']
-      c['autoinstall']['network'] = n['network']
       
       # Save to standard autoinstall configurations
       yaml.safe_dump(c, open('/autoinstall.yaml', 'w'))
@@ -363,6 +345,20 @@ autoinstall:
         rm -f /tmp/pass.txt
       else
         logger -t gdc-provisioner "[GOAL] No LUKS device found, skipping key enrollment"
+      fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Production VRF Netplan configuration"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Deploying GDC Production VRF Netplan configuration"
+      PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
+      mkdir -p /target/etc/netplan
+      if sed "s/__PHYS_IFACE__/${PHYS_IFACE}/g" /cdrom/custom-data/network-template.yaml > /target/etc/netplan/01-netcfg.yaml; then
+        chmod 600 /target/etc/netplan/01-netcfg.yaml
+        logger -t gdc-provisioner "[GOAL] GDC Production VRF Netplan deployed successfully on ${PHYS_IFACE}"
+      else
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Failed to generate production Netplan!"
+        exit 1
       fi
     - |
       echo "=============================================================================="
