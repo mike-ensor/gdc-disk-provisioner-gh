@@ -184,40 +184,11 @@ autoinstall:
   network:
     network:
       version: 2
-      renderer: networkd
       ethernets:
-        eth0:
-          dhcp4: no
-          dhcp6: no
-          link-local: []
-      vlans:
-        eth0.__MACHINE_VLAN_ID__:
-          id: __MACHINE_VLAN_ID__
-          link: eth0
-          addresses: [__MACHINE_IP_CIDR__]
-          routes:
-            - to: default
-              via: __MACHINE_GATEWAY__
-              metric: 100
-          nameservers:
-            addresses: [__MACHINE_DNS_1__, __MACHINE_DNS_2__]
-        eth0.__K8S_VLAN_ID__:
-          id: __K8S_VLAN_ID__
-          link: eth0
-          addresses: [__K8S_IP_CIDR__]
-          routes:
-            - to: default
-              via: __K8S_GATEWAY__
-              metric: 200
-          nameservers:
-            addresses: [__K8S_DNS__]
-      vrfs:
-        vrf-machine:
-          table: 10
-          interfaces: [eth0.__MACHINE_VLAN_ID__]
-        vrf-k8s:
-          table: 20
-          interfaces: [eth0.__K8S_VLAN_ID__]
+        all-en:
+          match:
+            name: "e*"
+          dhcp4: true
   ssh:
     install-server: true
     allow-pw: true
@@ -227,9 +198,16 @@ autoinstall:
   reporting:
     gdc-gateway:
       type: webhook
-      url: http://10.0.0.1:8080/v1/install-logs
+      endpoint: __INSTALL_COMPANION_URL__
       level: info
   early-commands:
+    - |
+      # Print GDC vintage parchment boot banner with version and build timestamp
+      if [ -f /cdrom/custom-data/boot-banner.txt ]; then
+        cat /cdrom/custom-data/boot-banner.txt > /dev/ttyS0 2>/dev/null || true
+        cat /cdrom/custom-data/boot-banner.txt > /dev/console 2>/dev/null || true
+        cat /cdrom/custom-data/boot-banner.txt
+      fi
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Scanning block devices and generating dynamic storage config"
@@ -249,8 +227,67 @@ autoinstall:
         logger -p user.err -t gdc-provisioner "[FAILURE] Dynamic storage configuration generation failed"
         exit 1
       fi
-      # Merge generated storage config into /autoinstall.yaml
-      python3 -c "import yaml; c=yaml.safe_load(open('/autoinstall.yaml')); s=yaml.safe_load(open('/run/autoinstall-storage.yaml')); c['autoinstall']['storage'] = s['storage']; yaml.safe_dump(c, open('/autoinstall.yaml', 'w'))"
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Detecting network cards and generating dynamic Netplan VRF config"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Detecting network cards and generating dynamic Netplan VRF config"
+      PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
+      echo "[-] Detected physical network interface: ${PHYS_IFACE}"
+      if sed "s/__PHYS_IFACE__/${PHYS_IFACE}/g" /cdrom/custom-data/network-template.yaml > /run/autoinstall-network.yaml; then
+        logger -t gdc-provisioner "[GOAL] Generated dynamic network config block"
+      else
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Failed to substitute interface in network-template.yaml!"
+        exit 1
+      fi
+    - |
+      # Merge both storage and network configs into /autoinstall.yaml and Subiquity autoinstall configurations
+      python3 -c "
+      import os, yaml
+      base_path = '/cdrom/nocloud/user-data'
+      if not os.path.exists(base_path):
+          base_path = '/run/installer/autoinstall-user-data'
+      with open(base_path, 'r') as f:
+          c = yaml.safe_load(f)
+      with open('/run/autoinstall-storage.yaml', 'r') as f:
+          s = yaml.safe_load(f)
+      with open('/run/autoinstall-network.yaml', 'r') as f:
+          n = yaml.safe_load(f)
+      c['autoinstall']['storage'] = s['storage']
+      c['autoinstall']['network'] = n['network']
+      
+      # Save to standard autoinstall configurations
+      yaml.safe_dump(c, open('/autoinstall.yaml', 'w'))
+      os.makedirs('/run/installer', exist_ok=True)
+      yaml.safe_dump(c, open('/run/installer/autoinstall-user-data', 'w'))
+      "
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Verifying connectivity to GDC Installation Companion"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Verifying connectivity to GDC Installation Companion"
+      COMPANION_URL="__INSTALL_COMPANION_URL__"
+      SUCCESS=false
+      for i in {1..3}; do
+        echo "[-] Attempt $i of 3: Connecting to GDC Companion at ${COMPANION_URL}..."
+        if curl -s -I --connect-timeout 2 "${COMPANION_URL}" &>/dev/null; then
+          echo "[-] Connection to GDC Installation Companion established successfully!"
+          SUCCESS=true
+          break
+        fi
+        if [ $i -lt 3 ]; then
+          echo "[!] Connection failed. Retrying in 5 seconds..."
+          sleep 5
+        fi
+      done
+      if [[ "${SUCCESS}" = "false" ]]; then
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Connectivity to GDC Installation Companion could not be verified after 3 attempts!"
+        echo "[GDC-INSTALL-FAIL] Ensure that the companion server is running and accessible."
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        logger -p user.err -t gdc-provisioner "[FAILURE] Connectivity to GDC Installation Companion failed"
+        exit 1
+      fi
   late-commands:
     # Sync pre-seeded assets cleanly and set up service persistent storage
     - |
@@ -315,12 +352,58 @@ autoinstall:
       fi
 EOF
 
-# Dynamically replace build-time network variables inside the user-data template
+# C. Inject Custom Services Directory (Hub and Spoke structures)
+mkdir -p "${EXTRACT_DIR}/custom-data/gitea"
+mkdir -p "${EXTRACT_DIR}/custom-data/nexus"
+mkdir -p "${EXTRACT_DIR}/custom-data/systemd"
+
+# Generate the custom boot-banner containing compilation version and timestamp
+"${SCRIPT_DIR}/generate_banner.py" "${EXTRACT_DIR}/custom-data/boot-banner.txt" "${ISO_VERSION}"
+
+# Write out the Network Netplan template with placeholders for physical interfaces
+cat <<'EOF' > "${EXTRACT_DIR}/custom-data/network-template.yaml"
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    __PHYS_IFACE__:
+      dhcp4: no
+      dhcp6: no
+      link-local: []
+  vlans:
+    __PHYS_IFACE__.__MACHINE_VLAN_ID__:
+      id: __MACHINE_VLAN_ID__
+      link: __PHYS_IFACE__
+      addresses: [__MACHINE_IP_CIDR__]
+      routes:
+        - to: default
+          via: __MACHINE_GATEWAY__
+          metric: 100
+      nameservers:
+        addresses: [__MACHINE_DNS_1__, __MACHINE_DNS_2__]
+    __PHYS_IFACE__.__K8S_VLAN_ID__:
+      id: __K8S_VLAN_ID__
+      link: __PHYS_IFACE__
+      addresses: [__K8S_IP_CIDR__]
+      routes:
+        - to: default
+          via: __K8S_GATEWAY__
+          metric: 200
+      nameservers:
+        addresses: [__K8S_DNS__]
+  vrfs:
+    vrf-machine:
+      table: 10
+      interfaces: [__PHYS_IFACE__.__MACHINE_VLAN_ID__]
+    vrf-k8s:
+      table: 20
+      interfaces: [__PHYS_IFACE__.__K8S_VLAN_ID__]
+EOF
+
+# Dynamically replace build-time network variables inside the templates (user-data & network-template.yaml)
 python3 -c "
 import os
-ud_path = '${EXTRACT_DIR}/nocloud/user-data'
-with open(ud_path, 'r') as f:
-    content = f.read()
+paths = ['${EXTRACT_DIR}/nocloud/user-data', '${EXTRACT_DIR}/custom-data/network-template.yaml']
 
 replacements = {
     '__MACHINE_VLAN_ID__': os.environ.get('MACHINE_VLAN_ID', '10'),
@@ -332,19 +415,18 @@ replacements = {
     '__K8S_IP_CIDR__': os.environ.get('K8S_IP_CIDR', '192.168.20.5/24'),
     '__K8S_GATEWAY__': os.environ.get('K8S_GATEWAY', '192.168.20.1'),
     '__K8S_DNS__': os.environ.get('K8S_DNS', '1.1.1.1'),
+    '__INSTALL_COMPANION_URL__': os.environ.get('INSTALL_COMPANION_URL', 'http://192.168.10.1:8080/v1/install-logs'),
 }
 
-for placeholder, val in replacements.items():
-    content = content.replace(placeholder, str(val))
-
-with open(ud_path, 'w') as f:
-    f.write(content)
+for path in paths:
+    if os.path.exists(path):
+        with open(path, 'r') as f:
+            content = f.read()
+        for placeholder, val in replacements.items():
+            content = content.replace(placeholder, str(val))
+        with open(path, 'w') as f:
+            f.write(content)
 "
-
-# C. Inject Custom Services Directory (Hub and Spoke structures)
-mkdir -p "${EXTRACT_DIR}/custom-data/gitea"
-mkdir -p "${EXTRACT_DIR}/custom-data/nexus"
-mkdir -p "${EXTRACT_DIR}/custom-data/systemd"
 
 # Copy the dynamic LVM layout generator script onto the ISO
 cp "${SCRIPT_DIR}/generate_storage_config.sh" "${EXTRACT_DIR}/custom-data/"

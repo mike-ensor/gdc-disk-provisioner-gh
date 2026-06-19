@@ -129,6 +129,59 @@ autoinstall:
         vrf-k8s:
           table: 20
           interfaces: [eth0.20]
+  early-commands:
+    # 1. Print GDC vintage parchment boot banner with version and build timestamp
+    - |
+      if [ -f /cdrom/custom-data/boot-banner.txt ]; then
+        cat /cdrom/custom-data/boot-banner.txt > /dev/ttyS0 2>/dev/null || true
+        cat /cdrom/custom-data/boot-banner.txt > /dev/console 2>/dev/null || true
+        cat /cdrom/custom-data/boot-banner.txt
+      fi
+    # 2. Scanning and Dynamic Storage Layout Generation
+    - |
+      cp /cdrom/custom-data/generate_storage_config.sh /tmp/generate_storage_config.sh
+      chmod +x /tmp/generate_storage_config.sh
+      /tmp/generate_storage_config.sh
+    # 3. Detecting network cards and generating dynamic Netplan VRF config
+    - |
+      PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
+      sed "s/__PHYS_IFACE__/${PHYS_IFACE}/g" /cdrom/custom-data/network-template.yaml > /run/autoinstall-network.yaml
+    # 4. Merge storage and network configs into standard autoinstall files
+    - |
+      python3 -c "
+      import os, yaml
+      base_path = '/cdrom/nocloud/user-data'
+      if not os.path.exists(base_path):
+          base_path = '/run/installer/autoinstall-user-data'
+      with open(base_path, 'r') as f:
+          c = yaml.safe_load(f)
+      with open('/run/autoinstall-storage.yaml', 'r') as f:
+          s = yaml.safe_load(f)
+      with open('/run/autoinstall-network.yaml', 'r') as f:
+          n = yaml.safe_load(f)
+      c['autoinstall']['storage'] = s['storage']
+      c['autoinstall']['network'] = n['network']
+      
+      yaml.safe_dump(c, open('/autoinstall.yaml', 'w'))
+      os.makedirs('/run/installer', exist_ok=True)
+      yaml.safe_dump(c, open('/run/installer/autoinstall-user-data', 'w'))
+      "
+    # 5. Network pre-flight check: Poll connection to GDC Installation Companion
+    - |
+      COMPANION_URL="http://192.168.10.1:8080/v1/install-logs"
+      SUCCESS=false
+      for i in {1..3}; do
+        if curl -s -I --connect-timeout 2 "${COMPANION_URL}" &>/dev/null; then
+          SUCCESS=true
+          break
+        fi
+        if [ $i -lt 3 ]; then
+          sleep 5
+        fi
+      done
+      if [[ "${SUCCESS}" = "false" ]]; then
+        exit 1
+      fi
   apt:
     # REDIRECT APT TO LOCAL EPHEMERAL NEXUS PROXIES DURING INSTALL
     primary:
@@ -264,7 +317,7 @@ autoinstall:
   reporting:
     gdc-gateway:
       type: webhook
-      url: http://10.0.0.1:8080/v1/install-logs
+      endpoint: http://10.0.0.1:8080/v1/install-logs
       level: info
 ```
 This guarantees that any fail signal is instantly captured and centralized for network-wide visibility.

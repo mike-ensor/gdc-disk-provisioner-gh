@@ -234,7 +234,7 @@ def main():
     # 4. Locate and Verify Image
     print("[-] Searching for scanned image...")
     image_data = None
-    retries = 10
+    retries = 20
     while retries > 0:
         images_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
         if images_res.get("success") and images_res.get("data"):
@@ -245,7 +245,7 @@ def main():
                 print(f"[x] Located image: {image_data['name']} (Size: {image_data['size']} bytes)")
                 break
         print(f"[-] Still searching... ({retries} retries left)")
-        time.sleep(3)
+        time.sleep(30)
         retries -= 1
         
     if not image_data:
@@ -262,6 +262,7 @@ def main():
         
         # Poll extraction progress
         print("[-] Monitoring extraction progress...")
+        attempts = 1
         while True:
             progress_res = api_request(
                 f"{API_BASE}/images/extract-progress?filename={urllib.parse.quote(filename)}",
@@ -276,10 +277,11 @@ def main():
                 progress = data
                 status = ""
             
-            print(f"    [-] Progress: {progress}% - Status: {status or 'Running'}")
+            print(f"    [-] Progress (Attempt {attempts}): {progress}% - Status: {status or 'Running'}")
             if progress >= 100 or status in ["done", "completed", "idle"]:
                 break
             time.sleep(4)
+            attempts += 1
         print("[-] Extraction complete.")
     else:
         print("[-] Image already extracted. Skipping extraction phase.")

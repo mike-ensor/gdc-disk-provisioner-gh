@@ -86,8 +86,8 @@ steps:
         echo "[-] Upload complete."
         
         echo "[-] Performing bucket retention cleanup (keeping last 5 ISOs in sync/)..."
-        # List all ISOs in the sync/ directory of the bucket
-        ISO_LIST=$(gcloud storage ls "gs://$${BUCKET_NAME}/sync/*.iso" 2>/dev/null | sort || true)
+        # List all ISOs in the sync/ directory of the bucket, sorted naturally by semantic version
+        ISO_LIST=$(gcloud storage ls "gs://$${BUCKET_NAME}/sync/*.iso" 2>/dev/null | sort -V || true)
         
         if [ -n "$${ISO_LIST}" ]; then
           ISO_COUNT=$(echo "$${ISO_LIST}" | wc -l)
