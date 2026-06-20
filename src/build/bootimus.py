@@ -114,6 +114,46 @@ def show_help():
     print("  BOOTIMUS_PASS              API password (falls back to Infisical 'bootimus_creds')")
     print("==============================================================================")
 
+def auto_heal_boot_params(token):
+    """Scans all registered Ubuntu images on Bootimus and ensures they have correct autoinstall boot parameters."""
+    print("[-] Running self-healing audit on Bootimus image database...")
+    try:
+        images_res = api_request(f"{API_BASE}/images", token=token)
+        for img in images_res.get("data", []):
+            filename = img.get("filename", "")
+            distro = img.get("distro", "")
+            boot_method = img.get("boot_method", "")
+            boot_params = img.get("boot_params", "")
+            
+            # We only heal Ubuntu images that use kernel boot method
+            if distro == "ubuntu" and boot_method == "kernel" and filename:
+                # Check if it is missing autoinstall or ds=nocloud-net
+                if "autoinstall" not in boot_params or "ds=nocloud-net" not in boot_params:
+                    print(f"[!] Alert: Image '{img.get('name')}' is missing correct autoinstall boot parameters! Healing...")
+                    
+                    iso_name_no_ext = filename[:-4]
+                    iso_url = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_HTTP_PORT}/isos/{filename}"
+                    seed_url = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_HTTP_PORT}/isos/{iso_name_no_ext}/iso/nocloud/"
+                    
+                    fixed_params = (
+                        f"boot=casper initrd=initrd ip=dhcp netboot=url "
+                        f"url={iso_url} "
+                        f"root=/dev/ram0 ramdisk_size=4500000 autoinstall "
+                        f"ds=nocloud-net;s={seed_url}"
+                    )
+                    
+                    update_data = {
+                        "boot_method": "kernel",
+                        "distro": "ubuntu",
+                        "boot_params": fixed_params,
+                        "enabled": True
+                    }
+                    update_url = f"{API_BASE}/images?filename={urllib.parse.quote(filename)}"
+                    api_request(update_url, method="PUT", data=update_data, token=token)
+                    print(f"    [+] Successfully healed '{img.get('name')}' configuration.")
+    except Exception as e:
+        print(f"[!] Warning: Self-healing audit encountered an error: {e}")
+
 def main():
     args = sys.argv[1:]
     
@@ -194,6 +234,9 @@ def main():
         )
         token = login_res["data"]["token"]
         print("[-] Authentication successful.")
+        
+        # Run self-healing audit on all registered images
+        auto_heal_boot_params(token)
     except Exception as e:
         print(f"[!] Authentication failed: {e}")
         sys.exit(1)
