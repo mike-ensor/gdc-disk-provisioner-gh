@@ -722,15 +722,16 @@ else
 fi
 
 # ==============================================================================
-# 4.5. Regenerate ISO MD5 Checksums
+# 4.5. Disable Casper Media Verification Checks
 # ==============================================================================
-# Since we overwrote bootloader files and added custom configurations, we must
-# regenerate the md5sum.txt file to prevent Casper integrity check failures
-# during boot, which can cause Subiquity to drop back to interactive mode.
+# Since bootloader and EFI/El-Torito catalog files are dynamically generated
+# by xorriso on-the-fly (causing Casper md5 verification failures on boot), we
+# completely remove the md5sum.txt catalog. This causes Casper to skip media
+# checks, preventing Subiquity from falling back to interactive mode.
 if [[ -f "${EXTRACT_DIR}/md5sum.txt" ]]; then
-    echo "[-] Regenerating md5sum.txt to reflect customized bootloader and configuration files..."
-    (cd "${EXTRACT_DIR}" && find . -type f -not -name "md5sum.txt" -print0 | xargs -0 md5sum > md5sum.txt)
-    echo "[-] md5sum.txt updated successfully."
+    echo "[-] Removing md5sum.txt to bypass Casper media integrity checks..."
+    rm -f "${EXTRACT_DIR}/md5sum.txt"
+    echo "[-] md5sum.txt removed successfully."
 fi
 
 # ==============================================================================
