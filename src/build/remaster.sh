@@ -210,11 +210,7 @@ autoinstall:
         match:
           name: "e*"
         dhcp4: true
-  ssh:
-    install-server: true
-    allow-pw: true
-    authorized-keys:
-      - __ADMIN_SSH_PUB_KEYS__
+  __SSH_BLOCK__
   packages:
     - ansible
     - git
@@ -549,6 +545,18 @@ with open('${EXTRACT_DIR}/custom-data/network-template.yaml', 'w') as f:
     f.write(netcfg_text)
 
 # Substitutes standard variables in user-data on-the-fly
+ssh_pub_key = os.environ.get('ADMIN_SSH_PUB_KEYS', '').strip()
+if ssh_pub_key:
+    ssh_block = f'''ssh:
+    install-server: true
+    allow-pw: true
+    authorized-keys:
+      - {ssh_pub_key}'''
+else:
+    ssh_block = '''ssh:
+    install-server: true
+    allow-pw: true'''
+
 replacements = {
     '__MACHINE_VLAN_ID__': machine_vlan,
     '__K8S_VLAN_ID__': k8s_vlan,
@@ -561,7 +569,7 @@ replacements = {
     '__INSTALL_COMPANION_URL__': companion_url,
     '__COMPANION_HOST__': companion_host,
     '__COMPANION_RESOLVED_IP__': companion_ip,
-    '__ADMIN_SSH_PUB_KEYS__': os.environ.get('ADMIN_SSH_PUB_KEYS', '').strip(),
+    '__SSH_BLOCK__': ssh_block,
 }
 
 for path in paths:
