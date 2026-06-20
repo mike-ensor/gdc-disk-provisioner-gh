@@ -30,8 +30,8 @@ if [[ -f "${ENV_FILE}" ]]; then
             value="${value%\"}"
             value="${value#\'}"
             value="${value%\'}"
-            # Export only if not already set in active shell
-            if [[ -z "${!key:-}" ]]; then
+            # Export only if not already set in active shell (always load ADMIN_SSH_PUB_KEYS from file to handle spaces)
+            if [[ -z "${!key:-}" ]] || [[ "${key}" == "ADMIN_SSH_PUB_KEYS" ]]; then
                 export "${key}"="${value}"
             fi
         fi
@@ -191,6 +191,8 @@ autoinstall:
   ssh:
     install-server: true
     allow-pw: true
+    authorized-keys:
+      - __ADMIN_SSH_PUB_KEYS__
   packages:
     - ansible
     - git
@@ -320,7 +322,24 @@ autoinstall:
       cp /cdrom/custom-data/systemd/nexus.service /target/etc/systemd/system/
       cp /cdrom/custom-data/systemd/gdc-provision.service /target/etc/systemd/system/
       cp /cdrom/custom-data/systemd/gdc-provision.timer /target/etc/systemd/system/
-      curtin in-target -- systemctl enable gitea.service nexus.service gdc-provision.service gdc-provision.timer
+      curtin in-target -- systemctl enable gdc-provision.service gdc-provision.timer
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Injecting custom administrative SSH public keys"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Injecting custom administrative SSH public keys"
+      PUB_KEY="__ADMIN_SSH_PUB_KEYS__"
+      if [ -n "${PUB_KEY}" ]; then
+        mkdir -p /target/root/.ssh /target/home/temporary-installer/.ssh
+        echo "${PUB_KEY}" >> /target/root/.ssh/authorized_keys
+        echo "${PUB_KEY}" >> /target/home/temporary-installer/.ssh/authorized_keys
+        chmod 700 /target/root/.ssh /target/home/temporary-installer/.ssh
+        chmod 600 /target/root/.ssh/authorized_keys /target/home/temporary-installer/.ssh/authorized_keys
+        chown -R 1000:1000 /target/home/temporary-installer/.ssh
+        logger -t gdc-provisioner "[GOAL] SSH public keys successfully authorized"
+      else
+        logger -t gdc-provisioner "[GOAL] No custom SSH public keys configured, skipping injection"
+      fi
     # Ssh and passwordless root-unlock setup for transition gap
     - |
       echo "=============================================================================="
@@ -509,6 +528,7 @@ replacements = {
     '__INSTALL_COMPANION_URL__': companion_url,
     '__COMPANION_HOST__': companion_host,
     '__COMPANION_RESOLVED_IP__': companion_ip,
+    '__ADMIN_SSH_PUB_KEYS__': os.environ.get('ADMIN_SSH_PUB_KEYS', '').strip(),
 }
 
 for path in paths:
