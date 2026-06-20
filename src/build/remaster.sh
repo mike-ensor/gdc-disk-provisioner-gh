@@ -362,6 +362,17 @@ autoinstall:
       else
         logger -t gdc-provisioner "[GOAL] No custom SSH public keys configured, skipping injection"
       fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Message of the Day (MOTD)"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Deploying GDC Message of the Day (MOTD)"
+      if [ -f /cdrom/custom-data/boot-banner.txt ]; then
+        cp /cdrom/custom-data/boot-banner.txt /target/etc/motd
+        logger -t gdc-provisioner "[GOAL] GDC boot banner copied to MOTD successfully"
+      else
+        logger -t gdc-provisioner "[GOAL] Boot banner not found, skipping MOTD setup"
+      fi
     # Ssh and passwordless root-unlock setup for transition gap
     - |
       echo "=============================================================================="
