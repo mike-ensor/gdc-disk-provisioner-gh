@@ -26,6 +26,8 @@ skills/
 .env.*.local
 .env.schema
 .envrc
+local.env
+*.local.env
 
 # Local cache and workspace directories
 .cache/

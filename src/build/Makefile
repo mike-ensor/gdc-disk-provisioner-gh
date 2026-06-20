@@ -21,6 +21,17 @@ ifneq ("$(wildcard $(ENV_FILE))","")
     )
 endif
 
+# Load Local Environment Overrides (always override defaults)
+LOCAL_ENV := local.env
+ifneq ("$(wildcard $(LOCAL_ENV))","")
+    $(foreach line,$(shell grep -v '^[[:space:]]*\#' $(LOCAL_ENV) | grep '='), \
+        $(eval KEY := $(word 1,$(subst =, ,$(line)))) \
+        $(eval VAL := $(patsubst $(KEY)=%,%,$(line))) \
+        $(eval $(KEY) := $(VAL)) \
+        $(eval export $(KEY)) \
+    )
+endif
+
 # Internal Paths
 WORKSPACE := ../../build-workspace
 BUILD_META := $(WORKSPACE)/build_meta.env

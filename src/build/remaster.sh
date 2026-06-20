@@ -41,6 +41,28 @@ else
     exit 1
 fi
 
+# Load local environment overrides (if present) to augment/override defaults
+LOCAL_ENV_FILE="${SCRIPT_DIR}/local.env"
+if [[ -f "${LOCAL_ENV_FILE}" ]]; then
+    echo "[-] Loading local environment overrides from local.env..."
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Skip comments and empty lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$line" ]] && continue
+        if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            value="${BASH_REMATCH[2]}"
+            # Strip quotes if present
+            value="${value#\"}"
+            value="${value%\"}"
+            value="${value#\'}"
+            value="${value%\'}"
+            # Local overrides always take precedence and overwrite
+            export "${key}"="${value}"
+        fi
+    done < "${LOCAL_ENV_FILE}"
+fi
+
 # ==============================================================================
 # 0. Interactive Variables Review & Confirmation
 # ==============================================================================
