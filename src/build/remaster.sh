@@ -200,7 +200,7 @@ autoinstall:
   identity:
     hostname: gdc-standalone-node
     username: temporary-installer
-    password: "$6$lXNktB5evbvaOJPd$xytpJZFOGTZ0Lj9c4EWIMrMfyOC7qkT5sO0baZckP3bx3AvIFFpl3j4FYbWXMuvfd1/pbWgPQZSv4/LvV9MQP/"
+    password: "__TEMPORARY_INSTALLER_PASSWORD_HASH__"
   locale: en_US.UTF-8
   keyboard: {layout: us}
   network:
@@ -402,11 +402,24 @@ autoinstall:
       mkdir -p /target/etc/netplan
       if sed "s/__PHYS_IFACE__/${PHYS_IFACE}/g" /cdrom/custom-data/network-template.yaml > /target/etc/netplan/01-netcfg.yaml; then
         chmod 600 /target/etc/netplan/01-netcfg.yaml
+        if [ -f /target/etc/netplan/50-cloud-init.yaml ]; then
+          mv /target/etc/netplan/50-cloud-init.yaml /target/etc/netplan/50-cloud-init.yaml.bak
+          logger -t gdc-provisioner "[GOAL] Renamed 50-cloud-init.yaml to 50-cloud-init.yaml.bak"
+        fi
         logger -t gdc-provisioner "[GOAL] GDC Production VRF Netplan deployed successfully on ${PHYS_IFACE}"
       else
         echo "[GDC-INSTALL-FAIL] Critical Failure: Failed to generate production Netplan!"
         exit 1
       fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Configuring VRF sysctl profiles"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Configuring VRF sysctl profiles"
+      mkdir -p /target/etc/sysctl.d
+      echo "net.ipv4.tcp_l3mdev_accept=1" > /target/etc/sysctl.d/99-vrf.conf
+      echo "net.ipv4.udp_l3mdev_accept=1" >> /target/etc/sysctl.d/99-vrf.conf
+      logger -t gdc-provisioner "[GOAL] VRF sysctl profiles configured successfully"
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Rebuilding initramfs ramdisks"
@@ -455,10 +468,15 @@ fi
 
 # Dynamically generate the Network Netplan template and substitute variables in user-data using Python (dependency-free)
 python3 -c "
-import os, urllib.parse, socket
+import os, urllib.parse, socket, crypt
 
 paths = ['${EXTRACT_DIR}/nocloud/user-data']
 
+# Compute the SHA-512 crypt-compatible hash for the temporary installer password dynamically
+plain_password = os.environ.get('TEMPORARY_INSTALLER_PASSWORD', 'default-password-123')
+password_hash = crypt.crypt(plain_password, crypt.mksalt(crypt.METHOD_SHA512))
+
+# REMOVE ME BEFORE PRODUCTION: Defaulting to local dev port 8080. Update to 80/443 for production.
 companion_url = os.environ.get('INSTALL_COMPANION_URL', 'http://192.168.10.1:8080/v1/install-logs')
 parsed_url = urllib.parse.urlparse(companion_url)
 companion_host = parsed_url.hostname or '192.168.10.1'
@@ -570,6 +588,8 @@ replacements = {
     '__COMPANION_HOST__': companion_host,
     '__COMPANION_RESOLVED_IP__': companion_ip,
     '__SSH_BLOCK__': ssh_block,
+    '__TEMPORARY_INSTALLER_PASSWORD_HASH__': password_hash,
+    '__ADMIN_SSH_PUB_KEYS__': ssh_pub_key,
 }
 
 for path in paths:

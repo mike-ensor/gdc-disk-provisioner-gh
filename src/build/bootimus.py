@@ -125,8 +125,8 @@ def auto_heal_boot_params(token):
             boot_method = img.get("boot_method", "")
             boot_params = img.get("boot_params", "")
             
-            # We only heal Ubuntu images that use kernel boot method
-            if distro == "ubuntu" and boot_method == "kernel" and filename:
+            # We only heal Ubuntu images that are fully extracted and use kernel boot method
+            if distro == "ubuntu" and boot_method == "kernel" and filename and img.get("extracted", False):
                 # Check if it is missing autoinstall or ds=nocloud-net
                 if "autoinstall" not in boot_params or "ds=nocloud-net" not in boot_params:
                     print(f"[!] Alert: Image '{img.get('name')}' is missing correct autoinstall boot parameters! Healing...")
@@ -149,8 +149,20 @@ def auto_heal_boot_params(token):
                         "enabled": True
                     }
                     update_url = f"{API_BASE}/images?filename={urllib.parse.quote(filename)}"
-                    api_request(update_url, method="PUT", data=update_data, token=token)
-                    print(f"    [+] Successfully healed '{img.get('name')}' configuration.")
+                    
+                    # Robust check-and-reapply loop to defeat delayed Bootimus database clobbering
+                    for i in range(1, 4):
+                        api_request(update_url, method="PUT", data=update_data, token=token)
+                        time.sleep(3)
+                        verify_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
+                        if verify_res.get("success") and verify_res.get("data"):
+                            matching = [m for m in verify_res["data"] if m.get("filename") == filename]
+                            if matching and matching[0].get("boot_params", "") == fixed_params:
+                                print(f"    [+] Successfully healed and verified '{img.get('name')}' configuration (Attempt {i})!")
+                                break
+                    else:
+                        print(f"    [!] Warning: Failed to permanently verify healed '{img.get('name')}' configuration. Forcing one final write...")
+                        api_request(update_url, method="PUT", data=update_data, token=token)
     except Exception as e:
         print(f"[!] Warning: Self-healing audit encountered an error: {e}")
 
@@ -333,7 +345,9 @@ def main():
                 break
             time.sleep(4)
             attempts += 1
-        print("[-] Extraction complete.")
+        print("[-] Extraction complete. Waiting 5 seconds for database transactions to settle...")
+        time.sleep(5)
+        print("[-] Database transactions settled.")
     else:
         print("[-] Image already extracted. Skipping extraction phase.")
         
@@ -362,6 +376,27 @@ def main():
     # Send PUT request to save image configurations
     update_url = f"{API_BASE}/images?filename={urllib.parse.quote(filename)}"
     api_request(update_url, method="PUT", data=update_data, token=token)
+    
+    print("[-] Verifying database state for custom boot parameters...")
+    verified = False
+    for verify_attempt in range(1, 5):
+        time.sleep(3)
+        verify_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
+        if verify_res.get("success") and verify_res.get("data"):
+            matching_images = [img for img in verify_res["data"] if img.get("filename") == filename]
+            if matching_images:
+                current_params = matching_images[0].get("boot_params", "")
+                if current_params == boot_params:
+                    print(f"    [+] Success: Custom boot parameters verified correctly in database on attempt {verify_attempt}!")
+                    verified = True
+                    break
+                else:
+                    print(f"    [!] Warning: Detected parameter clobbering! Re-applying custom parameters (Attempt {verify_attempt})...")
+                    api_request(update_url, method="PUT", data=update_data, token=token)
+                    
+    if not verified:
+        print("[!] Warning: Could not verify custom boot parameters. Re-attempting one final forced write...")
+        api_request(update_url, method="PUT", data=update_data, token=token)
     
     print("==============================================================================")
     print(" [x] SUCCESS: ISO INGEST & BOOTIMUS PROVISIONING COMPLETED!")

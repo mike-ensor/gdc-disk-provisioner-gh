@@ -14,6 +14,12 @@ build/
 !src/build/
 target/
 
+# Python Caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
 # Opencode custom skills
 skills/
 

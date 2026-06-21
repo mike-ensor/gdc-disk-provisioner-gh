@@ -148,3 +148,26 @@ Lifecycle modifications are pulled through two designated routes:
 
 * **Option A: Sideload Update (Offline Media):** Inserting a USB drive labeled `GDC-UPDATE-USB` triggers a custom `udev` rule, launching our headless update loop. The script verifies cryptographic signatures (`update.sig`), mounts the media, and pushes Git bundles and package assets to our local Gitea/Nexus servers on localhost.
 * **Option B: Connected Update (Reverse VPN):** Initiates an outbound-only WireGuard tunnel. Because the host routes WireGuard through the `vrf-machine` domain, the Gitea instance on the host pulls configuration updates from `UPSTREAM_PLAYBOOKS_REPO` without any access to the isolated `vrf-k8s` routing context.
+
+---
+
+## 7. Local Development & Bootstrap Network Prerequisites
+
+During local development and bare metal staging, specific network ports must be open and reachable across your subnet to prevent automated installations from failing and dropping back into the interactive TUI.
+
+### 7.1. Required Network Ports
+
+| Port | Protocol | Source | Destination | Service / Purpose |
+| :--- | :---: | :--- | :--- | :--- |
+| **`8080`** | TCP | GDC Booting Node | Admin Workstation | **GDC Installation Companion (Log Webhooks)** |
+| **`16000`** | TCP | GDC Booting Node | Bootimus NAS Server | **Bootimus HTTP File Assets (ISO, user-data, kernel)** |
+| **`26000`** | TCP | Admin Workstation | Bootimus NAS Server | **Bootimus REST API Endpoint** |
+
+### 7.2. Host Firewall Configuration (UFW Prerequisite)
+To allow the booting node to successfully verify connectivity to your local workstation running the `install_companion.py` script on port `8080`, **you must allow incoming connections on port `8080`**:
+
+```bash
+# Allow incoming GDC companion logging webhooks on the workstation
+sudo ufw allow 8080/tcp
+```
+If this port is blocked, the node's `early-commands` connectivity health checks will time out, causing Subiquity to halt the headless installation and drop back into manual interactive setup.

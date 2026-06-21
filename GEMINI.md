@@ -80,3 +80,25 @@ Before declaring any change or feature "completed", agents must verify the follo
 5. **Network Exposure Test:** During dynamic QEMU boot tests, execute remote checks to ensure ports 3000 and 8081 are strictly listening on local loopback `127.0.0.1`.
 6. **Mandatory ISO Compilation Loop (Rule 4.6):** Whenever any change is made to the bootloader, cloud-init templates, partitioning scripts (`generate_storage_config.sh`), systemd units, or late commands, you **MUST** run the remastering compilation locally (`make -C src/build build`) and execute the static validator (`test/validate_iso_static.sh`). Under no circumstances may a task be marked complete without compiling and verifying the resulting ISO.
 7. **Cloud Build Alignments:** To prevent GCS retrieval failures during Google Cloud Build pipelines, `SOURCE_ISO_FILENAME` inside `src/build/build.env` must always be kept as the unversioned name (`ubuntu-24.04-live-server-amd64.iso`) to match the blessed base image filename stored in the GCS bucket. For local downloads, point `SOURCE_ISO_URL` to the latest point-release (e.g. `ubuntu-24.04.4-live-server-amd64.iso`), which will download and save locally using the unversioned filename.
+
+---
+
+## 5. Root Cause Analysis (RCA) Memory & Regression Traps
+
+This section captures hard-earned architectural and operational lessons learned during physical bare-metal deployments. Adhere strictly to these rules to prevent regressions when building or deploying new GDC images.
+
+### Rule 5.1: Bypassing Casper Integrity Check Drop-to-Shells
+* **The Trap:** Files created on-the-fly during ISO repack (like `./boot/grub/i386-pc/eltorito.img` and `./boot.catalog`) are not present in the workspace directory when checksums are pre-calculated. This discrepancy causes Casper's boot-time media verification check to fail, immediately aborting autoinstall and dropping the node to interactive mode.
+* **The Mitigation:** Always permanently delete `/md5sum.txt` inside the extracted ISO directory (`${EXTRACT_DIR}/md5sum.txt`) during the remastering step before packing with `xorriso`. This forces Casper to skip media integrity checks entirely and proceed cleanly with headless installation.
+
+### Rule 5.2: Mitigating Bootimus Extraction Race Conditions
+* **The Trap:** When an ISO is uploaded, Bootimus extracts its kernel and initrd asynchronously. If you execute a `PUT /images` request to configure custom `boot_params` *while* the extraction is still running, Bootimus's background extractor will eventually complete and automatically overwrite your custom parameters with the default, non-interactive boot command-line.
+* **The Mitigation:** All automation scripts (such as `bootimus.py`) and database audits must poll `/images/extract-progress` and wait for the extraction progress to reach `100%` or `"completed"`. Introduce a **5-second settling window** before pushing custom `boot_params` or self-healing configurations. Additionally, the self-healing audit must skip images whose extraction state is still incomplete (`extracted: false`). Furthermore, **both the main ingestion loop and the `auto_heal_boot_params` routine inside `bootimus.py` implement a robust post-write verification loop** that queries the database after sending the parameters, asserts that they match our custom parameters, and automatically re-applies them if any background write clobbers them.
+
+### Rule 5.3: Preventing Webhook Blockage & Autoinstall TUI Fallback
+* **The Trap:** In Subiquity autoinstalls, if any script inside the `early-commands` block exits with a non-zero code, the automated installation halts immediately and falls back to the manual Installer TUI. Our `early-commands` run a mandatory network health handshake to verify connection to the host workstation's `install_companion.py` port `8080/tcp`. If the host's firewall (`ufw`) is active and blocking port 8080, this handshake fails and breaks the automated install.
+* **The Mitigation:** Ensure that port `8080` is allowed in the host's firewall (`sudo ufw allow 8080/tcp`) during development, and document this prerequisite in the setup/network guide.
+
+### Rule 5.4: Enforcing Dynamic Build-Time Hashing for User Credentials
+* **The Trap:** Committing plain-text passwords or static pre-calculated SHA-512 crypt hashes to Git poses severe security and rotation risks.
+* **The Mitigation:** Define administrative plain-text credentials dynamically (`TEMPORARY_INSTALLER_PASSWORD` inside `build.env` and overridable via the git-ignored `local.env`). The remastering engine must dynamically compute a secure SHA-512 crypt hash using a randomized salt at compilation-time and inject it into the cloud-init `/nocloud/user-data` file.

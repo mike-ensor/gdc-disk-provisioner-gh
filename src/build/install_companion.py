@@ -129,10 +129,27 @@ def run_server(port):
         sys.exit(0)
 
 if __name__ == "__main__":
+    # REMOVE ME BEFORE PRODUCTION: Defaulting to local dev port 8080. Update to 80/443 for production.
     port = 8080
+    clean_log = False
+    
+    if "--clean" in sys.argv:
+        clean_log = True
+        sys.argv.remove("--clean")
+        
     if len(sys.argv) > 1:
         try:
             port = int(sys.argv[1])
         except ValueError:
             print(f"[!] Error: Invalid port '{sys.argv[1]}'. Defauting to 8080.")
+            
+    if clean_log:
+        log_file_path = SubiquityLogHandler.log_file_path
+        if os.path.exists(log_file_path):
+            try:
+                os.remove(log_file_path)
+                print(f"[-] Option --clean active: Fresh copy started. Removed '{os.path.abspath(log_file_path)}'")
+            except Exception as e:
+                print(f"[!] Warning: Failed to remove log file '{log_file_path}': {e}")
+                
     run_server(port)
