@@ -309,11 +309,10 @@ autoinstall:
       done
       if [ "${SUCCESS}" = "false" ]; then
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-        echo "[GDC-INSTALL-FAIL] Critical Failure: Connectivity to GDC Installation Companion could not be verified after 3 attempts!"
-        echo "[GDC-INSTALL-FAIL] Ensure that the companion server is running and accessible."
+        echo "[WARNING] Connectivity to GDC Installation Companion could not be verified."
+        echo "[WARNING] Foregoing logging callback. Proceeding with installation..."
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-        logger -p user.err -t gdc-provisioner "[FAILURE] Connectivity to GDC Installation Companion failed"
-        exit 1
+        logger -p user.warning -t gdc-provisioner "[WARNING] Connectivity to GDC Installation Companion failed. Foregoing logging callback."
       fi
   late-commands:
     # Sync pre-seeded assets cleanly and set up service persistent storage
