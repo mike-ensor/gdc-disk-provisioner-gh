@@ -45,13 +45,59 @@ if ! command -v xorriso &>/dev/null; then
     exit 1
 fi
 
+# 2.5. Verify Host Cached Binaries Integrity (CI/CD Assertions)
+echo "[-] Verifying local cached binaries on host..."
+# Source the build.env file to load standard variables
+BUILD_ENV="${PROJECT_ROOT}/src/build/build.env"
+if [[ -f "${BUILD_ENV}" ]]; then
+    # shellcheck source=/dev/null
+    source "${BUILD_ENV}"
+else
+    echo "[!] Error: build.env not found at ${BUILD_ENV}" >&2
+    exit 1
+fi
+
+CACHE_DIR="${PROJECT_ROOT}/.cache/binaries"
+
+verify_host_cache() {
+    local filename="$1"
+    local expected_sha="$2"
+    local file_path="${CACHE_DIR}/${filename}"
+
+    if [[ ! -f "${file_path}" ]]; then
+        echo "[ ] CACHED BINARY MISSING ON HOST: ${filename} (Path: ${file_path})" >&2
+        return 1
+    fi
+
+    local actual_sha
+    actual_sha=$(sha256sum "${file_path}" | cut -d' ' -f1)
+    if [[ "${actual_sha}" != "${expected_sha}" ]]; then
+        echo "[ ] CRYPTOGRAPHIC HASH MISMATCH ON HOST: ${filename}!" >&2
+        echo "    Expected: ${expected_sha}" >&2
+        echo "    Actual:   ${actual_sha}" >&2
+        return 1
+    fi
+    echo "[x] Verified host cached binary: ${filename} (Cryptographically valid)"
+    return 0
+}
+
+HOST_CACHE_SUCCESS=true
+verify_host_cache "${GITEA_BINARY_FILENAME}" "${GITEA_BINARY_SHA256}" || HOST_CACHE_SUCCESS=false
+verify_host_cache "${NEXUS_PACKAGE_FILENAME}" "${NEXUS_PACKAGE_SHA256}" || HOST_CACHE_SUCCESS=false
+verify_host_cache "${JRE_PACKAGE_FILENAME}" "${JRE_PACKAGE_SHA256}" || HOST_CACHE_SUCCESS=false
+
+if [[ "${HOST_CACHE_SUCCESS}" = "false" ]]; then
+    echo "[!] Error: Host cached binaries validation failed. Ensure 'make -C src/build build' has run." >&2
+    exit 1
+fi
+
 # 3. File Inventory Checks (via xorriso non-root find)
 echo "[-] Scanning ISO structural layout..."
 CRITICAL_FILES=(
     "/nocloud/user-data"
     "/nocloud/meta-data"
     "/custom-data/gitea/gitea"
-    "/custom-data/nexus/nexus"
+    "/custom-data/nexus/nexus-bin/bin/nexus"
     "/boot/grub/grub.cfg"
 )
 

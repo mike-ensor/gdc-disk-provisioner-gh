@@ -36,13 +36,13 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Formulate `.cache/` scoped local storage directories (isos, binaries, blobs)
   - [x] Scaffold `.cache/isos/` path for caching blessed OS sources
   - [x] Enforce git ignoring of `.cache/` and `build-workspace/` targets
-- [ ] **Offline Services Acquisition**
-  - [ ] Fetch and configure standalone Go-based Gitea binary
-  - [ ] Fetch and configure Java/JVM & Sonatype Nexus binary (capable of APT/deb, OCI/Docker registry, and Raw Hugging-Face GGUF caches)
+- [x] **Offline Services Acquisition**
+  - [x] Fetch and configure standalone Go-based Gitea binary
+  - [x] Fetch and configure Java/JVM & Sonatype Nexus binary (capable of APT/deb, OCI/Docker registry, and Raw Hugging-Face GGUF caches)
 - [ ] **Pre-seeding Asset Pipeline**
-  - [ ] Configure Gitea Playbook Mirror:
-    - [ ] Dynamically clone `UPSTREAM_PLAYBOOKS_REPO` at ISO creation time
-    - [ ] Inject read-only Git `pre-receive` hook to block direct local pushes
+  - [x] Configure Gitea Playbook Mirror:
+    - [x] Dynamically clone `UPSTREAM_PLAYBOOKS_REPO` at ISO creation time
+    - [x] Inject read-only Git `pre-receive` hook to block direct local pushes
     - [ ] **FUTURE INVESTIGATION:** Research background sync scheduler/timer for pull-only updates on target OS
   - [ ] Configure Nexus Repository Group boundaries (merge Hosted & Proxy cache lines):
     - [ ] Establish OCI Docker Registry Group (Port 5001) for direct `docker push` + public pull-through cache

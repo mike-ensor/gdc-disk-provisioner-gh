@@ -426,14 +426,107 @@ autoinstall:
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Rebuilding initramfs ramdisks"
       if curtin in-target -- update-initramfs -u -k all; then
-        echo "=============================================================================="
-        echo "[GDC-INSTALL-GOAL] All custom late commands succeeded!"
-        echo "=============================================================================="
         logger -t gdc-provisioner "[GOAL] Rebuilding initramfs succeeded"
       else
         echo "[GDC-INSTALL-FAIL] Critical Failure: Rebuilding initramfs failed!"
         exit 1
       fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Post-Installation Validation and Verification Suite"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Starting Post-Installation Validation and Verification Suite"
+      
+      # Helper function to check block device existence and minimum size in gigabytes
+      verify_lvm_device() {
+          local lv_name="$1"
+          local min_gb="$2"
+          local dev_path=""
+          
+          # Handle potential dual-disk mapper or single-disk mappings
+          if [ -b "/dev/vg_system/${lv_name}" ]; then
+              dev_path="/dev/vg_system/${lv_name}"
+          elif [ -b "/dev/vg_data/${lv_name}" ]; then
+              dev_path="/dev/vg_data/${lv_name}"
+          fi
+          
+          if [ -z "${dev_path}" ]; then
+              echo "[GDC-INSTALL-FAIL] Critical: GDC Logical Volume '${lv_name}' is missing on the system!" >&2
+              return 1
+          fi
+          
+          # Retrieve size in blocks/sectors and convert to GB
+          local size_bytes
+          size_bytes=$(blockdev --getsize64 "${dev_path}")
+          local size_gb=$((size_bytes / 1024 / 1024 / 1024))
+          
+          if [ "${size_gb}" -lt "${min_gb}" ]; then
+              echo "[GDC-INSTALL-FAIL] Critical: Logical Volume '${lv_name}' size (${size_gb} GB) is below minimum of ${min_gb} GB!" >&2
+              return 1
+          fi
+          
+          echo "[x] Verified LVM Vol: ${lv_name} | Path: ${dev_path} | Size: ${size_gb} GB (Min: ${min_gb} GB)"
+          return 0
+      }
+
+      LVM_SUCCESS=true
+      verify_lvm_device "lv_root" 12 || LVM_SUCCESS=false
+      verify_lvm_device "lv_var" 12 || LVM_SUCCESS=false
+      verify_lvm_device "lv_var_log" 12 || LVM_SUCCESS=false
+      verify_lvm_device "lv_var_opt_metrics" 8 || LVM_SUCCESS=false
+      verify_lvm_device "lv_containerd" 25 || LVM_SUCCESS=false
+      verify_lvm_device "lv_etcd" 15 || LVM_SUCCESS=false
+      verify_lvm_device "lv_etcd_events" 4 || LVM_SUCCESS=false
+      verify_lvm_device "lv_gitea" 12 || LVM_SUCCESS=false
+      verify_lvm_device "lv_nexus" 25 || LVM_SUCCESS=false
+      verify_lvm_device "lv_local_disk" 20 || LVM_SUCCESS=false
+      verify_lvm_device "lv_sds" 10 || LVM_SUCCESS=false
+
+      if [ "${LVM_SUCCESS}" = "false" ]; then
+          echo "[GDC-INSTALL-FAIL] Critical Failure: GDC LVM partition layout validation failed!" >&2
+          exit 1
+      fi
+
+      # 2. Verify cached binaries existence on target OS
+      echo "[-] Verifying offline cached binaries on target partition..."
+      if [ ! -x /target/var/lib/gitea/gitea ]; then
+          echo "[GDC-INSTALL-FAIL] Critical: Standalone Gitea Go binary is missing or not executable in target!" >&2
+          exit 1
+      fi
+      if [ ! -x /target/var/lib/nexus/nexus-bin/bin/nexus ]; then
+          echo "[GDC-INSTALL-FAIL] Critical: Sonatype Nexus core binary is missing or not executable in target!" >&2
+          exit 1
+      fi
+      if [ ! -x /target/var/lib/nexus/jre/bin/java ]; then
+          echo "[GDC-INSTALL-FAIL] Critical: Standalone Java JRE binary is missing or not executable in target!" >&2
+          exit 1
+      fi
+      echo "[x] All target offline binaries are confirmed present and executable."
+
+      # 3. Verify Gitea and Nexus service enabling
+      echo "[-] Verifying that systemd services are enabled for startup..."
+      if ! chroot /target systemctl is-enabled gitea.service &>/dev/null; then
+          echo "[GDC-INSTALL-FAIL] Critical: Gitea systemd service is not enabled!" >&2
+          exit 1
+      fi
+      if ! chroot /target systemctl is-enabled nexus.service &>/dev/null; then
+          echo "[GDC-INSTALL-FAIL] Critical: Nexus systemd service is not enabled!" >&2
+          exit 1
+      fi
+      echo "[x] Gitea and Nexus systemd services are registered and enabled successfully."
+
+      # 4. Validate target binary architecture compatibility
+      echo "[-] Validating target binary architecture compatibility..."
+      chroot /target /bin/bash -c "
+          USER=root HOME=/var/lib/gitea GITEA_WORK_DIR=/var/lib/gitea /var/lib/gitea/gitea --version
+          /var/lib/nexus/jre/bin/java -version
+      "
+      echo "[x] Dynamic bin execution validation passed cleanly."
+
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Task Succeeded: Post-installation validations passed!"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Post-installation validations passed successfully"
 EOF
 
 # C. Inject Custom Services Directory (Hub and Spoke structures)
@@ -673,14 +766,79 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-# Create placeholder binaries to establish the files/directory structure
-echo "#!/bin/bash" > "${EXTRACT_DIR}/custom-data/gitea/gitea"
-echo "echo 'Gitea Placeholder'" >> "${EXTRACT_DIR}/custom-data/gitea/gitea"
+# ==============================================================================
+# 3.5. Fetch, Verify, and Install Offline Service Hub Binaries
+# ==============================================================================
+echo "[-] Preparing and verifying Offline Service Hub binaries..."
+
+# Helper function to download and verify files
+download_and_verify() {
+    local url="$1"
+    local filename="$2"
+    local expected_sha="$3"
+    local dest_path="${BIN_CACHE_DIR}/${filename}"
+
+    if [[ ! -f "${dest_path}" ]]; then
+        echo "    [-] Downloading ${filename}..."
+        curl -L -sS -o "${dest_path}" "${url}"
+    else
+        echo "    [-] Found cached ${filename}."
+    fi
+
+    # Perform SHA-256 cryptographic check
+    echo "    [-] Verifying integrity of ${filename}..."
+    local actual_sha
+    actual_sha=$(sha256sum "${dest_path}" | cut -d' ' -f1)
+    if [[ "${actual_sha}" != "${expected_sha}" ]]; then
+        echo "    [!] Cryptographic verification failed for ${filename}!" >&2
+        echo "        Expected: ${expected_sha}" >&2
+        echo "        Actual:   ${actual_sha}" >&2
+        exit 1
+    fi
+    echo "    [+] ${filename} verified successfully."
+}
+
+# Download and verify Gitea
+download_and_verify "${GITEA_BINARY_URL}" "${GITEA_BINARY_FILENAME}" "${GITEA_BINARY_SHA256}"
+
+# Download and verify JRE
+download_and_verify "${JRE_PACKAGE_URL}" "${JRE_PACKAGE_FILENAME}" "${JRE_PACKAGE_SHA256}"
+
+# Download and verify Nexus
+download_and_verify "${NEXUS_PACKAGE_URL}" "${NEXUS_PACKAGE_FILENAME}" "${NEXUS_PACKAGE_SHA256}"
+
+# 1. Install Gitea Binary
+echo "[-] Installing Gitea standalone server binary..."
+cp "${BIN_CACHE_DIR}/${GITEA_BINARY_FILENAME}" "${EXTRACT_DIR}/custom-data/gitea/gitea"
 chmod +x "${EXTRACT_DIR}/custom-data/gitea/gitea"
 
-echo "#!/bin/bash" > "${EXTRACT_DIR}/custom-data/nexus/nexus"
-echo "echo 'Nexus Placeholder'" >> "${EXTRACT_DIR}/custom-data/nexus/nexus"
-chmod +x "${EXTRACT_DIR}/custom-data/nexus/nexus"
+# 2. Extract and Install JRE 17 Headless
+echo "[-] Extracting JRE 17 runtime..."
+TEMP_JRE_DIR=$(mktemp -d)
+tar -xzf "${BIN_CACHE_DIR}/${JRE_PACKAGE_FILENAME}" -C "${TEMP_JRE_DIR}"
+# Move extracted JRE root folder contents to custom-data/nexus/jre
+mkdir -p "${EXTRACT_DIR}/custom-data/nexus/jre"
+cp -r "${TEMP_JRE_DIR}"/*/* "${EXTRACT_DIR}/custom-data/nexus/jre/"
+rm -rf "${TEMP_JRE_DIR}"
+
+# 3. Extract and Install Sonatype Nexus
+echo "[-] Extracting Sonatype Nexus Distribution..."
+TEMP_NEXUS_DIR=$(mktemp -d)
+tar -xzf "${BIN_CACHE_DIR}/${NEXUS_PACKAGE_FILENAME}" -C "${TEMP_NEXUS_DIR}"
+# Move nexus-3.* core files to custom-data/nexus/nexus-bin
+mkdir -p "${EXTRACT_DIR}/custom-data/nexus/nexus-bin"
+cp -r "${TEMP_NEXUS_DIR}"/nexus-*/* "${EXTRACT_DIR}/custom-data/nexus/nexus-bin/"
+# Move sonatype-work configuration directory to custom-data/nexus/sonatype-work
+mkdir -p "${EXTRACT_DIR}/custom-data/nexus/sonatype-work"
+cp -r "${TEMP_NEXUS_DIR}"/sonatype-work/* "${EXTRACT_DIR}/custom-data/nexus/sonatype-work/"
+rm -rf "${TEMP_NEXUS_DIR}"
+
+# 4. Configure Nexus Environment overrides (nexus.rc)
+echo "[-] Writing local JRE override config for Sonatype Nexus..."
+cat <<'EOF' > "${EXTRACT_DIR}/custom-data/nexus/nexus-bin/bin/nexus.rc"
+run_as_user="root"
+INSTALL4J_JAVA_HOME_OVERRIDE="/var/lib/nexus/jre"
+EOF
 
 # Clone the upstream playbook repository as a read-only mirror (cloned at ISO creation time)
 # Organized under the "gdc" owner namespace to allow direct localhost:3000/gdc/bootstrap-playbooks.git fetches
