@@ -169,3 +169,14 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [ ] Seed GDC bootstrap workstation credentials
   - [ ] Create bmctl configuration file defining target cluster IP networks and VIPs
   - [ ] Execute `bmctl create cluster` offline using pre-seeded container layers in local Nexus group registry
+
+---
+
+### UNPLANNED
+- [ ] **APT** configuration
+  - [ ] https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#apt
+  - [ ] https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#fallback
+- [ ] **Ubuntu Pro** config - https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#ubuntu-pro
+- [ ] **Error handling during install**
+  - [ ] https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#error-commands
+  
