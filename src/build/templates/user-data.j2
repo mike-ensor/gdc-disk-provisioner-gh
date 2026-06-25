@@ -1,0 +1,210 @@
+#cloud-config
+autoinstall:
+  version: 1
+  storage:
+{{ storage_config }}
+  identity:
+    hostname: gdc-standalone-node
+    username: temporary-installer
+    password: "{{ password_hash }}"
+  locale: en_US.UTF-8
+  keyboard: {layout: us}
+  network:
+    version: 2
+    ethernets:
+      all-en:
+        match:
+          name: "e*"
+        dhcp4: true
+  ssh:
+    install-server: true
+    allow-pw: true
+    {% if ssh_pub_key %}
+    authorized-keys:
+      - "{{ ssh_pub_key }}"
+    {% endif %}
+  packages:
+    - ansible
+    - git
+  reporting:
+    gdc-gateway:
+      type: webhook
+      endpoint: {{ companion_url }}
+      level: info
+  early-commands:
+    - |
+      # Print GDC vintage parchment boot banner with version and build timestamp
+      if [ -f /cdrom/custom-data/boot-banner.txt ]; then
+        cat /cdrom/custom-data/boot-banner.txt > /dev/ttyS0 2>/dev/null || true
+        cat /cdrom/custom-data/boot-banner.txt > /dev/console 2>/dev/null || true
+        cat /cdrom/custom-data/boot-banner.txt
+      fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Activating Live ISO network segment"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Activating Live ISO network segment"
+      PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
+      
+      # Configure Live ISO network interface based on VLAN ID using DHCP
+      VLAN_ID="{{ machine_vlan }}"
+      if [ -z "${VLAN_ID}" ] || [ "${VLAN_ID}" = "0" ]; then
+        # Untagged native configuration (directly on physical interface!)
+        echo "[-] Running on untagged native network. Retaining existing DHCP configuration."
+        ip link set dev "${PHYS_IFACE}" up || true
+      else
+        # Tagged VLAN configuration
+        echo "[-] Running on tagged VLAN ${VLAN_ID}. Activating VLAN interface..."
+        ip link add link "${PHYS_IFACE}" name "${PHYS_IFACE}.${VLAN_ID}" type vlan id "${VLAN_ID}" 2>/dev/null || true
+        ip link set dev "${PHYS_IFACE}.${VLAN_ID}" up || true
+        echo "[-] Requesting DHCP address on VLAN interface..."
+        dhclient "${PHYS_IFACE}.${VLAN_ID}" 2>/dev/null || systemctl restart systemd-networkd || true
+      fi
+      
+      # Add static DNS host mapping for GDC Companion resolving
+      echo "{{ companion_ip }} {{ companion_host }}" >> /etc/hosts
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Verifying connectivity to GDC Installation Companion"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Verifying connectivity to GDC Installation Companion"
+      COMPANION_URL="{{ companion_url }}"
+      SUCCESS=false
+      for i in 1 2 3; do
+        echo "[-] Attempt $i of 3: Connecting to GDC Companion at ${COMPANION_URL}..."
+        if curl -s -I --connect-timeout 2 "${COMPANION_URL}" &>/dev/null; then
+          echo "[-] Connection to GDC Installation Companion established successfully!"
+          SUCCESS=true
+          break
+        fi
+        if [ "$i" -lt 3 ]; then
+          echo "[!] Connection failed. Retrying in 5 seconds..."
+          sleep 5
+        fi
+      done
+      if [ "${SUCCESS}" = "false" ]; then
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        echo "[WARNING] Connectivity to GDC Installation Companion could not be verified."
+        echo "[WARNING] Foregoing logging callback. Proceeding with installation..."
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        logger -p user.warning -t gdc-provisioner "[WARNING] Connectivity to GDC Installation Companion failed. Foregoing logging callback."
+      fi
+  late-commands:
+    # Sync pre-seeded assets cleanly and set up service persistent storage
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Syncing Gitea, Nexus, & Ansible collections"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Syncing Gitea, Nexus, & Ansible collections"
+      mkdir -p /target/var/lib/gitea /target/var/lib/nexus /target/usr/share/ansible/collections
+      if rsync -a --sparse /cdrom/custom-data/gitea/ /target/var/lib/gitea/ && \
+         rsync -a --sparse /cdrom/custom-data/nexus/ /target/var/lib/nexus/ && \
+         { [ ! -d /cdrom/custom-data/ansible/collections ] || rsync -a /cdrom/custom-data/ansible/collections/ /target/usr/share/ansible/collections/; }; then
+        logger -t gdc-provisioner "[GOAL] Asset synchronization completed"
+      else
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Syncing pre-seeded assets failed!"
+        exit 1
+      fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Deploying and enabling systemd service units & timers"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Deploying and enabling systemd service units & timers"
+      cp /cdrom/custom-data/systemd/gitea.service /target/etc/systemd/system/
+      cp /cdrom/custom-data/systemd/nexus.service /target/etc/systemd/system/
+      cp /cdrom/custom-data/systemd/gdc-provision.service /target/etc/systemd/system/
+      cp /cdrom/custom-data/systemd/gdc-provision.timer /target/etc/systemd/system/
+      curtin in-target -- systemctl enable gdc-provision.service gdc-provision.timer
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Injecting custom administrative SSH public keys"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Injecting custom administrative SSH public keys"
+      PUB_KEY="{{ ssh_pub_key }}"
+      if [ -n "${PUB_KEY}" ]; then
+        mkdir -p /target/root/.ssh /target/home/temporary-installer/.ssh
+        echo "${PUB_KEY}" >> /target/root/.ssh/authorized_keys
+        echo "${PUB_KEY}" >> /target/home/temporary-installer/.ssh/authorized_keys
+        chmod 700 /target/root/.ssh /target/home/temporary-installer/.ssh
+        chmod 600 /target/root/.ssh/authorized_keys /target/home/temporary-installer/.ssh/authorized_keys
+        chown -R 1000:1000 /target/home/temporary-installer/.ssh
+        logger -t gdc-provisioner "[GOAL] SSH public keys successfully authorized"
+      else
+        logger -t gdc-provisioner "[GOAL] No custom SSH public keys configured, skipping injection"
+      fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Message of the Day (MOTD)"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Deploying GDC Message of the Day (MOTD)"
+      if [ -f /cdrom/custom-data/boot-banner.txt ]; then
+        cp /cdrom/custom-data/boot-banner.txt /target/etc/motd
+        logger -t gdc-provisioner "[GOAL] GDC boot banner copied to MOTD successfully"
+      else
+        logger -t gdc-provisioner "[GOAL] Boot banner not found, skipping MOTD setup"
+      fi
+    # Ssh and passwordless root-unlock setup for transition gap
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Configuring passwordless boot-unlock key file"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Configuring passwordless boot-unlock key file"
+      mkdir -p /target/etc/keys
+      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /target/etc/keys/temp_key.key
+      chmod 400 /target/etc/keys/temp_key.key
+      CRYPT_DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -n 1)
+      if [ -n "$CRYPT_DEV" ]; then
+        echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /tmp/pass.txt
+        if cryptsetup luksAddKey --key-file=/tmp/pass.txt "$CRYPT_DEV" /target/etc/keys/temp_key.key; then
+          logger -t gdc-provisioner "[GOAL] Added key to LUKS device $CRYPT_DEV"
+          sed -i 's/ none / \/etc\/keys\/temp_key.key /' /target/etc/crypttab
+          logger -t gdc-provisioner "[GOAL] Updated crypttab to use key file"
+        else
+          echo "[GDC-INSTALL-FAIL] Critical Failure: Failed to add key to LUKS device!"
+          exit 1
+        fi
+        rm -f /tmp/pass.txt
+      else
+        logger -t gdc-provisioner "[GOAL] No LUKS device found, skipping key enrollment"
+      fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Production VRF Netplan configuration"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Deploying GDC Production VRF Netplan configuration"
+      PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
+      mkdir -p /target/etc/netplan
+      if sed "s/__PHYS_IFACE__/${PHYS_IFACE}/g" /cdrom/custom-data/network-template.yaml > /target/etc/netplan/01-netcfg.yaml; then
+        chmod 600 /target/etc/netplan/01-netcfg.yaml
+        if [ -f /target/etc/netplan/50-cloud-init.yaml ]; then
+          mv /target/etc/netplan/50-cloud-init.yaml /target/etc/netplan/50-cloud-init.yaml.bak
+          logger -t gdc-provisioner "[GOAL] Renamed 50-cloud-init.yaml to 50-cloud-init.yaml.bak"
+        fi
+        logger -t gdc-provisioner "[GOAL] GDC Production VRF Netplan deployed successfully on ${PHYS_IFACE}"
+      else
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Failed to generate production Netplan!"
+        exit 1
+      fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Configuring VRF sysctl profiles"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Configuring VRF sysctl profiles"
+      mkdir -p /target/etc/sysctl.d
+      echo "net.ipv4.tcp_l3mdev_accept=1" > /target/etc/sysctl.d/99-vrf.conf
+      echo "net.ipv4.udp_l3mdev_accept=1" >> /target/etc/sysctl.d/99-vrf.conf
+      logger -t gdc-provisioner "[GOAL] VRF sysctl profiles configured successfully"
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Rebuilding initramfs ramdisks"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Rebuilding initramfs ramdisks"
+      if curtin in-target -- update-initramfs -u -k all; then
+        echo "=============================================================================="
+        echo "[GDC-INSTALL-GOAL] All custom late commands succeeded!"
+        echo "=============================================================================="
+        logger -t gdc-provisioner "[GOAL] Rebuilding initramfs succeeded"
+      else
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Rebuilding initramfs failed!"
+        exit 1
+      fi

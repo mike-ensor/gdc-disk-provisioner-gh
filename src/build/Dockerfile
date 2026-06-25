@@ -16,6 +16,7 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install only the precise, essential build utilities
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xorriso \
     rsync \
@@ -24,6 +25,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     python3 \
+    python3-pip \
+    python3-venv \
+    yamllint \
+    pylint \
+    shellcheck \
+    netplan.io \
     && rm -rf /var/lib/apt/lists/* \
     && xorriso --version
 

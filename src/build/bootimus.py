@@ -13,6 +13,7 @@ import time
 import json
 import urllib.request
 import urllib.parse
+import urllib.error
 import subprocess
 
 # Configurable Defaults (Can be overridden by environment variables)
@@ -20,6 +21,8 @@ BOOTIMUS_API_HOST = os.environ.get("BOOTIMUS_API_HOST", "192.168.254.12")
 BOOTIMUS_API_PORT = int(os.environ.get("BOOTIMUS_API_PORT", 26000))
 BOOTIMUS_HTTP_PORT = int(os.environ.get("BOOTIMUS_HTTP_PORT", 16000))
 API_BASE = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_API_PORT}/api"
+BOOTIMUS_SCAN_RETRIES = int(os.environ.get("BOOTIMUS_SCAN_RETRIES", 24))
+BOOTIMUS_SCAN_DELAY = int(os.environ.get("BOOTIMUS_SCAN_DELAY", 15))
 
 def get_bootimus_credentials():
     """Retrieves credentials from environment or dynamically from Infisical."""
@@ -290,6 +293,7 @@ def main():
             sys.exit(1)
         
     # 3. Trigger Filesystem Scan
+    assert filename is not None, "filename cannot be None"
     print("[-] Triggering Bootimus file scanner for newly synchronized GCS ISOs...")
     api_request(f"{API_BASE}/scan", method="POST", token=token)
     time.sleep(2) # Allow scanner initialization
@@ -297,7 +301,7 @@ def main():
     # 4. Locate and Verify Image
     print("[-] Searching for scanned image...")
     image_data = None
-    retries = 20
+    retries = BOOTIMUS_SCAN_RETRIES
     while retries > 0:
         images_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
         if images_res.get("success") and images_res.get("data"):
@@ -308,7 +312,7 @@ def main():
                 print(f"[x] Located image: {image_data['name']} (Size: {image_data['size']} bytes)")
                 break
         print(f"[-] Still searching... ({retries} retries left)")
-        time.sleep(30)
+        time.sleep(BOOTIMUS_SCAN_DELAY)
         retries -= 1
         
     if not image_data:
@@ -395,8 +399,8 @@ def main():
                     api_request(update_url, method="PUT", data=update_data, token=token)
                     
     if not verified:
-        print("[!] Warning: Could not verify custom boot parameters. Re-attempting one final forced write...")
-        api_request(update_url, method="PUT", data=update_data, token=token)
+        print("[!] CRITICAL ERROR: Failed to verify custom boot parameters in Bootimus database after multiple attempts!")
+        sys.exit(1)
     
     print("==============================================================================")
     print(" [x] SUCCESS: ISO INGEST & BOOTIMUS PROVISIONING COMPLETED!")

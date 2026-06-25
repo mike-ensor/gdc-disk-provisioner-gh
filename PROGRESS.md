@@ -18,6 +18,10 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [x] **GDC-SPEC-005-TURNUP: GDC Offline Cluster Turnup** — Written & Approved
 - [x] **GDC-SPEC-006: GDC Lifecycle Update Flows** — Written & Approved
 - [x] **GDC-SPEC-DEP-001: GDC Master Dependency Matrix** — Written & Approved
+- [x] **Stage-Gate Software Supply Chain Design (`docs/specs/01-iso-build-pipeline.md`)** — Aligned & Approved
+- [x] **Jinja2 Declarative Configuration Templating (`docs/specs/02-baseline-installer.md`)** — Aligned & Approved
+- [x] **Port-forwarding Loopback Isolation & SSH Assertions (`docs/specs/04-verification-and-testing.md`)** — Aligned & Approved
+- [x] **Decoupled Job-Release Orchestration Guide (`docs/DEVELOPMENT.md`)** — Aligned & Approved
 - [x] **Governance Rules (`GEMINI.md`)** — Documented
 - [x] **Domain Glossary (`DICTIONARY.md`)** — Documented
 - [x] **Architecture User Guides (`docs/DISKS.md`, `docs/NETWORK.md`, `docs/SECURITY.md`, `docs/POST-INSTALL.md`)** — Documented & Aligned
@@ -49,9 +53,9 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
     - [ ] Establish APT Repository Group for local deb uploads + upstream cache proxies
     - [ ] Establish LLM Raw Group for local GGUF weight files + Hugging Face proxies
   - [ ] Pre-populate initial offline caches & packages into Gitea and Nexus blobs
-- [ ] **Live ISO systemd Integration**
-  - [ ] Configure Live environment `live-gitea.service` unit file
-  - [ ] Configure Live environment `live-nexus.service` unit file
+- [x] **Live ISO systemd Integration**
+  - [x] Configure Live environment `live-gitea.service` unit file
+  - [x] Configure Live environment `live-nexus.service` unit file
   - [ ] Set up live OverlayFS mounting scripts for RAM-execution
 - [x] **Remastering Compilations**
   - [x] Integrate boot loader GRUB configurations
@@ -61,22 +65,22 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ### Phase 2: Baseline Installer (Boot & Execute)
 
-- [ ] **Autoinstall Configurations**
+- [x] **Autoinstall Configurations**
   - [x] Design smart installation logging structures (`log_goal` and `log_fail`)
   - [x] Integrate automated error traps and exit-line captures inside partition scripts
-  - [ ] Create `/nocloud/user-data` autoinstall schema
-  - [ ] Configure DHCP networking settings
-  - [ ] Redirect autoinstall APT source to local live Nexus APT proxy
-- [ ] **Enterprise LVM Provisioning Automation**
+  - [x] Create `/nocloud/user-data` autoinstall schema
+  - [x] Configure DHCP networking settings
+  - [x] Redirect autoinstall APT source to local live Nexus APT proxy
+- [x] **Enterprise LVM Provisioning Automation**
   - [x] Formulate dynamic 1-or-2 disk auto-sizing script (`generate_storage_config.sh`)
   - [x] Optimize dual-disk setups (isolate etcd/OS to Disk 1; dedicate Disk 2 to SDS)
   - [x] Formulate single-disk scaling algorithms (scale Gitea, Nexus, and local-disk to fit 250GB)
-  - [ ] Define `/boot/efi` (1 GiB) and `/boot` (2 GiB) physical partitions
-  - [ ] Initialize Volume Group `vg_system`
-  - [ ] Allocate System Logical Volumes (`lv_root`, `lv_var`, `lv_var_log`, `lv_var_opt_metrics`)
-  - [ ] Allocate GDC Logical Volumes (`lv_containerd`, `lv_etcd`, `lv_etcd_events`)
-  - [ ] Allocate Service Logical Volumes (`lv_gitea`, `lv_nexus`)
-  - [ ] Allocate Customer Logical Volumes (`lv_local_disk` [100GiB max], `lv_sds` [remainder])
+  - [x] Define `/boot/efi` (1 GiB) and `/boot` (2 GiB) physical partitions
+  - [x] Initialize Volume Group `vg_system`
+  - [x] Allocate System Logical Volumes (`lv_root`, `lv_var`, `lv_var_log`, `lv_var_opt_metrics`)
+  - [x] Allocate GDC Logical Volumes (`lv_containerd`, `lv_etcd`, `lv_etcd_events`)
+  - [x] Allocate Service Logical Volumes (`lv_gitea`, `lv_nexus`)
+  - [x] Allocate Customer Logical Volumes (`lv_local_disk` [100GiB max], `lv_sds` [remainder])
 - [ ] **FUTURE INVESTIGATION: Linux VRF for Multi-IP Isolation**
   - [ ] Explore Linux VRF to support two IPs on a single physical interface (see `docs/future/linux-vrf.md`)
   - [ ] Complete full technical specification for VRF-based routing isolation
@@ -149,6 +153,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [x] **Static Verification (Tier 1)**
   - [x] Create `test/validate_iso_static.sh` script
   - [x] Integrate cloud-init schema and YAML syntax verification
+  - [x] Integrate dynamic sandboxed Netplan verification (`netplan generate`) into the pre-flight validator
 - [x] **Isolated Cloud Sandbox Testing (GCE)**
   - [x] Create `test/gce_startup_test.sh` first-boot startup script
   - [x] Create `test/provision_gce_sandbox.sh` lifecycle orchestrator

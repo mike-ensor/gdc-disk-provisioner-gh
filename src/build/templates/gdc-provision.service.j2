@@ -1,0 +1,17 @@
+[Unit]
+Description=GDC Ready-Linux First Boot Provisioner
+After=gitea.service nexus.service network.target
+Requires=gitea.service nexus.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/gdc-provision
+ExecStart=/bin/bash -c "/usr/bin/ansible-pull \
+  -U http://127.0.0.1:3000/gdc/bootstrap-playbooks.git \
+  -i localhost, \
+  $ANSIBLE_PULL_FLAGS \
+  ansible/local.yml"
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target

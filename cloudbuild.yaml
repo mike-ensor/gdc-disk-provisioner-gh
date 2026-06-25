@@ -1,10 +1,9 @@
 # ==============================================================================
 # GDC Bootloader - Google Cloud Build Pipeline Configuration
 # ==============================================================================
-# This pipeline builds the custom GDC bootstrap ISO completely in the cloud.
-# To avoid uploading large files, it retrieves the "blessed" source ISO from
-# GCS, remasters it in a secure, non-root step, and uploads the compiled
-# versioned ISO back to GCS.
+# This pipeline builds, validates, and deploys the custom GDC bootstrap ISO
+# completely in the cloud, mirroring the exact stage-gate make targets
+# used during local developer workstation cycles.
 # ==============================================================================
 
 steps:
@@ -12,14 +11,14 @@ steps:
   # Step 1: Pull "Blessed" ISO from GCS
   # ==========================================
   # Pulls the official Ubuntu 24.04 ISO from your GCS bucket source folder 
-  # directly into the local build cache workspace.
+  # directly into our local build cache workspace.
   - name: 'gcr.io/cloud-builders/gcloud'
     id: 'pull-source-iso'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        echo "[-] Creating local cache directory structure..."
+        echo "[-] [CI Stage: deps] Creating local cache directory structure..."
         mkdir -p .cache/isos
         
         # Determine source bucket for the blessed ISO
@@ -41,30 +40,31 @@ steps:
         fi
 
   # ==========================================
-  # Step 2: ISO Compilation / Remastering
+  # Step 2: ISO Template, Validate, and Assemble Gates
   # ==========================================
-  # Uses pre-built custom builder container with xorriso, rsync, git, and make
-  # pre-installed to minimize startup latency and ensure reproducibility.
+  # Uses the custom builder container containing xorriso, rsync, shellcheck, and pylint.
+  # Automatically triggers: check-env -> deps -> extract -> hydrate -> validate -> assemble -> test-static
   - name: '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/gdc-build-images/iso-builder:${_BUILD_VERSION}'
-    id: 'compile-custom-iso'
+    id: 'build-and-validate-iso'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        echo "[-] Configuring dynamic version tag in build.env to: ${_ISO_VERSION}..."
-        sed -i 's/^ISO_VERSION=.*/ISO_VERSION=${_ISO_VERSION}/g' src/build/build.env
+        echo "[-] [CI Stage: compile] Triggering Stage-Gate compilation for version: ${_ISO_VERSION}..."
         
-        echo "[-] Launching GDC ISO Remastering Engine..."
-        # remaster.sh automatically reads .cache/isos/ for the blessed base image
-        ./src/build/remaster.sh --auto-approve
+        # Build the targets sequentially using GNU Make dependencies
+        make -C src/build test-static \
+          ISO_VERSION="${_ISO_VERSION}" \
+          SOURCE_ISO_FILENAME="${_SOURCE_ISO_FILENAME}" \
+          AUTO_APPROVE="true"
 
   # ==========================================
-  # Step 3: Publish Customized ISO to GCS & Clean Up
+  # Step 3: Publish, Manifest, and Promote Release Artifacts
   # ==========================================
-  # Uses gcloud container to parse build metadata, securely upload the 
-  # final compiled ISO, and archive older versions (keeping only the last 5).
+  # Uses gcloud to trigger release deployments, compile the JSON Provenance Manifest,
+  # archive the debug templates tarball, and perform bucket cleanups.
   - name: 'gcr.io/cloud-builders/gcloud'
-    id: 'publish-custom-iso'
+    id: 'publish-and-promote'
     entrypoint: 'bash'
     args:
       - '-c'
@@ -75,15 +75,17 @@ steps:
           exit 1
         fi
         
-        # Import variables from remaster.sh output
+        # Import variables from the compilation metadata
         source "$${BUILD_META}"
         echo "[-] Found compiled ISO: $${ISO_OUTPUT_NAME} at $${ISO_OUTPUT_PATH}"
         
-        BUCKET_NAME=$(echo "${_GCS_BUCKET_NAME}" | sed 's/^gs:\/\///')
+        # Trigger deploy and publish gates via Make
+        make -C src/build deploy publish \
+          ISO_VERSION="${_ISO_VERSION}" \
+          ENABLE_GCS="true" \
+          GCS_BUCKET="gs://${_GCS_BUCKET_NAME}"
         
-        echo "[-] Uploading compiled ISO to gs://$${BUCKET_NAME}/sync/$${ISO_OUTPUT_NAME}..."
-        gcloud storage cp "$${ISO_OUTPUT_PATH}" "gs://$${BUCKET_NAME}/sync/$${ISO_OUTPUT_NAME}"
-        echo "[-] Upload complete."
+        BUCKET_NAME=$(echo "${_GCS_BUCKET_NAME}" | sed 's/^gs:\/\///')
         
         echo "[-] Performing bucket retention cleanup (keeping last 5 ISOs in sync/)..."
         # List all ISOs in the sync/ directory of the bucket, sorted naturally by semantic version
