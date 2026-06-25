@@ -44,6 +44,17 @@ All implementations in this repository must align with the following core archit
   * Heavy caches must reside in a dedicated workspace directory on the physical USB drive labeled `GDC-SEED-CACHE`.
   * Gitea/Nexus startup layers must execute dynamic mounting loops to hook this storage directory into their local cache blobs upon boot.
 
+### Rule 1.8: The Minimalist Principle (YAGNI & Release Efficiency)
+* **Directive:** Keep the compilation, build, and deployment pipelines lean and free of non-essential frameworks or complex VM wrappers.
+* **Enforcement:**
+  * **No Heavy Compilers:** Do not introduce heavy VM compilers (such as Packer) or elaborate virtualization overlay frameworks for ISO remastering. Standard UNIX system utilities (`xorriso`, `rsync`, and Python/Jinja2) are the project standards.
+  * **Outer FS Overlays:** Do not unpack, modify, or compress the static base operating system `filesystem.squashfs` partition. Configurations, Gitea repositories, and Nexus binary payloads must reside strictly as outer file directories (`/custom-data/` overlays), ensuring compilation loops complete in under 10 seconds.
+  * **Clean Caching:** Scaffolding must restrict temporary work and caches strictly to Git-ignored `.cache/` and `build-workspace/` folders, keeping the primary codebase clutter-free.
+
+### Rule 1.9: Prefer Declarative Templates over In-line Configuration
+* **Directive:** Do not embed raw, multi-line configurations, configuration generation scripts, or dynamic file writes directly inside primary orchestration scripts (like `remaster.sh` or playbooks).
+* **Enforcement:** All configuration structures (Subiquity `user-data`, `meta-data`, Netplan interface descriptions, systemd service units, and partition maps) must reside as cleanly bounded declarative files. If any configuration is dynamic or contains variable bindings, it must be written as a Jinja2 template (`.j2`) in the template directory and hydrated safely at build-time. This eliminates string-replacement hazards and guarantees schema validation compliance.
+
 ---
 
 ## 2. Coding & Tooling Standards
@@ -57,6 +68,13 @@ All implementations in this repository must align with the following core archit
 * **Enforcement:**
   * Avoid raw `shell` or `command` modules unless no specialized Ansible module exists. If utilized, a `register` combined with a `changed_when` or `failed_when` check is **mandatory**.
   * Keep the plays separated into structural roles: `gdc-users`, `gdc-tpm`, `gdc-services-persistent`, `gdc-hardening`, and `gdc-slimming`.
+
+### Rule 2.3: The "Do Not Guess" Principle (Active Environmental Probing)
+* **Directive:** No script, parser, or template may make static assumptions about the host build environment or target physical hardware.
+* **Enforcement:**
+  * **Hardware Adaptability:** Target disk layout configurations must not be pre-baked statically. The partitioning engine must query `/sys/block` dynamically to verify sector counts, physical device types (SSD vs NVMe), and drive count topologies before formulating partition maps.
+  * **Port Availability Check:** Before QEMU or local Service Hub processes bind to host/guest port ranges (2222, 3000, 8081, 8080), scripts must query the active sockets table (`ss -tulpn`) to prevent port collision crashes.
+  * **Static Pre-Build Schema Verification:** Every configuration template (YAML, JSON, Netplan config) must undergo schema and syntax checks (`cloud-init schema`, `yamllint`, `shellcheck` for script segments) during the validation gate *prior* to packing.
 
 ---
 
@@ -80,6 +98,9 @@ Before declaring any change or feature "completed", agents must verify the follo
 5. **Network Exposure Test:** During dynamic QEMU boot tests, execute remote checks to ensure ports 3000 and 8081 are strictly listening on local loopback `127.0.0.1`.
 6. **Mandatory ISO Compilation Loop (Rule 4.6):** Whenever any change is made to the bootloader, cloud-init templates, partitioning scripts (`generate_storage_config.sh`), systemd units, or late commands, you **MUST** run the remastering compilation locally (`make -C src/build build`) and execute the static validator (`test/validate_iso_static.sh`). Under no circumstances may a task be marked complete without compiling and verifying the resulting ISO.
 7. **Cloud Build Alignments:** To prevent GCS retrieval failures during Google Cloud Build pipelines, `SOURCE_ISO_FILENAME` inside `src/build/build.env` must always be kept as the unversioned name (`ubuntu-24.04-live-server-amd64.iso`) to match the blessed base image filename stored in the GCS bucket. For local downloads, point `SOURCE_ISO_URL` to the latest point-release (e.g. `ubuntu-24.04.4-live-server-amd64.iso`), which will download and save locally using the unversioned filename.
+8. **Automated Release Manifesting & Promotion (Rule 4.8):**
+   * **Sealed Manifest:** Every successful verification run must generate a complete provenance JSON file detailing compiler tool versions, dependency hashes, and test execution duration metrics.
+   * **Atomic Promotion:** On publication, the pipeline must atomically update a target symbolic link (`gdc-bootstrap-latest-verified.iso`) pointing to the verified file. Production PXE and image ingestion servers must consume this symbolic target to prevent deploying broken release candidates.
 
 ---
 

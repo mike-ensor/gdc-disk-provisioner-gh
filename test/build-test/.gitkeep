@@ -1,0 +1,2 @@
+# Custom GDC build and stage tests go here (e.g., test/build-test/stage-1/test_custom.py)
+# Any .py script added here is automatically discovered and executed by make validate

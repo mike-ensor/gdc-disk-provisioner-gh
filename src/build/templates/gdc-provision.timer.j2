@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily GDC Ready-Linux Configuration Pull Sync
+
+[Timer]
+OnCalendar=*-*-* {{ ansible_pull_schedule }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

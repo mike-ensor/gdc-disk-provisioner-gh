@@ -26,6 +26,7 @@ tmp/
 
 # Opencode custom skills
 skills/
+!agents/skills/
 
 # Log files
 *.log
@@ -46,3 +47,12 @@ local.env
 # Local cache and workspace directories
 .cache/
 build-workspace/
+
+# Action Reports stateful storage
+docs/reports/
+
+# Isolated Agent Review Workspace
+.review/
+
+# Dynamic Test Keys
+test/test-keys/
