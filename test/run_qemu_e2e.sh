@@ -145,7 +145,7 @@ qemu-system-x86_64 ${KVM_FLAG} -m 8192 -smp 4 \
   -cdrom "${ISO_PATH}" \
   -nographic \
   -serial file:"${SERIAL_LOG}" \
-  -net nic -net user,hostfwd=tcp::2222-:22 \
+  -net nic -net user,hostfwd=tcp:127.0.0.1:2222-:22 \
   ${TPM_ARGS} \
   -boot d &
 QEMU_PID=$!
