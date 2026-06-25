@@ -51,5 +51,8 @@ build-workspace/
 # Action Reports stateful storage
 docs/reports/
 
+# Isolated Agent Review Workspace
+.review/
+
 # Dynamic Test Keys
 test/test-keys/
