@@ -18,6 +18,10 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [x] **GDC-SPEC-005-TURNUP: GDC Offline Cluster Turnup** — Written & Approved
 - [x] **GDC-SPEC-006: GDC Lifecycle Update Flows** — Written & Approved
 - [x] **GDC-SPEC-DEP-001: GDC Master Dependency Matrix** — Written & Approved
+- [x] **Stage-Gate Software Supply Chain Design (`docs/specs/01-iso-build-pipeline.md`)** — Aligned & Approved
+- [x] **Jinja2 Declarative Configuration Templating (`docs/specs/02-baseline-installer.md`)** — Aligned & Approved
+- [x] **Port-forwarding Loopback Isolation & SSH Assertions (`docs/specs/04-verification-and-testing.md`)** — Aligned & Approved
+- [x] **Decoupled Job-Release Orchestration Guide (`docs/DEVELOPMENT.md`)** — Aligned & Approved
 - [x] **Governance Rules (`GEMINI.md`)** — Documented
 - [x] **Domain Glossary (`DICTIONARY.md`)** — Documented
 - [x] **Architecture User Guides (`docs/DISKS.md`, `docs/NETWORK.md`, `docs/SECURITY.md`, `docs/POST-INSTALL.md`)** — Documented & Aligned

@@ -4,6 +4,20 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [Unreleased] - 2026-06-25
+
+### Added
+- **Modular Stage-Gate Release Pipeline (`Makefile`):** Re-architected the monolithic, single-pass build pipeline into 9 discrete, named lifecycle stages and targets (`check-env`, `deps`, `extract`, `hydrate`, `validate`, `assemble`, `test-static`, `test-dynamic`, `deploy`, `publish`), fully orchestrating and automating them inside `src/build/Makefile`.
+- **Declarative Jinja2 Templating (`render_templates.py`):** Fully decoupled all dynamic text-replacement shells into clean, isolated Jinja2 templates (`user-data.j2`, `storage_config.j2`, `netplan.j2`, and systemd service units), introducing robust quote-stripping and a fail-early validation parser that checks for mandatory build variables.
+- **Pre-flight Static Validator (`validate-hydrated-files.sh`):** Engineered a pre-flight validation gate that runs `cloud-init schema --annotate` to verify cloud-init syntax, `systemd-analyze verify` to parse service structures, and `pylint --errors-only` to validate build code *prior* to packing, catching syntax bugs early.
+- **Harness Security & E2E Validation (`test/run_qemu_e2e.sh`):** Hardened QEMU testing by mapping SSH traffic strictly to loopback `127.0.0.1:2222` to prevent LAN eavesdropping, added fail-fast interactive installer detection, and programmed an SSH validation suite checking dynamic LVM sizes and pubkey/password entries.
+- **Sealed Provenance Manifests & Symbolic Target Promotions:** Automatically generates detailed JSON release manifests containing tool, compiler, and dependency checksum stats, and promotes verified builds via atomic symbolic links.
+- **Decoupled Orchestrator Scripts:** Split the monolithic `buildAll.sh` into two distinct scripts: `./build-builder.sh` (for compiling and registering the tooling build container) and `./build-iso.sh` (for remastering the custom GDC ISO and deploying it to Bootimus PXE), letting developers build the ISO completely independently from the container-builder job!
+
+### Changed
+- **Governance Shift (`GEMINI.md`):** Updated the governance standards to include *Rule 1.9 (Prefer Declarative Templates over In-line Configuration)* and *Rule 2.3 (The "Do Not Guess" Principle)*, formally codifying the use of template-driven configuration and dynamic hardware probing.
+- **CI/CD Pipeline Unification (`cloudbuild.yaml`):** Re-aligned Google Cloud Build pipeline steps to execute our standardized `make` targets, fully unifying the development and compilation loops across local developer machines and remote cloud runners.
+
 ## [Unreleased] - 2026-06-18
 
 ### Added
