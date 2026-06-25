@@ -14,6 +14,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${PROJECT_ROOT}"
 
+# Record initial environment variables to prevent files from overriding them
+declare -A INITIAL_ENV
+for var in $(compgen -e); do
+    INITIAL_ENV[$var]=1
+done
+
 # Load environment configuration (dependencies, defaults, and overrides)
 DEPS_FILE="${PROJECT_ROOT}/src/dependencies.env"
 if [[ -f "${DEPS_FILE}" ]]; then
@@ -26,7 +32,9 @@ if [[ -f "${DEPS_FILE}" ]]; then
             value="${BASH_REMATCH[2]}"
             value="${value#\"}" && value="${value%\"}"
             value="${value#\'}" && value="${value%\'}"
-            export "${key}"="${value}"
+            if [[ -z "${INITIAL_ENV[${key}]:-}" ]]; then
+                export "${key}"="${value}"
+            fi
         fi
     done < "${DEPS_FILE}"
 fi
@@ -42,7 +50,9 @@ if [[ -f "${ENV_FILE}" ]]; then
             value="${BASH_REMATCH[2]}"
             value="${value#\"}" && value="${value%\"}"
             value="${value#\'}" && value="${value%\'}"
-            export "${key}"="${value}"
+            if [[ -z "${INITIAL_ENV[${key}]:-}" ]]; then
+                export "${key}"="${value}"
+            fi
         fi
     done < "${ENV_FILE}"
 fi
@@ -58,7 +68,9 @@ if [[ -f "${LOCAL_ENV_FILE}" ]]; then
             value="${BASH_REMATCH[2]}"
             value="${value#\"}" && value="${value%\"}"
             value="${value#\'}" && value="${value%\'}"
-            export "${key}"="${value}"
+            if [[ -z "${INITIAL_ENV[${key}]:-}" ]]; then
+                export "${key}"="${value}"
+            fi
         fi
     done < "${LOCAL_ENV_FILE}"
 fi

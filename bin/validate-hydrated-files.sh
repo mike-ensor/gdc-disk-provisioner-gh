@@ -122,7 +122,16 @@ done
 # 4. Run Pylint on python build files
 # ------------------------------------------------------------------------------
 echo "[-] Checking Python build files using Pylint..."
-if command -v pylint &>/dev/null; then
+if "${PYTHON_BIN}" -m pylint --version &>/dev/null; then
+    # Validate render_templates.py and generate_banner.py with errors-only mode to prevent stylistic failures
+    if ! "${PYTHON_BIN}" -m pylint --errors-only "${PROJECT_ROOT}/src/build/render_templates.py" "${PROJECT_ROOT}/src/build/generate_banner.py" &>/dev/null; then
+        echo "[GDC-VALIDATE-FAIL] Critical: Pylint discovered errors in Python build scripts!" >&2
+        "${PYTHON_BIN}" -m pylint --errors-only "${PROJECT_ROOT}/src/build/render_templates.py" "${PROJECT_ROOT}/src/build/generate_banner.py" || true
+        SUCCESS=false
+    else
+        echo "  [x] Python files pylint validation passed successfully."
+    fi
+elif command -v pylint &>/dev/null; then
     # Validate render_templates.py and generate_banner.py with errors-only mode to prevent stylistic failures
     if ! pylint --errors-only "${PROJECT_ROOT}/src/build/render_templates.py" "${PROJECT_ROOT}/src/build/generate_banner.py" &>/dev/null; then
         echo "[GDC-VALIDATE-FAIL] Critical: Pylint discovered errors in Python build scripts!" >&2

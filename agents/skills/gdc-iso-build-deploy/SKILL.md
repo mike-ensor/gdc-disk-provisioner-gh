@@ -63,3 +63,20 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
   - First-boot Ansible-pull triggers and completes without error.
   - Logical volume sizes are auto-sized.
   - TPM 2.0 PCR `0+2+7` LUKS registration and step-ca certificates are fully verified.
+
+### State 6: After Action Report (AAR)
+- [ ] Compile and output an interactive After Action Report containing:
+  - **Build Metadata:** GCP Project ID, Build ID, final execution status, and detailed timing (Start Time, Finish Time, and total elapsed duration).
+  - **Version Information:** Remastered ISO version (`ISO_VERSION`), builder container version (`BUILD_VERSION`), base OS ISO filename, and active Git branch/commit SHA.
+  - **Phases Status Table:** A tabular overview highlighting the completeness (Pending, In Progress, Completed) and success status of all six states:
+    * State 1: Prep & Validation
+    * State 2: Build Container Tooling (If Needed)
+    * State 3: Cloud Build Compilation
+    * State 4: Bootimus PXE Deployment
+    * State 5: E2E Integration Testing
+    * State 6: After Action Report
+  - **Diagnostic Log Links:**
+    * Direct HTTPS URL link to Google Cloud Build logs.
+    * GCS sync folder path (`gs://${GCS_BUCKET}/sync/`).
+    * Local build-workspace paths or output receipt logs.
+  - **GDC Companion Live Telemetry Logs:** Direct HTTPS link to the `gdc-companion` telemetry dashboard or ingestion endpoints matching the `INSTALL_COMPANION_URL` (e.g. `http://gdc-companion.ensor-labs.com/v1/install-logs`).

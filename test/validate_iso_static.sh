@@ -47,6 +47,13 @@ fi
 
 # 2.5. Verify Host Cached Binaries Integrity (CI/CD Assertions)
 echo "[-] Verifying local cached binaries on host..."
+# Source dependencies file first to load binary names and hashes
+DEPS_ENV="${PROJECT_ROOT}/src/dependencies.env"
+if [[ -f "${DEPS_ENV}" ]]; then
+    # shellcheck source=/dev/null
+    source "${DEPS_ENV}"
+fi
+
 # Source the build.env file to load standard variables
 BUILD_ENV="${PROJECT_ROOT}/src/build/build.env"
 if [[ -f "${BUILD_ENV}" ]]; then
