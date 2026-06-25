@@ -151,8 +151,8 @@ if __name__ == "__main__":
     env['k8s_ip_cidr'] = env.get('K8S_IP_CIDR', '192.168.9.10/29')
     env['k8s_gateway'] = env.get('K8S_GATEWAY', '192.168.9.9')
     env['k8s_dns'] = env.get('K8S_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')
-    env['phys_iface'] = env.get('PHYS_IFACE', 'eth0')
-    env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['eth0']")
+    env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
+    env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
     env['companion_ip'] = env.get('COMPANION_IP', '192.168.20.102')
     env['companion_host'] = env.get('COMPANION_HOST', 'gdc-companion.ensor-labs.com')
     

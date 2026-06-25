@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     yamllint \
     pylint \
     shellcheck \
+    netplan.io \
     && rm -rf /var/lib/apt/lists/* \
     && xorriso --version
 

@@ -80,6 +80,27 @@ if [[ -f "${NETPLAN_TEMPLATE}" ]]; then
         SUCCESS=false
     else
         echo "  [x] Netplan network template syntax verified."
+        
+        # Run official netplan schema validation with prefix sandbox if available
+        if command -v netplan &>/dev/null; then
+            SANDBOX_DIR=$(mktemp -d /tmp/netplan-sandbox.XXXXXX)
+            mkdir -p "${SANDBOX_DIR}/etc/netplan"
+            
+            # Replace __PHYS_IFACE__ placeholder with a mock physical interface name 'eth0'
+            sed "s/__PHYS_IFACE__/eth0/g" "${NETPLAN_TEMPLATE}" > "${SANDBOX_DIR}/etc/netplan/01-netcfg.yaml"
+            
+            if ! netplan generate --prefix="${SANDBOX_DIR}" &>/dev/null; then
+                echo "[GDC-VALIDATE-FAIL] Critical: Netplan network template fails official Netplan schema validation!" >&2
+                echo "[-] Detailed Netplan Validation Log:" >&2
+                netplan generate --prefix="${SANDBOX_DIR}" || true
+                SUCCESS=false
+            else
+                echo "  [x] Netplan network template schema verified."
+            fi
+            rm -rf "${SANDBOX_DIR}"
+        else
+            echo "  [!] Note: 'netplan' tool is not installed on the build host. Skipping schema check."
+        fi
     fi
 else
     echo "[GDC-VALIDATE-FAIL] Critical: Hydrated Netplan network template is missing at ${NETPLAN_TEMPLATE}!" >&2

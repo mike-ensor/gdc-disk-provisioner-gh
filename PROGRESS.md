@@ -153,6 +153,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [x] **Static Verification (Tier 1)**
   - [x] Create `test/validate_iso_static.sh` script
   - [x] Integrate cloud-init schema and YAML syntax verification
+  - [x] Integrate dynamic sandboxed Netplan verification (`netplan generate`) into the pre-flight validator
 - [x] **Isolated Cloud Sandbox Testing (GCE)**
   - [x] Create `test/gce_startup_test.sh` first-boot startup script
   - [x] Create `test/provision_gce_sandbox.sh` lifecycle orchestrator

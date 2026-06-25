@@ -48,5 +48,8 @@ local.env
 .cache/
 build-workspace/
 
+# Action Reports stateful storage
+docs/reports/
+
 # Dynamic Test Keys
 test/test-keys/

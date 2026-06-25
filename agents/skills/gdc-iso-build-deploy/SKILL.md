@@ -65,7 +65,7 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
   - TPM 2.0 PCR `0+2+7` LUKS registration and step-ca certificates are fully verified.
 
 ### State 6: After Action Report (AAR)
-- [ ] Compile and output an interactive After Action Report containing:
+- [ ] Compile and save an After Action Report (AAR) in `docs/reports/aar-v${ISO_VERSION}.md` containing:
   - **Build Metadata:** GCP Project ID, Build ID, final execution status, and detailed timing (Start Time, Finish Time, and total elapsed duration).
   - **Version Information:** Remastered ISO version (`ISO_VERSION`), builder container version (`BUILD_VERSION`), base OS ISO filename, and active Git branch/commit SHA.
   - **Phases Status Table:** A tabular overview highlighting the completeness (Pending, In Progress, Completed) and success status of all six states:

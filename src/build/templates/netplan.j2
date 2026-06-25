@@ -45,7 +45,7 @@ network:
   vrfs:
     vrf-machine:
       table: 10
-      interfaces: [{{ vrf_machine_interfaces }}]
+      interfaces: [{% if machine_vlan and machine_vlan != '0' %}{{ phys_iface }}.{{ machine_vlan }}{% else %}{{ phys_iface }}{% endif %}]
     {% if k8s_vlan and k8s_vlan != '0' %}
     vrf-k8s:
       table: 20
