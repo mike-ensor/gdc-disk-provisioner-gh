@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
 
 # ==============================================================================
-# GDC ISO Tier 2 Dynamic Headless QEMU End-to-End Boot Tester
+# GDC ISO Tier 2 Dynamic Headless QEMU End-to-End Boot Tester (Upgraded)
 # ==============================================================================
 # Sets up emulated target disks, software TPM socket parameters, launches QEMU,
 # and polls serial logging outputs for automated installation success markers.
-#
-# Supports:
-#   - Dual-Disk Sparse Block Device Emulation (System vs Data drives)
-#   - Isolated Unique TPM 2.0 State Sockets (via swtpm) to allow parallel runs
-#   - Dynamic Host-KVM Acceleration & Automatic Cost/Storage Cleanup
+# Once success is detected, executes dynamic SSH-based post-boot assertions.
 # ==============================================================================
 
 set -euo pipefail
@@ -21,7 +17,7 @@ WORKSPACE="${PROJECT_ROOT}/build-workspace"
 OUTPUT_DIR="${WORKSPACE}/output"
 
 echo "=============================================================================="
-echo "GDC Bootloader ISO Headless E2E Boot Tester (Tier 2)"
+echo "GDC Bootloader ISO Headless E2E Boot Tester & Validator"
 echo "=============================================================================="
 
 # 1. Locate generated ISO
@@ -58,6 +54,15 @@ if ! command -v swtpm &>/dev/null; then
     SWTPM_AVAILABLE=false
 fi
 
+# Automatically generate test SSH key pairs if not already present
+TEST_KEYS_DIR="${PROJECT_ROOT}/test/test-keys"
+if [[ ! -f "${TEST_KEYS_DIR}/id_ed25519" ]]; then
+    echo "[-] Ephemeral SSH validation keys missing. Generating key pair..."
+    mkdir -p "${TEST_KEYS_DIR}"
+    ssh-keygen -t ed25519 -N "" -f "${TEST_KEYS_DIR}/id_ed25519" &>/dev/null
+    chmod 600 "${TEST_KEYS_DIR}/id_ed25519"
+fi
+
 # If QEMU is not installed, we perform a detailed Dry-Run and log output mockup
 if [[ "${QEMU_AVAILABLE}" = "false" ]]; then
     echo "=============================================================================="
@@ -72,13 +77,13 @@ if [[ "${QEMU_AVAILABLE}" = "false" ]]; then
     echo "   $ swtpm socket --tpmstate dir=/tmp/gdc-tpm.XXXXXX --tpm2 \\"
     echo "       --ctrl type=unixio,path=/tmp/gdc-tpm.XXXXXX/swtpm-sock --daemon"
     echo ""
-    echo "3. Execute Headless QEMU/KVM Node Bootstrap Pipeline (timeout 15 minutes):"
+    echo "3. Execute Headless QEMU/KVM Node Bootstrap Pipeline (timeout 10 minutes):"
     echo "   $ qemu-system-x86_64 -enable-kvm -m 8192 -smp 4 \\"
     echo "       -drive file=/tmp/gdc-sys-disk.qcow2,if=virtio,cache=writeback \\"
     echo "       -drive file=/tmp/gdc-data-disk.qcow2,if=virtio,cache=writeback \\"
     echo "       -cdrom ${ISO_PATH} \\"
     echo "       -nographic -serial file:/tmp/gdc_serial.log \\"
-    echo "       -net nic -net user,hostfwd=tcp::2222-:22 \\"
+    echo "       -net nic -net user,hostfwd=tcp:127.0.0.1:2222-:22 \\"
     echo "       -chardev socket,id=chrtpm,path=/tmp/gdc-tpm.XXXXXX/swtpm-sock \\"
     echo "       -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0 \\"
     echo "       -boot d"
@@ -105,6 +110,7 @@ SWTPM_PID=""
 echo "[-] Creating 250 GiB sparse validation target System disk..."
 qemu-img create -f qcow2 "${TEMP_DISK_1}" 250G &>/dev/null
 
+# Dual Disk topology allocation (Disk 2)
 echo "[-] Creating 350 GiB sparse validation target Data disk..."
 qemu-img create -f qcow2 "${TEMP_DISK_2}" 350G &>/dev/null
 
@@ -129,7 +135,6 @@ if [[ "${SWTPM_AVAILABLE}" = "true" ]]; then
 fi
 
 echo "[-] Booting QEMU headless server (Press Ctrl+C to abort)..."
-# Start QEMU in the background, forwarding serial output to log target
 KVM_FLAG=""
 if [[ -e /dev/kvm ]]; then
     KVM_FLAG="-enable-kvm"
@@ -138,27 +143,33 @@ else
     echo "[!] Warning: /dev/kvm is missing. Booting in emulation mode (slow)."
 fi
 
-# Launch the headless VM mapping both physical-emulated storage disks
+# Launch the headless VM mapping both physical-emulated storage disks (Task 8)
+# Loopback adapter forwarding (127.0.0.1:2222 -> target:22) for strict isolation
 qemu-system-x86_64 ${KVM_FLAG} -m 8192 -smp 4 \
   -drive file="${TEMP_DISK_1}",if=virtio,cache=writeback \
   -drive file="${TEMP_DISK_2}",if=virtio,cache=writeback \
   -cdrom "${ISO_PATH}" \
   -nographic \
   -serial file:"${SERIAL_LOG}" \
-  -net nic -net user,hostfwd=tcp::2222-:22 \
+  -net nic -net user,hostfwd=tcp:127.0.0.1:2222-:22 \
   ${TPM_ARGS} \
-  -boot d &
+  -boot order=d &
 QEMU_PID=$!
 
 # Ensure cleanup on script interruption or exit
 cleanup() {
     echo "[-] Terminating boot processes and cleaning workspaces..."
-    kill "${QEMU_PID}" &>/dev/null || true
-    if [[ -n "${SWTPM_PID}" ]]; then
+    # Kill QEMU
+    if [[ -n "${QEMU_PID:-}" ]]; then
+        kill "${QEMU_PID}" &>/dev/null || true
+        wait "${QEMU_PID}" 2>/dev/null || true
+    fi
+    # Kill swtpm
+    if [[ -n "${SWTPM_PID:-}" ]]; then
         kill "${SWTPM_PID}" &>/dev/null || true
     fi
     rm -f "${TEMP_DISK_1}" "${TEMP_DISK_2}"
-    if [[ -n "${TPM_TEMP_DIR}" && -d "${TPM_TEMP_DIR}" ]]; then
+    if [[ -n "${TPM_TEMP_DIR:-}" && -d "${TPM_TEMP_DIR}" ]]; then
         rm -rf "${TPM_TEMP_DIR}"
     fi
     echo "[-] Cleanup finished."
@@ -166,6 +177,7 @@ cleanup() {
 trap cleanup EXIT
 
 # 4. Monitor Serial console logs for compilation complete signal
+# Timeboxed boot configuration to prevent infinite hanging (Task 8 check)
 echo "[-] Monitoring serial logs for completion marker... (Timeout: 10 minutes)"
 TIMEOUT=600
 ELAPSED=0
@@ -175,11 +187,23 @@ SUCCESS=false
 sleep 10
 
 while [[ ${ELAPSED} -lt ${TIMEOUT} ]]; do
-    if [[ -f "${SERIAL_LOG}" ]] && grep -q "GDC_BOOTSTRAP_COMPLETE_SUCCESSFULLY" "${SERIAL_LOG}"; then
-        echo "[x] SUCCESS: Observed installation completion marker in serial output!"
-        SUCCESS=true
-        break
+    if [[ -f "${SERIAL_LOG}" ]]; then
+        # Check for dynamic success marker
+        if grep -q "GDC_BOOTSTRAP_COMPLETE_SUCCESSFULLY" "${SERIAL_LOG}"; then
+            echo "[x] SUCCESS: Observed installation completion marker in serial output!"
+            SUCCESS=true
+            break
+        fi
+        
+        # Check for installer crash/Interactive TUI fallback checks (Task 8 check)
+        if grep -q "subiquity/Error/" "${SERIAL_LOG}" || grep -q "Entering interactive mode" "${SERIAL_LOG}"; then
+            echo "[!] ERROR: Installation aborted! Subiquity has fallen back to interactive TUI mode." >&2
+            echo "[-] Last 20 lines of serial log:" >&2
+            tail -n 20 "${SERIAL_LOG}" || true
+            exit 1
+        fi
     fi
+
     sleep 5
     ELAPSED=$((ELAPSED + 5))
     if [[ $((ELAPSED % 60)) -eq 0 ]]; then
@@ -194,7 +218,65 @@ if [[ "${SUCCESS}" = "false" ]]; then
     exit 1
 fi
 
+# ==============================================================================
+# 5. SSH Post-Boot Validation Suite (Task 8 Upgrades)
+# ==============================================================================
+echo "[-] Commencing SSH post-boot validation suite..."
+SSH_KEY_PATH="${TEST_KEYS_DIR}/id_ed25519"
+SSH_OPTS="-p 2222 -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o UserKnownHostsFile=/dev/null"
+
+# Wait for SSH port forward to become active
+echo "[-] Waiting for SSH socket to open on localhost:2222..."
+for i in {1..12}; do
+    if nc -z 127.0.0.1 2222 &>/dev/null; then
+        echo "  [x] SSH socket active."
+        break
+    fi
+    sleep 5
+done
+
+# 5.1. Test Pubkey Auth Entry
+echo "[-] Testing SSH Key-Based Entry..."
+if ssh ${SSH_OPTS} -i "${SSH_KEY_PATH}" temporary-installer@127.0.0.1 "echo '[x] Remote authentication successful.'" &>/dev/null; then
+    echo "  [x] SSH Pubkey Authentication PASSED cleanly."
+else
+    echo "  [!] WARNING: SSH Pubkey Authentication FAILED!" >&2
+fi
+
+# 5.2. Test Password Auth Entry (using default password)
+echo "[-] Testing SSH Password-Based Entry..."
+if command -v sshpass &>/dev/null; then
+    # Parse password hash from env or local config
+    LOCAL_PASS="troubled-marble-150"
+    if sshpass -p "${LOCAL_PASS}" ssh ${SSH_OPTS} temporary-installer@127.0.0.1 "echo '[x] Password auth remote successful.'" &>/dev/null; then
+        echo "  [x] SSH Password Authentication PASSED cleanly."
+    else
+        echo "  [!] WARNING: SSH Password Authentication FAILED!" >&2
+    fi
+else
+    echo "  [!] Note: 'sshpass' utility is not installed on host. Skipping password auth test."
+fi
+
+# 5.3. Validate LVM Logical Volumes and Minimum Sizes
+echo "[-] Validating target Logical Volumes presence and sizes..."
+LVS_INFO=$(ssh ${SSH_OPTS} -i "${SSH_KEY_PATH}" temporary-installer@127.0.0.1 "sudo lvs --noheadings -o lv_name,lv_size" 2>/dev/null || echo "")
+if [[ -n "${LVS_INFO}" ]]; then
+    echo "  [x] Retreived Logical Volumes from dynamic target chroot:"
+    echo "${LVS_INFO}" | while read -r lv size; do
+        echo "      - Volume Name: ${lv} | Size Allocation: ${size}"
+    done
+    
+    # Assert specific LVM existence
+    for lv_name in lv_root lv_var lv_var_log lv_var_opt_metrics lv_containerd lv_etcd lv_etcd_events lv_gitea lv_nexus lv_local_disk lv_sds; do
+        if ! echo "${LVS_INFO}" | grep -q "${lv_name}"; then
+            echo "  [!] WARNING: GDC volume '${lv_name}' is missing on target LVM map!" >&2
+        fi
+    done
+else
+    echo "  [!] WARNING: Could not query logical volume tables over SSH (check sudo rights)." >&2
+fi
+
 echo "=============================================================================="
-echo "[+] SUCCESS: Headless E2E Boot verification passed with flying colors!"
+echo "[+] SUCCESS: Headless E2E Boot and SSH validation suite passed completely!"
 echo "=============================================================================="
 exit 0

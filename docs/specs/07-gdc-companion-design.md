@@ -1,8 +1,13 @@
 # Specification: GDC Companion Microservice (Rust Stack)
 
 **Spec Identifier:** `GDC-SPEC-007`  
-**Status:** APPROVED (Spec-Review Pass)  
+**Status:** MIGRATED (Moved to separate peer repository `gdc-companion`)  
 **Author:** GDC Disk Provisioner Architecture Team  
+
+---
+
+> [!NOTE]
+> **Migration Notice:** The GDC Companion microservice has been officially migrated to its own dedicated repository (`gdc-companion`) to enforce clean modular decoupling between target OS bootloader ISOs and centralized management gateways. This specification remains here as an archival reference for the REST API contract and DB variable-merge logic required by the bootloader's telemetry reporting hooks.
 
 ---
 

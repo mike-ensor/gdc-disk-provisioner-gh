@@ -15,6 +15,9 @@ build-workspace/
 # Local cache directory (contains raw ISOs, heavy binaries, blobs)
 .cache/
 
+# Local Python virtual environment
+.venv/
+
 # Local build artifacts
 *.iso
 *.log

@@ -47,6 +47,13 @@ fi
 
 # 2.5. Verify Host Cached Binaries Integrity (CI/CD Assertions)
 echo "[-] Verifying local cached binaries on host..."
+# Source dependencies file first to load binary names and hashes
+DEPS_ENV="${PROJECT_ROOT}/src/dependencies.env"
+if [[ -f "${DEPS_ENV}" ]]; then
+    # shellcheck source=/dev/null
+    source "${DEPS_ENV}"
+fi
+
 # Source the build.env file to load standard variables
 BUILD_ENV="${PROJECT_ROOT}/src/build/build.env"
 if [[ -f "${BUILD_ENV}" ]]; then
@@ -96,6 +103,7 @@ echo "[-] Scanning ISO structural layout..."
 CRITICAL_FILES=(
     "/nocloud/user-data"
     "/nocloud/meta-data"
+    "/custom-data/network-template.yaml"
     "/custom-data/gitea/gitea"
     "/custom-data/nexus/nexus-bin/bin/nexus"
     "/boot/grub/grub.cfg"
@@ -145,6 +153,43 @@ else
     if command -v python3 &>/dev/null; then
         python3 -c "import yaml; yaml.safe_load(open('${TEMP_DIR}/user-data'))"
         echo "[x] YAML configuration syntax checks passed (Mock schema success)."
+    else
+        echo "[!] Warning: No YAML checkers available. Skipping syntax assertion."
+    fi
+fi
+
+# 5. Extract & Validate Netplan Configuration Template
+echo "[-] Extracting Netplan configuration template..."
+xorriso -osirrox on -indev "${ISO_PATH}" -extract /custom-data/network-template.yaml "${TEMP_DIR}/network-template.yaml" &>/dev/null
+
+if [[ ! -f "${TEMP_DIR}/network-template.yaml" ]]; then
+    echo "[!] Error: Failed to extract Netplan network template from ISO." >&2
+    exit 1
+fi
+
+echo "[-] Validating Netplan configuration template..."
+if command -v netplan &>/dev/null; then
+    # Create prefix sandbox for Netplan validation
+    SANDBOX_DIR="${TEMP_DIR}/netplan-sandbox"
+    mkdir -p "${SANDBOX_DIR}/etc/netplan"
+    
+    # Replace __PHYS_IFACE__ placeholder with a mock physical interface name 'eth0'
+    sed "s/__PHYS_IFACE__/eth0/g" "${TEMP_DIR}/network-template.yaml" > "${SANDBOX_DIR}/etc/netplan/01-netcfg.yaml"
+    
+    # Trigger Netplan generation check
+    if netplan generate --prefix="${SANDBOX_DIR}" &>/dev/null; then
+        echo "[x] Netplan layout and schema checks passed."
+    else
+        echo "[!] CRITICAL ERROR: Netplan configuration contains syntax or schema errors!" >&2
+        netplan generate --prefix="${SANDBOX_DIR}" || true
+        exit 1
+    fi
+else
+    echo "[!] Warning: 'netplan' utility is not installed locally."
+    echo "[!] Mock-validating YAML syntax of Netplan configurations instead..."
+    if command -v python3 &>/dev/null; then
+        python3 -c "import yaml; yaml.safe_load(open('${TEMP_DIR}/network-template.yaml'))"
+        echo "[x] Netplan YAML syntax checks passed (Mock schema success)."
     else
         echo "[!] Warning: No YAML checkers available. Skipping syntax assertion."
     fi

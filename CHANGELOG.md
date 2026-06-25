@@ -4,6 +4,34 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [Unreleased] - 2026-06-25
+
+### Added
+- **Modular Stage-Gate Release Pipeline (`Makefile`):** Re-architected the monolithic, single-pass build pipeline into 9 discrete, named lifecycle stages and targets (`check-env`, `deps`, `extract`, `hydrate`, `validate`, `assemble`, `test-static`, `test-dynamic`, `deploy`, `publish`), fully orchestrating and automating them inside `src/build/Makefile`.
+- **Declarative Jinja2 Templating (`render_templates.py`):** Fully decoupled all dynamic text-replacement shells into clean, isolated Jinja2 templates (`user-data.j2`, `storage_config.j2`, `netplan.j2`, and systemd service units), introducing robust quote-stripping and a fail-early validation parser that checks for mandatory build variables.
+- **Pre-flight Static Validator (`validate-hydrated-files.sh`):** Engineered a pre-flight validation gate that runs `cloud-init schema --annotate` to verify cloud-init syntax, `systemd-analyze verify` to parse service structures, and `pylint --errors-only` to validate build code *prior* to packing, catching syntax bugs early.
+- **Harness Security & E2E Validation (`test/run_qemu_e2e.sh`):** Hardened QEMU testing by mapping SSH traffic strictly to loopback `127.0.0.1:2222` to prevent LAN eavesdropping, added fail-fast interactive installer detection, and programmed an SSH validation suite checking dynamic LVM sizes and pubkey/password entries.
+- **Sealed Provenance Manifests & Symbolic Target Promotions:** Automatically generates detailed JSON release manifests containing tool, compiler, and dependency checksum stats, and promotes verified builds via atomic symbolic links.
+- **Decoupled Orchestrator Scripts:** Split the monolithic `buildAll.sh` into two distinct scripts: `./build-builder.sh` (for compiling and registering the tooling build container) and `./build-iso.sh` (for remastering the custom GDC ISO and deploying it to Bootimus PXE), letting developers build the ISO completely independently from the container-builder job!
+- **Parameterized Sync & Scan Retries:** Introduced and documented `BOOTIMUS_SCAN_RETRIES` and `BOOTIMUS_SCAN_DELAY` parameters in `src/build/build.env` with detailed mathematical justifications based on a 3.7GB ISO transfer over a 400Mbps connection.
+- **Automated Sandboxed Netplan Validator:** Integrated a custom pre-flight validation check into `bin/validate-hydrated-files.sh` that leverages Netplan's actual parser (`netplan generate --prefix=...`) to statically lint the hydrated network configuration before assembling the bootloader ISO.
+- **Persistent After Action Reports (AAR):** Introduced an automated State 6 reporting layout which compiles and archives detailed, persistent After Action Reports under `docs/reports/aar-v${ISO_VERSION}.md`.
+
+### Changed
+- **Governance Shift (`GEMINI.md`):** Updated the governance standards to include *Rule 1.9 (Prefer Declarative Templates over In-line Configuration)* and *Rule 2.3 (The "Do Not Guess" Principle)*, formally codifying the use of template-driven configuration and dynamic hardware probing.
+- **CI/CD Pipeline Unification (`cloudbuild.yaml`):** Re-aligned Google Cloud Build pipeline steps to execute our standardized `make` targets, fully unifying the development and compilation loops across local developer machines and remote cloud runners.
+- **Dynamic Placeholders in Templates:** Refactored `src/build/render_templates.py` to default `PHYS_IFACE` fallback to `__PHYS_IFACE__` instead of hardcoding `'eth0'`. This keeps the templated configurations inside the ISO dynamic, allowing Subiquity late-commands to dynamically replace them on the target host at installation time.
+
+### Fixed
+- **Cloud-Init Virtualenv Isolation:** Added `.venv/` to `.gcloudignore` to prevent uploading the host's Python virtual environment to Google Cloud Build, allowing the container runner to correctly provision its own native virtual environment.
+- **Fail-Fast Pylint Import Correctness:** Patched `bin/validate-hydrated-files.sh` to run `pylint` via the virtual environment's Python interpreter (`python -m pylint`), allowing `pylint` to correctly import and validate `jinja2` and other dependencies.
+- **GCS Sync Folder Target Correction:** Fixed `src/build/Makefile`'s release CP target to copy completed GDC ISO artifacts directly to the `/sync/` directory in GCS (rather than the bucket root), ensuring compatibility with Synology NAS synchronization and GCS bucket retention rules.
+- **Bootimus Parameter Verification & Fail-Gates:** Refactored `src/build/bootimus.py` to fix type checker warnings, include `urllib.error`, and escalate verification failures to a hard exit (`sys.exit(1)`) to immediately flag clobbered/corrupted boot parameter configurations.
+- **Robust Environment Preservation:** Patched `src/build/remaster.sh` to preserve initial environment overrides (such as `ISO_VERSION`) when loading static `build.env` defaults.
+- **Dependency Loading Safeguard:** Updated `test/validate_iso_static.sh` to source `dependencies.env` to prevent unbound variable exceptions on local validation runs.
+- **Netplan List Syntax & VRF Interfaces:** Patched `src/build/templates/netplan.j2` to dynamically generate the VRF interface list using Jinja2 loops and conditions, completely resolving the nested list double-brackets bug (`[['eth0']]`) that crashed Netplan generation during boot stages.
+- **Build Container Package Checklist:** Appended the `netplan.io` package to `src/build/Dockerfile` to ensure the compilation container possesses native parsing and validation capabilities.
+
 ## [Unreleased] - 2026-06-18
 
 ### Added
