@@ -19,12 +19,20 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.venv/
+
+# Temp folder
+tmp/
 
 # Opencode custom skills
 skills/
 
 # Log files
 *.log
+*.tar.gz
+
+# ISO
+*.iso
 
 # Local environment / secrets (just in case)
 .env
