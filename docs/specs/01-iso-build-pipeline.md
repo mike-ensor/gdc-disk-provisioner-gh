@@ -1,17 +1,15 @@
-# Specification: GDC Offline ISO Build & Remastering Pipeline
+# Specification: GDC ISO Build & Lifecycle Stage-Gate Pipeline
 
 **Spec Identifier:** `GDC-SPEC-001`  
 **Status:** APPROVED (Spec-Review Pass)  
-**Author:** GDC Disk Provisioner Architecture Team  
+**Author:** GDC Disk Provisioner Release Engineering Team
 
 ---
 
-## 1. Executive Summary & Purpose
-The Google Distributed Cloud (GDC) Offline ISO Build and Remastering Pipeline is an automated, Infrastructure-as-Code (IaC) compilation engine. It transforms official "blessed" Ubuntu 24.04 LTS server installation media into custom, secure, fully self-contained, and bootable bootstrap ISOs. 
+## 1. Overview & Core Philosophy
+The Google Distributed Cloud (GDC) Offline ISO Build and Remastering Pipeline is an automated, Infrastructure-as-Code (IaC) compilation engine. It transforms official "blessed" Ubuntu 24.04 LTS server installation media into custom, secure, fully self-contained, and bootable bootstrap ISOs.
 
-By embedding Gitea (for Git hosting) and Sonatype Nexus (for package and image registries), the resulting ISO operates as an offline "Local Service Hub." This allows bare metal enterprise nodes to bootstrap, partition, configure, and self-test without active internet gateways.
-
-This specification outlines the build mechanics, performance strategies, security mitigations, cost analysis, and execution scripts for the pipeline.
+Rather than utilizing a single monolithic compilation script, the build cycle is decomposed into distinct, idempotent, and non-interactive stages. This **Discrete Stage-Gate Software Supply Chain** architecture guarantees that all templates, environmental parameters, and local cached assets are verified for correctness before compilation begins, resulting in short feedback loops and absolute build reproducibility across local workstations and remote CI/CD systems.
 
 ---
 
@@ -66,7 +64,58 @@ The feasibility of installing the full Google Cloud SDK (`gcloud`) inside the bo
 
 ---
 
-## 3. Comprehensive Technical Architecture
+## 3. The Stage-Gate Lifecycle Model
+
+To enforce absolute reliability, the entire build-and-release pipeline is divided into distinct named stages and corresponding non-interactive `make` targets. Each target is idempotent, self-verifying, and guarantees a zero-interactive execution environment.
+
+```text
+  [1. check-env] ──> [2. deps] ──> [3. extract] ──> [4. hydrate]
+                                                         │
+  ┌──────────────────────────────────────────────────────┘
+  ▼
+[5. validate] ───> [6. assemble] ─── [7. test-static] ─── [8. test-dynamic] ───> [9. deploy] ───> [10. publish]
+```
+
+### Stage 1: Check Environment (`make check-env`)
+*   **Action:** Verifies that all host tool dependencies are installed and accessible (`xorriso`, `curl`, `rsync`, `python3`, `jinja2`, `yaml`).
+*   **Host Diagnostics:** Detects nested virtualization capabilities (`/dev/kvm`). If absent, writes a prominent non-blocking warning informing the host that Tier 2 QEMU tests will fallback to slow software emulation (TCG), preventing abrupt pipeline failure on restricted runners.
+*   **Interactivity Check:** Asserts that all downstream commands run in a non-blocking manner (injecting `--auto-approve` / `-y` flags automatically if running without a TTY).
+
+### Stage 2: Acquire Dependencies (`make deps`)
+*   **Action:** Checks `.cache/binaries/` for Gitea, Adoptium Java JRE 17, and Sonatype Nexus tarballs. If missing, downloads them and verifies their SHA-256 hashes against configured build variables.
+*   **Idempotency:** Already downloaded and verified assets are retained, bypassing network fetches on subsequent runs.
+
+### Stage 3: Extract Source Media (`make extract`)
+*   **Action:** Performs non-root extraction of the official "blessed" Ubuntu 24.04 live-server ISO into the workspace (`build-workspace/custom-iso/`) using `xorriso`'s non-root extraction layer (`-osirrox on -indev ... -extract / ...`).
+*   **Outcome:** A pristine, writable file layout of the original OS media without requiring administrative sudo mounts.
+
+### Stage 4: Render Configurations (`make hydrate`)
+*   **Action:** Invokes `src/build/render_templates.py` to compile our base templates (`user-data.j2`, `storage_config.j2`, `netplan.j2`, `gitea.service.j2`, `nexus.service.j2`, `gdc-provision.service.j2`) into the extracted media workspace.
+*   **Rule:** Standard python libraries and Jinja2 are used exclusively. Pure-string regex or sed-based manipulations on live YAML files are strictly banned to prevent spacing corruption.
+
+### Stage 5: Validation Gate (`make validate`)
+*   **Action:** Performs static validation of the hydrated configurations *before* compilation begins.
+*   **Checks:**
+    1. Runs syntax verification against all hydrated shell scripts.
+    2. Runs `cloud-init schema --config-file user-data` to guarantee Subiquity compatibility.
+    3. If any check fails, the pipeline aborts immediately, preventing broken ISO compilations.
+
+### Stage 6: Remaster Configuration (`make assemble`)
+*   **Action:** Copies Gitea, JRE, and Nexus binaries, pre-seeds the Gitea git playbooks, packages Ansible offline collections, writes the dynamic Message of the Day (MOTD) login banner, updates GRUB boot configurations, and executes `xorriso` to output the remastered ISO under `build-workspace/output/`.
+
+### Stage 7: Static Inspection (`make test-static`)
+*   **Action:** Extracts and inspects the compiled ISO file table to confirm the correct positioning, permissions, and cryptographic signatures of all injected services and payload structures.
+
+### Stage 8: Dynamic End-to-End Boot (`make test-dynamic`)
+*   **Action:** Launches `test/run_qemu_e2e.sh` which provisions dual-disk sparse blocks, maps an isolated `swtpm` daemon, boots the ISO, and polls the serial logs for the completion token. Executes SSH-based assertion queries over localhost loopback forwardings.
+
+### Stage 9: Release and Publish (`make deploy` & `make publish`)
+*   **Deploy:** Pushes the finalized, tested ISO to regional GCS buckets or NFS storage.
+*   **Publish:** Automatically updates an atomic symbolic link (`gdc-bootstrap-latest-verified.iso`) on the deployment server and generates a signed cryptographic **Provenance Manifest**.
+
+---
+
+## 4. Comprehensive Technical Architecture
 
 ```text
                                 [ BUILD SYSTEM ]
@@ -88,7 +137,7 @@ The feasibility of installing the full Google Cloud SDK (`gcloud`) inside the bo
        • Copies to local network mounts              • Runs `gcloud storage cp`
 ```
 
-### 3.1. Detailed ISO Layout Structure
+### 4.1. Detailed ISO Layout Structure
 ```text
 build-workspace/custom-iso/
 ├── nocloud/                        # Cloud-init NoCloud configuration files
@@ -105,22 +154,22 @@ build-workspace/custom-iso/
         └── blobs/                  # Pre-seeded local cache stores (APT, Docker, LLM)
 ```
 
-### 3.2. Pre-Seeding Gitea & Nexus Group Repositories
+### 4.2. Pre-Seeding Gitea & Nexus Group Repositories
 
 #### A. Gitea Repository Pre-Seeding & Upstream Sync
 During the build phase, our local configuration playbooks are pre-packaged as a **bare Git mirror repository** cloned dynamically from the configured `UPSTREAM_PLAYBOOKS_REPO` at the exact time of ISO creation.
 
 ```text
-       [ Upstream Playbook Git Repo (Origin) ]
-                        │
-                        │ (cloned at ISO creation time)
-                        ▼
-       [ GGD Local Gitea Mirror (Read-Only) ]
-                        │
-           ┌────────────┴────────────┐
-           ▼                         ▼
-   [ Direct push blocked ]   [ Local pull-only ok ]
-      (pre-receive hook)       (ansible-pull fetches)
+        [ Upstream Playbook Git Repo (Origin) ]
+                         │
+                         │ (cloned at ISO creation time)
+                         ▼
+        [ GGD Local Gitea Mirror (Read-Only) ]
+                         │
+            ┌────────────┴────────────┐
+            ▼                         ▼
+    [ Direct push blocked ]   [ Local pull-only ok ]
+       (pre-receive hook)       (ansible-pull fetches)
 ```
 
 1. **Clone-on-Create Execution:** The remastering engine executes a bare clone during workspace assembly:
@@ -137,11 +186,6 @@ During the build phase, our local configuration playbooks are pre-packaged as a 
    EOF
    chmod +x build-workspace/custom-iso/custom-data/gitea/repos/bootstrap-playbooks.git/hooks/pre-receive
    ```
-3. **Future Goal (Automated Upstream Pulls):** To fetch updates once the node is deployed, a future development milestone is logged to establish background sync checks. This will run a local cron task or systemd timer executing a localized pull operation:
-   ```bash
-   # Concept under investigation for future target-OS sync triggers:
-   git -C /var/lib/gitea/repos/bootstrap-playbooks.git fetch origin main:main
-   ```
 
 #### B. Nexus Group Repositories & OCI Registry Strategy
 Sonatype Nexus is configured utilizing **Repository Groups** (formerly known as Virtual Repositories). This pattern merges multiple physical repositories (Hosted, Proxy, and Cache) into a single unified endpoint.
@@ -156,57 +200,85 @@ Sonatype Nexus is configured utilizing **Repository Groups** (formerly known as 
        • Stores custom localized images               • Caches pulled images offline
 ```
 
-* **The OCI/Docker Group Registry & Build-Time Pinning:**
-  * We configure a Nexus Repository Group `gdc-docker-group` bound to local port `5001`.
-  * **Hosted Member (`gdc-docker-hosted`):** Bound to port `5002`. Allows administrative tools, GDC utilities, and deployment scripts to execute direct, fully-tagged image pushes:
-    ```bash
-    docker tag my-image:1.0 localhost:5002/gdc/my-image:1.0
-    docker push localhost:5002/gdc/my-image:1.0
-    ```
-  * **Build-Time Version Pinning & Pre-fetching:** The GDC Bare Metal release version is a critical variable specified in `build.env` (e.g., `GDC_BM_VERSION=1.32.400-gke.68`). During Phase 1 ISO compilation, the workstation downloads GDC's package bundle `bmpackages_$VERSION.tar.xz`, extracts the container images, pulls them, and bakes them directly into the ISO's local staging folder (`/custom-data/nexus/`).
-  * **First-Boot Ingestion:** On target OS first boot (the `ready-linux` phase), the local Ansible playbook takes these pre-packed container layers from the ISO mount, authenticates, and pushes them directly into the local `gdc-docker-hosted` repository (on Port `5002`). This populates the offline cache for subsequent standalone cluster turnup.
-  * **Proxy Member (`gdc-docker-proxy`):** Points to upstream public OCI registries (e.g. Docker Hub, Google Artifact Registry). When a node requests an image, Nexus fetches it from upstream, caches it in the local blob store, and serves it. Subsequent offline pulls fetch entirely from Nexus's cache.
-* **The APT and LLM Groups:**
-  * **APT Group (`gdc-apt-group`):** Group of `gdc-apt-hosted` (local updates) and `gdc-apt-proxy` (mirroring upstream Ubuntu security archives).
-  * **LLM Group (`gdc-llm-group`):** Group of `gdc-llm-hosted` (local GGUF weights) and `gdc-llm-proxy` (caching Hugging Face model requests).
-  * Inference engines pulling GGUF models directly query the local Nexus port, satisfying requests instantly from the proxy cache.
-
 ---
 
-## 4. Execution & Implementation Plan
+## 5. Provenance Manifest Specification (`gdc-bootstrap-v1.x.x-provenance.json`)
 
-### 4.1. Core Pipeline Targets
-The build pipeline is designed as a standard `Makefile` that handles the entire lifecycle:
+To establish 100% auditable traceability, every successful build publishes a signed JSON manifest alongside the ISO. This manifest registers all compile-time variables, versions, host environment specs, and dependency checksums extracted dynamically from the build environment.
 
-```make
-# Fast path compilation (Only updates playbooks & configs)
-build-fast:
-	@./remaster.sh --fast
-
-# Full path compilation (Updates heavy packages & pre-seeds caches)
-build-all:
-	@./remaster.sh --full
-
-# Publishes output to GCS and NFS based on build.env options
-deploy:
-	@make -f src/build/Makefile deploy
+```json
+{
+  "$schema": "https://gdc.google.com/schemas/provenance-v1.json",
+  "build_identity": {
+    "build_id": "gdc-iso-2026-06-25-t143022z",
+    "build_version": "1.0.0",
+    "git_commit": "08c29a5ec9cfb823f990a4be356881c62f267c7e",
+    "git_branch": "main",
+    "timestamp": "2026-06-25T14:30:22Z"
+  },
+  "host_build_environment": {
+    "host_os": "Ubuntu 24.04 LTS (Noble Numbat)",
+    "host_kernel": "6.8.0-100-generic",
+    "host_arch": "x86_64",
+    "kvm_available": true
+  },
+  "compilation_and_iso_tools": {
+    "xorriso": "xorriso 1.5.6-1.1ubuntu3",
+    "rsync": "rsync  version 3.2.7  protocol version 31",
+    "python": "Python 3.12.3",
+    "jinja2": "Jinja2 3.1.4"
+  },
+  "target_dependencies_and_binaries": {
+    "gitea": {
+      "version": "1.22.1",
+      "filename": "gitea-1.22.1-linux-amd64",
+      "source_url": "https://github.com/go-gitea/gitea/releases/download/v1.22.1/gitea-1.22.1-linux-amd64",
+      "sha256": "b8043324545eec269fc8f18c22b49fc365ed367e0dd41e081b79832de2570f9c"
+    },
+    "nexus": {
+      "version": "3.69.0-02",
+      "filename": "nexus-3.69.0-02-unix.tar.gz",
+      "source_url": "https://download.sonatype.com/nexus/3/nexus-3.69.0-02-unix.tar.gz",
+      "sha256": "eec80b3ee33dde61443e54dddea258f851951c4aef81c4c6256c1205ca818162"
+    },
+    "java_jre": {
+      "version": "17.0.11+9",
+      "filename": "OpenJDK17U-jre_x64_linux_hotspot_17.0.11_9.tar.gz",
+      "source_url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.11%2B9/OpenJDK17U-jre_x64_linux_hotspot_17.0.11_9.tar.gz",
+      "sha256": "bcb1b7b8ad68c93093f09b591b7cb17161d39891f7d29d33a586f5a328603707"
+    },
+    "target_installed_packages": [
+      "git=1:2.43.0-1ubuntu7",
+      "python3-pip=24.0+dfsg-1ubuntu1",
+      "wireguard=1.0.20210914-1ubuntu1"
+    ]
+  },
+  "pipeline_configuration_parameters": {
+    "upstream_playbooks_repo": "https://gitlab.com/gcp-solutions-public/retail-edge/gdc-disk-provisioner.git",
+    "ansible_pull_schedule": "02:00:00",
+    "enforce_signed_commits": false,
+    "machine_vlan_id": 0,
+    "k8s_vlan_id": 0,
+    "install_companion_url": "http://gdc-companion.ensor-labs.com/v1/install-logs"
+  },
+  "verification_certification": {
+    "static_validation": {
+      "status": "PASSED",
+      "cloud_init_schema_check": "VALID",
+      "validator": "bin/validate-hydrated-files.sh"
+    },
+    "dynamic_integration_test": {
+      "status": "PASSED",
+      "qemu_headless_boot": "SUCCESS_TOKEN_DETECTED",
+      "swtpm_v2_status": "SECURED_PCR_0_2_7",
+      "post_install_assertions": "ALL_PASSED",
+      "runtime_seconds": 962,
+      "test_runner": "test/run_qemu_e2e.sh"
+    }
+  },
+  "output_cryptographic_signatures": {
+    "iso_filename": "gdc-bootstrap-ubuntu-24.04-v1.0.0.iso",
+    "iso_sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+  }
+}
 ```
-
-### 4.2. Workspace Setup and Cryptographic Verification
-During a `build-all` operation, the `remaster.sh` script executes the following cryptographic verify:
-```bash
-# Example verification block in build scripts
-GITEA_EXPECTED_SHA="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-GITEA_ACTUAL_SHA=$(sha256sum "${CACHE_DIR}/gitea" | cut -d' ' -f1)
-
-if [[ "${GITEA_ACTUAL_SHA}" != "${GITEA_EXPECTED_SHA}" ]]; then
-    echo "[!] Supply Chain Integrity Check Failed: Gitea binary hash mismatch!" >&2
-    exit 1
-fi
-```
-
-### 4.3. Expected Outcomes
-* **Speed:** Core ISO configuration repacking finishes in `<10 seconds`.
-* **Reproducibility:** Two builds executed on identical code generate an ISO with an identical cryptographic SHA-256 hash (supporting standard reproducible builds).
-* **Zero Root Dependencies:** Build executes cleanly on unprivileged Kubernetes/Cloud Build nodes.
-* **Storage Footprint:** Master ISO size remains below **5 GB**, with optional support for multi-gigabyte LLM caches appended on separate offline USB media.
