@@ -46,3 +46,6 @@ local.env
 # Local cache and workspace directories
 .cache/
 build-workspace/
+
+# Dynamic Test Keys
+test/test-keys/

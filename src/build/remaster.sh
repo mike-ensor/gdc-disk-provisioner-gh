@@ -14,7 +14,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${PROJECT_ROOT}"
 
-# Load environment configuration (defaults and overrides)
+# Load environment configuration (dependencies, defaults, and overrides)
+DEPS_FILE="${PROJECT_ROOT}/src/dependencies.env"
+if [[ -f "${DEPS_FILE}" ]]; then
+    # Export all variables from dependencies.env
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$line" ]] && continue
+        if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            value="${BASH_REMATCH[2]}"
+            value="${value#\"}" && value="${value%\"}"
+            value="${value#\'}" && value="${value%\'}"
+            export "${key}"="${value}"
+        fi
+    done < "${DEPS_FILE}"
+fi
+
 ENV_FILE="${SCRIPT_DIR}/build.env"
 if [[ -f "${ENV_FILE}" ]]; then
     # Export all variables from build.env
@@ -194,6 +210,13 @@ menuentry "Ubuntu Server Standard Install" {
     initrd /casper/initrd
 }
 EOF
+    # Assert bootloader parameter correctness (Task 6 Check)
+    echo "[-] Verifying compiled boot-level parameters..."
+    if ! grep -q "linux /casper/vmlinuz .* autoinstall" "${GRUB_CFG}" || ! grep -q "ds=nocloud;s=/cdrom/nocloud/" "${GRUB_CFG}"; then
+        echo "[!] ERROR: Bootloader parameters check failed! Critical autoinstall or ds configuration is missing in grub.cfg." >&2
+        exit 1
+    fi
+    echo "  [x] Bootloader parameters verified successfully."
 fi
 
 # Bypass Casper verification check to avoid drop-to-shells

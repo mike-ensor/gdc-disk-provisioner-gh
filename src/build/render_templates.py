@@ -29,8 +29,10 @@ def load_env_properties():
                         val = val[1:-1].strip()
                     env[key] = val
 
-    # 2. Load standard defaults, then local overrides
+    # 2. Load dependencies manifest, standard defaults, then local overrides
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_src_dir = os.path.dirname(script_dir)
+    parse_file(os.path.join(project_src_dir, 'dependencies.env'))
     parse_file(os.path.join(script_dir, 'build.env'))
     parse_file(os.path.join(script_dir, 'local.env'))
     
@@ -107,6 +109,35 @@ if __name__ == "__main__":
     # Load all environment configurations with perfect accuracy
     env = load_env_properties()
     
+    # Assert that all mandatory configuration parameters are defined
+    mandatory_vars = [
+        'ISO_VERSION',
+        'ISO_NAME_PREFIX',
+        'TEMPORARY_INSTALLER_PASSWORD',
+        'UPSTREAM_PLAYBOOKS_REPO',
+        'MACHINE_IP_CIDR',
+        'MACHINE_GATEWAY',
+        'K8S_IP_CIDR',
+        'K8S_GATEWAY',
+        'INSTALL_COMPANION_URL',
+        'GITEA_BINARY_FILENAME',
+        'NEXUS_PACKAGE_FILENAME',
+        'JRE_PACKAGE_FILENAME'
+    ]
+    
+    missing_vars = []
+    for var in mandatory_vars:
+        val = env.get(var)
+        if not val:
+            missing_vars.append(var)
+            
+    if missing_vars:
+        print(f"[!] ERROR: Pre-flight hydration failed! The following mandatory build configuration variables are not set or are empty:", file=sys.stderr)
+        for var in missing_vars:
+            print(f"  - {var}", file=sys.stderr)
+        print("[!] Please configure them in 'build.env' or inject them via 'local.env' overrides.", file=sys.stderr)
+        sys.exit(1)
+
     # Fill in standard dynamic parameter defaults
     env['timestamp'] = env.get('BUILD_TIMESTAMP', '')
     env['hostname'] = env.get('HOSTNAME', 'gdc-standalone-node')

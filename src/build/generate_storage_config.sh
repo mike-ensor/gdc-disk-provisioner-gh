@@ -21,6 +21,7 @@ log_goal() {
     logger -t gdc-provisioner "[GOAL] ${goal_desc}"
 }
 
+# shellcheck disable=SC2317
 log_fail() {
     local fail_desc="$1"
     local error_msg="${2:-No extra context provided}"
@@ -31,6 +32,7 @@ log_fail() {
     logger -p user.err -t gdc-provisioner "[FAILURE] ${fail_desc} - Details: ${error_msg}"
 }
 
+# shellcheck disable=SC2317
 failure_handler() {
     local last_line="$1"
     local last_code="$2"
@@ -71,6 +73,7 @@ done
 # Sort disks ascending by size (using bash/sort)
 if [[ ${#DETECTED_DISKS[@]} -gt 0 ]]; then
     # Sort them ascending by sector count
+    # shellcheck disable=SC2207
     SORTED_DISKS=($(for d in "${DETECTED_DISKS[@]}"; do
         echo "$(cat "/sys/block/${d}/size") ${d}"
     done | sort -n | awk '{print $2}'))

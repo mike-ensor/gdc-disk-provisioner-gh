@@ -11,6 +11,7 @@ SHELL := /usr/bin/env bash
 # Robust Helper to extract variables from build.env and local.env safely
 get_env = $(shell \
 	set -a; \
+	[ -f ../dependencies.env ] && . ../dependencies.env &>/dev/null; \
 	[ -f ./build.env ] && . ./build.env &>/dev/null; \
 	[ -f ./local.env ] && . ./local.env &>/dev/null; \
 	echo "$${$(1)}" \
@@ -88,13 +89,20 @@ help:
 # ==========================================
 check-env:
 	@echo "[-] [Stage: check-env] Verifying system dependencies and local adapters..."
-	@for cmd in xorriso curl rsync python3; do \
+	@for cmd in xorriso curl rsync python3 yamllint pylint shellcheck; do \
 		if ! command -v $$cmd &>/dev/null; then \
 			echo "[!] Critical Error: Required tool '$$cmd' is not installed." >&2; \
 			exit 1; \
 		fi; \
 	done
-	@echo "  [x] Core system utilities found."
+	@echo "  [x] Core system and validation utilities found."
+	@if ! command -v hadolint &>/dev/null; then \
+		echo "  [!] WARNING: 'hadolint' (Dockerfile linter) is not installed on the build host."; \
+	else \
+		echo "  [x] Dockerfile linter 'hadolint' found."; \
+		echo "  [-] Checking Dockerfile syntax with hadolint..."; \
+		hadolint Dockerfile || exit 1; \
+	fi
 	@if [ ! -c /dev/kvm ]; then \
 		echo "  [!] WARNING: '/dev/kvm' acceleration interface is not present on this host!"; \
 		echo "      Dynamic QEMU end-to-end VM boot tests will fallback to slow software emulation (TCG)."; \
@@ -174,6 +182,14 @@ hydrate: $(VENV_DIR) extract
 	export DISK2="nvme1n1"; \
 	export OUTPUT_FILE="$(WORKSPACE)/autoinstall-storage.yaml"; \
 	$(VENV_DIR)/bin/python3 render_templates.py templates $(EXTRACT_DIR)
+	@echo "  [-] Packaging hydrated configurations into debug tarball..."
+	@mkdir -p $(OUTPUT_DIR)
+	@tar -czf "$(OUTPUT_DIR)/debug-templates-v$(ISO_VERSION).tar.gz" \
+		-C "$(EXTRACT_DIR)" \
+		nocloud \
+		custom-data/network-template.yaml \
+		custom-data/systemd
+	@echo "  [x] Debug configurations tarball created successfully."
 	@echo "[-] [Stage: pre-artifact] Declarative configuration templates hydrated."
 
 # ==========================================
@@ -213,10 +229,13 @@ test-static: assemble
 		echo "[!] Error: No compiled ISO found at $(FINAL_ISO_PATH). Run 'make assemble' first." >&2; \
 		exit 1; \
 	fi
-	@# Check files insidecompiled ISO using xorriso listing
 	@echo "  [-] Inspecting compiled ISO directory index structures..."
-	@xorriso -indev "$(FINAL_ISO_PATH)" -find /nocloud -or -find /custom-data -exec info &>/dev/null || (echo "[!] ERROR: Injected GGD directory components are missing from output ISO!" >&2; exit 1)
-	@echo "  [x] Static file location integrity checks passed."
+	@xorriso -indev "$(FINAL_ISO_PATH)" -find /nocloud -or -find /custom-data &>/dev/null || (echo "[!] ERROR: Injected GGD directory components are missing from output ISO!" >&2; exit 1)
+	@echo "  [-] Verifying that Task 2 dependencies are present in their target paths inside the ISO..."
+	@xorriso -indev "$(FINAL_ISO_PATH)" -find /custom-data/gitea/gitea &>/dev/null || (echo "[!] ERROR: Gitea binary is missing inside compiled ISO!" >&2; exit 1)
+	@xorriso -indev "$(FINAL_ISO_PATH)" -find /custom-data/nexus/jre/bin/java &>/dev/null || (echo "[!] ERROR: Java JRE binary is missing inside compiled ISO!" >&2; exit 1)
+	@xorriso -indev "$(FINAL_ISO_PATH)" -find /custom-data/nexus/nexus-bin/bin/nexus &>/dev/null || (echo "[!] ERROR: Nexus core binary is missing inside compiled ISO!" >&2; exit 1)
+	@echo "  [x] Static file location integrity and dependency path checks passed cleanly."
 
 test-dynamic: test-static
 	@echo "[-] [Stage: test-artifact] Launching dynamic headless QEMU E2E test VM..."
@@ -242,6 +261,10 @@ deploy:
 			exit 1; \
 		fi; \
 		gcloud storage cp "$${ISO_OUTPUT_PATH}" "$(GCS_BUCKET)/$${ISO_OUTPUT_NAME}"; \
+		if [ -f "$(OUTPUT_DIR)/debug-templates-v$(ISO_VERSION).tar.gz" ]; then \
+			echo "  [-] Uploading debug configurations tarball to GCS under debug/..."; \
+			gcloud storage cp "$(OUTPUT_DIR)/debug-templates-v$(ISO_VERSION).tar.gz" "$(GCS_BUCKET)/debug/debug-templates-v$(ISO_VERSION).tar.gz"; \
+		fi; \
 		echo "  [x] GCS publication complete."; \
 	else \
 		echo "  [-] GCS deployment skipped (ENABLE_GCS=false)."; \
