@@ -315,8 +315,14 @@ done
 
 # 5.1. Test Pubkey Auth Entry
 echo "[-] Testing SSH Key-Based Entry..."
-if ssh ${SSH_OPTS} -i "${SSH_KEY_PATH}" temporary-installer@127.0.0.1 "echo '[x] Remote authentication successful.'" &>/dev/null; then
+SSH_ERR_LOG="/tmp/opencode/ssh-pubkey-error.log"
+if ssh ${SSH_OPTS} -vvv -i "${SSH_KEY_PATH}" temporary-installer@127.0.0.1 "echo '[x] Remote authentication successful.'" &> "${SSH_ERR_LOG}"; then
     echo "  [x] SSH Pubkey Authentication PASSED cleanly."
+else
+    echo "  [!] WARNING: SSH Pubkey Authentication FAILED!" >&2
+    echo "[-] Displaying SSH verbose debug log for diagnostics:" >&2
+    cat "${SSH_ERR_LOG}" >&2
+fi
 else
     echo "  [!] WARNING: SSH Pubkey Authentication FAILED!" >&2
 fi
