@@ -211,7 +211,7 @@ autoinstall:
         echo "${PUB_KEY}" >> /target/home/temporary-installer/.ssh/authorized_keys
         chmod 700 /target/root/.ssh /target/home/temporary-installer/.ssh
         chmod 600 /target/root/.ssh/authorized_keys /target/home/temporary-installer/.ssh/authorized_keys
-        chown -R 1000:1000 /target/home/temporary-installer/.ssh
+        chown -R temporary-installer:temporary-installer /target/home/temporary-installer/.ssh
         logger -t gdc-provisioner "[GOAL] SSH public keys successfully authorized"
       else
         logger -t gdc-provisioner "[GOAL] No custom SSH public keys configured, skipping injection"
