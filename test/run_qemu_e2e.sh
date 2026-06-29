@@ -37,13 +37,27 @@ if [[ ! -f "${TEST_KEYS_DIR}/id_ed25519" ]]; then
 fi
 TEST_PUB_KEY=$(cat "${TEST_KEYS_DIR}/id_ed25519.pub")
 
+# Verify if testing subnet IP is free on the host network
+echo "[-] Performing pre-flight check on testing network segment..."
+DISABLE_SSH_DNS=false
+if ping -c 1 -W 1 192.168.120.1 &>/dev/null; then
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo "[!] STRONG WARNING: Testing network '192.168.120.0/24' is not open or is in use!"
+    echo "[!] Active device detected on 192.168.120.1 (gateway IP)."
+    echo "[!] Activating SSH UseDNS fallback (disabling reverse DNS) to prevent timeouts."
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    DISABLE_SSH_DNS=true
+else
+    echo "[x] Testing network '192.168.120.0/24' is clear. No conflicts detected."
+fi
+
 echo "=============================================================================="
 echo "GDC Bootloader ISO Headless E2E Boot Tester & Validator"
 echo "=============================================================================="
 
 # Force hydration and assembly with non-zero VLAN and dual-VRF configuration for the E2E test
 echo "[-] Compiling test ISO with Dual-VRF parameters (VLAN 109)..."
-ADMIN_SSH_PUB_KEYS="${TEST_PUB_KEY}" COMPANION_IP=192.168.100.2 COMPANION_HOST=gdc-companion.ensor-labs.com INSTALL_COMPANION_URL=http://gdc-companion.ensor-labs.com:8080/v1/install-logs MACHINE_VLAN_ID=0 K8S_VLAN_ID=109 K8S_GATEWAY=192.168.109.1 DISK1=vda DISK2=vdb BOOT_MODE=bios make -C "${PROJECT_ROOT}/src/build" hydrate assemble
+ADMIN_SSH_PUB_KEYS="${TEST_PUB_KEY}" COMPANION_IP=192.168.120.2 COMPANION_HOST=gdc-companion.ensor-labs.com INSTALL_COMPANION_URL=http://gdc-companion.ensor-labs.com:8080/v1/install-logs MACHINE_VLAN_ID=0 K8S_VLAN_ID=109 K8S_GATEWAY=192.168.109.1 DISK1=vda DISK2=vdb BOOT_MODE=bios DISABLE_SSH_DNS="${DISABLE_SSH_DNS}" make -C "${PROJECT_ROOT}/src/build" hydrate assemble
 
 # 1. Locate generated ISO
 BUILD_META="${WORKSPACE}/build_meta.env"
@@ -100,9 +114,9 @@ if [[ "${QEMU_AVAILABLE}" = "false" ]]; then
         echo "       -drive file=/tmp/gdc-data-disk.qcow2,if=virtio,cache=writeback \\"
         echo "       -cdrom ${ISO_PATH} \\"
         echo "       -nographic -serial file:/tmp/gdc_serial.log \\"
-        echo "       -netdev user,id=mgmtnet,net=192.168.100.0/24,hostfwd=tcp:127.0.0.1:2222-:22 \\"
+        echo "       -netdev user,id=mgmtnet,net=192.168.120.0/24,hostfwd=tcp:127.0.0.1:2222-:22 \\"
         echo "       -device virtio-net-pci,netdev=mgmtnet \\"
-        echo "       -netdev user,id=prodnet,net=192.168.200.0/24 \\"
+        echo "       -netdev user,id=prodnet,net=192.168.220.0/24 \\"
         echo "       -device virtio-net-pci,netdev=prodnet \\"
         echo "       -chardev socket,id=chrtpm,path=/tmp/gdc-tpm.XXXXXX/swtpm-sock \\"
         echo "       -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0 \\"
@@ -182,9 +196,9 @@ qemu-system-x86_64 ${KVM_FLAG} -m 4096 -smp 4 \
   -cdrom "${ISO_PATH}" \
   -nographic \
   -serial file:"${SERIAL_LOG}" \
-  -netdev user,id=mgmtnet,net=192.168.100.0/24,hostfwd=tcp:127.0.0.1:2222-:22 \
+  -netdev user,id=mgmtnet,net=192.168.120.0/24,hostfwd=tcp:127.0.0.1:2222-:22 \
   -device virtio-net-pci,netdev=mgmtnet \
-  -netdev user,id=prodnet,net=192.168.200.0/24 \
+  -netdev user,id=prodnet,net=192.168.220.0/24 \
   -device virtio-net-pci,netdev=prodnet \
   ${TPM_ARGS} \
   -boot order=c &

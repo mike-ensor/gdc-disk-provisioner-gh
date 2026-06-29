@@ -267,6 +267,15 @@ autoinstall:
       rm -f /tmp/pass.txt
     - |
       echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC SSH configurations"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Deploying GDC SSH configurations"
+      mkdir -p /target/etc/ssh/sshd_config.d
+      echo "# Disable reverse DNS lookups to prevent connection hangs in air-gapped segments" > /target/etc/ssh/sshd_config.d/gdc.conf
+      echo "UseDNS no" >> /target/etc/ssh/sshd_config.d/gdc.conf
+      logger -t gdc-provisioner "[GOAL] SSH UseDNS configuration created successfully"
+    - |
+      echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Production VRF Netplan configuration"
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Deploying GDC Production VRF Netplan configuration"
