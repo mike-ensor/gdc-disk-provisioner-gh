@@ -307,7 +307,8 @@ SSH_OPTS="-p 2222 -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o UserKnownHo
 echo "[-] Waiting for SSH socket to open on localhost:2222..."
 for i in {1..12}; do
     if nc -z 127.0.0.1 2222 &>/dev/null; then
-        echo "  [x] SSH socket active."
+        echo "  [x] SSH socket active. Sleeping 10s cushion for SSH daemon to settle..."
+        sleep 10
         break
     fi
     sleep 5
@@ -322,9 +323,6 @@ else
     echo "  [!] WARNING: SSH Pubkey Authentication FAILED!" >&2
     echo "[-] Displaying SSH verbose debug log for diagnostics:" >&2
     cat "${SSH_ERR_LOG}" >&2
-fi
-else
-    echo "  [!] WARNING: SSH Pubkey Authentication FAILED!" >&2
 fi
 
 # 5.2. Test Password Auth Entry (using default password)
