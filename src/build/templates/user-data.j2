@@ -247,21 +247,24 @@ autoinstall:
         echo "KEYFILE_PATTERN=\"/etc/keys/*\"" > /target/etc/cryptsetup-initramfs/conf-hook
         logger -t gdc-provisioner "[GOAL] Created cryptsetup-initramfs conf-hook with KEYFILE_PATTERN"
       fi
-      CRYPT_DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -n 1)
-      if [ -n "$CRYPT_DEV" ]; then
-        echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /tmp/pass.txt
-        if cryptsetup luksAddKey --key-file=/tmp/pass.txt "$CRYPT_DEV" /target/etc/keys/temp_key.key; then
-          logger -t gdc-provisioner "[GOAL] Added key to LUKS device $CRYPT_DEV"
-          sed -i 's/ none / \/etc\/keys\/temp_key.key /' /target/etc/crypttab
-          logger -t gdc-provisioner "[GOAL] Updated crypttab to use key file"
-        else
-          echo "[GDC-INSTALL-FAIL] Critical Failure: Failed to add key to LUKS device!"
-          exit 1
-        fi
-        rm -f /tmp/pass.txt
+      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /tmp/pass.txt
+      LUKS_DEVS=$(blkid -t TYPE=crypto_LUKS -o device)
+      if [ -n "${LUKS_DEVS}" ]; then
+        for crypt_dev in ${LUKS_DEVS}; do
+          logger -t gdc-provisioner "[GOAL] Adding key to LUKS device ${crypt_dev}..."
+          if cryptsetup luksAddKey --key-file=/tmp/pass.txt "${crypt_dev}" /target/etc/keys/temp_key.key; then
+            logger -t gdc-provisioner "[GOAL] Added key to LUKS device ${crypt_dev}"
+          else
+            echo "[GDC-INSTALL-FAIL] Critical Failure: Failed to add key to LUKS device ${crypt_dev}!"
+            exit 1
+          fi
+        done
+        sed -i 's/ none / \/etc\/keys\/temp_key.key /g' /target/etc/crypttab
+        logger -t gdc-provisioner "[GOAL] Updated crypttab to use key file on all partitions"
       else
-        logger -t gdc-provisioner "[GOAL] No LUKS device found, skipping key enrollment"
+        logger -t gdc-provisioner "[GOAL] No LUKS devices found, skipping key enrollment"
       fi
+      rm -f /tmp/pass.txt
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Production VRF Netplan configuration"
@@ -282,8 +285,11 @@ autoinstall:
         K8S_IP="192.168.109.14"
       fi
       
-      MACHINE_IP_CIDR="${MACHINE_IP}/24"
-      K8S_IP_CIDR="${K8S_IP}/24"
+      MACHINE_MASK=$(echo "{{ machine_ip_cidr }}" | cut -d'/' -f2 || echo "24")
+      K8S_MASK=$(echo "{{ k8s_ip_cidr }}" | cut -d'/' -f2 || echo "24")
+      
+      MACHINE_IP_CIDR="${MACHINE_IP}/${MACHINE_MASK}"
+      K8S_IP_CIDR="${K8S_IP}/${K8S_MASK}"
       
       if [ "${NUM_IFACES}" -gt 1 ]; then
         # Dual-NIC Test Mode (QEMU)

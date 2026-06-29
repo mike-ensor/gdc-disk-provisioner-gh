@@ -261,16 +261,17 @@
         path: /dev/tpmrm0
       register: tpm_device_stat
 
-    - name: "GDC-TPM-SEAL | Retrieve GDC LUKS system device partition"
-      ansible.builtin.shell: blkid -t TYPE=crypto_LUKS -o device | head -n 1
-      register: luks_partition_device
+    - name: "GDC-TPM-SEAL | Retrieve GDC LUKS system device partitions"
+      ansible.builtin.shell: blkid -t TYPE=crypto_LUKS -o device
+      register: luks_partition_devices
       changed_when: false
-      failed_when: luks_partition_device.stdout == ""
+      failed_when: luks_partition_devices.stdout == ""
       when: tpm_device_stat.stat.exists
 
     - name: "GDC-TPM-SEAL | Seal LUKS Master Key to TPM 2.0 PCR registers (0+2+7)"
       ansible.builtin.shell: |
-        systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+7 {{ luks_partition_device.stdout }}
+        systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+7 {{ item }}
+      loop: "{{ luks_partition_devices.stdout_lines }}"
       when: tpm_device_stat.stat.exists
       register: cryptenroll_result
       changed_when: "'New TPM2 token enrolled' in cryptenroll_result.stderr or cryptenroll_result.rc == 0"
@@ -295,7 +296,8 @@
 
     - name: "GDC-TPM-SEAL | Purge insecure temporary passcode slot from LUKS keyslots"
       ansible.builtin.shell: |
-        systemd-cryptenroll --wipe-slot=password {{ luks_partition_device.stdout }}
+        systemd-cryptenroll --wipe-slot=password {{ item }}
+      loop: "{{ luks_partition_devices.stdout_lines }}"
       when: tpm_device_stat.stat.exists
       changed_when: true
 
