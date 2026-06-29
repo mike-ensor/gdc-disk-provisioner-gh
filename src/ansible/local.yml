@@ -126,24 +126,18 @@
           # Disable reverse DNS lookup to prevent login hangs in offline or air-gapped subnets
           UseDNS no
 
-    - name: "GDC-PROVISION | Check if SSH Socket is active"
-      ansible.builtin.command: systemctl is-active ssh.socket
-      register: ssh_socket_check
-      failed_when: false
-      changed_when: false
-
-    - name: "GDC-PROVISION | Restart SSH Socket"
+    - name: "GDC-PROVISION | Disable SSH socket activation to prevent port conflicts on Ubuntu 24.04"
       ansible.builtin.systemd:
         name: ssh.socket
-        state: restarted
-      when: ssh_socket_check.rc == 0
+        enabled: false
+        state: stopped
       ignore_errors: true
 
-    - name: "GDC-PROVISION | Restart standard SSH Service (if socket not used)"
+    - name: "GDC-PROVISION | Enable and start persistent SSH service daemon"
       ansible.builtin.systemd:
         name: ssh
+        enabled: true
         state: restarted
-      when: ssh_socket_check.rc != 0
       ignore_errors: true
 
     - name: "GDC-OFFLINE-APT | Ensure GDC APT keyrings directory exists"
