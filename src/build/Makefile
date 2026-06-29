@@ -8,13 +8,16 @@
 # Default Shell configuration
 SHELL := /usr/bin/env bash
 
+# Export all make variables to child processes by default
+.EXPORT_ALL_VARIABLES:
+
 # Robust Helper to extract variables from build.env and local.env safely
 get_env = $(shell \
 	set -a; \
 	[ -f ../dependencies.env ] && . ../dependencies.env &>/dev/null; \
 	[ -f ./build.env ] && . ./build.env &>/dev/null; \
 	[ -f ./local.env ] && . ./local.env &>/dev/null; \
-	echo "$${$(1)}" \
+	if [ -n "$(1)" ]; then echo "$${$(1)}"; fi \
 )
 
 # Extract core pipeline configuration variables
@@ -178,8 +181,9 @@ hydrate: $(VENV_DIR) extract
 	@export PASSWORD_HASH=$$(python3 -c "import crypt; print(crypt.crypt('$(TEMPORARY_INSTALLER_PASSWORD)', crypt.mksalt(crypt.METHOD_SHA512)))"); \
 	export BUILD_TIMESTAMP=$$(date +%s); \
 	export SINGLE_DISK="false"; \
-	export DISK1="nvme0n1"; \
-	export DISK2="nvme1n1"; \
+	export BOOT_MODE="$${BOOT_MODE:-bios}"; \
+	export DISK1="$${DISK1:-nvme0n1}"; \
+	export DISK2="$${DISK2:-nvme1n1}"; \
 	export OUTPUT_FILE="$(WORKSPACE)/autoinstall-storage.yaml"; \
 	$(VENV_DIR)/bin/python3 render_templates.py templates $(EXTRACT_DIR)
 	@echo "  [-] Packaging hydrated configurations into debug tarball..."

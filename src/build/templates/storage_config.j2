@@ -1,46 +1,60 @@
 # Generated dynamically by GDC GDC-SPEC-002-SEQ storage orchestrator
 # Topology: {{ num_disks }} physical disk(s) detected
-layout:
-  name: direct
 config:
   {% if single_disk %}
   # --- Single Disk Topology (/dev/{{ disk1 }}) ---
-  - {type: disk, id: disk-system, path: /dev/{{ disk1 }}}
-  - {type: partition, id: partition-efi, device: disk-system, size: 1GiB, flag: bios_grub}
-  - {type: partition, id: partition-boot, device: disk-system, size: 2GiB}
+  - {type: disk, id: disk-system, path: /dev/{{ disk1 }}, ptable: gpt, grub_device: true}
+  {% if boot_mode == 'bios' %}
+  - {type: partition, id: partition-bios-grub, device: disk-system, size: 1048576, flag: bios_grub}
+  {% else %}
+  - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: boot}
+  {% endif %}
+  - {type: partition, id: partition-boot, device: disk-system, size: 2147483648}
   - {type: partition, id: partition-lvm, device: disk-system, size: -1}
-  - {type: format, id: format-efi, volume: partition-efi, fstype: fat32}
+  {% if boot_mode == 'uefi' %}
+  - {type: format, id: format-efi, volume: partition-efi, fstype: vfat}
+  {% endif %}
   - {type: format, id: format-boot, volume: partition-boot, fstype: ext4}
-  - {type: mount, id: mount-efi, volume: format-efi, path: /boot/efi}
-  - {type: mount, id: mount-boot, volume: format-boot, path: /boot}
+  {% if boot_mode == 'uefi' %}
+  - {type: mount, id: mount-efi, device: format-efi, path: /boot/efi}
+  {% endif %}
+  - {type: mount, id: mount-boot, device: format-boot, path: /boot}
   - {type: dm_crypt, id: crypt-system, volume: partition-lvm, key: "temporary_bootstrap_key_to_be_enrolled_to_tpm"}
   - {type: lvm_volgroup, id: vg-system, name: vg_system, devices: [crypt-system]}
   
   # Scaled Logical Volumes for Single Disk
-  - {type: lvm_partition, id: lv-root, volgroup: vg-system, name: lv_root, size: 15GiB}
-  - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 15GiB}
-  - {type: lvm_partition, id: lv-varlog, volgroup: vg-system, name: lv_var_log, size: 15GiB}
-  - {type: lvm_partition, id: lv-metrics, volgroup: vg-system, name: lv_var_opt_metrics, size: 10GiB}
-  - {type: lvm_partition, id: lv-containerd, volgroup: vg-system, name: lv_containerd, size: 30GiB}
-  - {type: lvm_partition, id: lv-etcd, volgroup: vg-system, name: lv_etcd, size: 20GiB}
-  - {type: lvm_partition, id: lv-etcd-events, volgroup: vg-system, name: lv_etcd_events, size: 5GiB}
-  - {type: lvm_partition, id: lv-gitea, volgroup: vg-system, name: lv_gitea, size: 15GiB}
-  - {type: lvm_partition, id: lv-nexus, volgroup: vg-system, name: lv_nexus, size: 60GiB}
-  - {type: lvm_partition, id: lv-localdisk, volgroup: vg-system, name: lv_local_disk, size: 25GiB}
+  - {type: lvm_partition, id: lv-root, volgroup: vg-system, name: lv_root, size: 15G}
+  - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 15G}
+  - {type: lvm_partition, id: lv-varlog, volgroup: vg-system, name: lv_var_log, size: 15G}
+  - {type: lvm_partition, id: lv-metrics, volgroup: vg-system, name: lv_var_opt_metrics, size: 10G}
+  - {type: lvm_partition, id: lv-containerd, volgroup: vg-system, name: lv_containerd, size: 30G}
+  - {type: lvm_partition, id: lv-etcd, volgroup: vg-system, name: lv_etcd, size: 20G}
+  - {type: lvm_partition, id: lv-etcd-events, volgroup: vg-system, name: lv_etcd_events, size: 5G}
+  - {type: lvm_partition, id: lv-gitea, volgroup: vg-system, name: lv_gitea, size: 15G}
+  - {type: lvm_partition, id: lv-nexus, volgroup: vg-system, name: lv_nexus, size: 60G}
+  - {type: lvm_partition, id: lv-localdisk, volgroup: vg-system, name: lv_local_disk, size: 25G}
   - {type: lvm_partition, id: lv-sds, volgroup: vg-system, name: lv_sds, size: -1} 
   {% else %}
   # --- Dual Disk Topology (/dev/{{ disk1 }}, /dev/{{ disk2 }}) ---
-  - {type: disk, id: disk-system, path: /dev/{{ disk1 }}}
-  - {type: disk, id: disk-data, path: /dev/{{ disk2 }}}
+  - {type: disk, id: disk-system, path: /dev/{{ disk1 }}, ptable: gpt, grub_device: true}
+  - {type: disk, id: disk-data, path: /dev/{{ disk2 }}, ptable: gpt}
   
   # Disk 1
-  - {type: partition, id: partition-efi, device: disk-system, size: 1GiB, flag: bios_grub}
-  - {type: partition, id: partition-boot, device: disk-system, size: 2GiB}
+  {% if boot_mode == 'bios' %}
+  - {type: partition, id: partition-bios-grub, device: disk-system, size: 1048576, flag: bios_grub}
+  {% else %}
+  - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: boot}
+  {% endif %}
+  - {type: partition, id: partition-boot, device: disk-system, size: 2147483648}
   - {type: partition, id: partition-lvm-sys, device: disk-system, size: -1}
-  - {type: format, id: format-efi, volume: partition-efi, fstype: fat32}
+  {% if boot_mode == 'uefi' %}
+  - {type: format, id: format-efi, volume: partition-efi, fstype: vfat}
+  {% endif %}
   - {type: format, id: format-boot, volume: partition-boot, fstype: ext4}
-  - {type: mount, id: mount-efi, volume: format-efi, path: /boot/efi}
-  - {type: mount, id: mount-boot, volume: format-boot, path: /boot}
+  {% if boot_mode == 'uefi' %}
+  - {type: mount, id: mount-efi, device: format-efi, path: /boot/efi}
+  {% endif %}
+  - {type: mount, id: mount-boot, device: format-boot, path: /boot}
   - {type: dm_crypt, id: crypt-system, volume: partition-lvm-sys, key: "temporary_bootstrap_key_to_be_enrolled_to_tpm"}
   - {type: lvm_volgroup, id: vg-system, name: vg_system, devices: [crypt-system]}
 
@@ -50,18 +64,18 @@ config:
   - {type: lvm_volgroup, id: vg-data, name: vg_data, devices: [crypt-data]}
   
   # LVs System
-  - {type: lvm_partition, id: lv-root, volgroup: vg-system, name: lv_root, size: 20GiB}
-  - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 20GiB}
-  - {type: lvm_partition, id: lv-varlog, volgroup: vg-system, name: lv_var_log, size: 15GiB}
-  - {type: lvm_partition, id: lv-metrics, volgroup: vg-system, name: lv_var_opt_metrics, size: 10GiB}
-  - {type: lvm_partition, id: lv-containerd, volgroup: vg-system, name: lv_containerd, size: 30GiB}
-  - {type: lvm_partition, id: lv-etcd, volgroup: vg-system, name: lv_etcd, size: 20GiB}
-  - {type: lvm_partition, id: lv-etcd-events, volgroup: vg-system, name: lv_etcd_events, size: 5GiB}
-  - {type: lvm_partition, id: lv-gitea, volgroup: vg-system, name: lv_gitea, size: 20GiB}
+  - {type: lvm_partition, id: lv-root, volgroup: vg-system, name: lv_root, size: 20G}
+  - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 20G}
+  - {type: lvm_partition, id: lv-varlog, volgroup: vg-system, name: lv_var_log, size: 15G}
+  - {type: lvm_partition, id: lv-metrics, volgroup: vg-system, name: lv_var_opt_metrics, size: 10G}
+  - {type: lvm_partition, id: lv-containerd, volgroup: vg-system, name: lv_containerd, size: 30G}
+  - {type: lvm_partition, id: lv-etcd, volgroup: vg-system, name: lv_etcd, size: 20G}
+  - {type: lvm_partition, id: lv-etcd-events, volgroup: vg-system, name: lv_etcd_events, size: 5G}
+  - {type: lvm_partition, id: lv-gitea, volgroup: vg-system, name: lv_gitea, size: 20G}
   - {type: lvm_partition, id: lv-nexus, volgroup: vg-system, name: lv_nexus, size: -1}
   
   # LVs Data
-  - {type: lvm_partition, id: lv-localdisk, volgroup: vg-data, name: lv_local_disk, size: 100GiB}
+  - {type: lvm_partition, id: lv-localdisk, volgroup: vg-data, name: lv_local_disk, size: 100G}
   - {type: lvm_partition, id: lv-sds, volgroup: vg-data, name: lv_sds, size: -1}
   {% endif %}
   
@@ -78,15 +92,15 @@ config:
   - {type: format, id: fmt-localdisk, volume: lv-localdisk, fstype: xfs}
   - {type: format, id: fmt-sds, volume: lv-sds, fstype: xfs}
   
-  - {type: mount, id: mnt-root, volume: fmt-root, path: /}
-  - {type: mount, id: mnt-var, volume: fmt-var, path: /var, options: "defaults,noatime"}
-  - {type: mount, id: mnt-varlog, volume: fmt-varlog, path: /var/log, options: "defaults,noatime"}
-  - {type: mount, id: mnt-metrics, volume: fmt-metrics, path: /var/opt/buffered-metrics, options: "defaults,noatime"}
-  - {type: mount, id: mnt-containerd, volume: fmt-containerd, path: /var/lib/containerd, options: "defaults,noatime,prjquota"}
-  - {type: mount, id: mnt-etcd, volume: fmt-etcd, path: /var/lib/etcd, options: "noatime,nodiratime,commit=1"}
-  - {type: mount, id: mnt-etcd-events, volume: fmt-etcd-events, path: /var/lib/etcd-events, options: "noatime,nodiratime,commit=1"}
-  - {type: mount, id: mnt-gitea, volume: fmt-gitea, path: /var/lib/gitea, options: "defaults,noatime"}
-  - {type: mount, id: mnt-nexus, volume: fmt-nexus, path: /var/lib/nexus, options: "defaults,noatime"}
-  - {type: mount, id: mnt-localdisk, volume: fmt-localdisk, path: /customer/local-disk, options: "defaults,noatime,prjquota"}
-  - {type: mount, id: mnt-sds, volume: fmt-sds, path: /customer/sds, options: "defaults,noatime"}
+  - {type: mount, id: mnt-root, device: fmt-root, path: /}
+  - {type: mount, id: mnt-var, device: fmt-var, path: /var, options: "defaults,noatime"}
+  - {type: mount, id: mnt-varlog, device: fmt-varlog, path: /var/log, options: "defaults,noatime"}
+  - {type: mount, id: mnt-metrics, device: fmt-metrics, path: /var/opt/buffered-metrics, options: "defaults,noatime"}
+  - {type: mount, id: mnt-containerd, device: fmt-containerd, path: /var/lib/containerd, options: "defaults,noatime,prjquota"}
+  - {type: mount, id: mnt-etcd, device: fmt-etcd, path: /var/lib/etcd, options: "noatime,nodiratime,commit=1"}
+  - {type: mount, id: mnt-etcd-events, device: fmt-etcd-events, path: /var/lib/etcd-events, options: "noatime,nodiratime,commit=1"}
+  - {type: mount, id: mnt-gitea, device: fmt-gitea, path: /var/lib/gitea, options: "defaults,noatime"}
+  - {type: mount, id: mnt-nexus, device: fmt-nexus, path: /var/lib/nexus, options: "defaults,noatime"}
+  - {type: mount, id: mnt-localdisk, device: fmt-localdisk, path: /customer/local-disk, options: "defaults,noatime,prjquota"}
+  - {type: mount, id: mnt-sds, device: fmt-sds, path: /customer/sds, options: "defaults,noatime"}
 

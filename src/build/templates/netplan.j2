@@ -2,12 +2,18 @@ network:
   version: 2
   renderer: networkd
   ethernets:
+    # __MGMT_IFACE_START__
+    __MGMT_IFACE__:
+      dhcp4: true
+      dhcp6: no
+      link-local: []
+    # __MGMT_IFACE_END__
     {{ phys_iface }}:
       dhcp4: no
       dhcp6: no
       link-local: []
       {% if not machine_vlan or machine_vlan == '0' %}
-      addresses: [{{ machine_ip_cidr }}]
+      addresses: [__MACHINE_IP_CIDR__]
       routes:
         - to: default
           via: {{ machine_gateway }}
@@ -21,7 +27,7 @@ network:
     {{ phys_iface }}.{{ machine_vlan }}:
       id: {{ machine_vlan }}
       link: {{ phys_iface }}
-      addresses: [{{ machine_ip_cidr }}]
+      addresses: [__MACHINE_IP_CIDR__]
       routes:
         - to: default
           via: {{ machine_gateway }}
@@ -33,7 +39,7 @@ network:
     {{ phys_iface }}.{{ k8s_vlan }}:
       id: {{ k8s_vlan }}
       link: {{ phys_iface }}
-      addresses: [{{ k8s_ip_cidr }}]
+      addresses: [__K8S_IP_CIDR__]
       routes:
         - to: default
           via: {{ k8s_gateway }}

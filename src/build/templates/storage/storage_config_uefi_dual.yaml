@@ -1,0 +1,36 @@
+# Generated dynamically by GDC storage orchestrator (UEFI Dual Disk)
+  config:
+    # --- Physical Drives ---
+    - {type: disk, id: disk-system, path: /dev/${DISK_1}, ptable: gpt, grub_device: true}
+    - {type: disk, id: disk-data, path: /dev/${DISK_2}, ptable: gpt}
+    
+    # --- Disk 1 System Partitioning (EFI, Boot, and Core OS Services) ---
+    - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: boot}
+    - {type: partition, id: partition-boot, device: disk-system, size: 2147483648}
+    - {type: partition, id: partition-lvm-sys, device: disk-system, size: -1}
+    - {type: format, id: format-efi, volume: partition-efi, fstype: vfat}
+    - {type: format, id: format-boot, volume: partition-boot, fstype: ext4}
+    - {type: mount, id: mount-efi, device: format-efi, path: /boot/efi}
+    - {type: mount, id: mount-boot, device: format-boot, path: /boot}
+    - {type: dm_crypt, id: crypt-system, volume: partition-lvm-sys, key: "temporary_bootstrap_key_to_be_enrolled_to_tpm"}
+    - {type: lvm_volgroup, id: vg-system, name: vg_system, devices: [crypt-system]}
+
+    # OS Logical Volumes on Disk 1 (Fits cleanly on 250G drive)
+    - {type: lvm_partition, id: lv-root, volgroup: vg-system, name: lv_root, size: 20G}
+    - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 20G}
+    - {type: lvm_partition, id: lv-varlog, volgroup: vg-system, name: lv_var_log, size: 15G}
+    - {type: lvm_partition, id: lv-metrics, volgroup: vg-system, name: lv_var_opt_metrics, size: 10G}
+    - {type: lvm_partition, id: lv-containerd, volgroup: vg-system, name: lv_containerd, size: 30G}
+    - {type: lvm_partition, id: lv-etcd, volgroup: vg-system, name: lv_etcd, size: 20G}
+    - {type: lvm_partition, id: lv-etcd-events, volgroup: vg-system, name: lv_etcd_events, size: 5G}
+    - {type: lvm_partition, id: lv-gitea, volgroup: vg-system, name: lv_gitea, size: 20G}
+    - {type: lvm_partition, id: lv-nexus, volgroup: vg-system, name: lv_nexus, size: -1}
+
+    # --- Disk 2 Data Partitioning (LUKS + Dedicated Data VG) ---
+    - {type: partition, id: partition-lvm-data, device: disk-data, size: -1}
+    - {type: dm_crypt, id: crypt-data, volume: partition-lvm-data, key: "temporary_bootstrap_key_to_be_enrolled_to_tpm"}
+    - {type: lvm_volgroup, id: vg-data, name: vg_data, devices: [crypt-data]}
+    
+    # Data Logical Volumes on Disk 2
+    - {type: lvm_partition, id: lv-localdisk, volgroup: vg-data, name: lv_local_disk, size: 100G}
+    - {type: lvm_partition, id: lv-sds, volgroup: vg-data, name: lv_sds, size: -1}

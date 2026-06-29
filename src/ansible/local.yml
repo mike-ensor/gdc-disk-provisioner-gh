@@ -20,15 +20,19 @@
     # Target package list and specific versions to install during post-install
     # (Matches our variables inside build.env)
     post_install_packages:
-      - "git=1:2.43.0-1ubuntu7"
-      - "python3-pip=24.0+dfsg-1ubuntu1"
-      - "wireguard=1.0.20210914-1ubuntu1"
+      - "git"
     
     # Toggle to enforce GPG signed commits inside the local ansible-pull runner
     # Set to 'false' during initial development; set to 'true' for production.
     enforce_signed_commits: false
 
   tasks:
+    - name: "GDC-LOG-CON | Log Ansible startup to serial console"
+      ansible.builtin.shell: |
+        timeout 3 sh -c 'echo "--- GDC ANSIBLE PROVISIONER STARTING ---" > /dev/ttyS0' || true
+      changed_when: false
+      ignore_errors: true
+
     # --------------------------------------------------------------------------
     # Stage 1: Local Service Readiness Checks (Hubs)
     # --------------------------------------------------------------------------
@@ -37,7 +41,7 @@
         host: 127.0.0.1
         port: 3000
         state: started
-        timeout: 60
+        timeout: 300
         msg: "Timeout waiting for Gitea to listen on local port 3000. Check target logs."
 
     - name: "GDC-VERIFY-002 | Check Nexus Service Hub Readiness (Port 8081)"
@@ -45,12 +49,18 @@
         host: 127.0.0.1
         port: 8081
         state: started
-        timeout: 90
+        timeout: 300
         msg: "Timeout waiting for Nexus to listen on local port 8081. Check target logs."
 
     - name: "GDC-VERIFY-003 | Confirm Service Endpoints are Accessible"
       ansible.builtin.debug:
         msg: "Success: Local Service Boundary Hubs (Gitea on Port 3000 and Nexus on Port 8081) are fully accessible."
+
+    - name: "GDC-LOG-CON | Log services ready to serial console"
+      ansible.builtin.shell: |
+        timeout 3 sh -c 'echo "--- GDC LOCAL SERVICE HUBS OPERATIONAL & READY ---" > /dev/ttyS0' || true
+      changed_when: false
+      ignore_errors: true
 
     # --------------------------------------------------------------------------
     # Stage 2: Retrieve Disk and Block Partition Layout
@@ -103,11 +113,20 @@
         update_cache: false
       register: apt_upgrade_result
       ignore_errors: true
+      when: trigger_system_upgrade | default(false)
 
     - name: "GDC-PROVISION-103 | Log System Package Upgrade Results"
       ansible.builtin.debug:
         msg: "Safe system-wide offline package upgrade executed successfully."
-      when: apt_upgrade_result is succeeded
+      when:
+        - apt_upgrade_result is succeeded
+        - trigger_system_upgrade | default(false)
+
+    - name: "GDC-LOG-CON | Log packages wait to serial console"
+      ansible.builtin.shell: |
+        timeout 3 sh -c 'echo "--- GDC SYSTEM PACKAGES INSTALLATION STARTED ---" > /dev/ttyS0' || true
+      changed_when: false
+      ignore_errors: true
 
     - name: "GDC-PROVISION-104 | Install GDC Configured Post-Install Packages"
       ansible.builtin.apt:
@@ -157,3 +176,9 @@
     - name: "GDC-PROVISION-108 | Signal Installation Completion Success"
       ansible.builtin.debug:
         msg: "SUCCESS: All Ready-Linux Post-Install provisioning tasks and security handshakes completed successfully."
+
+    - name: "GDC-PROVISION-109 | Write success token to serial console"
+      ansible.builtin.shell: |
+        timeout 3 sh -c 'echo "GDC_BOOTSTRAP_COMPLETE_SUCCESSFULLY" > /dev/ttyS0' || true
+      changed_when: false
+      ignore_errors: true

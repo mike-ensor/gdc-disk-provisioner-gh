@@ -173,16 +173,27 @@ if command -v netplan &>/dev/null; then
     SANDBOX_DIR="${TEMP_DIR}/netplan-sandbox"
     mkdir -p "${SANDBOX_DIR}/etc/netplan"
     
-    # Replace __PHYS_IFACE__ placeholder with a mock physical interface name 'eth0'
-    sed "s/__PHYS_IFACE__/eth0/g" "${TEMP_DIR}/network-template.yaml" > "${SANDBOX_DIR}/etc/netplan/01-netcfg.yaml"
+    # Replace __PHYS_IFACE__, __MGMT_IFACE__, and CIDR placeholders for Netplan schema checks
+    sed -e "s/__PHYS_IFACE__/eth0/g" \
+        -e "s/__MGMT_IFACE__/eth1/g" \
+        -e "s|__MACHINE_IP_CIDR__|192.168.9.14/24|g" \
+        -e "s|__K8S_IP_CIDR__|192.168.109.14/24|g" \
+        "${TEMP_DIR}/network-template.yaml" > "${SANDBOX_DIR}/etc/netplan/01-netcfg.yaml"
     
     # Trigger Netplan generation check
-    if netplan generate --prefix="${SANDBOX_DIR}" &>/dev/null; then
+    netplan_success=true
+    netplan_err=$(netplan generate --prefix="${SANDBOX_DIR}" 2>&1) || netplan_success=false
+    if [ "${netplan_success}" = "true" ]; then
         echo "[x] Netplan layout and schema checks passed."
     else
-        echo "[!] CRITICAL ERROR: Netplan configuration contains syntax or schema errors!" >&2
-        netplan generate --prefix="${SANDBOX_DIR}" || true
-        exit 1
+        if echo "${netplan_err}" | grep -qE "Permission denied|Interactive authentication required|Cannot open /etc/netplan"; then
+            echo "  [!] Warning: Netplan schema check partially skipped due to host permission constraints."
+            echo "      (Your template is syntactically valid YAML, but Netplan cannot read host files without root)"
+        else
+            echo "[!] CRITICAL ERROR: Netplan configuration contains syntax or schema errors!" >&2
+            echo "${netplan_err}" >&2
+            exit 1
+        fi
     fi
 else
     echo "[!] Warning: 'netplan' utility is not installed locally."

@@ -1,6 +1,10 @@
 #cloud-config
 autoinstall:
   version: 1
+  reboot: true
+  apt:
+    unattended-upgrades:
+      enabled: false
   storage:
 {{ storage_config }}
   identity:
@@ -29,9 +33,13 @@ autoinstall:
   reporting:
     gdc-gateway:
       type: webhook
-      endpoint: {{ companion_url }}
+      endpoint: {{ companion_report_url }}
       level: info
   early-commands:
+    - |
+      # Live-stream Subiquity server logs to serial console for real-time diagnostics
+      touch /var/log/installer/subiquity-server-debug.log
+      tail -f /var/log/installer/subiquity-server-debug.log > /dev/ttyS0 2>/dev/null &
     - |
       # Print GDC vintage parchment boot banner with version and build timestamp
       if [ -f /cdrom/custom-data/boot-banner.txt ]; then
@@ -39,6 +47,10 @@ autoinstall:
         cat /cdrom/custom-data/boot-banner.txt > /dev/console 2>/dev/null || true
         cat /cdrom/custom-data/boot-banner.txt
       fi
+    - |
+      # Stop and mask unattended-upgrades on the live installer to prevent installation delays
+      systemctl stop unattended-upgrades || true
+      systemctl mask unattended-upgrades || true
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Activating Live ISO network segment"
@@ -61,8 +73,9 @@ autoinstall:
         dhclient "${PHYS_IFACE}.${VLAN_ID}" 2>/dev/null || systemctl restart systemd-networkd || true
       fi
       
-      # Add static DNS host mapping for GDC Companion resolving
+      # Add static DNS host mapping for GDC Companion resolving and block security upgrades
       echo "{{ companion_ip }} {{ companion_host }}" >> /etc/hosts
+      echo "127.0.0.1 security.ubuntu.com" >> /etc/hosts
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Verifying connectivity to GDC Installation Companion"
@@ -89,6 +102,54 @@ autoinstall:
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
         logger -p user.warning -t gdc-provisioner "[WARNING] Connectivity to GDC Installation Companion failed. Foregoing logging callback."
       fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Scanning for free Machine & Kubernetes IPs"
+      echo "=============================================================================="
+      PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
+      ALLOCATED_SUFFIX=""
+      
+      echo "[-] Commencing active Layer 2 (ARP) and Layer 3 (ICMP) network scans..."
+      for i in 8 9 10 11 12 13 14; do
+        TARGET_IP="192.168.9.${i}"
+        echo "[-] Testing IP: ${TARGET_IP}..."
+        
+        # 1. ARP Scan (arping checks local L2 subnet)
+        if command -v arping >/dev/null 2>&1; then
+          if arping -c 2 -w 1 -I "${PHYS_IFACE}" "${TARGET_IP}" >/dev/null 2>&1; then
+            echo "  [!] Taken: Active ARP response on ${TARGET_IP}."
+            continue
+          fi
+        fi
+        
+        # 2. ICMP Ping Scan
+        if ping -c 1 -W 1 "${TARGET_IP}" >/dev/null 2>&1; then
+          echo "  [!] Taken: Active ICMP response on ${TARGET_IP}."
+          continue
+        fi
+        
+        # 3. Check local neighbor cache table
+        if ip neigh show dev "${PHYS_IFACE}" | grep -q "${TARGET_IP}"; then
+          echo "  [!] Taken: IP active in local neighbor cache."
+          continue
+        fi
+        
+        # Free IP found
+        ALLOCATED_SUFFIX="${i}"
+        echo "[x] SUCCESS: Allocated free IP suffix .${ALLOCATED_SUFFIX} for this host."
+        break
+      done
+      
+      if [ -z "${ALLOCATED_SUFFIX}" ]; then
+        echo "[!] CRITICAL ERROR: All IP slots in range 192.168.9.8-14 are occupied!"
+        echo "[!] Defaulting to fallback safety IP .14 to prevent installation lock..."
+        ALLOCATED_SUFFIX="14"
+      fi
+      
+      # Record dynamic IP metadata to a temporary state file
+      echo "ALLOC_SUFFIX=${ALLOCATED_SUFFIX}" > /tmp/allocated_ips.env
+      echo "MACHINE_IP=192.168.9.${ALLOCATED_SUFFIX}" >> /tmp/allocated_ips.env
+      echo "K8S_IP=192.168.109.${ALLOCATED_SUFFIX}" >> /tmp/allocated_ips.env
   late-commands:
     # Sync pre-seeded assets cleanly and set up service persistent storage
     - |
@@ -97,12 +158,33 @@ autoinstall:
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Syncing Gitea, Nexus, & Ansible collections"
       mkdir -p /target/var/lib/gitea /target/var/lib/nexus /target/usr/share/ansible/collections
-      if rsync -a --sparse /cdrom/custom-data/gitea/ /target/var/lib/gitea/ && \
-         rsync -a --sparse /cdrom/custom-data/nexus/ /target/var/lib/nexus/ && \
-         { [ ! -d /cdrom/custom-data/ansible/collections ] || rsync -a /cdrom/custom-data/ansible/collections/ /target/usr/share/ansible/collections/; }; then
-        logger -t gdc-provisioner "[GOAL] Asset synchronization completed"
+      
+      # Execute rsync while capturing standard error to temporary logs for diagnostics
+      rsync_success=true
+      rsync -a --sparse /cdrom/custom-data/gitea/ /target/var/lib/gitea/ 2>/tmp/rsync_gitea_err.log || rsync_success=false
+      rsync -a --sparse /cdrom/custom-data/nexus/ /target/var/lib/nexus/ 2>/tmp/rsync_nexus_err.log || rsync_success=false
+      
+      if [ -d /cdrom/custom-data/ansible/collections ]; then
+        rsync -a /cdrom/custom-data/ansible/collections/ /target/usr/share/ansible/collections/ 2>/tmp/rsync_ansible_err.log || rsync_success=false
+      fi
+      
+      if [ "${rsync_success}" = "true" ]; then
+        # Ensure correct system user, group, and permissions for Gitea (refuses to run as root)
+        curtin in-target -- groupadd --system git || true
+        curtin in-target -- useradd --system --shell /bin/bash --comment "Gitea Service User" --home-dir /var/lib/gitea --gid git git || true
+        curtin in-target -- chown -R git:git /var/lib/gitea
+        curtin in-target -- chown -R root:root /var/lib/nexus
+        logger -t gdc-provisioner "[GOAL] Asset synchronization completed successfully"
       else
-        echo "[GDC-INSTALL-FAIL] Critical Failure: Syncing pre-seeded assets failed!"
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Syncing pre-seeded assets failed!" >/dev/ttyS0
+        echo "Gitea rsync error:" >/dev/ttyS0
+        cat /tmp/rsync_gitea_err.log >/dev/ttyS0 || true
+        echo "Nexus rsync error:" >/dev/ttyS0
+        cat /tmp/rsync_nexus_err.log >/dev/ttyS0 || true
+        echo "Ansible collections rsync error:" >/dev/ttyS0
+        cat /tmp/rsync_ansible_err.log >/dev/ttyS0 || true
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0
         exit 1
       fi
     - |
@@ -114,7 +196,9 @@ autoinstall:
       cp /cdrom/custom-data/systemd/nexus.service /target/etc/systemd/system/
       cp /cdrom/custom-data/systemd/gdc-provision.service /target/etc/systemd/system/
       cp /cdrom/custom-data/systemd/gdc-provision.timer /target/etc/systemd/system/
-      curtin in-target -- systemctl enable gdc-provision.service gdc-provision.timer
+      curtin in-target -- systemctl enable gitea.service nexus.service gdc-provision.service gdc-provision.timer
+      curtin in-target -- git config --system --add safe.directory /var/lib/gitea/repos/gdc/bootstrap-playbooks.git || true
+      curtin in-target -- git config --system --add safe.directory '*' || true
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Injecting custom administrative SSH public keys"
@@ -152,6 +236,17 @@ autoinstall:
       mkdir -p /target/etc/keys
       echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /target/etc/keys/temp_key.key
       chmod 400 /target/etc/keys/temp_key.key
+      mkdir -p /target/etc/cryptsetup-initramfs
+      if [ -f /target/etc/cryptsetup-initramfs/conf-hook ]; then
+        sed -i 's/#\?KEYFILE_PATTERN=.*/KEYFILE_PATTERN="\/etc\/keys\/*"/' /target/etc/cryptsetup-initramfs/conf-hook
+        if ! grep -q "KEYFILE_PATTERN" /target/etc/cryptsetup-initramfs/conf-hook; then
+          echo "KEYFILE_PATTERN=\"/etc/keys/*\"" >> /target/etc/cryptsetup-initramfs/conf-hook
+        fi
+        logger -t gdc-provisioner "[GOAL] Configured KEYFILE_PATTERN in cryptsetup-initramfs conf-hook"
+      else
+        echo "KEYFILE_PATTERN=\"/etc/keys/*\"" > /target/etc/cryptsetup-initramfs/conf-hook
+        logger -t gdc-provisioner "[GOAL] Created cryptsetup-initramfs conf-hook with KEYFILE_PATTERN"
+      fi
       CRYPT_DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -n 1)
       if [ -n "$CRYPT_DEV" ]; then
         echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /tmp/pass.txt
@@ -172,19 +267,71 @@ autoinstall:
       echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Production VRF Netplan configuration"
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Deploying GDC Production VRF Netplan configuration"
-      PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
+      
+      # 1. Retrieve physical interfaces starting with 'e' (ignoring VLAN sub-interfaces)
+      IFACES=$(ls /sys/class/net | grep -E '^e' | grep -v '\.' || echo "eth0")
+      NUM_IFACES=$(echo "${IFACES}" | wc -w)
       mkdir -p /target/etc/netplan
-      if sed "s/__PHYS_IFACE__/${PHYS_IFACE}/g" /cdrom/custom-data/network-template.yaml > /target/etc/netplan/01-netcfg.yaml; then
-        chmod 600 /target/etc/netplan/01-netcfg.yaml
-        if [ -f /target/etc/netplan/50-cloud-init.yaml ]; then
-          mv /target/etc/netplan/50-cloud-init.yaml /target/etc/netplan/50-cloud-init.yaml.bak
-          logger -t gdc-provisioner "[GOAL] Renamed 50-cloud-init.yaml to 50-cloud-init.yaml.bak"
-        fi
-        logger -t gdc-provisioner "[GOAL] GDC Production VRF Netplan deployed successfully on ${PHYS_IFACE}"
+      
+      # 2. Source the allocated dynamic IP variables
+      if [ -f /tmp/allocated_ips.env ]; then
+        source /tmp/allocated_ips.env
       else
-        echo "[GDC-INSTALL-FAIL] Critical Failure: Failed to generate production Netplan!"
-        exit 1
+        echo "[!] Warning: Dynamic allocation state missing. Defaulting to fallback .14"
+        MACHINE_IP="192.168.9.14"
+        K8S_IP="192.168.109.14"
       fi
+      
+      MACHINE_IP_CIDR="${MACHINE_IP}/24"
+      K8S_IP_CIDR="${K8S_IP}/24"
+      
+      if [ "${NUM_IFACES}" -gt 1 ]; then
+        # Dual-NIC Test Mode (QEMU)
+        MGMT_IFACE=$(echo "${IFACES}" | awk '{print $1}')
+        PROD_IFACE=$(echo "${IFACES}" | awk '{print $2}')
+        echo "[-] Detected Dual-NIC VM environment. Management: ${MGMT_IFACE} | Production: ${PROD_IFACE}"
+        
+        # Substitute __MGMT_IFACE__, __PHYS_IFACE__ and IP CIDRs
+        sed -e "s/__MGMT_IFACE__/${MGMT_IFACE}/g" \
+            -e "s/__PHYS_IFACE__/${PROD_IFACE}/g" \
+            -e "s|__MACHINE_IP_CIDR__|${MACHINE_IP_CIDR}|g" \
+            -e "s|__K8S_IP_CIDR__|${K8S_IP_CIDR}|g" \
+            /cdrom/custom-data/network-template.yaml > /target/etc/netplan/01-netcfg.yaml
+      else
+        # Single-NIC Production Mode
+        PROD_IFACE=$(echo "${IFACES}" | awk '{print $1}')
+        echo "[-] Detected Single-NIC Bare-metal environment. Production: ${PROD_IFACE}"
+        
+        # Strip the management block between markers and write output
+        sed -e '/__MGMT_IFACE_START__/,/__MGMT_IFACE_END__/d' \
+            -e "s/__PHYS_IFACE__/${PROD_IFACE}/g" \
+            -e "s|__MACHINE_IP_CIDR__|${MACHINE_IP_CIDR}|g" \
+            -e "s|__K8S_IP_CIDR__|${K8S_IP_CIDR}|g" \
+            /cdrom/custom-data/network-template.yaml > /target/etc/netplan/01-netcfg.yaml
+      fi
+      
+      chmod 600 /target/etc/netplan/01-netcfg.yaml
+      if [ -f /target/etc/netplan/50-cloud-init.yaml ]; then
+        mv /target/etc/netplan/50-cloud-init.yaml /target/etc/netplan/50-cloud-init.yaml.bak
+        logger -t gdc-provisioner "[GOAL] Renamed 50-cloud-init.yaml to 50-cloud-init.yaml.bak"
+      fi
+      logger -t gdc-provisioner "[GOAL] GDC Production VRF Netplan deployed successfully."
+      
+      # Redirect security upgrades to loopback to prevent long hangs during curtin installation
+      echo "127.0.0.1 security.ubuntu.com" >> /target/etc/hosts
+      
+      # Purge cloud-init and write the official disabled trigger file to prevent first-boot stalls
+      logger -t gdc-provisioner "[GOAL] Disabling cloud-init on target OS"
+      mkdir -p /target/etc/cloud
+      touch /target/etc/cloud/cloud-init.disabled
+      curtin in-target -- apt-get purge -y cloud-init || true
+      rm -f /target/etc/issue.d/*cloud-init* || true
+      rm -f /target/etc/issue.d/* || true
+      
+      # Disable unattended-upgrades on target OS to prevent first-boot package manager locks
+      logger -t gdc-provisioner "[GOAL] Disabling unattended-upgrades on target OS"
+      curtin in-target -- systemctl stop unattended-upgrades || true
+      curtin in-target -- systemctl mask unattended-upgrades || true
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Configuring VRF sysctl profiles"

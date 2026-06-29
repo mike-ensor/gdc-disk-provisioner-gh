@@ -145,9 +145,41 @@ mkdir -p "${EXTRACT_DIR}/custom-data/nexus/nexus-bin"
 mkdir -p "${EXTRACT_DIR}/custom-data/nexus/sonatype-work"
 TEMP_NEXUS_DIR=$(mktemp -d)
 tar -xzf "${BIN_CACHE_DIR}/${NEXUS_PACKAGE_FILENAME}" -C "${TEMP_NEXUS_DIR}"
-cp -r "${TEMP_NEXUS_DIR}"/nexus-*/* "${EXTRACT_DIR}/custom-data/nexus/nexus-bin/"
-cp -r "${TEMP_NEXUS_DIR}"/sonatype-work/* "${EXTRACT_DIR}/custom-data/nexus/sonatype-work/"
+cp -a "${TEMP_NEXUS_DIR}"/nexus-*/. "${EXTRACT_DIR}/custom-data/nexus/nexus-bin/"
+cp -a "${TEMP_NEXUS_DIR}"/sonatype-work/. "${EXTRACT_DIR}/custom-data/nexus/sonatype-work/"
 rm -rf "${TEMP_NEXUS_DIR}"
+
+# Optimize Nexus VM options for Java 17 compatibility
+VM_OPTIONS_FILE="${EXTRACT_DIR}/custom-data/nexus/nexus-bin/bin/nexus.vmoptions"
+if [[ -f "${VM_OPTIONS_FILE}" ]]; then
+    echo "[-] Optimizing Nexus VM options for Java 17 compatibility..."
+    # 1. Comment out the endorsed directories line
+    sed -i 's/^-Djava.endorsed.dirs=/# -Djava.endorsed.dirs=/g' "${VM_OPTIONS_FILE}"
+    # 2. Uncomment Java 9+ options and format correctly for JVM single-arg parsing
+    sed -i 's/^#[[:space:]]*--add-reads /--add-reads=/g' "${VM_OPTIONS_FILE}"
+    sed -i 's/^#[[:space:]]*--add-reads=/--add-reads=/g' "${VM_OPTIONS_FILE}"
+    sed -i 's/^#[[:space:]]*--add-exports /--add-exports=/g' "${VM_OPTIONS_FILE}"
+    sed -i 's/^#[[:space:]]*--add-exports=/--add-exports=/g' "${VM_OPTIONS_FILE}"
+    sed -i 's/^#[[:space:]]*--patch-module /--patch-module=/g' "${VM_OPTIONS_FILE}"
+    sed -i 's/^#[[:space:]]*--patch-module=/--patch-module=/g' "${VM_OPTIONS_FILE}"
+    sed -i 's/^#[[:space:]]*--add-opens /--add-opens=/g' "${VM_OPTIONS_FILE}"
+    sed -i 's/^#[[:space:]]*--add-opens=/--add-opens=/g' "${VM_OPTIONS_FILE}"
+    # 3. Replace unexpanded ${KARAF_HOME} with the absolute run path /var/lib/nexus/nexus-bin
+    sed -i 's/\${KARAF_HOME}/\/var\/lib\/nexus\/nexus-bin/g' "${VM_OPTIONS_FILE}"
+fi
+
+# Configure Nexus to use H2 database (Java 17 compatibility)
+NEXUS_DEFAULT_PROPERTIES="${EXTRACT_DIR}/custom-data/nexus/nexus-bin/etc/nexus-default.properties"
+if [[ -f "${NEXUS_DEFAULT_PROPERTIES}" ]]; then
+    echo "[-] Configuring Nexus default properties to use H2 database..."
+    echo "nexus.datastore.enabled=true" >> "${NEXUS_DEFAULT_PROPERTIES}"
+fi
+
+NEXUS_PROPERTIES_DIR="${EXTRACT_DIR}/custom-data/nexus/sonatype-work/nexus3/etc"
+mkdir -p "${NEXUS_PROPERTIES_DIR}"
+NEXUS_PROPERTIES="${NEXUS_PROPERTIES_DIR}/nexus.properties"
+echo "[-] Configuring Nexus user properties to use H2 database..."
+echo "nexus.datastore.enabled=true" > "${NEXUS_PROPERTIES}"
 
 echo "[-] Writing local JVM environment config for Sonatype Nexus..."
 cat <<'EOF' > "${EXTRACT_DIR}/custom-data/nexus/nexus-bin/bin/nexus.rc"
@@ -161,9 +193,15 @@ EOF
 GITEA_REPOS_DIR="${EXTRACT_DIR}/custom-data/gitea/repos/gdc"
 mkdir -p "${GITEA_REPOS_DIR}"
 TARGET_BARE_REPO="${GITEA_REPOS_DIR}/bootstrap-playbooks.git"
+rm -rf "${TARGET_BARE_REPO}"
 
 echo "[-] Pre-seeding read-only bare Gitea playbook mirror..."
-if git clone --bare "${UPSTREAM_PLAYBOOKS_REPO}" "${TARGET_BARE_REPO}" &>/dev/null; then
+# Prioritize our local fully up-to-date development workspace repository
+git config --global --add safe.directory "${PROJECT_ROOT}" || true
+git config --global --add safe.directory "*" || true
+if git clone --bare "file://${PROJECT_ROOT}" "${TARGET_BARE_REPO}" &>/dev/null; then
+    echo "  [x] Local development playbooks pre-seeded successfully."
+elif git clone --bare "${UPSTREAM_PLAYBOOKS_REPO}" "${TARGET_BARE_REPO}" &>/dev/null; then
     echo "  [x] Upstream playbooks cloned successfully."
 else
     echo "  [!] Upstream clone unreachable. Initializing local dummy playbook git repository."
@@ -182,17 +220,24 @@ chmod +x "${TARGET_BARE_REPO}/hooks/pre-receive"
 
 # Package offline Ansible collections
 COLLECTIONS_DIR="${EXTRACT_DIR}/custom-data/ansible"
+CACHE_TAR="${PROJECT_ROOT}/.cache/binaries/community-general-8.6.0.tar.gz"
 echo "[-] Pre-packaging Ansible collection dependencies..."
-if command -v ansible-galaxy &>/dev/null; then
-    ansible-galaxy collection install community.general -p "${COLLECTIONS_DIR}/collections" &>/dev/null
+mkdir -p "${COLLECTIONS_DIR}/collections/ansible_collections/community/general"
+
+if [[ -f "${CACHE_TAR}" ]]; then
+    echo "  [x] Using cached community.general collection."
+    tar -xzf "${CACHE_TAR}" -C "${COLLECTIONS_DIR}/collections/ansible_collections/community/general"
 else
-    # Fallback direct download
     GALAXY_URL="https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/community-general-8.6.0.tar.gz"
-    TEMP_TAR="/tmp/community-general.tar.gz"
-    mkdir -p "${COLLECTIONS_DIR}/collections/ansible_collections/community/general"
-    if curl -sSL -o "${TEMP_TAR}" "${GALAXY_URL}"; then
-        tar -xzf "${TEMP_TAR}" -C "${COLLECTIONS_DIR}/collections/ansible_collections/community/general"
-        rm -f "${TEMP_TAR}"
+    echo "  [-] Downloading community.general collection..."
+    if curl -sSL -o "${CACHE_TAR}" "${GALAXY_URL}"; then
+        echo "  [x] Downloaded and cached community.general."
+        tar -xzf "${CACHE_TAR}" -C "${COLLECTIONS_DIR}/collections/ansible_collections/community/general"
+    else
+        echo "  [!] Warning: Failed to download community.general. Attempting ansible-galaxy fallback..."
+        if command -v ansible-galaxy &>/dev/null; then
+            ansible-galaxy collection install community.general -p "${COLLECTIONS_DIR}/collections" &>/dev/null
+        fi
     fi
 fi
 
@@ -212,13 +257,13 @@ set default=0
 
 menuentry "Google Distributed Cloud (GDC) Automated Bootstrap" {
     set gfxpayload=keep
-    linux /casper/vmlinuz quiet autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=none ---
+    linux /casper/vmlinuz console=ttyS0 console=tty1 autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=none ---
     initrd /casper/initrd
 }
 
 menuentry "Ubuntu Server Standard Install" {
     set gfxpayload=keep
-    linux /casper/vmlinuz quiet ---
+    linux /casper/vmlinuz console=ttyS0 console=tty1 ---
     initrd /casper/initrd
 }
 EOF

@@ -89,6 +89,15 @@ def render_templates(template_dir, output_dir, env):
     os.makedirs(os.path.join(output_dir, 'custom-data'), exist_ok=True)
     with open(os.path.join(output_dir, 'custom-data', 'network-template.yaml'), 'w') as f:
         f.write(netplan_content)
+        
+    # Copy storage templates to output_dir/custom-data/storage/
+    storage_src_dir = os.path.join(template_dir, 'storage')
+    storage_dst_dir = os.path.join(output_dir, 'custom-data', 'storage')
+    if os.path.exists(storage_src_dir):
+        import shutil
+        if os.path.exists(storage_dst_dir):
+            shutil.rmtree(storage_dst_dir)
+        shutil.copytree(storage_src_dir, storage_dst_dir)
     
     # Render systemd services
     systemd_dir = os.path.join(output_dir, 'custom-data', 'systemd')
@@ -139,10 +148,15 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Fill in standard dynamic parameter defaults
+    env['boot_mode'] = env.get('BOOT_MODE', 'bios').lower()
     env['timestamp'] = env.get('BUILD_TIMESTAMP', '')
     env['hostname'] = env.get('HOSTNAME', 'gdc-standalone-node')
     env['ssh_pub_key'] = env.get('ADMIN_SSH_PUB_KEYS', '')
     env['companion_url'] = env.get('INSTALL_COMPANION_URL', 'http://gdc-companion.ensor-labs.com:8080/v1/install-logs')
+    env['companion_ip'] = env.get('COMPANION_IP', '192.168.20.102')
+    env['companion_host'] = env.get('COMPANION_HOST', 'gdc-companion.ensor-labs.com')
+    # Generate IP-based report URL to bypass early boot-time DNS resolutions
+    env['companion_report_url'] = env['companion_url'].replace(env['companion_host'], env['companion_ip'])
     env['machine_vlan'] = env.get('MACHINE_VLAN_ID', '0')
     env['k8s_vlan'] = env.get('K8S_VLAN_ID', '0')
     env['machine_ip_cidr'] = env.get('MACHINE_IP_CIDR', '192.168.9.5/29')
@@ -153,7 +167,5 @@ if __name__ == "__main__":
     env['k8s_dns'] = env.get('K8S_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')
     env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
     env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
-    env['companion_ip'] = env.get('COMPANION_IP', '192.168.20.102')
-    env['companion_host'] = env.get('COMPANION_HOST', 'gdc-companion.ensor-labs.com')
     
     render_templates(sys.argv[1], sys.argv[2], env)
