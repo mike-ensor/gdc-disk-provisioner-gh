@@ -378,8 +378,10 @@
         journalctl -u ssh -n 50 >> /dev/ttyS0 || true
         echo "=== DEBUG: Active Listening Sockets ===" > /dev/ttyS0
         ss -ltunp >> /dev/ttyS0 || true
+        echo "=== DEBUG: Listing of /etc/netplan ===" > /dev/ttyS0
+        ls -la /etc/netplan/ >> /dev/ttyS0 || true
         echo "=== DEBUG: Netplan Configurations ===" > /dev/ttyS0
-        cat /etc/netplan/*.yaml >> /dev/ttyS0 || true
+        cat /etc/netplan/* >> /dev/ttyS0 || true
         echo "=== DEBUG: Netplan Status ===" > /dev/ttyS0
         netplan status --all >> /dev/ttyS0 || true
         echo "=== DEBUG: Netplan Info ===" > /dev/ttyS0
