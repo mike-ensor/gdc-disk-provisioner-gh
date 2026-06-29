@@ -378,6 +378,14 @@
         journalctl -u ssh -n 50 >> /dev/ttyS0 || true
         echo "=== DEBUG: Active Listening Sockets ===" > /dev/ttyS0
         ss -ltunp >> /dev/ttyS0 || true
+        echo "=== DEBUG: Netplan Status ===" > /dev/ttyS0
+        netplan status --all >> /dev/ttyS0 || true
+        echo "=== DEBUG: Netplan Info ===" > /dev/ttyS0
+        netplan info >> /dev/ttyS0 || true
+        echo "=== DEBUG: Systemd-networkd Status ===" > /dev/ttyS0
+        systemctl status systemd-networkd >> /dev/ttyS0 || true
+        echo "=== DEBUG: Systemd-networkd Journal ===" > /dev/ttyS0
+        journalctl -u systemd-networkd -n 50 >> /dev/ttyS0 || true
         echo "=== DEBUG: Routing Tables ===" > /dev/ttyS0
         ip route show table all >> /dev/ttyS0 || true
         echo "=== DEBUG: IP Addresses ===" > /dev/ttyS0
