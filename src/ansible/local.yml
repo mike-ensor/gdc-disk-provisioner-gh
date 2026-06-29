@@ -287,7 +287,7 @@
         - tpm_device_stat.stat.exists
         - efi_sys_stat.stat.exists
       register: cryptenroll_uefi_result
-      changed_when: "'New TPM2 token enrolled' in cryptenroll_uefi_result.stderr or cryptenroll_uefi_result.rc == 0"
+      ignore_errors: true
 
     - name: "GDC-TPM-SEAL | Seal LUKS Master Key to TPM 2.0 in Legacy BIOS mode"
       ansible.builtin.shell: |
@@ -300,25 +300,31 @@
         - tpm_device_stat.stat.exists
         - not efi_sys_stat.stat.exists
       register: cryptenroll_bios_result
-      changed_when: "'New TPM2 token enrolled' in cryptenroll_bios_result.stderr or cryptenroll_bios_result.rc == 0"
+      ignore_errors: true
 
     - name: "GDC-TPM-SEAL | Reconfigure crypttab to use systemd-cryptenroll daemon"
       ansible.builtin.replace:
         path: /etc/crypttab
         regexp: '^(\S+)\s+(\S+)\s+/etc/keys/temp_key\.key\s+(\S+)'
         replace: '\1 \2 none \3,tpm2-device=auto,discard'
-      when: tpm_device_stat.stat.exists
+      register: crypttab_reconfigured
+      when:
+        - tpm_device_stat.stat.exists
+        - (cryptenroll_uefi_result is succeeded and not cryptenroll_uefi_result.skipped | default(false)) or (cryptenroll_bios_result is succeeded and not cryptenroll_bios_result.skipped | default(false))
 
     - name: "GDC-TPM-SEAL | Rebuild initramfs to pack active TPM unlock hooks"
       ansible.builtin.command: update-initramfs -u -k all
-      when: tpm_device_stat.stat.exists
-      changed_when: true
+      when:
+        - tpm_device_stat.stat.exists
+        - crypttab_reconfigured is defined and crypttab_reconfigured.changed
 
     - name: "GDC-TPM-SEAL | Erase temporary plaintext key file from host filesystem"
       ansible.builtin.file:
         path: /etc/keys/temp_key.key
         state: absent
-      when: tpm_device_stat.stat.exists
+      when:
+        - tpm_device_stat.stat.exists
+        - crypttab_reconfigured is defined and crypttab_reconfigured.changed
 
     - name: "GDC-TPM-SEAL | Purge insecure temporary passcode slot from LUKS keyslots"
       ansible.builtin.shell: |
@@ -327,8 +333,9 @@
         PASSWORD: "temporary_bootstrap_key_to_be_enrolled_to_tpm"
         TCTI: "device:/dev/tpmrm0"
       loop: "{{ luks_partition_devices.stdout_lines }}"
-      when: tpm_device_stat.stat.exists
-      changed_when: true
+      when:
+        - tpm_device_stat.stat.exists
+        - crypttab_reconfigured is defined and crypttab_reconfigured.changed
 
     - name: "GDC-PROVISION-108 | Signal Installation Completion Success"
       ansible.builtin.debug:
