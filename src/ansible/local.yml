@@ -203,12 +203,20 @@
       changed_when: false
       ignore_errors: true
 
+    - name: "GDC-PROVISION-104a | Check if packages are already installed"
+      ansible.builtin.command: dpkg -s {{ item }}
+      loop: "{{ post_install_packages }}"
+      register: package_check
+      ignore_errors: true
+      changed_when: false
+
     - name: "GDC-PROVISION-104 | Install GDC Configured Post-Install Packages"
       ansible.builtin.apt:
-        name: "{{ item }}"
+        name: "{{ item.item }}"
         state: present
         update_cache: false
-      loop: "{{ post_install_packages }}"
+      loop: "{{ package_check.results }}"
+      when: item.rc != 0
       register: apt_install_result
 
     # --------------------------------------------------------------------------
