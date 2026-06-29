@@ -274,6 +274,8 @@
     - name: "GDC-TPM-SEAL | Seal LUKS Master Key to TPM 2.0 PCR registers (0+2+7)"
       ansible.builtin.shell: |
         systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+7 {{ item }}
+      environment:
+        PASSWORD: "temporary_bootstrap_key_to_be_enrolled_to_tpm"
       loop: "{{ luks_partition_devices.stdout_lines }}"
       when: tpm_device_stat.stat.exists
       register: cryptenroll_result
@@ -300,6 +302,8 @@
     - name: "GDC-TPM-SEAL | Purge insecure temporary passcode slot from LUKS keyslots"
       ansible.builtin.shell: |
         systemd-cryptenroll --wipe-slot=password {{ item }}
+      environment:
+        PASSWORD: "temporary_bootstrap_key_to_be_enrolled_to_tpm"
       loop: "{{ luks_partition_devices.stdout_lines }}"
       when: tpm_device_stat.stat.exists
       changed_when: true
