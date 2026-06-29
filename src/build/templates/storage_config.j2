@@ -60,7 +60,7 @@ config:
 
   # Disk 2
   - {type: partition, id: partition-lvm-data, device: disk-data, size: -1}
-  - {type: dm_crypt, id: crypt-data, volume: partition-lvm-data, key: "temporary_bootstrap_key_to_be_enrolled_to_tpm"}
+  - {type: dm_crypt, id: crypt-data, volume: partition-lvm-data, key: "temporary_bootstrap_key_to_be_enrolled_to_tpm", options: "noinitramfs,discard"}
   - {type: lvm_volgroup, id: vg-data, name: vg_data, devices: [crypt-data]}
   
   # LVs System
