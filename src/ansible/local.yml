@@ -11,10 +11,13 @@
 #   6. Configure the persistent `ansible-pull` cron executor with GPG signed-commit enforcement.
 # ==============================================================================
 
-- name: GDC Ready-Linux Post-Install & Provisioning Suite
+- name: "GDC Ready-Linux Post-Install & Provisioning Suite"
   hosts: localhost
   connection: local
   gather_facts: true
+  gather_subset:
+    - "!network"
+    - "!hardware"
 
   vars:
     # Target package list and specific versions to install during post-install
