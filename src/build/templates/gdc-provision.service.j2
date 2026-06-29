@@ -12,6 +12,7 @@ ExecStart=/bin/bash -c "git config --system --add safe.directory /var/lib/gitea/
 git config --system --add safe.directory '*' || true; \
 /usr/bin/ansible-pull \
   -U /var/lib/gitea/repos/gdc/bootstrap-playbooks.git \
+  -C {{ git_branch | default('main') }} \
   -i localhost, \
   $ANSIBLE_PULL_FLAGS \
   src/ansible/local.yml"

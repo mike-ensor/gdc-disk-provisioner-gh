@@ -152,6 +152,12 @@ if __name__ == "__main__":
     env['timestamp'] = env.get('BUILD_TIMESTAMP', '')
     env['hostname'] = env.get('HOSTNAME', 'gdc-standalone-node')
     env['ssh_pub_key'] = env.get('ADMIN_SSH_PUB_KEYS', '')
+    import subprocess
+    try:
+        git_branch = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD']).decode('utf-8').strip()
+    except Exception:
+        git_branch = 'main'
+    env['git_branch'] = git_branch
     env['companion_url'] = env.get('INSTALL_COMPANION_URL', 'http://gdc-companion.ensor-labs.com:8080/v1/install-logs')
     env['companion_ip'] = env.get('COMPANION_IP', '192.168.20.102')
     env['companion_host'] = env.get('COMPANION_HOST', 'gdc-companion.ensor-labs.com')
