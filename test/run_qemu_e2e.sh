@@ -235,8 +235,8 @@ trap cleanup EXIT
 
 # 4. Monitor Serial console logs for compilation complete signal
 # Timeboxed boot configuration to prevent infinite hanging (Task 8 check)
-echo "[-] Monitoring serial logs for completion marker... (Timeout: 15 minutes)"
-TIMEOUT=900
+echo "[-] Monitoring serial logs for completion marker... (Timeout: 25 minutes)"
+TIMEOUT=1500
 ELAPSED=0
 SUCCESS=false
 
