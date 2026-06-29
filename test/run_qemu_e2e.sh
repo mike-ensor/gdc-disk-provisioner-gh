@@ -220,7 +220,12 @@ cleanup() {
     if [[ -n "${COMPANION_PID:-}" ]]; then
         kill "${COMPANION_PID}" &>/dev/null || true
     fi
-    rm -f "${TEMP_DISK_1}" "${TEMP_DISK_2}"
+    # Only delete virtual disks on success to preserve them for diagnostics on failure
+    if [[ "${SUCCESS:-false}" = "true" ]]; then
+        rm -f "${TEMP_DISK_1}" "${TEMP_DISK_2}"
+    else
+        echo "[!] Keeping virtual disk images at ${TEMP_DISK_1} and ${TEMP_DISK_2} for diagnostics."
+    fi
     if [[ -n "${TPM_TEMP_DIR:-}" && -d "${TPM_TEMP_DIR}" ]]; then
         rm -rf "${TPM_TEMP_DIR}"
     fi
