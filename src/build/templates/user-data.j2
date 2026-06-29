@@ -337,6 +337,12 @@ autoinstall:
       # Redirect security upgrades to loopback to prevent long hangs during curtin installation
       echo "127.0.0.1 security.ubuntu.com" >> /target/etc/hosts
       
+      # Ensure local hostname and GDC companion gateway mappings are present in /etc/hosts to prevent resolver hangs on boot
+      if ! grep -q "{{ hostname }}" /target/etc/hosts; then
+        echo "127.0.1.1 {{ hostname }}" >> /target/etc/hosts
+      fi
+      echo "192.168.120.2 gdc-companion.ensor-labs.com" >> /target/etc/hosts
+      
       # Purge cloud-init and write the official disabled trigger file to prevent first-boot stalls
       logger -t gdc-provisioner "[GOAL] Disabling cloud-init on target OS"
       mkdir -p /target/etc/cloud
