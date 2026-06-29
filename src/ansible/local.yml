@@ -382,6 +382,10 @@
         netplan status --all >> /dev/ttyS0 || true
         echo "=== DEBUG: Netplan Info ===" > /dev/ttyS0
         netplan info >> /dev/ttyS0 || true
+        echo "=== DEBUG: Netplan Generate Output ===" > /dev/ttyS0
+        netplan generate >> /dev/ttyS0 2>&1 || true
+        echo "=== DEBUG: Generated Network Files ===" > /dev/ttyS0
+        ls -la /run/systemd/network/ >> /dev/ttyS0 || true
         echo "=== DEBUG: Systemd-networkd Status ===" > /dev/ttyS0
         systemctl status systemd-networkd >> /dev/ttyS0 || true
         echo "=== DEBUG: Systemd-networkd Journal ===" > /dev/ttyS0
