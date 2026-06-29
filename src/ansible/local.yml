@@ -107,6 +107,20 @@
     # --------------------------------------------------------------------------
     # Stage 4b: Hermetic Offline Package Repository Setup
     # --------------------------------------------------------------------------
+    - name: "GDC-PROVISION | Ensure SSH privilege separation directory exists"
+      ansible.builtin.file:
+        path: /run/sshd
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "GDC-PROVISION | Ensure SSH service is restarted"
+      ansible.builtin.systemd:
+        name: ssh
+        state: restarted
+      ignore_errors: true
+
     - name: "GDC-OFFLINE-APT | Ensure GDC APT keyrings directory exists"
       ansible.builtin.file:
         path: /etc/apt/keyrings
