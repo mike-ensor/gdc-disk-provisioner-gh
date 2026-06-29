@@ -14,7 +14,7 @@
 - name: GDC Ready-Linux Post-Install & Provisioning Suite
   hosts: localhost
   connection: local
-  gather_facts: true
+  gather_facts: false
 
   vars:
     # Target package list and specific versions to install during post-install

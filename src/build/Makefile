@@ -205,6 +205,8 @@ validate: $(VENV_DIR) hydrate
 	@if [ -f "../../bin/validate-hydrated-files.sh" ]; then \
 		../../bin/validate-hydrated-files.sh "$(EXTRACT_DIR)" || exit 1; \
 	fi
+	@# 1b. GDC comprehensive artifacts static validation
+	@$(VENV_DIR)/bin/python3 ../../test/validate_artifacts.py "$(EXTRACT_DIR)" "$(WORKSPACE)" || exit 1
 	@# 2. Python linter checks
 	@$(VENV_DIR)/bin/python3 -m py_compile render_templates.py || (echo "[!] ERROR: render_templates.py compilation check failed!" >&2; exit 1)
 	@# 3. Shell scripts validations
