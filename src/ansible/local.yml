@@ -105,6 +105,86 @@
         - nexus
 
     # --------------------------------------------------------------------------
+    # Stage 4b: Hermetic Offline Package Repository Setup
+    # --------------------------------------------------------------------------
+    - name: "GDC-OFFLINE-APT | Ensure GDC APT keyrings directory exists"
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "GDC-OFFLINE-APT | Register GDC Nexus trusted keyring"
+      ansible.builtin.copy:
+        src: /etc/ssl/certs/gdc-release.gpg
+        dest: /etc/apt/keyrings/gdc-nexus.gpg
+        owner: root
+        group: root
+        mode: '0644'
+        remote_src: true
+      ignore_errors: true
+
+    - name: "GDC-OFFLINE-APT | Write DEB822 local loopback Nexus sources"
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/gdc-nexus.sources
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Local GDC Hosted (Sideloaded Update) Repository
+          Enabled: yes
+          Types: deb
+          URIs: http://127.0.0.1:8081/repository/gdc-apt-hosted/
+          Suites: noble
+          Components: main restricted universe multiverse
+          Signed-By: /etc/apt/keyrings/gdc-nexus.gpg
+
+          # Local GDC Proxy (Upstream Cache) Repository
+          Enabled: yes
+          Types: deb
+          URIs: http://127.0.0.1:8081/repository/gdc-apt-proxy/
+          Suites: noble
+          Components: main restricted universe multiverse
+          Signed-By: /etc/apt/keyrings/ubuntu-archive-keyring.gpg
+
+    - name: "GDC-OFFLINE-APT | Enforce Hosted APT Priority Pinning"
+      ansible.builtin.copy:
+        dest: /etc/apt/preferences.d/gdc-nexus-pin
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          Package: *
+          Pin: release o=gdc-apt-hosted
+          Pin-Priority: 1001
+
+    - name: "GDC-OFFLINE-APT | Check for active public Ubuntu sources"
+      ansible.builtin.stat:
+        path: /etc/apt/sources.list.d/ubuntu.sources
+      register: public_sources_stat
+
+    - name: "GDC-OFFLINE-APT | Deactivate public Ubuntu DEB822 sources"
+      ansible.builtin.command: mv /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.bak
+      when: public_sources_stat.stat.exists
+      changed_when: true
+
+    - name: "GDC-OFFLINE-APT | Check for standard sources.list"
+      ansible.builtin.stat:
+        path: /etc/apt/sources.list
+      register: standard_sources_stat
+
+    - name: "GDC-OFFLINE-APT | Deactivate standard sources.list"
+      ansible.builtin.command: mv /etc/apt/sources.list /etc/apt/sources.list.bak
+      when: standard_sources_stat.stat.exists
+      changed_when: true
+
+    - name: "GDC-OFFLINE-APT | Run isolated APT cache update"
+      ansible.builtin.apt:
+        update_cache: yes
+      ignore_errors: true
+
+    # --------------------------------------------------------------------------
     # Stage 5: System Upgrades & Variable-Driven Package Installations
     # --------------------------------------------------------------------------
     - name: "GDC-PROVISION-102 | Perform Complete Offline System Package Upgrade"
@@ -172,6 +252,52 @@
         name: gdc-provision.timer
         enabled: true
         state: started
+
+    # --------------------------------------------------------------------------
+    # Stage 7: Hardware Security (TPM 2.0 LUKS Sealing & Passcode Purging)
+    # --------------------------------------------------------------------------
+    - name: "GDC-TPM-SEAL | Verify physical or emulated TPM 2.0 availability"
+      ansible.builtin.stat:
+        path: /dev/tpmrm0
+      register: tpm_device_stat
+
+    - name: "GDC-TPM-SEAL | Retrieve GDC LUKS system device partition"
+      ansible.builtin.shell: blkid -t TYPE=crypto_LUKS -o device | head -n 1
+      register: luks_partition_device
+      changed_when: false
+      failed_when: luks_partition_device.stdout == ""
+      when: tpm_device_stat.stat.exists
+
+    - name: "GDC-TPM-SEAL | Seal LUKS Master Key to TPM 2.0 PCR registers (0+2+7)"
+      ansible.builtin.shell: |
+        systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+7 {{ luks_partition_device.stdout }}
+      when: tpm_device_stat.stat.exists
+      register: cryptenroll_result
+      changed_when: "'New TPM2 token enrolled' in cryptenroll_result.stderr or cryptenroll_result.rc == 0"
+
+    - name: "GDC-TPM-SEAL | Reconfigure crypttab to use systemd-cryptenroll daemon"
+      ansible.builtin.replace:
+        path: /etc/crypttab
+        regexp: '^(\S+)\s+(\S+)\s+/etc/keys/temp_key\.key\s+(\S+)'
+        replace: '\1 \2 none \3,tpm2-device=auto,discard'
+      when: tpm_device_stat.stat.exists
+
+    - name: "GDC-TPM-SEAL | Rebuild initramfs to pack active TPM unlock hooks"
+      ansible.builtin.command: update-initramfs -u -k all
+      when: tpm_device_stat.stat.exists
+      changed_when: true
+
+    - name: "GDC-TPM-SEAL | Erase temporary plaintext key file from host filesystem"
+      ansible.builtin.file:
+        path: /etc/keys/temp_key.key
+        state: absent
+      when: tpm_device_stat.stat.exists
+
+    - name: "GDC-TPM-SEAL | Purge insecure temporary passcode slot from LUKS keyslots"
+      ansible.builtin.shell: |
+        systemd-cryptenroll --wipe-slot=password {{ luks_partition_device.stdout }}
+      when: tpm_device_stat.stat.exists
+      changed_when: true
 
     - name: "GDC-PROVISION-108 | Signal Installation Completion Success"
       ansible.builtin.debug:

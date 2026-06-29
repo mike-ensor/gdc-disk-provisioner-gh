@@ -16,6 +16,17 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WORKSPACE="${PROJECT_ROOT}/build-workspace"
 OUTPUT_DIR="${WORKSPACE}/output"
 
+# Parse arguments
+DRY_RUN_ALLOWED=false
+for arg in "$@"; do
+    case $arg in
+        -d|--dry-run)
+            DRY_RUN_ALLOWED=true
+            shift
+            ;;
+    esac
+done
+
 # Automatically generate test SSH key pairs if not already present (must run before ISO compilation!)
 TEST_KEYS_DIR="${PROJECT_ROOT}/test/test-keys"
 if [[ ! -f "${TEST_KEYS_DIR}/id_ed25519" ]]; then
@@ -70,38 +81,44 @@ fi
 
 # If QEMU is not installed, we perform a detailed Dry-Run and log output mockup
 if [[ "${QEMU_AVAILABLE}" = "false" ]]; then
-    echo "=============================================================================="
-    echo "[!] Virtualization Tooling is not locally active on this workstation."
-    echo "[-] Displaying the precise dynamic dual-disk & TPM automation command sequence:"
-    echo "=============================================================================="
-    echo "1. Create Sparse Virtual GDC Drives (0 bytes baseline disk space usage):"
-    echo "   $ qemu-img create -f qcow2 /tmp/gdc-sys-disk.qcow2 250G"
-    echo "   $ qemu-img create -f qcow2 /tmp/gdc-data-disk.qcow2 350G"
-    echo ""
-    echo "2. Spin up Isolated TPM 2.0 Emulator Daemon (unique temp folder path):"
-    echo "   $ swtpm socket --tpmstate dir=/tmp/gdc-tpm.XXXXXX --tpm2 \\"
-    echo "       --ctrl type=unixio,path=/tmp/gdc-tpm.XXXXXX/swtpm-sock --daemon"
-    echo ""
-    echo "3. Execute Headless QEMU/KVM Node Bootstrap Pipeline (timeout 10 minutes):"
-    echo "   $ qemu-system-x86_64 -enable-kvm -m 4096 -smp 4 \\"
-    echo "       -drive file=/tmp/gdc-sys-disk.qcow2,if=virtio,cache=writeback \\"
-    echo "       -drive file=/tmp/gdc-data-disk.qcow2,if=virtio,cache=writeback \\"
-    echo "       -cdrom ${ISO_PATH} \\"
-    echo "       -nographic -serial file:/tmp/gdc_serial.log \\"
-    echo "       -netdev user,id=mgmtnet,net=192.168.100.0/24,hostfwd=tcp:127.0.0.1:2222-:22 \\"
-    echo "       -device virtio-net-pci,netdev=mgmtnet \\"
-    echo "       -netdev user,id=prodnet,net=192.168.200.0/24 \\"
-    echo "       -device virtio-net-pci,netdev=prodnet \\"
-    echo "       -chardev socket,id=chrtpm,path=/tmp/gdc-tpm.XXXXXX/swtpm-sock \\"
-    echo "       -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0 \\"
-    echo "       -boot order=c"
-    echo ""
-    echo "4. Poll /tmp/gdc_serial.log for Success Token:"
-    echo "   Success Token Signal: 'GDC_BOOTSTRAP_COMPLETE_SUCCESSFULLY'"
-    echo "=============================================================================="
-    echo "[+] DRY-RUN SUCCESS: Dynamic dual-disk QEMU harness configuration is aligned."
-    echo "=============================================================================="
-    exit 0
+    if [[ "${DRY_RUN_ALLOWED}" = "true" ]]; then
+        echo "=============================================================================="
+        echo "[!] Virtualization Tooling is not locally active on this workstation."
+        echo "[-] Displaying the precise dynamic dual-disk & TPM automation command sequence:"
+        echo "=============================================================================="
+        echo "1. Create Sparse Virtual GDC Drives (0 bytes baseline disk space usage):"
+        echo "   $ qemu-img create -f qcow2 /tmp/gdc-sys-disk.qcow2 250G"
+        echo "   $ qemu-img create -f qcow2 /tmp/gdc-data-disk.qcow2 350G"
+        echo ""
+        echo "2. Spin up Isolated TPM 2.0 Emulator Daemon (unique temp folder path):"
+        echo "   $ swtpm socket --tpmstate dir=/tmp/gdc-tpm.XXXXXX --tpm2 \\"
+        echo "       --ctrl type=unixio,path=/tmp/gdc-tpm.XXXXXX/swtpm-sock --daemon"
+        echo ""
+        echo "3. Execute Headless QEMU/KVM Node Bootstrap Pipeline (timeout 10 minutes):"
+        echo "   $ qemu-system-x86_64 -enable-kvm -m 4096 -smp 4 \\"
+        echo "       -drive file=/tmp/gdc-sys-disk.qcow2,if=virtio,cache=writeback \\"
+        echo "       -drive file=/tmp/gdc-data-disk.qcow2,if=virtio,cache=writeback \\"
+        echo "       -cdrom ${ISO_PATH} \\"
+        echo "       -nographic -serial file:/tmp/gdc_serial.log \\"
+        echo "       -netdev user,id=mgmtnet,net=192.168.100.0/24,hostfwd=tcp:127.0.0.1:2222-:22 \\"
+        echo "       -device virtio-net-pci,netdev=mgmtnet \\"
+        echo "       -netdev user,id=prodnet,net=192.168.200.0/24 \\"
+        echo "       -device virtio-net-pci,netdev=prodnet \\"
+        echo "       -chardev socket,id=chrtpm,path=/tmp/gdc-tpm.XXXXXX/swtpm-sock \\"
+        echo "       -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0 \\"
+        echo "       -boot order=c"
+        echo ""
+        echo "4. Poll /tmp/gdc_serial.log for Success Token:"
+        echo "   Success Token Signal: 'GDC_BOOTSTRAP_COMPLETE_SUCCESSFULLY'"
+        echo "=============================================================================="
+        echo "[+] DRY-RUN SUCCESS: Dynamic dual-disk QEMU harness configuration is aligned."
+        echo "=============================================================================="
+        exit 0
+    else
+        echo "[!] CRITICAL ERROR: Virtualization tools ('qemu-system-x86_64' or 'qemu-img') are missing on this host!" >&2
+        echo "    The dynamic E2E boot test suite cannot run. If you want to perform a dry-run and view mockups, use the --dry-run / -d option." >&2
+        exit 1
+    fi
 fi
 
 # 3. Execution (Active QEMU/KVM E2E Boot Testing)
