@@ -146,7 +146,7 @@
           URIs: http://127.0.0.1:8081/repository/gdc-apt-proxy/
           Suites: noble
           Components: main restricted universe multiverse
-          Signed-By: /etc/apt/keyrings/ubuntu-archive-keyring.gpg
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
     - name: "GDC-OFFLINE-APT | Enforce Hosted APT Priority Pinning"
       ansible.builtin.copy:
