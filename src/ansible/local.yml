@@ -370,6 +370,21 @@
         - tpm_device_stat.stat.exists
         - crypttab_reconfigured is defined and crypttab_reconfigured.changed
 
+    - name: "GDC-PROVISION | Log SSH daemon status and routing tables to serial console for diagnostics"
+      ansible.builtin.shell: |
+        echo "=== DEBUG: SSH Daemon Status ===" > /dev/ttyS0
+        systemctl status ssh >> /dev/ttyS0 || true
+        echo "=== DEBUG: SSH Daemon Journal ===" > /dev/ttyS0
+        journalctl -u ssh -n 50 >> /dev/ttyS0 || true
+        echo "=== DEBUG: Active Listening Sockets ===" > /dev/ttyS0
+        ss -ltunp >> /dev/ttyS0 || true
+        echo "=== DEBUG: Routing Tables ===" > /dev/ttyS0
+        ip route show table all >> /dev/ttyS0 || true
+        echo "=== DEBUG: IP Addresses ===" > /dev/ttyS0
+        ip addr show >> /dev/ttyS0 || true
+      ignore_errors: true
+      changed_when: false
+
     - name: "GDC-PROVISION-108 | Signal Installation Completion Success"
       ansible.builtin.debug:
         msg: "SUCCESS: All Ready-Linux Post-Install provisioning tasks and security handshakes completed successfully."
