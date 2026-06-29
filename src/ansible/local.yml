@@ -271,15 +271,34 @@
       failed_when: luks_partition_devices.stdout == ""
       when: tpm_device_stat.stat.exists
 
-    - name: "GDC-TPM-SEAL | Seal LUKS Master Key to TPM 2.0 PCR registers (0+2+7)"
+    - name: "GDC-TPM-SEAL | Check if system is booted in UEFI mode"
+      ansible.builtin.stat:
+        path: /sys/firmware/efi
+      register: efi_sys_stat
+
+    - name: "GDC-TPM-SEAL | Seal LUKS Master Key to TPM 2.0 PCR registers (0+2+7) in UEFI mode"
       ansible.builtin.shell: |
         systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+7 {{ item }}
       environment:
         PASSWORD: "temporary_bootstrap_key_to_be_enrolled_to_tpm"
       loop: "{{ luks_partition_devices.stdout_lines }}"
-      when: tpm_device_stat.stat.exists
-      register: cryptenroll_result
-      changed_when: "'New TPM2 token enrolled' in cryptenroll_result.stderr or cryptenroll_result.rc == 0"
+      when:
+        - tpm_device_stat.stat.exists
+        - efi_sys_stat.stat.exists
+      register: cryptenroll_uefi_result
+      changed_when: "'New TPM2 token enrolled' in cryptenroll_uefi_result.stderr or cryptenroll_uefi_result.rc == 0"
+
+    - name: "GDC-TPM-SEAL | Seal LUKS Master Key to TPM 2.0 in Legacy BIOS mode"
+      ansible.builtin.shell: |
+        systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs= {{ item }}
+      environment:
+        PASSWORD: "temporary_bootstrap_key_to_be_enrolled_to_tpm"
+      loop: "{{ luks_partition_devices.stdout_lines }}"
+      when:
+        - tpm_device_stat.stat.exists
+        - not efi_sys_stat.stat.exists
+      register: cryptenroll_bios_result
+      changed_when: "'New TPM2 token enrolled' in cryptenroll_bios_result.stderr or cryptenroll_bios_result.rc == 0"
 
     - name: "GDC-TPM-SEAL | Reconfigure crypttab to use systemd-cryptenroll daemon"
       ansible.builtin.replace:
