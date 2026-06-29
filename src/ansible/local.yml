@@ -179,11 +179,6 @@
       when: standard_sources_stat.stat.exists
       changed_when: true
 
-    - name: "GDC-OFFLINE-APT | Run isolated APT cache update"
-      ansible.builtin.apt:
-        update_cache: yes
-      ignore_errors: true
-
     # --------------------------------------------------------------------------
     # Stage 5: System Upgrades & Variable-Driven Package Installations
     # --------------------------------------------------------------------------
