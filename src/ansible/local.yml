@@ -281,6 +281,7 @@
         systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+7 {{ item }}
       environment:
         PASSWORD: "temporary_bootstrap_key_to_be_enrolled_to_tpm"
+        TCTI: "device:/dev/tpmrm0"
       loop: "{{ luks_partition_devices.stdout_lines }}"
       when:
         - tpm_device_stat.stat.exists
@@ -293,6 +294,7 @@
         systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs= {{ item }}
       environment:
         PASSWORD: "temporary_bootstrap_key_to_be_enrolled_to_tpm"
+        TCTI: "device:/dev/tpmrm0"
       loop: "{{ luks_partition_devices.stdout_lines }}"
       when:
         - tpm_device_stat.stat.exists
@@ -323,6 +325,7 @@
         systemd-cryptenroll --wipe-slot=password {{ item }}
       environment:
         PASSWORD: "temporary_bootstrap_key_to_be_enrolled_to_tpm"
+        TCTI: "device:/dev/tpmrm0"
       loop: "{{ luks_partition_devices.stdout_lines }}"
       when: tpm_device_stat.stat.exists
       changed_when: true
