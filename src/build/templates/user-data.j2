@@ -259,7 +259,7 @@ autoinstall:
             exit 1
           fi
         done
-        sed -i 's/ none / \/etc\/keys\/temp_key.key /g' /target/etc/crypttab
+        sed -Ei 's/[[:space:]]+none[[:space:]]+/ \/etc\/keys\/temp_key.key /g' /target/etc/crypttab
         logger -t gdc-provisioner "[GOAL] Updated crypttab to use key file on all partitions"
       else
         logger -t gdc-provisioner "[GOAL] No LUKS devices found, skipping key enrollment"
