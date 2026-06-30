@@ -181,9 +181,11 @@ if __name__ == "__main__":
     except Exception:
         git_branch = 'main'
     env['git_branch'] = git_branch
-    env['companion_url'] = env.get('INSTALL_COMPANION_URL', 'http://gdc-companion.ensor-labs.com:8080/v1/install-logs')
-    env['companion_ip'] = env.get('COMPANION_IP', '192.168.20.102')
-    env['companion_host'] = env.get('COMPANION_HOST', 'gdc-companion.ensor-labs.com')
+    env['companion_url'] = env.get('INSTALL_COMPANION_URL', 'http://127.0.0.1:8080/v1/install-logs')
+    from urllib.parse import urlparse
+    u = urlparse(env['companion_url'])
+    env['companion_host'] = env.get('COMPANION_HOST', u.netloc)
+    env['companion_ip'] = env.get('COMPANION_IP', u.hostname or '127.0.0.1')
     # Generate IP-based report URL to bypass early boot-time DNS resolutions
     env['companion_report_url'] = env['companion_url'].replace(env['companion_host'], env['companion_ip'])
     env['machine_vlan'] = env.get('MACHINE_VLAN_ID', '0')

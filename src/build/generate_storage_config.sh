@@ -169,9 +169,6 @@ cat <<EOF >> "${TMP_YAML}"
     - {type: mount, id: mnt-nexus, device: fmt-nexus, path: /var/lib/nexus, options: "defaults,noatime"}
     - {type: mount, id: mnt-localdisk, device: fmt-localdisk, path: /customer/local-disk, options: "defaults,noatime,prjquota"}
     - {type: mount, id: mnt-sds, device: fmt-sds, path: /customer/sds, options: "defaults,noatime"}
-    
-    # --- Bootloader Action ---
-    - {type: grub, id: grub-installer, device: disk-system}
 EOF
 
 if [[ "${DRY_RUN}" = "true" ]]; then
