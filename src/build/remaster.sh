@@ -244,9 +244,11 @@ fi
 # ==========================================
 # 3. Dynamic Banners, bootloaders, and Casper bypass
 # ==========================================
-echo "[-] Copying and configuring Python Netplan hydrator..."
+echo "[-] Copying and configuring Python Netplan hydrator and storage generator..."
 cp "${SCRIPT_DIR}/configure_netplan.py" "${EXTRACT_DIR}/custom-data/"
 chmod +x "${EXTRACT_DIR}/custom-data/configure_netplan.py"
+cp "${SCRIPT_DIR}/generate_storage_config.sh" "${EXTRACT_DIR}/custom-data/"
+chmod +x "${EXTRACT_DIR}/custom-data/generate_storage_config.sh"
 
 echo "[-] Generating dynamic Message of the Day (MOTD) banner..."
 "${SCRIPT_DIR}/generate_banner.py" "${EXTRACT_DIR}/custom-data/boot-banner.txt" "${ISO_VERSION}"

@@ -105,6 +105,7 @@ CRITICAL_FILES=(
     "/nocloud/meta-data"
     "/custom-data/network-template.yaml"
     "/custom-data/configure_netplan.py"
+    "/custom-data/generate_storage_config.sh"
     "/custom-data/gitea/gitea"
     "/custom-data/nexus/nexus-bin/bin/nexus"
     "/boot/grub/grub.cfg"

@@ -41,6 +41,30 @@ autoinstall:
       touch /var/log/installer/subiquity-server-debug.log
       tail -f /var/log/installer/subiquity-server-debug.log > /dev/ttyS0 2>/dev/null &
     - |
+      # Dynamic storage configuration generation and merging (GDC-SPEC-002-SEQ)
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Dynamically configuring LVM storage layout"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Dynamically configuring LVM storage layout"
+      if [ -f /cdrom/custom-data/generate_storage_config.sh ]; then
+        cp /cdrom/custom-data/generate_storage_config.sh /tmp/generate_storage_config.sh
+        chmod +x /tmp/generate_storage_config.sh
+        if /tmp/generate_storage_config.sh; then
+          echo "[-] Storage configuration generated successfully."
+          if python3 -c "import os, yaml; bp = '/cdrom/nocloud/user-data' if os.path.exists('/cdrom/nocloud/user-data') else '/run/installer/autoinstall-user-data'; c = yaml.safe_load(open(bp)); s = yaml.safe_load(open('/run/autoinstall-storage.yaml')); c['autoinstall']['storage'] = s['storage']; yaml.safe_dump(c, open('/autoinstall.yaml', 'w')); os.makedirs('/run/installer', exist_ok=True); yaml.safe_dump(c, open('/run/installer/autoinstall-user-data', 'w'))"; then
+            logger -t gdc-provisioner "[GOAL] LVM storage layout merged dynamically successfully."
+          else
+            echo "[GDC-INSTALL-FAIL] Critical Failure: Dynamic storage config merger failed!" >/dev/ttyS0
+            exit 1
+          fi
+        else
+          echo "[GDC-INSTALL-FAIL] Critical Failure: Dynamic storage config generator failed!" >/dev/ttyS0
+          exit 1
+        fi
+      else
+        echo "[!] Warning: Dynamic storage config generator not found on ISO! Falling back to static build config."
+      fi
+    - |
       # Print GDC vintage parchment boot banner with version and build timestamp
       if [ -f /cdrom/custom-data/boot-banner.txt ]; then
         cat /cdrom/custom-data/boot-banner.txt > /dev/ttyS0 2>/dev/null || true
