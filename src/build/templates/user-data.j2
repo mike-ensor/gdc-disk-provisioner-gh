@@ -150,6 +150,8 @@ autoinstall:
       echo "ALLOC_SUFFIX=${ALLOCATED_SUFFIX}" > /tmp/allocated_ips.env
       echo "MACHINE_IP=192.168.9.${ALLOCATED_SUFFIX}" >> /tmp/allocated_ips.env
       echo "K8S_IP=192.168.109.${ALLOCATED_SUFFIX}" >> /tmp/allocated_ips.env
+      echo "MACHINE_IP_CIDR={{ machine_ip_cidr }}" >> /tmp/allocated_ips.env
+      echo "K8S_IP_CIDR={{ k8s_ip_cidr }}" >> /tmp/allocated_ips.env
   late-commands:
     # Sync pre-seeded assets cleanly and set up service persistent storage
     - |

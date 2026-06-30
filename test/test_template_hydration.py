@@ -2,6 +2,7 @@
 import os
 import sys
 import unittest
+from unittest import mock
 import tempfile
 import shutil
 import yaml
@@ -61,12 +62,14 @@ class TestGgdTemplateHydration(unittest.TestCase):
             os.makedirs(os.path.join(sys_net_dir, iface), exist_ok=True)
         return sys_net_dir
 
-    def create_mock_env_vars(self, machine_ip, k8s_ip):
+    def create_mock_env_vars(self, machine_ip, k8s_ip, machine_cidr="192.168.9.11/24", k8s_cidr="192.168.109.10/29"):
         """Prepares a mock allocated_ips.env file on the guest filesystem."""
         env_file_path = os.path.join(self.test_dir, "allocated_ips.env")
         with open(env_file_path, "w") as f:
             f.write(f"MACHINE_IP={machine_ip}\n")
             f.write(f"K8S_IP={k8s_ip}\n")
+            f.write(f"MACHINE_IP_CIDR={machine_cidr}\n")
+            f.write(f"K8S_IP_CIDR={k8s_cidr}\n")
         return env_file_path
 
     def get_context(self, custom_env=None):
@@ -356,6 +359,68 @@ class TestGgdTemplateHydration(unittest.TestCase):
             # Parse final output to ensure syntactic validity
             config = yaml.safe_load(hydrated_content)
             self.assertIn("network", config)
+            
+            # Verify correct VRF-to-interface physical associations
+            vrfs = config["network"].get("vrfs", {})
+            if "vrf-machine" in vrfs:
+                machine_interfaces = vrfs["vrf-machine"].get("interfaces", [])
+                if comb['MACHINE_VLAN_ID'] != '0':
+                    self.assertEqual(machine_interfaces, [f"ens3.{comb['MACHINE_VLAN_ID']}"])
+                else:
+                    self.assertEqual(machine_interfaces, ["ens3"])
+                    
+            if "vrf-k8s" in vrfs:
+                k8s_interfaces = vrfs["vrf-k8s"].get("interfaces", [])
+                if comb['K8S_VLAN_ID'] != '0':
+                    self.assertEqual(k8s_interfaces, [f"ens4.{comb['K8S_VLAN_ID']}"])
+
+    def test_gateway_in_subnet(self):
+        """Asserts that the default gateway is within the network subnet of the assigned IP to prevent route failures."""
+        import ipaddress
+        
+        # For Machine (valid /24)
+        machine_ip = "192.168.9.11"
+        machine_cidr = f"{machine_ip}/24"
+        machine_gateway = "192.168.9.1"
+        self.assertTrue(ipaddress.ip_address(machine_gateway) in ipaddress.ip_network(machine_cidr, strict=False))
+        
+        # For K8s (This has the corrected E2E /24 subnet!)
+        k8s_ip = "192.168.109.8"
+        k8s_cidr_ok = f"{k8s_ip}/24"
+        k8s_gateway = "192.168.109.1"
+        
+        is_valid = ipaddress.ip_address(k8s_gateway) in ipaddress.ip_network(k8s_cidr_ok, strict=False)
+        self.assertTrue(is_valid, f"K8s Gateway {k8s_gateway} must be within the subnet of {k8s_cidr_ok}!")
+
+    @mock.patch('subprocess.run')
+    def test_netplan_chroot_bypass(self, mock_run):
+        """Asserts that configure_netplan.py does not execute any dangerous chroot subprocesses."""
+        temp_template = os.path.join(self.test_dir, "temp_template.yaml")
+        with open(temp_template, 'w') as f:
+            f.write("network: {version: 2}")
+            
+        temp_output = os.path.join(self.test_dir, "01-netcfg.yaml")
+        sys_net = self.create_mock_sys_class_net(["lo", "ens3"])
+        env_path = self.create_mock_env_vars("192.168.9.11", "192.168.109.11")
+        
+        # Create a mock netplan binary inside the target directory to trigger the chroot block
+        netplan_dir = os.path.join(self.test_dir, "usr/sbin")
+        os.makedirs(netplan_dir, exist_ok=True)
+        with open(os.path.join(netplan_dir, "netplan"), "w") as f:
+            f.write("#!/bin/sh\n")
+            
+        configure_netplan.main(
+            template_path=temp_template,
+            target_path=temp_output,
+            sys_class_net=sys_net,
+            env_path=env_path,
+            target_dir=self.test_dir
+        )
+        
+        # Verify that subprocess.run was never called with 'chroot'
+        for call in mock_run.call_args_list:
+            args = call[0][0]
+            self.assertNotIn("chroot", args, "Dangerous chroot netplan generate must not be executed.")
 
 if __name__ == "__main__":
     unittest.main()

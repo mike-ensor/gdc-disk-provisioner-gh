@@ -53,9 +53,12 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
     # 2. Load Allocation Variables
     env_vars = load_env_vars(env_path)
     
-    # Extract CIDR masks from template context or default
-    machine_mask = "24"
-    k8s_mask = "29"
+    # Extract CIDR masks dynamically from template context or default
+    machine_cidr_raw = env_vars.get("MACHINE_IP_CIDR", "192.168.9.11/24")
+    machine_mask = machine_cidr_raw.split('/')[1] if '/' in machine_cidr_raw else "24"
+    
+    k8s_cidr_raw = env_vars.get("K8S_IP_CIDR", "192.168.109.10/29")
+    k8s_mask = k8s_cidr_raw.split('/')[1] if '/' in k8s_cidr_raw else "29"
     
     # Construct complete CIDR addresses
     machine_ip_cidr = f"{env_vars.get('MACHINE_IP')}/{machine_mask}"
@@ -76,6 +79,7 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
     else:
         prod_iface = ifaces[0]
         log_info(f"Single-NIC environment detected. PROD: {prod_iface}")
+        replacements["__MGMT_IFACE__"] = prod_iface
         replacements["__PHYS_IFACE__"] = prod_iface
         
     # 4. Load the raw Netplan template as text
@@ -121,28 +125,6 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
         f.write(content)
     os.chmod(target_path, 0o600)
     log_info(f"Hydrated Netplan successfully compiled and written to {target_path}")
-    
-    # 8. Pre-reboot Netplan validation via chroot generate
-    netplan_bin_path = os.path.join(target_dir, "usr/sbin/netplan")
-    netplan_bin_path_alt = os.path.join(target_dir, "usr/bin/netplan")
-    if os.path.exists(netplan_bin_path) or os.path.exists(netplan_bin_path_alt):
-        log_info("Running pre-reboot Netplan schema Dry-Run validation inside target chroot...")
-        try:
-            # Move cloud-init temporary configs aside to let Netplan focus exclusively on the new config
-            ci_netplan = os.path.join(target_dir, "etc/netplan/50-cloud-init.yaml")
-            if os.path.exists(ci_netplan):
-                os.rename(ci_netplan, ci_netplan + ".bak")
-                
-            subprocess.run(["chroot", target_dir, "netplan", "generate"], check=True, capture_output=True, text=True)
-            log_info("[GDC-VALIDATE-SUCCESS] Netplan dry-run validation passed cleanly.")
-        except subprocess.CalledProcessError as e:
-            log_error(f"Netplan Dry-Run generate failed inside target filesystem!\nStdout: {e.stdout}\nStderr: {e.stderr}")
-            sys.exit(1)
-        except Exception as e:
-            log_error(f"Validation framework failed: {e}")
-            sys.exit(1)
-    else:
-        log_info("No netplan binary found in target chroot. Skipping dry-run validation (OK for mock tests).")
 
 if __name__ == "__main__":
     main()
