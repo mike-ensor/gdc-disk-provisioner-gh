@@ -70,17 +70,11 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
         "__K8S_IP_CIDR__": k8s_ip_cidr,
     }
     
-    if num_ifaces > 1:
-        mgmt_iface = ifaces[0]
-        prod_iface = ifaces[1]
-        log_info(f"Dual-NIC environment detected. MGMT: {mgmt_iface} | PROD: {prod_iface}")
-        replacements["__MGMT_IFACE__"] = mgmt_iface
-        replacements["__PHYS_IFACE__"] = prod_iface
-    else:
-        prod_iface = ifaces[0]
-        log_info(f"Single-NIC environment detected. PROD: {prod_iface}")
-        replacements["__MGMT_IFACE__"] = prod_iface
-        replacements["__PHYS_IFACE__"] = prod_iface
+    # 3. Always assign the first physical NIC as the primary GDC interface
+    prod_iface = ifaces[0]
+    log_info(f"Primary GDC interface assigned to: {prod_iface}")
+    replacements["__MGMT_IFACE__"] = prod_iface
+    replacements["__PHYS_IFACE__"] = prod_iface
         
     # 4. Load the raw Netplan template as text
     if not template_path:
@@ -98,21 +92,35 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
     with open(template_path, 'r') as f:
         content = f.read()
             
-    # 5. Programmatic purging of MGMT section if single-NIC
-    if num_ifaces == 1:
-        log_info("Purging management interface configuration block from Single-NIC layout...")
-        start_marker = "# __MGMT_IFACE_START__"
-        end_marker = "# __MGMT_IFACE_END__"
-        if start_marker in content and end_marker in content:
-            parts = content.split(start_marker)
-            before = parts[0]
-            after = parts[1].split(end_marker)[1]
-            content = before + after
+    # 5. Programmatic purging of the old management interface configuration block
+    log_info("Purging management interface configuration block...")
+    start_marker = "# __MGMT_IFACE_START__"
+    end_marker = "# __MGMT_IFACE_END__"
+    if start_marker in content and end_marker in content:
+        parts = content.split(start_marker)
+        before = parts[0]
+        after = parts[1].split(end_marker)[1]
+        content = before + after
             
-    # 6. Apply text replacements
+    # 6. Apply text replacements for the primary interface
     for placeholder, replacement in replacements.items():
         content = content.replace(placeholder, replacement)
         
+    # 7. Dynamically append any secondary and additional NICs as plain DHCP interfaces
+    if len(ifaces) > 1:
+        extra_configs = []
+        for extra_iface in ifaces[1:]:
+            log_info(f"Dynamically appending additional NIC: {extra_iface} (Plain DHCP)")
+            extra_configs.append(f"    {extra_iface}:")
+            extra_configs.append(f"      dhcp4: true")
+            extra_configs.append(f"      dhcp6: no")
+            extra_configs.append(f"      link-local: []")
+            
+        ethernets_line = "  ethernets:"
+        if ethernets_line in content:
+            parts = content.split(ethernets_line, 1)
+            content = parts[0] + ethernets_line + "\n" + "\n".join(extra_configs) + "\n" + parts[1]
+            
     # 7. Write final Netplan configuration to target
     if not target_path:
         target_path = os.path.join(target_dir, "etc/netplan/01-netcfg.yaml")

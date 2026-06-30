@@ -370,7 +370,7 @@ class TestGgdTemplateHydration(unittest.TestCase):
             config = yaml.safe_load(hydrated_content)
             self.assertIn("network", config)
             
-            # Verify correct VRF-to-interface physical associations
+            # Verify correct VRF-to-interface physical associations (both on primary NIC ens3)
             vrfs = config["network"].get("vrfs", {})
             if "vrf-machine" in vrfs:
                 machine_interfaces = vrfs["vrf-machine"].get("interfaces", [])
@@ -382,7 +382,12 @@ class TestGgdTemplateHydration(unittest.TestCase):
             if "vrf-k8s" in vrfs:
                 k8s_interfaces = vrfs["vrf-k8s"].get("interfaces", [])
                 if comb['K8S_VLAN_ID'] != '0':
-                    self.assertEqual(k8s_interfaces, [f"ens4.{comb['K8S_VLAN_ID']}"])
+                    self.assertEqual(k8s_interfaces, [f"ens3.{comb['K8S_VLAN_ID']}"])
+
+            # Verify secondary NIC is added as a plain DHCP interface
+            ethernets = config["network"].get("ethernets", {})
+            self.assertIn("ens4", ethernets)
+            self.assertTrue(ethernets["ens4"].get("dhcp4"))
 
     def test_gateway_in_subnet(self):
         """Asserts that the default gateway is within the network subnet of the assigned IP to prevent route failures."""
