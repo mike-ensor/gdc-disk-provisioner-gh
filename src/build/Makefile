@@ -55,7 +55,11 @@ CACHE_DIR := ../../.cache
 BIN_CACHE_DIR := $(CACHE_DIR)/binaries
 
 # Versioning and Output Target Names
+ifeq ($(GDC_DEBUG_MODE),true)
+FINAL_ISO_NAME := $(ISO_NAME_PREFIX)-v$(ISO_VERSION)-debug.iso
+else
 FINAL_ISO_NAME := $(ISO_NAME_PREFIX)-v$(ISO_VERSION).iso
+endif
 FINAL_ISO_PATH := $(OUTPUT_DIR)/$(FINAL_ISO_NAME)
 PROVENANCE_MANIFEST := $(OUTPUT_DIR)/$(ISO_NAME_PREFIX)-v$(ISO_VERSION)-provenance.json
 
