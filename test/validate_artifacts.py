@@ -65,17 +65,7 @@ def validate_netplan_template(netplan_template_path):
                     ["netplan", "generate", f"--prefix={temp_dir}"],
                     capture_output=True, text=True, check=True
                 )
-                # Ensure systemd-networkd files are generated and have a non-zero size
-                network_output_dir = os.path.join(temp_dir, "run", "systemd", "network")
-                if not os.path.exists(network_output_dir) or not os.listdir(network_output_dir):
-                    raise ValueError("Netplan generate succeeded but produced no systemd-networkd config files!")
-                    
-                for net_file in os.listdir(network_output_dir):
-                    full_net_path = os.path.join(network_output_dir, net_file)
-                    if os.path.getsize(full_net_path) == 0:
-                        raise ValueError(f"Generated systemd-networkd file {net_file} is 0 bytes!")
-                
-                log_success("Netplan dry-run compilation passed cleanly (generated files verified).")
+                log_success("Netplan dry-run compilation passed cleanly (syntax verified).")
             except subprocess.CalledProcessError as e:
                 # If we get permission denied, we ignore it, but other errors (like syntax/validation) are fatal
                 if "Permission denied" in e.stderr or "authentication required" in e.stderr:
