@@ -308,11 +308,10 @@ autoinstall:
         
         # Substitute __MGMT_IFACE__, __PHYS_IFACE__ and IP CIDRs
         cp /cdrom/custom-data/network-template.yaml /target/etc/netplan/01-netcfg.yaml
-        sed -i -e "s/__MGMT_IFACE__/${MGMT_IFACE}/g" \
-               -e "s/__PHYS_IFACE__/${PROD_IFACE}/g" \
-               -e "s|__MACHINE_IP_CIDR__|${MACHINE_IP_CIDR}|g" \
-               -e "s|__K8S_IP_CIDR__|${K8S_IP_CIDR}|g" \
-               /target/etc/netplan/01-netcfg.yaml
+        sed -i "s/__MGMT_IFACE__/${MGMT_IFACE}/g" /target/etc/netplan/01-netcfg.yaml
+        sed -i "s/__PHYS_IFACE__/${PROD_IFACE}/g" /target/etc/netplan/01-netcfg.yaml
+        sed -i "s|__MACHINE_IP_CIDR__|${MACHINE_IP_CIDR}|g" /target/etc/netplan/01-netcfg.yaml
+        sed -i "s|__K8S_IP_CIDR__|${K8S_IP_CIDR}|g" /target/etc/netplan/01-netcfg.yaml
       else
         # Single-NIC Production Mode
         PROD_IFACE=$(echo "${IFACES}" | awk '{print $1}')
@@ -320,11 +319,10 @@ autoinstall:
         
         # Strip the management block between markers and write output
         cp /cdrom/custom-data/network-template.yaml /target/etc/netplan/01-netcfg.yaml
-        sed -i -e '/__MGMT_IFACE_START__/,/__MGMT_IFACE_END__/d' \
-               -e "s/__PHYS_IFACE__/${PROD_IFACE}/g" \
-               -e "s|__MACHINE_IP_CIDR__|${MACHINE_IP_CIDR}|g" \
-               -e "s|__K8S_IP_CIDR__|${K8S_IP_CIDR}|g" \
-               /target/etc/netplan/01-netcfg.yaml
+        sed -i '/__MGMT_IFACE_START__/,/__MGMT_IFACE_END__/d' /target/etc/netplan/01-netcfg.yaml
+        sed -i "s/__PHYS_IFACE__/${PROD_IFACE}/g" /target/etc/netplan/01-netcfg.yaml
+        sed -i "s|__MACHINE_IP_CIDR__|${MACHINE_IP_CIDR}|g" /target/etc/netplan/01-netcfg.yaml
+        sed -i "s|__K8S_IP_CIDR__|${K8S_IP_CIDR}|g" /target/etc/netplan/01-netcfg.yaml
       fi
       
       chmod 600 /target/etc/netplan/01-netcfg.yaml
