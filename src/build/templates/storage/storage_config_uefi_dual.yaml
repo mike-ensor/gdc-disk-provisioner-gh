@@ -5,7 +5,7 @@
     - {type: disk, id: disk-data, path: /dev/${DISK_2}, ptable: gpt}
     
     # --- Disk 1 System Partitioning (EFI, Boot, and Core OS Services) ---
-    - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: uefi}
+    - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: uefi, grub_device: true}
     - {type: partition, id: partition-boot, device: disk-system, size: 2147483648}
     - {type: partition, id: partition-lvm-sys, device: disk-system, size: -1}
     - {type: format, id: format-efi, volume: partition-efi, fstype: vfat}

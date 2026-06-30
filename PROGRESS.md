@@ -2,8 +2,8 @@
 
 This document tracks the ongoing implementation and delivery of the GDC Offline Bootloader ISO process. It acts as an active checklist compared to our technical specification files (`docs/specs/`).
 
-> [!IMPORTANT]
-> **Implementation Notice:** Code files currently present under `src/` or other development directories may not be fully valid or functional at this stage. They should be treated strictly as **boilerplate** and **templates**. We are currently in the final stages of cementing our architecture specifications, security guidelines, and design matrices, and will transition into active, full-scale implementation mode soon.
+> [!NOTE]
+> **Major Milestone (2026-06-30):** The GDC Bootloader ISO has successfully achieved its first **absolute physical bare-metal boot to completion** under `v0.0.85-debug`! The installation loop completed flawlessly on physical UEFI single-disk nodes, and all local and remote service boundaries (Gitea and Nexus local caches) are fully integrated.
 
 ---
 
