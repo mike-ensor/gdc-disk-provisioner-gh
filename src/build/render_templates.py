@@ -111,6 +111,29 @@ def render_templates(template_dir, output_dir, env):
     timer_template = jinja_env.get_template('gdc-provision.timer.j2')
     with open(os.path.join(systemd_dir, 'gdc-provision.timer'), 'w') as f:
         f.write(timer_template.render(env))
+        
+    # Write the patched unattended GRUB configuration during hydration to satisfy static validation gates
+    grub_dir = os.path.join(output_dir, "boot", "grub")
+    os.makedirs(grub_dir, exist_ok=True)
+    grub_cfg_path = os.path.join(grub_dir, "grub.cfg")
+    grub_content = """set timeout=5
+set default=0
+
+menuentry "Google Distributed Cloud (GDC) Automated Bootstrap" {
+    set gfxpayload=keep
+    linux /casper/vmlinuz console=ttyS0 console=tty1 autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=none ---
+    initrd /casper/initrd
+}
+
+menuentry "Ubuntu Server Standard Install" {
+    set gfxpayload=keep
+    linux /casper/vmlinuz console=ttyS0 console=tty1 ---
+    initrd /casper/initrd
+}
+"""
+    with open(grub_cfg_path, "w") as f:
+        f.write(grub_content)
+    print(f"[-] Successfully patched GRUB bootloader in: {grub_cfg_path}")
     
     print(f"[-] Successfully rendered templates to {output_dir}")
 
