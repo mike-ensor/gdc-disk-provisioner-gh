@@ -8,8 +8,8 @@ Environment=HOME=/root
 Environment=PYTHONUNBUFFERED=1
 Environment=ANSIBLE_FORCE_COLOR=1
 EnvironmentFile=-/etc/default/gdc-provision
-StandardOutput=file:/dev/ttyS0
-StandardError=file:/dev/ttyS0
+StandardOutput=journal
+StandardError=journal
 ExecStart=/bin/bash -c "git config --system --add safe.directory /var/lib/gitea/repos/gdc/bootstrap-playbooks.git || true; \
 git config --system --add safe.directory '*' || true; \
 /usr/bin/ansible-pull \

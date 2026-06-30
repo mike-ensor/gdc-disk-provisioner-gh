@@ -59,7 +59,7 @@ FINAL_ISO_NAME := $(ISO_NAME_PREFIX)-v$(ISO_VERSION).iso
 FINAL_ISO_PATH := $(OUTPUT_DIR)/$(FINAL_ISO_NAME)
 PROVENANCE_MANIFEST := $(OUTPUT_DIR)/$(ISO_NAME_PREFIX)-v$(ISO_VERSION)-provenance.json
 
-.PHONY: all help check-env venv deps extract hydrate validate assemble test-static test-dynamic deploy publish clean
+.PHONY: all help check-env venv deps extract hydrate validate assemble test-unit test-static test-dynamic deploy publish clean
 
 all: check-env deps extract hydrate validate assemble test-static test-dynamic deploy publish
 
@@ -207,8 +207,13 @@ validate: $(VENV_DIR) hydrate
 	fi
 	@# 1b. GDC comprehensive artifacts static validation
 	@$(VENV_DIR)/bin/python3 ../../test/validate_artifacts.py "$(EXTRACT_DIR)" "$(WORKSPACE)" || exit 1
+	@# 1c. GDC template hydration unit tests
+	@$(VENV_DIR)/bin/python3 ../../test/test_template_hydration.py || (echo "[!] ERROR: Template hydration unit tests failed!" >&2; exit 1)
+	@# 1d. GDC core build script unit tests
+	@$(VENV_DIR)/bin/python3 ../../test/test_gdc_build_scripts.py || (echo "[!] ERROR: Build script unit tests failed!" >&2; exit 1)
 	@# 2. Python linter checks
 	@$(VENV_DIR)/bin/python3 -m py_compile render_templates.py || (echo "[!] ERROR: render_templates.py compilation check failed!" >&2; exit 1)
+	@$(VENV_DIR)/bin/python3 -m py_compile configure_netplan.py || (echo "[!] ERROR: configure_netplan.py compilation check failed!" >&2; exit 1)
 	@# 3. Shell scripts validations
 	@if command -v shellcheck &>/dev/null; then \
 		echo "  [-] Running shellcheck against dynamic shell scripts..."; \
@@ -227,8 +232,14 @@ assemble: validate
 	@echo "[-] [Stage: assemble-artifact] Finished assembling custom bootloader ISO."
 
 # ==========================================
-# 4. Test Stage: test-static & test-dynamic
+# 4. Test Stage: test-unit, test-static & test-dynamic
 # ==========================================
+test-unit: $(VENV_DIR)
+	@echo "[-] Running GDC template hydration unit tests..."
+	@$(VENV_DIR)/bin/python3 ../../test/test_template_hydration.py
+	@echo "[-] Running GDC build script unit tests..."
+	@$(VENV_DIR)/bin/python3 ../../test/test_gdc_build_scripts.py
+
 test-static: assemble
 	@echo "[-] [Stage: test-artifact] Running static inspection checks..."
 	@if [ ! -f "$(FINAL_ISO_PATH)" ]; then \

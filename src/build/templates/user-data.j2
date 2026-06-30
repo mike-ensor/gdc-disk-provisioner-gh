@@ -280,57 +280,15 @@ autoinstall:
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Deploying GDC Production VRF Netplan configuration"
       
-      # 1. Retrieve physical interfaces starting with 'e' (ignoring VLAN sub-interfaces)
-      IFACES=$(ls /sys/class/net | grep -E '^e' | grep -v '\.' || echo "eth0")
-      NUM_IFACES=$(echo "${IFACES}" | wc -w)
-      mkdir -p /target/etc/netplan
-      
-      # 2. Source the allocated dynamic IP variables
-      if [ -f /tmp/allocated_ips.env ]; then
-        source /tmp/allocated_ips.env
+      # Invoke the safe structured Python network compiler
+      mkdir -p /target/var/log
+      if python3 /cdrom/custom-data/configure_netplan.py >/target/var/log/netplan-hydration.log 2>&1; then
+        logger -t gdc-provisioner "[GOAL] GDC Production VRF Netplan compiled and validated successfully."
       else
-        echo "[!] Warning: Dynamic allocation state missing. Defaulting to fallback .14"
-        MACHINE_IP="192.168.9.14"
-        K8S_IP="192.168.109.14"
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Programmatic Netplan compilation failed! Diagnostics written to /target/var/log/netplan-hydration.log" >/dev/ttyS0
+        cat /target/var/log/netplan-hydration.log >/dev/ttyS0 || true
+        exit 1
       fi
-      
-      MACHINE_MASK=$(echo "{{ machine_ip_cidr }}" | cut -d'/' -f2 || echo "24")
-      K8S_MASK=$(echo "{{ k8s_ip_cidr }}" | cut -d'/' -f2 || echo "24")
-      
-      MACHINE_IP_CIDR="${MACHINE_IP}/${MACHINE_MASK}"
-      K8S_IP_CIDR="${K8S_IP}/${K8S_MASK}"
-      
-      if [ "${NUM_IFACES}" -gt 1 ]; then
-        # Dual-NIC Test Mode (QEMU)
-        MGMT_IFACE=$(echo "${IFACES}" | awk '{print $1}')
-        PROD_IFACE=$(echo "${IFACES}" | awk '{print $2}')
-        echo "[-] Detected Dual-NIC VM environment. Management: ${MGMT_IFACE} | Production: ${PROD_IFACE}"
-        
-        # Substitute __MGMT_IFACE__, __PHYS_IFACE__ and IP CIDRs
-        cp /cdrom/custom-data/network-template.yaml /target/etc/netplan/01-netcfg.yaml
-        sed -i "s/__MGMT_IFACE__/${MGMT_IFACE}/g" /target/etc/netplan/01-netcfg.yaml
-        sed -i "s/__PHYS_IFACE__/${PROD_IFACE}/g" /target/etc/netplan/01-netcfg.yaml
-        sed -i "s|__MACHINE_IP_CIDR__|${MACHINE_IP_CIDR}|g" /target/etc/netplan/01-netcfg.yaml
-        sed -i "s|__K8S_IP_CIDR__|${K8S_IP_CIDR}|g" /target/etc/netplan/01-netcfg.yaml
-      else
-        # Single-NIC Production Mode
-        PROD_IFACE=$(echo "${IFACES}" | awk '{print $1}')
-        echo "[-] Detected Single-NIC Bare-metal environment. Production: ${PROD_IFACE}"
-        
-        # Strip the management block between markers and write output
-        cp /cdrom/custom-data/network-template.yaml /target/etc/netplan/01-netcfg.yaml
-        sed -i '/__MGMT_IFACE_START__/,/__MGMT_IFACE_END__/d' /target/etc/netplan/01-netcfg.yaml
-        sed -i "s/__PHYS_IFACE__/${PROD_IFACE}/g" /target/etc/netplan/01-netcfg.yaml
-        sed -i "s|__MACHINE_IP_CIDR__|${MACHINE_IP_CIDR}|g" /target/etc/netplan/01-netcfg.yaml
-        sed -i "s|__K8S_IP_CIDR__|${K8S_IP_CIDR}|g" /target/etc/netplan/01-netcfg.yaml
-      fi
-      
-      chmod 600 /target/etc/netplan/01-netcfg.yaml
-      if [ -f /target/etc/netplan/50-cloud-init.yaml ]; then
-        mv /target/etc/netplan/50-cloud-init.yaml /target/etc/netplan/50-cloud-init.yaml.bak
-        logger -t gdc-provisioner "[GOAL] Renamed 50-cloud-init.yaml to 50-cloud-init.yaml.bak"
-      fi
-      logger -t gdc-provisioner "[GOAL] GDC Production VRF Netplan deployed successfully."
       
       # Redirect security upgrades to loopback to prevent long hangs during curtin installation
       echo "127.0.0.1 security.ubuntu.com" >> /target/etc/hosts

@@ -314,9 +314,8 @@
 
     - name: "GDC-TPM-SEAL | Seal LUKS Master Key to TPM 2.0 PCR registers (0+2+7) in UEFI mode"
       ansible.builtin.shell: |
-        systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+7 {{ item }}
+        systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+7 --unlock-key-file=/etc/keys/temp_key.key {{ item }}
       environment:
-        PASSWORD: "temporary_bootstrap_key_to_be_enrolled_to_tpm"
         TCTI: "device:/dev/tpmrm0"
       loop: "{{ luks_partition_devices.stdout_lines }}"
       when:
@@ -327,9 +326,8 @@
 
     - name: "GDC-TPM-SEAL | Seal LUKS Master Key to TPM 2.0 in Legacy BIOS mode"
       ansible.builtin.shell: |
-        systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs= {{ item }}
+        systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs= --unlock-key-file=/etc/keys/temp_key.key {{ item }}
       environment:
-        PASSWORD: "temporary_bootstrap_key_to_be_enrolled_to_tpm"
         TCTI: "device:/dev/tpmrm0"
       loop: "{{ luks_partition_devices.stdout_lines }}"
       when:
@@ -354,21 +352,20 @@
         - tpm_device_stat.stat.exists
         - crypttab_reconfigured is defined and crypttab_reconfigured.changed
 
-    - name: "GDC-TPM-SEAL | Erase temporary plaintext key file from host filesystem"
-      ansible.builtin.file:
-        path: /etc/keys/temp_key.key
-        state: absent
+    - name: "GDC-TPM-SEAL | Purge insecure temporary passcode slot from LUKS keyslots"
+      ansible.builtin.shell: |
+        systemd-cryptenroll --wipe-slot=password --unlock-key-file=/etc/keys/temp_key.key {{ item }}
+      environment:
+        TCTI: "device:/dev/tpmrm0"
+      loop: "{{ luks_partition_devices.stdout_lines }}"
       when:
         - tpm_device_stat.stat.exists
         - crypttab_reconfigured is defined and crypttab_reconfigured.changed
 
-    - name: "GDC-TPM-SEAL | Purge insecure temporary passcode slot from LUKS keyslots"
-      ansible.builtin.shell: |
-        systemd-cryptenroll --wipe-slot=password {{ item }}
-      environment:
-        PASSWORD: "temporary_bootstrap_key_to_be_enrolled_to_tpm"
-        TCTI: "device:/dev/tpmrm0"
-      loop: "{{ luks_partition_devices.stdout_lines }}"
+    - name: "GDC-TPM-SEAL | Erase temporary plaintext key file from host filesystem"
+      ansible.builtin.file:
+        path: /etc/keys/temp_key.key
+        state: absent
       when:
         - tpm_device_stat.stat.exists
         - crypttab_reconfigured is defined and crypttab_reconfigured.changed

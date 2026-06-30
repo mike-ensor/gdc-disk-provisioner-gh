@@ -104,6 +104,7 @@ CRITICAL_FILES=(
     "/nocloud/user-data"
     "/nocloud/meta-data"
     "/custom-data/network-template.yaml"
+    "/custom-data/configure_netplan.py"
     "/custom-data/gitea/gitea"
     "/custom-data/nexus/nexus-bin/bin/nexus"
     "/boot/grub/grub.cfg"
@@ -142,7 +143,11 @@ xorriso -osirrox on -indev "${ISO_PATH}" -extract /custom-data/systemd/gdc-provi
 xorriso -osirrox on -indev "${ISO_PATH}" -extract /boot/grub/grub.cfg "${TEMP_DIR}/boot/grub/grub.cfg" &>/dev/null
 
 echo "[-] Running comprehensive artifacts static validation suite on extracted ISO components..."
-python3 "${PROJECT_ROOT}/test/validate_artifacts.py" "${TEMP_DIR}" "${WORKSPACE}" || exit 1
+PYTHON_BIN="python3"
+if [[ -f "${PROJECT_ROOT}/.venv/bin/python3" ]]; then
+    PYTHON_BIN="${PROJECT_ROOT}/.venv/bin/python3"
+fi
+"${PYTHON_BIN}" "${PROJECT_ROOT}/test/validate_artifacts.py" "${TEMP_DIR}" "${WORKSPACE}" || exit 1
 
 echo "=============================================================================="
 echo "[+] SUCCESS: ISO passes all Tier 1 structural validation checks!"
