@@ -106,7 +106,11 @@ OUTPUT_DIR="${WORKSPACE}/output"
 BIN_CACHE_DIR="${PROJECT_ROOT}/.cache/binaries"
 
 # Output versioned filename
-FINAL_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}.iso"
+if [[ "${GDC_DEBUG_MODE:-false}" == "true" ]]; then
+    FINAL_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}-debug.iso"
+else
+    FINAL_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}.iso"
+fi
 FINAL_ISO_PATH="${OUTPUT_DIR}/${FINAL_ISO_NAME}"
 
 echo "=============================================================================="
@@ -249,6 +253,8 @@ cp "${SCRIPT_DIR}/configure_netplan.py" "${EXTRACT_DIR}/custom-data/"
 chmod +x "${EXTRACT_DIR}/custom-data/configure_netplan.py"
 cp "${SCRIPT_DIR}/generate_storage_config.sh" "${EXTRACT_DIR}/custom-data/"
 chmod +x "${EXTRACT_DIR}/custom-data/generate_storage_config.sh"
+cp "${SCRIPT_DIR}/collect-diagnostics.sh" "${EXTRACT_DIR}/custom-data/"
+chmod +x "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh"
 
 echo "[-] Generating dynamic Message of the Day (MOTD) banner..."
 "${SCRIPT_DIR}/generate_banner.py" "${EXTRACT_DIR}/custom-data/boot-banner.txt" "${ISO_VERSION}"

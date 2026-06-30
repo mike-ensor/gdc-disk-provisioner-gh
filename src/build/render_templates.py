@@ -171,6 +171,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Fill in standard dynamic parameter defaults
+    env['gdc_debug_mode'] = env.get('GDC_DEBUG_MODE', 'false').lower() == 'true'
     env['boot_mode'] = env.get('BOOT_MODE', 'bios').lower()
     env['timestamp'] = env.get('BUILD_TIMESTAMP', '')
     env['hostname'] = env.get('HOSTNAME', 'gdc-standalone-node')
