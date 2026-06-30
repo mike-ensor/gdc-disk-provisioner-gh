@@ -7,7 +7,7 @@ config:
   {% if boot_mode == 'bios' %}
   - {type: partition, id: partition-bios-grub, device: disk-system, size: 1048576, flag: bios_grub}
   {% else %}
-  - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: boot}
+  - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: uefi}
   {% endif %}
   - {type: partition, id: partition-boot, device: disk-system, size: 2147483648}
   - {type: partition, id: partition-lvm, device: disk-system, size: -1}
@@ -43,7 +43,7 @@ config:
   {% if boot_mode == 'bios' %}
   - {type: partition, id: partition-bios-grub, device: disk-system, size: 1048576, flag: bios_grub}
   {% else %}
-  - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: boot}
+  - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: uefi}
   {% endif %}
   - {type: partition, id: partition-boot, device: disk-system, size: 2147483648}
   - {type: partition, id: partition-lvm-sys, device: disk-system, size: -1}

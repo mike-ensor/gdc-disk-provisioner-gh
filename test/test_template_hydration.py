@@ -166,6 +166,11 @@ class TestGgdTemplateHydration(unittest.TestCase):
         self.assertIn("format-efi", ids)
         self.assertIn("mount-efi", ids)
         self.assertNotIn("partition-bios-grub", ids)
+        
+        # Ensure the partition-efi has the correct flag: uefi
+        for d in devices:
+            if d.get("id") == "partition-efi":
+                self.assertEqual(d.get("flag"), "uefi", "EFI System Partition must be declared with flag: uefi")
 
     def test_storage_config_bios_dual(self):
         """Exercises storage_config.j2: SINGLE_DISK=false and BOOT_MODE=bios (if/else check)"""
@@ -210,6 +215,11 @@ class TestGgdTemplateHydration(unittest.TestCase):
         self.assertIn("format-efi", ids)
         self.assertIn("mount-efi", ids)
         self.assertNotIn("partition-bios-grub", ids)
+        
+        # Ensure the partition-efi has the correct flag: uefi
+        for d in devices:
+            if d.get("id") == "partition-efi":
+                self.assertEqual(d.get("flag"), "uefi", "EFI System Partition must be declared with flag: uefi")
 
     # ==========================================================================
     # TEST SUITE 2: Static storage/ directory templates (Task 9 placeholders)

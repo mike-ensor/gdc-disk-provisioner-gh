@@ -1,7 +1,7 @@
 # Generated dynamically by GDC storage orchestrator (UEFI Single Disk)
   config:
     - {type: disk, id: disk-system, path: /dev/${DISK_1}, ptable: gpt, grub_device: true}
-    - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: boot}
+    - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: uefi}
     - {type: partition, id: partition-boot, device: disk-system, size: 2147483648}
     - {type: partition, id: partition-lvm, device: disk-system, size: -1}
     - {type: format, id: format-efi, volume: partition-efi, fstype: vfat}
