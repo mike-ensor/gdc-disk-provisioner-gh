@@ -202,4 +202,13 @@ if __name__ == "__main__":
     env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
     env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
     
+    # Map and self-heal the temporary installer credential password hash
+    env['password_hash'] = env.get('PASSWORD_HASH', '')
+    if not env['password_hash'] and env.get('TEMPORARY_INSTALLER_PASSWORD'):
+        try:
+            import crypt
+            env['password_hash'] = crypt.crypt(env['TEMPORARY_INSTALLER_PASSWORD'], crypt.mksalt(crypt.METHOD_SHA512))
+        except Exception:
+            pass
+            
     render_templates(sys.argv[1], sys.argv[2], env)
