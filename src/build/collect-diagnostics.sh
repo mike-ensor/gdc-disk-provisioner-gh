@@ -208,10 +208,21 @@ except Exception:
 print(json.dumps(report, indent=2))
 EOF
 
-# 11. Gather Installer Logs
+# 11. Gather Installer Logs, GDC Configurations, and Service Journals
 echo "[-] Collecting installer log buffers..."
 cp -r /var/log/installer/* "${OUT_DIR}/logs/" 2>/dev/null || true
 cp /var/log/cloud-init* "${OUT_DIR}/logs/" 2>/dev/null || true
+
+echo "[-] Gathering core system, Netplan, and GDC provisioning configurations..."
+mkdir -p "${OUT_DIR}/configs"
+cp -r /etc/netplan/* "${OUT_DIR}/configs/" 2>/dev/null || true
+cp -r /etc/gdc/* "${OUT_DIR}/configs/" 2>/dev/null || true
+cp /etc/default/gdc-provision "${OUT_DIR}/configs/" 2>/dev/null || true
+
+echo "[-] Saving active systemd service journals..."
+for svc in gdc-provision gitea nexus ssh systemd-networkd; do
+  journalctl -u "${svc}" --no-pager -n 1000 > "${OUT_DIR}/logs/${svc}.log" 2>/dev/null || echo "Unable to query journal for ${svc}." > "${OUT_DIR}/logs/${svc}.log"
+done
 
 # 12. Gather Kernel Logs (dmesg)
 echo "[-] Saving kernel ring-buffer (dmesg)..."

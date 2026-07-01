@@ -281,6 +281,16 @@ autoinstall:
       else
         logger -t gdc-provisioner "[GOAL] Boot banner not found, skipping MOTD setup"
       fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Diagnostics Collector Tool"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Deploying GDC Diagnostics Collector Tool"
+      if [ -f /cdrom/custom-data/collect-diagnostics.sh ]; then
+        cp /cdrom/custom-data/collect-diagnostics.sh /target/usr/local/bin/collect-diagnostics
+        chmod +x /target/usr/local/bin/collect-diagnostics
+        logger -t gdc-provisioner "[GOAL] Diagnostics collector tool copied to target /usr/local/bin/collect-diagnostics successfully"
+      fi
     # Ssh and passwordless root-unlock setup for transition gap
     - |
       echo "=============================================================================="

@@ -132,6 +132,8 @@
         force_basic_auth: true
         body_format: raw
         body: "{{ nexus_admin_pass }}"
+        headers:
+          Content-Type: "text/plain"
         status_code: 204
       when:
         - nexus_binary_installed.stat.exists
