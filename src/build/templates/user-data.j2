@@ -33,10 +33,8 @@ autoinstall:
   reporting:
     gdc-gateway:
       type: webhook
-      endpoint: {{ companion_report_url }}
+      endpoint: {{ companion_report_url }}?client_cert_cn=gdc-provision-{{ ISO_VERSION }}
       level: info
-      headers:
-        X-Client-Cert-CN: "gdc-provision-{{ ISO_VERSION }}"
   early-commands:
     - |
       # Live-stream Subiquity server logs to serial console for real-time diagnostics

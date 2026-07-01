@@ -43,15 +43,26 @@ class SubiquityLogHandler(BaseHTTPRequestHandler):
         content_length = int(self.headers.get('Content-Length', 0))
         post_data = self.rfile.read(content_length)
 
+        # Parse Client Common Name (CN) from header or fallback to query parameter
+        client_cn = self.headers.get('X-Client-Cert-CN', '')
+        if not client_cn and '?' in self.path:
+            try:
+                from urllib.parse import parse_qs, urlparse
+                query = urlparse(self.path).query
+                params = parse_qs(query)
+                client_cn = params.get('client_cert_cn', [''])[0]
+            except Exception:
+                pass
+
         try:
             payload = json.loads(post_data.decode('utf-8'))
-            self.process_webhook_payload(payload)
+            self.process_webhook_payload(payload, client_cn)
         except Exception as e:
             # Handle non-JSON or raw text data gracefully
             raw_text = post_data.decode('utf-8', errors='ignore')
-            self.log_and_print_raw(raw_text)
+            self.log_and_print_raw(raw_text, client_cn)
 
-    def process_webhook_payload(self, payload):
+    def process_webhook_payload(self, payload, client_cn=""):
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # Subiquity reporting webhooks can send different event types
@@ -85,25 +96,27 @@ class SubiquityLogHandler(BaseHTTPRequestHandler):
         # Extract structured task information if present
         task_name = payload.get("name", "")
         task_info = f" (Task: {task_name})" if task_name else ""
+        client_info = f" [{client_cn}]" if client_cn else ""
 
-        formatted_msg = f"{color}{prefix} {timestamp}{task_info} | {msg}{Colors.ENDC}"
+        formatted_msg = f"{color}{prefix} {timestamp}{client_info}{task_info} | {msg}{Colors.ENDC}"
         print(formatted_msg)
         sys.stdout.flush()
 
         # Write clean and raw data to local persistent file
         with open(self.log_file_path, "a") as f:
-            f.write(f"[{timestamp}] [{level}] [{status}] {task_name} - {msg}\n")
+            f.write(f"[{timestamp}] [{level}] [{status}]{client_info} {task_name} - {msg}\n")
             # If payload contains deep log/stdout detail, dump it to file
             if "log" in payload or "stdout" in payload or "stderr" in payload:
                 detail = payload.get("log", payload.get("stdout", payload.get("stderr", "")))
                 f.write(f"--- DETAIL ---\n{detail}\n--------------\n")
 
-    def log_and_print_raw(self, text):
+    def log_and_print_raw(self, text, client_cn=""):
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"{Colors.OKBLUE}[RAW PAYLOAD] {timestamp} | {text}{Colors.ENDC}")
+        client_info = f" [{client_cn}]" if client_cn else ""
+        print(f"{Colors.OKBLUE}[RAW PAYLOAD] {timestamp}{client_info} | {text}{Colors.ENDC}")
         sys.stdout.flush()
         with open(self.log_file_path, "a") as f:
-            f.write(f"[{timestamp}] [RAW] {text}\n")
+            f.write(f"[{timestamp}] [RAW]{client_info} {text}\n")
 
 def run_server(port):
     print("==============================================================================")
