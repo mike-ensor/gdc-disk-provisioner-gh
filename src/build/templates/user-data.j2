@@ -33,7 +33,7 @@ autoinstall:
   reporting:
     gdc-gateway:
       type: webhook
-      endpoint: {{ companion_report_url }}
+      endpoint: {{ companion_report_url }}?client_cert_cn=gdc-provision-{{ ISO_VERSION }}
       level: info
   early-commands:
     - |
@@ -126,7 +126,7 @@ autoinstall:
       SUCCESS=false
       for i in 1 2 3; do
         echo "[-] Attempt $i of 3: Connecting to GDC Companion at ${COMPANION_URL}..."
-        if curl -s -I --connect-timeout 2 "${COMPANION_URL}" &>/dev/null; then
+        if curl -s -I -H "X-Client-Cert-CN: gdc-provision-{{ ISO_VERSION }}" --connect-timeout 2 "${COMPANION_URL}" &>/dev/null; then
           echo "[-] Connection to GDC Installation Companion established successfully!"
           SUCCESS=true
           break
@@ -195,6 +195,17 @@ autoinstall:
       echo "K8S_IP_CIDR={{ k8s_ip_cidr }}" >> /tmp/allocated_ips.env
   late-commands:
     # Sync pre-seeded assets cleanly and set up service persistent storage
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Writing local bootstrap environment"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Writing local bootstrap environment to /etc/gdc/provision.yml"
+      mkdir -p /target/etc/gdc
+      cat <<'EOF' > /target/etc/gdc/provision.yml
+      nexus_admin_password: "{{ TEMPORARY_INSTALLER_PASSWORD }}"
+      ssh_pub_key: "{{ ssh_pub_key }}"
+      EOF
+      chmod 600 /target/etc/gdc/provision.yml
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Syncing Gitea, Nexus, & Ansible collections"
@@ -269,6 +280,16 @@ autoinstall:
         logger -t gdc-provisioner "[GOAL] GDC boot banner copied to MOTD successfully"
       else
         logger -t gdc-provisioner "[GOAL] Boot banner not found, skipping MOTD setup"
+      fi
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Diagnostics Collector Tool"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Deploying GDC Diagnostics Collector Tool"
+      if [ -f /cdrom/custom-data/collect-diagnostics.sh ]; then
+        cp /cdrom/custom-data/collect-diagnostics.sh /target/usr/local/bin/collect-diagnostics
+        chmod +x /target/usr/local/bin/collect-diagnostics
+        logger -t gdc-provisioner "[GOAL] Diagnostics collector tool copied to target /usr/local/bin/collect-diagnostics successfully"
       fi
     # Ssh and passwordless root-unlock setup for transition gap
     - |
