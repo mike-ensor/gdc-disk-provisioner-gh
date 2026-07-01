@@ -368,7 +368,7 @@ else:
     report["network_connectivity"]["kubernetes_gateway"] = {"reachable": None, "skipped_reason": "Skipped due to lack of permissions"}
 
 # 3. Cross-Link Isolation
-ping_isolated = subprocess.run(f"ping -c 2 -W 1 -I {mgmt_iface} {k8s_ip}", shell=True)
+ping_isolated = subprocess.run(f"ping -c 2 -W 1 -I {mgmt_iface} {k8s_ip}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 report["network_connectivity"]["cross_link_isolated"] = {"secured": ping_isolated.returncode != 0}
 
 # 4. Public WAN Access
