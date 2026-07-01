@@ -38,7 +38,12 @@ echo "==========================================================================
 # Reload .envrc to capture the newly incremented ISO_VERSION written by build.sh
 # shellcheck source=/dev/null
 source "${ENVRC_FILE}"
-NEW_ISO_NAME="gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}.iso"
+
+if [[ "${GDC_DEBUG_MODE:-false}" == "true" ]]; then
+    NEW_ISO_NAME="gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}-debug.iso"
+else
+    NEW_ISO_NAME="gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}.iso"
+fi
 
 echo "=============================================================================="
 echo -e "\033[93m\033[1m[ISO-JOB] LISTING ACTIVE BOOTIMUS IMAGES AND PXE GROUPS...\033[0m"

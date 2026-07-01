@@ -104,6 +104,9 @@ CRITICAL_FILES=(
     "/nocloud/user-data"
     "/nocloud/meta-data"
     "/custom-data/network-template.yaml"
+    "/custom-data/configure_netplan.py"
+    "/custom-data/generate_storage_config.sh"
+    "/custom-data/collect-diagnostics.sh"
     "/custom-data/gitea/gitea"
     "/custom-data/nexus/nexus-bin/bin/nexus"
     "/boot/grub/grub.cfg"
@@ -126,74 +129,27 @@ if [[ ${FAILED_CHECKS} -gt 0 ]]; then
 fi
 echo "[-] Layout verification completed successfully."
 
-# 4. Extract & Validate cloud-init User-Data Schema
-TEMP_DIR=$(mktemp -d)
+# 4. Extract & Validate compiled artifacts
+TEMP_DIR=$(mktemp -d -t gdc-static-test-XXXXXX)
 trap 'rm -rf "${TEMP_DIR}"' EXIT
 
-echo "[-] Extracting cloud-init config block..."
-xorriso -osirrox on -indev "${ISO_PATH}" -extract /nocloud/user-data "${TEMP_DIR}/user-data" &>/dev/null
+echo "[-] Extracting dynamic parameters from compiled ISO..."
+mkdir -p "${TEMP_DIR}/nocloud" "${TEMP_DIR}/custom-data/systemd" "${TEMP_DIR}/boot/grub"
+xorriso -osirrox on -indev "${ISO_PATH}" -extract /nocloud/user-data "${TEMP_DIR}/nocloud/user-data" &>/dev/null
+xorriso -osirrox on -indev "${ISO_PATH}" -extract /nocloud/meta-data "${TEMP_DIR}/nocloud/meta-data" &>/dev/null
+xorriso -osirrox on -indev "${ISO_PATH}" -extract /custom-data/network-template.yaml "${TEMP_DIR}/custom-data/network-template.yaml" &>/dev/null
+xorriso -osirrox on -indev "${ISO_PATH}" -extract /custom-data/systemd/gitea.service "${TEMP_DIR}/custom-data/systemd/gitea.service" &>/dev/null
+xorriso -osirrox on -indev "${ISO_PATH}" -extract /custom-data/systemd/nexus.service "${TEMP_DIR}/custom-data/systemd/nexus.service" &>/dev/null
+xorriso -osirrox on -indev "${ISO_PATH}" -extract /custom-data/systemd/gdc-provision.service "${TEMP_DIR}/custom-data/systemd/gdc-provision.service" &>/dev/null
+xorriso -osirrox on -indev "${ISO_PATH}" -extract /custom-data/systemd/gdc-provision.timer "${TEMP_DIR}/custom-data/systemd/gdc-provision.timer" &>/dev/null
+xorriso -osirrox on -indev "${ISO_PATH}" -extract /boot/grub/grub.cfg "${TEMP_DIR}/boot/grub/grub.cfg" &>/dev/null
 
-if [[ ! -f "${TEMP_DIR}/user-data" ]]; then
-    echo "[!] Error: Failed to extract cloud-init user-data from ISO." >&2
-    exit 1
+echo "[-] Running comprehensive artifacts static validation suite on extracted ISO components..."
+PYTHON_BIN="python3"
+if [[ -f "${PROJECT_ROOT}/.venv/bin/python3" ]]; then
+    PYTHON_BIN="${PROJECT_ROOT}/.venv/bin/python3"
 fi
-
-echo "[-] Validating cloud-init schema..."
-if command -v cloud-init &>/dev/null; then
-    if cloud-init schema --config-file "${TEMP_DIR}/user-data" &>/dev/null; then
-        echo "[x] cloud-init schema checks passed."
-    else
-        echo "[!] CRITICAL ERROR: Autoinstall config contains syntax errors!" >&2
-        cloud-init schema --config-file "${TEMP_DIR}/user-data" || true
-        exit 1
-    fi
-else
-    echo "[!] Warning: 'cloud-init' utility is not installed locally."
-    echo "[!] Mock-validating YAML syntax of autoinstall configurations instead..."
-    if command -v python3 &>/dev/null; then
-        python3 -c "import yaml; yaml.safe_load(open('${TEMP_DIR}/user-data'))"
-        echo "[x] YAML configuration syntax checks passed (Mock schema success)."
-    else
-        echo "[!] Warning: No YAML checkers available. Skipping syntax assertion."
-    fi
-fi
-
-# 5. Extract & Validate Netplan Configuration Template
-echo "[-] Extracting Netplan configuration template..."
-xorriso -osirrox on -indev "${ISO_PATH}" -extract /custom-data/network-template.yaml "${TEMP_DIR}/network-template.yaml" &>/dev/null
-
-if [[ ! -f "${TEMP_DIR}/network-template.yaml" ]]; then
-    echo "[!] Error: Failed to extract Netplan network template from ISO." >&2
-    exit 1
-fi
-
-echo "[-] Validating Netplan configuration template..."
-if command -v netplan &>/dev/null; then
-    # Create prefix sandbox for Netplan validation
-    SANDBOX_DIR="${TEMP_DIR}/netplan-sandbox"
-    mkdir -p "${SANDBOX_DIR}/etc/netplan"
-    
-    # Replace __PHYS_IFACE__ placeholder with a mock physical interface name 'eth0'
-    sed "s/__PHYS_IFACE__/eth0/g" "${TEMP_DIR}/network-template.yaml" > "${SANDBOX_DIR}/etc/netplan/01-netcfg.yaml"
-    
-    # Trigger Netplan generation check
-    if netplan generate --prefix="${SANDBOX_DIR}" &>/dev/null; then
-        echo "[x] Netplan layout and schema checks passed."
-    else
-        echo "[!] CRITICAL ERROR: Netplan configuration contains syntax or schema errors!" >&2
-        netplan generate --prefix="${SANDBOX_DIR}" || true
-        exit 1
-    fi
-else
-    echo "[!] Warning: 'netplan' utility is not installed locally."
-    echo "[!] Mock-validating YAML syntax of Netplan configurations instead..."
-    if command -v python3 &>/dev/null; then
-        python3 -c "import yaml; yaml.safe_load(open('${TEMP_DIR}/network-template.yaml'))"
-        echo "[x] Netplan YAML syntax checks passed (Mock schema success)."
-    else
-        echo "[!] Warning: No YAML checkers available. Skipping syntax assertion."
-    fi
-fi
+"${PYTHON_BIN}" "${PROJECT_ROOT}/test/validate_artifacts.py" "${TEMP_DIR}" "${WORKSPACE}" || exit 1
 
 echo "=============================================================================="
 echo "[+] SUCCESS: ISO passes all Tier 1 structural validation checks!"

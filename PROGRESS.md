@@ -2,8 +2,8 @@
 
 This document tracks the ongoing implementation and delivery of the GDC Offline Bootloader ISO process. It acts as an active checklist compared to our technical specification files (`docs/specs/`).
 
-> [!IMPORTANT]
-> **Implementation Notice:** Code files currently present under `src/` or other development directories may not be fully valid or functional at this stage. They should be treated strictly as **boilerplate** and **templates**. We are currently in the final stages of cementing our architecture specifications, security guidelines, and design matrices, and will transition into active, full-scale implementation mode soon.
+> [!NOTE]
+> **Major Milestone (2026-06-30):** The GDC Bootloader ISO has successfully achieved its first **absolute physical bare-metal boot to completion** under `v0.0.85-debug`! The installation loop completed flawlessly on physical UEFI single-disk nodes, and all local and remote service boundaries (Gitea and Nexus local caches) are fully integrated.
 
 ---
 
@@ -81,9 +81,9 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Allocate GDC Logical Volumes (`lv_containerd`, `lv_etcd`, `lv_etcd_events`)
   - [x] Allocate Service Logical Volumes (`lv_gitea`, `lv_nexus`)
   - [x] Allocate Customer Logical Volumes (`lv_local_disk` [100GiB max], `lv_sds` [remainder])
-- [ ] **FUTURE INVESTIGATION: Linux VRF for Multi-IP Isolation**
-  - [ ] Explore Linux VRF to support two IPs on a single physical interface (see `docs/future/linux-vrf.md`)
-  - [ ] Complete full technical specification for VRF-based routing isolation
+- [x] **FUTURE INVESTIGATION: Linux VRF for Multi-IP Isolation**
+  - [x] Explore Linux VRF to support two IPs on a single physical interface (see `docs/future/linux-vrf.md`)
+  - [x] Complete full technical specification for VRF-based routing isolation
 - [ ] **FUTURE INVESTIGATION: Installation Companion Webhook Receiver ("install-companion")**
   - [ ] Research/Design a secure, lightweight deployment companion app (running locally or in the cloud, pointed to in configuration via IP/DNS).
   - [ ] The companion will act as the native Subiquity webhook log recipient and translate/forward logs to GCP Cloud Logging.
