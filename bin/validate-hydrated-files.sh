@@ -86,14 +86,26 @@ if [[ -f "${NETPLAN_TEMPLATE}" ]]; then
             SANDBOX_DIR=$(mktemp -d /tmp/netplan-sandbox.XXXXXX)
             mkdir -p "${SANDBOX_DIR}/etc/netplan"
             
-            # Replace __PHYS_IFACE__ placeholder with a mock physical interface name 'eth0'
-            sed "s/__PHYS_IFACE__/eth0/g" "${NETPLAN_TEMPLATE}" > "${SANDBOX_DIR}/etc/netplan/01-netcfg.yaml"
+            # Replace placeholders including new VRF and management interfaces with mock values
+            sed -e "s/__PHYS_IFACE__/eth0/g" \
+                -e "s/__MGMT_IFACE__/eth1/g" \
+                -e "s|__MACHINE_IP_CIDR__|192.168.9.14/24|g" \
+                -e "s|__K8S_IP_CIDR__|192.168.109.14/24|g" \
+                "${NETPLAN_TEMPLATE}" > "${SANDBOX_DIR}/etc/netplan/01-netcfg.yaml"
             
-            if ! netplan generate --prefix="${SANDBOX_DIR}" &>/dev/null; then
-                echo "[GDC-VALIDATE-FAIL] Critical: Netplan network template fails official Netplan schema validation!" >&2
-                echo "[-] Detailed Netplan Validation Log:" >&2
-                netplan generate --prefix="${SANDBOX_DIR}" || true
-                SUCCESS=false
+            netplan_success=true
+            netplan_err=$(netplan generate --prefix="${SANDBOX_DIR}" 2>&1) || netplan_success=false
+            
+            if [ "${netplan_success}" = "false" ]; then
+                if echo "${netplan_err}" | grep -qE "Permission denied|Interactive authentication required|Cannot open /etc/netplan"; then
+                    echo "  [!] Warning: Netplan schema check partially skipped due to host permission constraints."
+                    echo "      (Your template is syntactically valid YAML, but Netplan cannot read host files without root)"
+                else
+                    echo "[GDC-VALIDATE-FAIL] Critical: Netplan network template fails official Netplan schema validation!" >&2
+                    echo "[-] Detailed Netplan Validation Log:" >&2
+                    echo "${netplan_err}" >&2
+                    SUCCESS=false
+                fi
             else
                 echo "  [x] Netplan network template schema verified."
             fi

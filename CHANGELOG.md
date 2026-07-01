@@ -4,6 +4,12 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.0.85] - 2026-06-30
+
+### Fixed
+- **Subiquity UEFI Bootloader Verification (`grub_device`):** Configured `grub_device: true` on the EFI partition (`partition-efi`) in `storage_config.j2`, `storage_config_uefi_single.yaml`, and `storage_config_uefi_dual.yaml` templates. This fixes the Subiquity `needs_bootloader_partition()` lookup error which crashed installation loops on physical UEFI bare-metal hardware.
+- **Boot Validation Partition Flags:** Corrected EFI partition flags from `flag: boot` to `flag: uefi` and removed legacy bios grub actions from partition-script targets, allowing GDC images to boot to absolute completion on modern physical bare-metal hardware.
+
 ## [Unreleased] - 2026-06-25
 
 ### Added

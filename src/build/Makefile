@@ -8,13 +8,16 @@
 # Default Shell configuration
 SHELL := /usr/bin/env bash
 
+# Export all make variables to child processes by default
+.EXPORT_ALL_VARIABLES:
+
 # Robust Helper to extract variables from build.env and local.env safely
 get_env = $(shell \
 	set -a; \
 	[ -f ../dependencies.env ] && . ../dependencies.env &>/dev/null; \
 	[ -f ./build.env ] && . ./build.env &>/dev/null; \
 	[ -f ./local.env ] && . ./local.env &>/dev/null; \
-	echo "$${$(1)}" \
+	if [ -n "$(1)" ]; then echo "$${$(1)}"; fi \
 )
 
 # Extract core pipeline configuration variables
@@ -52,11 +55,15 @@ CACHE_DIR := ../../.cache
 BIN_CACHE_DIR := $(CACHE_DIR)/binaries
 
 # Versioning and Output Target Names
+ifeq ($(GDC_DEBUG_MODE),true)
+FINAL_ISO_NAME := $(ISO_NAME_PREFIX)-v$(ISO_VERSION)-debug.iso
+else
 FINAL_ISO_NAME := $(ISO_NAME_PREFIX)-v$(ISO_VERSION).iso
+endif
 FINAL_ISO_PATH := $(OUTPUT_DIR)/$(FINAL_ISO_NAME)
 PROVENANCE_MANIFEST := $(OUTPUT_DIR)/$(ISO_NAME_PREFIX)-v$(ISO_VERSION)-provenance.json
 
-.PHONY: all help check-env venv deps extract hydrate validate assemble test-static test-dynamic deploy publish clean
+.PHONY: all help check-env venv deps extract hydrate validate assemble test-unit test-static test-dynamic deploy publish clean
 
 all: check-env deps extract hydrate validate assemble test-static test-dynamic deploy publish
 
@@ -178,8 +185,9 @@ hydrate: $(VENV_DIR) extract
 	@export PASSWORD_HASH=$$(python3 -c "import crypt; print(crypt.crypt('$(TEMPORARY_INSTALLER_PASSWORD)', crypt.mksalt(crypt.METHOD_SHA512)))"); \
 	export BUILD_TIMESTAMP=$$(date +%s); \
 	export SINGLE_DISK="false"; \
-	export DISK1="nvme0n1"; \
-	export DISK2="nvme1n1"; \
+	export BOOT_MODE="$${BOOT_MODE:-bios}"; \
+	export DISK1="$${DISK1:-nvme0n1}"; \
+	export DISK2="$${DISK2:-nvme1n1}"; \
 	export OUTPUT_FILE="$(WORKSPACE)/autoinstall-storage.yaml"; \
 	$(VENV_DIR)/bin/python3 render_templates.py templates $(EXTRACT_DIR)
 	@echo "  [-] Packaging hydrated configurations into debug tarball..."
@@ -201,8 +209,15 @@ validate: $(VENV_DIR) hydrate
 	@if [ -f "../../bin/validate-hydrated-files.sh" ]; then \
 		../../bin/validate-hydrated-files.sh "$(EXTRACT_DIR)" || exit 1; \
 	fi
+	@# 1b. GDC comprehensive artifacts static validation
+	@$(VENV_DIR)/bin/python3 ../../test/validate_artifacts.py "$(EXTRACT_DIR)" "$(WORKSPACE)" || exit 1
+	@# 1c. GDC template hydration unit tests
+	@$(VENV_DIR)/bin/python3 ../../test/test_template_hydration.py || (echo "[!] ERROR: Template hydration unit tests failed!" >&2; exit 1)
+	@# 1d. GDC core build script unit tests
+	@$(VENV_DIR)/bin/python3 ../../test/test_gdc_build_scripts.py || (echo "[!] ERROR: Build script unit tests failed!" >&2; exit 1)
 	@# 2. Python linter checks
 	@$(VENV_DIR)/bin/python3 -m py_compile render_templates.py || (echo "[!] ERROR: render_templates.py compilation check failed!" >&2; exit 1)
+	@$(VENV_DIR)/bin/python3 -m py_compile configure_netplan.py || (echo "[!] ERROR: configure_netplan.py compilation check failed!" >&2; exit 1)
 	@# 3. Shell scripts validations
 	@if command -v shellcheck &>/dev/null; then \
 		echo "  [-] Running shellcheck against dynamic shell scripts..."; \
@@ -221,8 +236,14 @@ assemble: validate
 	@echo "[-] [Stage: assemble-artifact] Finished assembling custom bootloader ISO."
 
 # ==========================================
-# 4. Test Stage: test-static & test-dynamic
+# 4. Test Stage: test-unit, test-static & test-dynamic
 # ==========================================
+test-unit: $(VENV_DIR)
+	@echo "[-] Running GDC template hydration unit tests..."
+	@$(VENV_DIR)/bin/python3 ../../test/test_template_hydration.py
+	@echo "[-] Running GDC build script unit tests..."
+	@$(VENV_DIR)/bin/python3 ../../test/test_gdc_build_scripts.py
+
 test-static: assemble
 	@echo "[-] [Stage: test-artifact] Running static inspection checks..."
 	@if [ ! -f "$(FINAL_ISO_PATH)" ]; then \
