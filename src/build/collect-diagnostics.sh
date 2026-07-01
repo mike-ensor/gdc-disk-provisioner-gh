@@ -277,6 +277,7 @@ python3 - <<'EOF' > "${OUT_DIR}/report.json"
 import json
 import subprocess
 import os
+import socket
 
 report = {
     "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
@@ -489,6 +490,117 @@ try:
 except Exception:
     pass
 
+# 6. GDC Endpoints Readiness Audit
+domains = [
+    "accounts.google.com",
+    "cloudresourcemanager.googleapis.com",
+    "compute.googleapis.com",
+    "connectgateway.googleapis.com",
+    "containerregistry.googleapis.com",
+    "gkeconnect.googleapis.com",
+    "gkehub.googleapis.com",
+    "gkeonprem.googleapis.com",
+    "iam.googleapis.com",
+    "iamcredentials.googleapis.com",
+    "logging.googleapis.com",
+    "monitoring.googleapis.com",
+    "gkeonprem.mtls.googleapis.com",
+    "oauth2.googleapis.com",
+    "securetoken.googleapis.com",
+    "servicecontrol.googleapis.com",
+    "serviceusage.googleapis.com",
+    "stackdriver.googleapis.com",
+    "storage.googleapis.com",
+    "sts.googleapis.com",
+    "www.googleapis.com",
+    "gcr.io",
+    "k8s.gcr.io",
+    "logging.gdce.googleapis.com",
+    "storage.gdce.googleapis.com"
+]
+
+report["gdc_endpoints_readiness"] = {}
+endpoint_counts = {}
+
+# Query the local IP addresses of the interfaces
+mgmt_ip = subprocess.getoutput(f"ip -o -4 addr show dev {mgmt_iface} 2>/dev/null | awk '{{print $4}}' | cut -d'/' -f1 | head -n 1").strip() or "127.0.0.1"
+k8s_ip = subprocess.getoutput(f"ip -o -4 addr show dev {k8s_iface} 2>/dev/null | awk '{{print $4}}' | cut -d'/' -f1 | head -n 1").strip() or "127.0.0.1"
+
+# Prepare report.txt entries
+try:
+    with open(os.path.join(out_dir_path, "report.txt"), "a") as rf:
+        rf.write("--- GDC ENDPOINTS READINESS AUDIT ---\n")
+except Exception:
+    pass
+
+for name_lbl, ip_addr, dev_lbl in [("management", mgmt_ip, mgmt_iface), ("kubernetes", k8s_ip, k8s_iface)]:
+    if not ip_addr or ip_addr == "127.0.0.1":
+        continue
+    
+    report["gdc_endpoints_readiness"][name_lbl] = {}
+    resolved_count = 0
+    connected_count = 0
+    
+    try:
+        with open(os.path.join(out_dir_path, "report.txt"), "a") as rf:
+            rf.write(f"Interface: {dev_lbl} ({name_lbl.capitalize()} Network - IP: {ip_addr})\n")
+    except Exception:
+        pass
+        
+    for dom in domains:
+        resolved_ip = None
+        dns_status = "FAILED"
+        tcp_status = "SKIPPED"
+        
+        # A. DNS Resolution Check
+        try:
+            resolved_ip = socket.gethostbyname(dom)
+            dns_status = "RESOLVED"
+            resolved_count += 1
+        except Exception:
+            pass
+            
+        # B. TCP Port 443 Check
+        if resolved_ip:
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(1.5)
+                s.bind((ip_addr, 0))
+                s.connect((resolved_ip, 443))
+                s.close()
+                tcp_status = "CONNECTED"
+                connected_count += 1
+            except Exception:
+                tcp_status = "FAILED"
+                
+        report["gdc_endpoints_readiness"][name_lbl][dom] = {
+            "dns_resolved": dns_status == "RESOLVED",
+            "resolved_ip": resolved_ip,
+            "tcp_connected": tcp_status == "CONNECTED"
+        }
+        
+        try:
+            with open(os.path.join(out_dir_path, "report.txt"), "a") as rf:
+                rf.write(f"  - {dom:40} DNS: {dns_status:8} ({resolved_ip or 'None':15}) | TCP: {tcp_status}\n")
+        except Exception:
+            pass
+            
+    try:
+        with open(os.path.join(out_dir_path, "report.txt"), "a") as rf:
+            rf.write(f"Summary: {resolved_count}/{len(domains)} Resolved | {connected_count}/{len(domains)} Connected\n\n")
+    except Exception:
+        pass
+        
+    endpoint_counts[name_lbl] = {"resolved": resolved_count, "connected": connected_count}
+
+# Save counts to temporary endpoints status file for bash to read and print
+try:
+    with open("/tmp/gdc_endpoints.status", "w") as sf:
+        sf.write(f"management:{endpoint_counts.get('management', {}).get('resolved', 0)}:{endpoint_counts.get('management', {}).get('connected', 0)}\n")
+        sf.write(f"kubernetes:{endpoint_counts.get('kubernetes', {}).get('resolved', 0)}:{endpoint_counts.get('kubernetes', {}).get('connected', 0)}\n")
+except Exception:
+    pass
+
 print(json.dumps(report, indent=2))
 EOF
 
@@ -623,6 +735,20 @@ if [[ -n "${ping_wan}" ]]; then
 else
   echo "     [-] Public WAN (8.8.8.8):  UNREACHABLE"
   echo "Public WAN (8.8.8.8) via ${MGMT_IFACE}: UNREACHABLE" >> "${OUT_DIR}/report.txt"
+fi
+
+# 5. GDC Endpoint Resolution & TCP Audits
+echo "     [+] GDC Endpoint Resolution & TCP Audits:"
+if [ -f /tmp/gdc_endpoints.status ]; then
+  while IFS=':' read -r iface resolved connected || [[ -n "$iface" ]]; do
+    if [ "${iface}" = "management" ]; then
+      echo "          - Management (${MGMT_IFACE}):   ${resolved}/25 Resolved | ${connected}/25 Connected"
+    elif [ "${iface}" = "kubernetes" ]; then
+      echo "          - Kubernetes (${K8S_IFACE}): ${resolved}/25 Resolved | ${connected}/25 Connected"
+    fi
+  done < /tmp/gdc_endpoints.status
+else
+  echo "          - GDC Endpoint Audits: Skipped (Status metadata missing)"
 fi
 echo "" >> "${OUT_DIR}/report.txt"
 
