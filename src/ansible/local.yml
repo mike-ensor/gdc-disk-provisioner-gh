@@ -160,6 +160,34 @@
         - existing_repos_result is defined
         - existing_repos_result.status == 200
 
+    - name: "GDC-NEXUS-INIT | Generate dynamic GPG signing key for local Nexus APT mirror"
+      ansible.builtin.shell: |
+        gpg --batch --passphrase "gdc-nexus-secret" --quick-gen-key "GDC Nexus Signing <builder@gdc.local>" default default 2>/dev/null || true
+      changed_when: false
+      when:
+        - nexus_binary_installed.stat.exists
+        - existing_repos is defined
+        - "'gdc-apt-hosted' not in existing_repos"
+
+    - name: "GDC-NEXUS-INIT | Export GPG private key block"
+      ansible.builtin.shell: |
+        gpg --batch --passphrase "gdc-nexus-secret" --pinentry-mode loopback --export-secret-keys --armor "builder@gdc.local"
+      register: gpg_private_key_export
+      changed_when: false
+      when:
+        - nexus_binary_installed.stat.exists
+        - existing_repos is defined
+        - "'gdc-apt-hosted' not in existing_repos"
+
+    - name: "GDC-NEXUS-INIT | Export GDC Nexus trusted keyring to system"
+      ansible.builtin.shell: |
+        gpg --export "builder@gdc.local" > /etc/apt/keyrings/gdc-nexus.gpg
+      changed_when: true
+      when:
+        - nexus_binary_installed.stat.exists
+        - existing_repos is defined
+        - "'gdc-apt-hosted' not in existing_repos"
+
     # Create gdc-apt-hosted if missing
     - name: "GDC-NEXUS-INIT | Create gdc-apt-hosted repository"
       ansible.builtin.uri:
@@ -178,6 +206,9 @@
             writePolicy: "allow"
           apt:
             distribution: "noble"
+          aptSigning:
+            keypair: "{{ gpg_private_key_export.stdout }}"
+            passphrase: "gdc-nexus-secret"
         status_code: 201
       when:
         - nexus_binary_installed.stat.exists
@@ -208,6 +239,12 @@
             timeToLive: 1440
           apt:
             distribution: "noble"
+            flat: false
+          httpClient:
+            blocked: false
+            autoBlock: true
+            connection:
+              useTrustStore: false
         status_code: 201
       when:
         - nexus_binary_installed.stat.exists
