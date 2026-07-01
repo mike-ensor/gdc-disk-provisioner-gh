@@ -35,6 +35,8 @@ autoinstall:
       type: webhook
       endpoint: {{ companion_report_url }}
       level: info
+      headers:
+        X-Client-Cert-CN: "gdc-provision-{{ ISO_VERSION }}"
   early-commands:
     - |
       # Live-stream Subiquity server logs to serial console for real-time diagnostics
@@ -126,7 +128,7 @@ autoinstall:
       SUCCESS=false
       for i in 1 2 3; do
         echo "[-] Attempt $i of 3: Connecting to GDC Companion at ${COMPANION_URL}..."
-        if curl -s -I --connect-timeout 2 "${COMPANION_URL}" &>/dev/null; then
+        if curl -s -I -H "X-Client-Cert-CN: gdc-provision-{{ ISO_VERSION }}" --connect-timeout 2 "${COMPANION_URL}" &>/dev/null; then
           echo "[-] Connection to GDC Installation Companion established successfully!"
           SUCCESS=true
           break
