@@ -211,7 +211,8 @@ if [[ ! -d "${PROJECT_ROOT}/.git" ]]; then
     git -C "${PROJECT_ROOT}" init -b main &>/dev/null
     git -C "${PROJECT_ROOT}" config user.name "GDC Builder"
     git -C "${PROJECT_ROOT}" config user.email "builder@gdc.local"
-    git -C "${PROJECT_ROOT}" add . &>/dev/null
+    # Ensure we only add the playbooks and source files, skipping heavy caches/ISOs in build-workspace and .cache
+    git -C "${PROJECT_ROOT}" add src/ docs/ test/ &>/dev/null || true
     git -C "${PROJECT_ROOT}" commit -m "Auto-generated compile pre-seed commit" &>/dev/null
     TEMP_GIT_CREATED=true
 fi
