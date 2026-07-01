@@ -203,6 +203,19 @@ echo "[-] Pre-seeding read-only bare Gitea playbook mirror..."
 # Prioritize our local fully up-to-date development workspace repository
 git config --global --add safe.directory "${PROJECT_ROOT}" || true
 git config --global --add safe.directory "*" || true
+
+# If running in Cloud Build or without .git metadata, temporarily initialize a git repo to capture exact modifications
+TEMP_GIT_CREATED=false
+if [[ ! -d "${PROJECT_ROOT}/.git" ]]; then
+    echo "  [-] Initializing temporary Git repository for pre-seeding workspace modifications..."
+    git -C "${PROJECT_ROOT}" init -b main &>/dev/null
+    git -C "${PROJECT_ROOT}" config user.name "GDC Builder"
+    git -C "${PROJECT_ROOT}" config user.email "builder@gdc.local"
+    git -C "${PROJECT_ROOT}" add . &>/dev/null
+    git -C "${PROJECT_ROOT}" commit -m "Auto-generated compile pre-seed commit" &>/dev/null
+    TEMP_GIT_CREATED=true
+fi
+
 if git clone --bare "file://${PROJECT_ROOT}" "${TARGET_BARE_REPO}" &>/dev/null; then
     echo "  [x] Local development playbooks pre-seeded successfully."
 elif git clone --bare "${UPSTREAM_PLAYBOOKS_REPO}" "${TARGET_BARE_REPO}" &>/dev/null; then
@@ -210,6 +223,10 @@ elif git clone --bare "${UPSTREAM_PLAYBOOKS_REPO}" "${TARGET_BARE_REPO}" &>/dev/
 else
     echo "  [!] Upstream clone unreachable. Initializing local dummy playbook git repository."
     git init --bare "${TARGET_BARE_REPO}" &>/dev/null
+fi
+
+if [[ "${TEMP_GIT_CREATED}" = "true" ]]; then
+    rm -rf "${PROJECT_ROOT}/.git"
 fi
 
 # Set Git pre-receive blocking hook for Read-Only assurance
