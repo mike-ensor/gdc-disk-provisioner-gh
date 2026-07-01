@@ -48,10 +48,10 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
     - [x] Dynamically clone `UPSTREAM_PLAYBOOKS_REPO` at ISO creation time
     - [x] Inject read-only Git `pre-receive` hook to block direct local pushes
     - [ ] **FUTURE INVESTIGATION:** Research background sync scheduler/timer for pull-only updates on target OS
-  - [ ] Configure Nexus Repository Group boundaries (merge Hosted & Proxy cache lines):
-    - [ ] Establish OCI Docker Registry Group (Port 5001) for direct `docker push` + public pull-through cache
-    - [ ] Establish APT Repository Group for local deb uploads + upstream cache proxies
-    - [ ] Establish LLM Raw Group for local GGUF weight files + Hugging Face proxies
+  - [x] Configure Nexus Repository Group boundaries (merge Hosted & Proxy cache lines):
+    - [x] Establish OCI Docker Registry Group (Port 5001) for direct `docker push` + public pull-through cache
+    - [x] Establish APT Repository Group for local deb uploads + upstream cache proxies
+    - [x] Establish LLM Raw Group for local GGUF weight files + Hugging Face proxies
   - [ ] Pre-populate initial offline caches & packages into Gitea and Nexus blobs
 - [x] **Live ISO systemd Integration**
   - [x] Configure Live environment `live-gitea.service` unit file
@@ -104,10 +104,10 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Execute safe offline system-wide upgrades (`apt-get upgrade`) in playbook
   - [x] Implement loop package installations (`POST_INSTALL_PACKAGES` list) in playbook
   - [x] Configure cron cycles for persistent `ansible-pull` checking
-- [ ] **Administrative Configurations**
-  - [ ] Create `gdc-admin` user
-  - [ ] Deploy passwordless sudo config
-  - [ ] Inject passwordless SSH key pair
+- [x] **Administrative Configurations**
+  - [x] Create `gdc-admin` user
+  - [x] Deploy passwordless sudo config
+  - [x] Inject passwordless SSH key pair
 - [ ] **Hardware Security (TPM 2.0)**
   - [x] LUKS decryption enrollment using `systemd-cryptenroll` for PCR `0+2+7`
   - [x] Configure target `/etc/crypttab` with `tpm2-device=auto` and rebuild `initramfs` ramdisks
@@ -117,7 +117,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [ ] **NodeAgent mTLS Certificate Pre-Seeding:** Address the generation and automated injection of unique Server CA, Client CA, and Node Server Cert/Key to enable 100% Zero-SSH bootstrapping.
 - [ ] **CIS Hardening & Slimming**
   - [ ] Implement Ansible roles for CIS Level 2 benchmark rules
-  - [ ] Implement Ansible tasks to purge unneeded packages (snapd, x11, etc.)
+  - [x] Implement Ansible tasks to purge unneeded packages (snapd, x11, etc.)
 
 ---
 
