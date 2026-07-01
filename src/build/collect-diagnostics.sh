@@ -389,6 +389,105 @@ if ping_wan.returncode == 0:
 else:
     report["network_connectivity"]["public_wan_dns"] = {"reachable": False}
 
+# 5. System Minimum Requirements Assessment
+physical_cores = logical_cpus
+try:
+    threads_per_core = int(subprocess.getoutput("lscpu | grep 'Thread(s) per core:' | awk '{print $4}'").strip() or 1)
+    physical_cores = max(1, logical_cpus // threads_per_core)
+except Exception:
+    threads_per_core = 1
+
+cpu_status = "FAIL"
+if physical_cores >= 2 and threads_per_core >= 2:
+    cpu_status = "OK"
+elif physical_cores >= 2:
+    cpu_status = "CAUTION"
+else:
+    cpu_status = "FAIL"
+
+mem_bytes = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
+mem_gib = mem_bytes / (1024**3)
+
+mem_status = "FAIL"
+if mem_gib >= 8.0:
+    mem_status = "OK"
+elif mem_gib >= 4.0:
+    mem_status = "CAUTION"
+else:
+    mem_status = "FAIL"
+
+disk_sizes = []
+try:
+    for dev in os.listdir("/sys/block"):
+        if dev.startswith("loop") or dev.startswith("ram") or dev.startswith("dm-") or dev.startswith("sr"):
+            continue
+        size_file = f"/sys/block/{dev}/size"
+        if os.path.exists(size_file):
+            with open(size_file, "r") as sf:
+                sectors = int(sf.read().strip())
+                gib = (sectors * 512) / (1024**3)
+                disk_sizes.append(gib)
+except Exception:
+    pass
+
+disk_sizes.sort(reverse=True)
+
+storage_status = "FAIL_MINIMUM"
+if len(disk_sizes) >= 2:
+    if disk_sizes[0] >= 120.0 and disk_sizes[1] >= 240.0:
+        storage_status = "OK"
+    elif disk_sizes[0] >= 120.0:
+        storage_status = "CAUTION"
+else:
+    total_space = sum(disk_sizes)
+    if total_space >= 360.0:
+        storage_status = "OK"
+    elif total_space >= 120.0:
+        storage_status = "CAUTION"
+
+# Record statuses
+report["system_minimum_requirements"] = {
+    "cpu": {
+        "status": cpu_status,
+        "physical_cores": physical_cores,
+        "logical_threads": logical_cpus,
+        "hyperthreading_enabled": threads_per_core >= 2
+    },
+    "memory": {
+        "status": mem_status,
+        "total_gib": round(mem_gib, 2)
+    },
+    "storage": {
+        "status": storage_status,
+        "total_disks": len(disk_sizes),
+        "disk_sizes_gib": [round(sz, 2) for sz in disk_sizes]
+    },
+    "overall_status": f"{{ CPU: {cpu_status}, MEMORY: {mem_status}, STORAGE: {storage_status} }}"
+}
+
+# Write results to temporary status file for bash to print to console
+try:
+    with open("/tmp/gdc_reqs.status", "w") as sf:
+        sf.write(f"{{ CPU: {cpu_status}, MEMORY: {mem_status}, STORAGE: {storage_status} }}\n")
+except Exception:
+    pass
+
+# Append results to report.txt
+try:
+    # Ensure OUT_DIR is resolved dynamically inside Python as well
+    out_dir_path = "/tmp/gdc-diagnostics" if os.getuid() == 0 else f"/tmp/gdc-diagnostics-{subprocess.getoutput('whoami').strip()}"
+    with open(os.path.join(out_dir_path, "report.txt"), "a") as rf:
+        rf.write("--- SYSTEM MINIMUM REQUIREMENTS CHECK ---\n")
+        rf.write(f"CPU:                                     [{cpu_status}] ({physical_cores} physical cores, {logical_cpus} threads, HT={'enabled' if threads_per_core >= 2 else 'disabled'})\n")
+        rf.write(f"Memory:                                  [{mem_status}] ({round(mem_gib, 2)} GiB total RAM)\n")
+        
+        storage_desc = f"{round(sum(disk_sizes), 2)} GiB total space across {len(disk_sizes)} disk(s)" if disk_sizes else "No disks detected"
+        rf.write(f"Storage:                                 [{storage_status}] ({storage_desc})\n")
+        rf.write(f"Overall Health Status:                   {{ CPU: {cpu_status}, MEMORY: {mem_status}, STORAGE: {storage_status} }}\n")
+        rf.write("\n")
+except Exception:
+    pass
+
 print(json.dumps(report, indent=2))
 EOF
 
@@ -525,6 +624,9 @@ else
   echo "Public WAN (8.8.8.8) via ${MGMT_IFACE}: UNREACHABLE" >> "${OUT_DIR}/report.txt"
 fi
 echo "" >> "${OUT_DIR}/report.txt"
+
+# Output minimum requirements to console
+echo "[-] System Minimum Requirements:         $(cat /tmp/gdc_reqs.status 2>/dev/null || echo '{ CPU: Unknown, MEMORY: Unknown, STORAGE: Unknown }')"
 
 # ------------------------------------------------------------------------------
 # SECTION 16: TARBALL PACKAGING & DUP
