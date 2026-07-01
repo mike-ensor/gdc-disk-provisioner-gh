@@ -72,6 +72,11 @@ else
 fi
 echo "" >> "${OUT_DIR}/report.txt"
 
+echo "--- INOTIFY KERNEL LIMITS ---" >> "${OUT_DIR}/report.txt"
+echo "max_user_instances:                      $(cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null || echo "Unknown")" >> "${OUT_DIR}/report.txt"
+echo "max_user_watches:                        $(cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo "Unknown")" >> "${OUT_DIR}/report.txt"
+echo "" >> "${OUT_DIR}/report.txt"
+
 # ------------------------------------------------------------------------------
 # SECTION 3: HARDWARE & VIRTUALIZATION TOPOLOGY
 # ------------------------------------------------------------------------------
@@ -279,7 +284,9 @@ report = {
         "hostname": subprocess.getoutput("hostname").strip(),
         "kernel": subprocess.getoutput("uname -r").strip(),
         "uefi_boot": os.path.exists("/sys/firmware/efi"),
-        "privileged": os.getuid() == 0
+        "privileged": os.getuid() == 0,
+        "inotify_max_user_instances": int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null || echo '0'").strip() or 0),
+        "inotify_max_user_watches": int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo '0'").strip() or 0)
     },
     "system_health": {
         "uptime": subprocess.getoutput("uptime").strip(),
