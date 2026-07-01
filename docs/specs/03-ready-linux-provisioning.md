@@ -349,3 +349,28 @@ Designed for edge environments where a secure outbound network route exists, all
 3.  **Run Updates via Ansible Pull:**
     Just as in Option A, the local `ansible-pull` cron cycles detect the new commits in the Gitea repo, execute the updated playbooks, pull packages/images through the proxy pass-thru of Nexus, and apply OS/Platform upgrades to the node.
 
+---
+
+## 8. Automated "Unified Nexus-First" Roadmap & Activities TODO
+
+To implement the complete "Unified Nexus-First Ready-Linux" integration, the following activities must be completed:
+
+- [ ] **Subiquity Bootstrap Variable Ingestion:**
+  - [ ] Update `src/build/templates/user-data.j2` to write target environment parameters (including `TEMPORARY_INSTALLER_PASSWORD` and `ADMIN_SSH_PUB_KEYS`) into `/target/etc/gdc/provision.yml` during the `late-commands` stage.
+
+- [ ] **Sonatype Nexus Dynamic Repository Bootstrapping:**
+  - [ ] Implement early playbook tasks in `src/ansible/local.yml` to slurp the initial admin password from `/var/lib/nexus/sonatype-work/nexus3/admin.password` if present.
+  - [ ] Reset the admin password via the Nexus REST API `PUT /service/rest/v1/security/users/admin/change-password` using the value loaded from `/etc/gdc/provision.yml`.
+  - [ ] Query and record existing repositories from the GET endpoint `/service/rest/v1/repositories`.
+  - [ ] Idempotently create APT hosted and proxy repositories: `gdc-apt-hosted` and `gdc-apt-proxy`.
+  - [ ] Idempotently create Docker hosted (Port `5002`), proxy, and group (Port `5001`) repositories to support 100% offline cluster bootstrapping.
+  - [ ] Idempotently create Raw hosted and proxy repositories for heavy ML model weights.
+
+- [ ] **Ready-Linux Provisioning & System Hardening Expansion:**
+  - [ ] Configure the local `gdc-admin` user, assign secure passwordless sudo privileges under `/etc/sudoers.d/gdc-admin`, and authorize configured administrative SSH public keys.
+  - [ ] Purge redundant, heavy server packages (such as `snapd`, `lxd`, and `x11-common`) to reduce security footprint and disk utilization.
+  - [ ] Run systemic offline package upgrades and installations cleanly over local Nexus proxies.
+
+- [ ] **End-to-End QEMU Integration Verification:**
+  - [ ] Run the headless E2E verification test harness `test/run_qemu_e2e.sh` to confirm the complete unattended boot, Nexus configuration, and SSH administrative assertions pass successfully.
+

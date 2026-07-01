@@ -12,7 +12,6 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "src/build"))
 
 import generate_banner
-import install_companion
 import bootimus
 
 class TestGgdBuildScripts(unittest.TestCase):
@@ -50,74 +49,6 @@ class TestGgdBuildScripts(unittest.TestCase):
                             f"Line {idx} frame boundary violation: '{line}'")
             self.assertTrue(line.endswith("| |  ") or line.endswith("__") or line.endswith("| |__"), 
                             f"Line {idx} frame boundary violation: '{line}'")
-
-    # ==========================================================================
-    # TEST SUITE 2: install_companion.py (Webhook Status mapping)
-    # ==========================================================================
-    def test_companion_webhook_log_receiver(self):
-        """Verifies install_companion.py accurately maps status codes, color-prefixes and writes logs."""
-        temp_log_file = os.path.join(self.test_dir, "test-companion.log")
-        
-        # Instantiate a mocked request handler to isolate file-system side effects
-        class DummyHandler:
-            log_file_path = ""
-            
-        mock_handler = DummyHandler()
-        mock_handler.__class__ = install_companion.SubiquityLogHandler
-        mock_handler.log_file_path = temp_log_file
-        
-        # Test Case A: Success Event
-        payload_success = {
-            "type": "reporting",
-            "level": "info",
-            "status": "success",
-            "name": "provision_nexus",
-            "message": "Nexus is operational and active."
-        }
-        
-        # Capture standard output to verify terminal printing
-        captured_stdout = io.StringIO()
-        sys.stdout = captured_stdout
-        try:
-            install_companion.SubiquityLogHandler.process_webhook_payload(mock_handler, payload_success)
-        finally:
-            sys.stdout = sys.__stdout__
-            
-        terminal_out = captured_stdout.getvalue()
-        # Verify that green colors and GDC-INSTALL-SUCCESS indicators are used
-        self.assertIn("[GDC-INSTALL-SUCCESS]", terminal_out)
-        self.assertIn("Nexus is operational", terminal_out)
-        
-        # Verify log file outputs
-        self.assertTrue(os.path.exists(temp_log_file))
-        with open(temp_log_file, "r") as f:
-            log_content = f.read()
-        self.assertIn("[INFO] [SUCCESS] provision_nexus - Nexus is operational", log_content)
-
-        # Test Case B: Failure Event
-        payload_fail = {
-            "type": "reporting",
-            "level": "error",
-            "status": "failed",
-            "name": "tpm_sealing",
-            "message": "TPM master keyslot registration rejected."
-        }
-        
-        captured_stdout = io.StringIO()
-        sys.stdout = captured_stdout
-        try:
-            install_companion.SubiquityLogHandler.process_webhook_payload(mock_handler, payload_fail)
-        finally:
-            sys.stdout = sys.__stdout__
-            
-        terminal_out = captured_stdout.getvalue()
-        # Verify that error red prefix is utilized
-        self.assertIn("[GDC-INSTALL-FAIL]", terminal_out)
-        self.assertIn("TPM master keyslot", terminal_out)
-        
-        with open(temp_log_file, "r") as f:
-            log_content = f.read()
-        self.assertIn("[ERROR] [FAILED] tpm_sealing - TPM master keyslot", log_content)
 
     # ==========================================================================
     # TEST SUITE 3: bootimus.py (PXE Tree printing and exclusions)

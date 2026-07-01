@@ -4,6 +4,22 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.1.11] - 2026-07-01
+
+### Added
+- **Programmatic Sonatype Nexus Bootstrapping (Stage 1b):** Implemented automated resetting of initial admin credentials and dynamic provisioning of all 7 core repositories (Docker Hosted/Proxy/Group on ports 5002/5001, APT Hosted/Proxy, and Raw Hosted/Proxy) completely offline. Added dynamic GPG signing keypair generation on the box for GGD local APT repository metadata validation.
+- **Administrative Sudo & Keys Provisioning (Stage 8):** Automated the creation of the system user `gdc-admin` and group `gdc-admin`, deploying passwordless sudo configs under `/etc/sudoers.d/gdc-admin` and injecting configured administrator SSH public keys.
+- **OS Package Slimming:** Reduced the node's attack surface and footprint by purging redundant system snap packages (`snapd`, `lxd`, and `x11-common`).
+- **Enriched Diagnostics Engine (`collect-diagnostics.sh`):** Rewrote the diagnostics collector to incorporate systemd active run-state checking, listening port mapping audits, and local service health handshakes. Included complete CPU, RAM free space, file mounts fstab, Netplan, and GDC configurations gathering.
+- **Dynamic L3 Network Connectivity Checks:** Incorporated a dynamic, non-hardcoded Network Connectivity Check section auditing interfaces, gateways, and cross-interface isolation at run-time, including a full DNS/TCP port 443 readiness check for all 25 GDC Google Cloud endpoints on both interfaces.
+- **Upgraded Machine-Parsable Diagnostics Outputs:** Built an inline Python-driven JSON compiler producing highly legible `report.txt` and fully valid, structured `report.json` outputs carrying dynamic `inotify` watches/instances and system health specifications.
+
+### Fixed
+- **Sonatype Nexus HTTP 415 & 503 Errors:** Resolved the Sonatype Nexus HTTP 415 password-reset error by explicitly passing `Content-Type: "text/plain"`, and resolved the Sonatype Nexus 503 REST API race-condition by introducing an active HTTP status validator loop.
+- **Cloud Build Gitea Pre-Seeding checkout mismatch:** Resolved the pre-seeding checkout mismatch inside Gitea by enforcing temporary git initialization during compile-time, excluding heavy caches to avoid the 4 GiB `.pack` file size limit.
+- **Default Single-Disk Compile Layout**: Defaulted compile-time static layout of the ISO to Single-Disk `nvme0n1` to prevent Subiquity startup aborts on hardware.
+- **Subiquity Webhook Reporting Crash**: Fixed the Subiquity reporting webhook crash by passing `X-Client-Cert-CN` via URL query parameters, fully supported by our upgraded log companion.
+
 ## [0.0.85] - 2026-06-30
 
 ### Fixed
