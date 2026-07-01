@@ -363,23 +363,16 @@ class TestGgdTemplateHydration(unittest.TestCase):
                 hydrated_content = f.read()
                 
             self.assert_no_unrendered_jinja_or_placeholders(hydrated_content, f"hydrated_output_{comb['desc']}")
-            for p in ["__PHYS_IFACE__", "__MGMT_IFACE__", "__MACHINE_IP_CIDR__", "__K8S_IP_CIDR__"]:
+            for p in ["__PHYS_IFACE__", "__MGMT_IFACE__", "__K8S_IP_CIDR__"]:
                 self.assertNotIn(p, hydrated_content, f"Placeholder {p} must be replaced in final output.")
                 
             # Parse final output to ensure syntactic validity
             config = yaml.safe_load(hydrated_content)
             self.assertIn("network", config)
             
-            # Verify correct VRF-to-interface physical associations (both on primary NIC ens3)
-            vrfs = config["network"].get("vrfs", {})
-            if "vrf-machine" in vrfs:
-                machine_interfaces = vrfs["vrf-machine"].get("interfaces", [])
-                if comb['MACHINE_VLAN_ID'] != '0':
-                    self.assertEqual(machine_interfaces, [f"ens3.{comb['MACHINE_VLAN_ID']}"])
-                else:
-                    self.assertEqual(machine_interfaces, ["ens3"])
-                    
-            if "vrf-k8s" in vrfs:
+            # Verify correct VRF-to-interface physical associations (on primary NIC ens3)
+            vrfs = config["network"].get("vrfs")
+            if vrfs and "vrf-k8s" in vrfs:
                 k8s_interfaces = vrfs["vrf-k8s"].get("interfaces", [])
                 if comb['K8S_VLAN_ID'] != '0':
                     self.assertEqual(k8s_interfaces, [f"ens3.{comb['K8S_VLAN_ID']}"])

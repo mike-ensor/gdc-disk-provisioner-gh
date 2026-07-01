@@ -64,17 +64,14 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
     machine_ip_cidr = f"{env_vars.get('MACHINE_IP')}/{machine_mask}"
     k8s_ip_cidr = f"{env_vars.get('K8S_IP')}/{k8s_mask}"
     
-    # 3. Define placeholders
-    replacements = {
-        "__MACHINE_IP_CIDR__": machine_ip_cidr,
-        "__K8S_IP_CIDR__": k8s_ip_cidr,
-    }
-    
-    # 3. Always assign the first physical NIC as the primary GDC interface
+    # 3. Define placeholders and assign the first physical NIC as the primary GDC interface
     prod_iface = ifaces[0]
     log_info(f"Primary GDC interface assigned to: {prod_iface}")
-    replacements["__MGMT_IFACE__"] = prod_iface
-    replacements["__PHYS_IFACE__"] = prod_iface
+    replacements = {
+        "__MGMT_IFACE__": prod_iface,
+        "__PHYS_IFACE__": prod_iface,
+        "__K8S_IP_CIDR__": k8s_ip_cidr,
+    }
         
     # 4. Load the raw Netplan template as text
     if not template_path:

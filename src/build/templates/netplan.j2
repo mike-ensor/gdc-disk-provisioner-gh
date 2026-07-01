@@ -9,33 +9,11 @@ network:
       link-local: []
     # __MGMT_IFACE_END__
     {{ phys_iface }}:
-      dhcp4: no
+      dhcp4: true
       dhcp6: no
       link-local: []
-      {% if not machine_vlan or machine_vlan == '0' %}
-      addresses: [__MACHINE_IP_CIDR__]
-      routes:
-        - to: default
-          via: {{ machine_gateway }}
-          metric: 100
-      nameservers:
-        addresses: [{{ machine_dns }}]
-      {% endif %}
-  {% if machine_vlan and machine_vlan != '0' or k8s_vlan and k8s_vlan != '0' %}
+  {% if k8s_vlan and k8s_vlan != '0' %}
   vlans:
-    {% if machine_vlan and machine_vlan != '0' %}
-    {{ phys_iface }}.{{ machine_vlan }}:
-      id: {{ machine_vlan }}
-      link: {{ phys_iface }}
-      addresses: [__MACHINE_IP_CIDR__]
-      routes:
-        - to: default
-          via: {{ machine_gateway }}
-          metric: 100
-      nameservers:
-        addresses: [{{ machine_dns }}]
-    {% endif %}
-    {% if k8s_vlan and k8s_vlan != '0' %}
     {{ phys_iface }}.{{ k8s_vlan }}:
       id: {{ k8s_vlan }}
       link: {{ phys_iface }}
@@ -46,12 +24,8 @@ network:
           metric: 200
       nameservers:
         addresses: [{{ k8s_dns }}]
-    {% endif %}
   {% endif %}
   vrfs:
-    vrf-machine:
-      table: 10
-      interfaces: [{% if machine_vlan and machine_vlan != '0' %}__MGMT_IFACE__.{{ machine_vlan }}{% else %}__MGMT_IFACE__{% endif %}]
     {% if k8s_vlan and k8s_vlan != '0' %}
     vrf-k8s:
       table: 20

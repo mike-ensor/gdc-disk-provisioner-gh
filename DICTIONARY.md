@@ -83,3 +83,15 @@ The process of transferring system patches, code changes, Docker images, or mach
 #### 2. TPM 2.0 (Trusted Platform Module)
 
 A dedicated, physical cryptographic microchip on the target server. In our architecture, it is used via `systemd-cryptenroll` to bind LUKS disk encryption (meaning the disk will only decrypt automatically if the server's firmware and BIOS boot parameters have not been tampered with), secure SSH private keys, and generate verifiable device identity certificates.
+
+---
+
+### Network & Isolation
+
+#### 1. Default Interface (Host Interface / Machine Interface)
+
+The default physical interface that the network is using. It carries the primary host-level management traffic, DNS resolution, and standard outbound connectivity on the node.
+
+#### 2. Kubernetes Interface
+
+The network interface/sub-interface that Kubernetes uses to define the Control Plane, Node IPs, VIPs, and MetalLB CIDR ranges, isolating container orchestration traffic from standard machine administration.
