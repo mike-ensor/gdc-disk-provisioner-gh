@@ -70,6 +70,7 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
     replacements = {
         "__MGMT_IFACE__": prod_iface,
         "__PHYS_IFACE__": prod_iface,
+        "__MACHINE_IP_CIDR__": machine_ip_cidr,
         "__K8S_IP_CIDR__": k8s_ip_cidr,
     }
         

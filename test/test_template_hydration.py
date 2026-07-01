@@ -90,6 +90,8 @@ class TestGgdTemplateHydration(unittest.TestCase):
         env['companion_report_url'] = 'http://192.168.120.2:8080/v1/install-logs'
         env['machine_vlan'] = env.get('MACHINE_VLAN_ID', '0')
         env['k8s_vlan'] = env.get('K8S_VLAN_ID', '0')
+        env['machine_dhcp4'] = env.get('MACHINE_DHCP4', 'true').lower()
+        env['machine_dhcp6'] = env.get('MACHINE_DHCP6', 'false').lower()
         env['machine_ip_cidr'] = env.get('MACHINE_IP_CIDR', '')
         env['machine_gateway'] = env.get('MACHINE_GATEWAY', '')
         env['machine_dns'] = env.get('MACHINE_DNS', '')
@@ -399,6 +401,48 @@ class TestGgdTemplateHydration(unittest.TestCase):
         
         is_valid = ipaddress.ip_address(k8s_gateway) in ipaddress.ip_network(k8s_cidr_ok, strict=False)
         self.assertTrue(is_valid, f"K8s Gateway {k8s_gateway} must be within the subnet of {k8s_cidr_ok}!")
+
+    def test_netplan_static_l3_machine_nic(self):
+        """Asserts that when MACHINE_DHCP4 is false, the primary interface gets a static IP and routes."""
+        ctx = self.get_context({
+            'MACHINE_DHCP4': 'false',
+            'MACHINE_DHCP6': 'false',
+            'MACHINE_IP_CIDR': '192.168.9.14/24',
+            'MACHINE_GATEWAY': '192.168.9.1',
+            'MACHINE_DNS': '8.8.8.8, 8.8.4.4',
+            'MACHINE_VLAN_ID': '0',
+            'K8S_VLAN_ID': '0'
+        })
+        template = self.jinja_env.get_template('netplan.j2')
+        rendered = template.render(ctx)
+        
+        temp_template = os.path.join(self.test_dir, "temp_template_static.yaml")
+        with open(temp_template, 'w') as f:
+            f.write(rendered)
+            
+        temp_output = os.path.join(self.test_dir, "01-netcfg_static_test.yaml")
+        sys_net = self.create_mock_sys_class_net(["lo", "ens3"])
+        env_path = self.create_mock_env_vars("192.168.9.14", "192.168.109.14")
+        
+        import configure_netplan
+        configure_netplan.main(
+            template_path=temp_template,
+            target_path=temp_output,
+            sys_class_net=sys_net,
+            env_path=env_path,
+            target_dir=self.test_dir
+        )
+        
+        with open(temp_output, 'r') as f:
+            hydrated_content = f.read()
+            
+        config = yaml.safe_load(hydrated_content)
+        ethernets = config["network"].get("ethernets", {})
+        self.assertIn("ens3", ethernets)
+        self.assertEqual(ethernets["ens3"].get("dhcp4"), False)
+        self.assertEqual(ethernets["ens3"].get("dhcp6"), False)
+        self.assertEqual(ethernets["ens3"].get("addresses"), ["192.168.9.14/24"])
+        self.assertEqual(ethernets["ens3"].get("routes")[0].get("via"), "192.168.9.1")
 
     @mock.patch('subprocess.run')
     def test_netplan_chroot_bypass(self, mock_run):

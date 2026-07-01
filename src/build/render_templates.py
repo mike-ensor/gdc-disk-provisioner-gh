@@ -191,6 +191,8 @@ if __name__ == "__main__":
     env['companion_report_url'] = env['companion_url'].replace(env['companion_host'], env['companion_ip'])
     env['machine_vlan'] = env.get('MACHINE_VLAN_ID', '0')
     env['k8s_vlan'] = env.get('K8S_VLAN_ID', '0')
+    env['machine_dhcp4'] = env.get('MACHINE_DHCP4', 'true').lower()
+    env['machine_dhcp6'] = env.get('MACHINE_DHCP6', 'false').lower()
     env['machine_ip_cidr'] = env.get('MACHINE_IP_CIDR', '192.168.9.5/29')
     env['machine_gateway'] = env.get('MACHINE_GATEWAY', '192.168.9.1')
     env['machine_dns'] = env.get('MACHINE_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')
