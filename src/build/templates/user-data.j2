@@ -197,6 +197,17 @@ autoinstall:
     # Sync pre-seeded assets cleanly and set up service persistent storage
     - |
       echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Writing local bootstrap environment"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Writing local bootstrap environment to /etc/gdc/provision.yml"
+      mkdir -p /target/etc/gdc
+      cat <<'EOF' > /target/etc/gdc/provision.yml
+      nexus_admin_password: "{{ TEMPORARY_INSTALLER_PASSWORD }}"
+      ssh_pub_key: "{{ ssh_pub_key }}"
+      EOF
+      chmod 600 /target/etc/gdc/provision.yml
+    - |
+      echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Syncing Gitea, Nexus, & Ansible collections"
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Syncing Gitea, Nexus, & Ansible collections"

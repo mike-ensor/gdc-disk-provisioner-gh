@@ -66,6 +66,280 @@
       ignore_errors: true
 
     # --------------------------------------------------------------------------
+    # Stage 1b: Configure Local Nexus Repositories
+    # --------------------------------------------------------------------------
+    - name: "GDC-NEXUS-INIT | Check if Nexus is actually installed"
+      ansible.builtin.stat:
+        path: /var/lib/nexus/nexus-bin/bin/nexus
+      register: nexus_binary_installed
+
+    - name: "GDC-NEXUS-INIT | Check if provision.yml exists"
+      ansible.builtin.stat:
+        path: /etc/gdc/provision.yml
+      register: gdc_provision_file
+      when: nexus_binary_installed.stat.exists
+
+    - name: "GDC-NEXUS-INIT | Load provision.yml variables"
+      ansible.builtin.include_vars:
+        file: /etc/gdc/provision.yml
+      when:
+        - nexus_binary_installed.stat.exists
+        - gdc_provision_file.stat.exists
+
+    - name: "GDC-NEXUS-INIT | Set fact for Nexus target admin password"
+      ansible.builtin.set_fact:
+        nexus_admin_pass: "{{ nexus_admin_password | default('default-password-123') }}"
+      when: nexus_binary_installed.stat.exists
+
+    - name: "GDC-NEXUS-INIT | Check if Nexus admin.password exists (first boot)"
+      ansible.builtin.stat:
+        path: /var/lib/nexus/sonatype-work/nexus3/admin.password
+      register: nexus_admin_password_file
+      when: nexus_binary_installed.stat.exists
+
+    - name: "GDC-NEXUS-INIT | Read initial Nexus admin password"
+      ansible.builtin.slurp:
+        src: /var/lib/nexus/sonatype-work/nexus3/admin.password
+      register: slurped_password_file
+      when:
+        - nexus_binary_installed.stat.exists
+        - nexus_admin_password_file.stat.exists
+
+    - name: "GDC-NEXUS-INIT | Set initial admin password variable"
+      ansible.builtin.set_fact:
+        nexus_initial_password: "{{ slurped_password_file.content | b64decode | trim }}"
+      when:
+        - nexus_binary_installed.stat.exists
+        - nexus_admin_password_file.stat.exists
+
+    - name: "GDC-NEXUS-INIT | Reset Nexus admin password to configured secure password"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8081/service/rest/v1/security/users/admin/change-password"
+        method: PUT
+        user: admin
+        password: "{{ nexus_initial_password }}"
+        force_basic_auth: true
+        body_format: raw
+        body: "{{ nexus_admin_pass }}"
+        status_code: 204
+      when:
+        - nexus_binary_installed.stat.exists
+        - nexus_admin_password_file.stat.exists
+      register: password_reset_result
+
+    - name: "GDC-NEXUS-INIT | Get list of existing repositories"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8081/service/rest/v1/repositories"
+        method: GET
+        user: admin
+        password: "{{ nexus_admin_pass }}"
+        force_basic_auth: true
+        status_code: 200
+      register: existing_repos_result
+      when: nexus_binary_installed.stat.exists
+      ignore_errors: true
+
+    - name: "GDC-NEXUS-INIT | Set fact for existing repositories names"
+      ansible.builtin.set_fact:
+        existing_repos: "{{ existing_repos_result.json | map(attribute='name') | list }}"
+      when:
+        - nexus_binary_installed.stat.exists
+        - existing_repos_result is defined
+        - existing_repos_result.status == 200
+
+    # Create gdc-apt-hosted if missing
+    - name: "GDC-NEXUS-INIT | Create gdc-apt-hosted repository"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8081/service/rest/v1/repositories/apt/hosted"
+        method: POST
+        user: admin
+        password: "{{ nexus_admin_pass }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: "gdc-apt-hosted"
+          online: true
+          storage:
+            blobStoreName: "default"
+            strictContentTypeValidation: true
+            writePolicy: "allow"
+          apt:
+            distribution: "noble"
+        status_code: 201
+      when:
+        - nexus_binary_installed.stat.exists
+        - existing_repos is defined
+        - "'gdc-apt-hosted' not in existing_repos"
+
+    # Create gdc-apt-proxy if missing
+    - name: "GDC-NEXUS-INIT | Create gdc-apt-proxy repository"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8081/service/rest/v1/repositories/apt/proxy"
+        method: POST
+        user: admin
+        password: "{{ nexus_admin_pass }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: "gdc-apt-proxy"
+          online: true
+          storage:
+            blobStoreName: "default"
+            strictContentTypeValidation: true
+          proxy:
+            remoteUrl: "http://archive.ubuntu.com/ubuntu/"
+            contentMaxAge: 1440
+            metadataMaxAge: 1440
+          negativeCache:
+            enabled: true
+            timeToLive: 1440
+          apt:
+            distribution: "noble"
+        status_code: 201
+      when:
+        - nexus_binary_installed.stat.exists
+        - existing_repos is defined
+        - "'gdc-apt-proxy' not in existing_repos"
+
+    # Create gdc-docker-hosted if missing (Port 5002)
+    - name: "GDC-NEXUS-INIT | Create gdc-docker-hosted repository"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8081/service/rest/v1/repositories/docker/hosted"
+        method: POST
+        user: admin
+        password: "{{ nexus_admin_pass }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: "gdc-docker-hosted"
+          online: true
+          storage:
+            blobStoreName: "default"
+            strictContentTypeValidation: true
+            writePolicy: "allow"
+          docker:
+            v1Enabled: false
+            forceBasicAuth: true
+            httpPort: 5002
+        status_code: 201
+      when:
+        - nexus_binary_installed.stat.exists
+        - existing_repos is defined
+        - "'gdc-docker-hosted' not in existing_repos"
+
+    # Create gdc-docker-proxy if missing
+    - name: "GDC-NEXUS-INIT | Create gdc-docker-proxy repository"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8081/service/rest/v1/repositories/docker/proxy"
+        method: POST
+        user: admin
+        password: "{{ nexus_admin_pass }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: "gdc-docker-proxy"
+          online: true
+          storage:
+            blobStoreName: "default"
+            strictContentTypeValidation: true
+          proxy:
+            remoteUrl: "https://registry-1.docker.io"
+            contentMaxAge: 1440
+            metadataMaxAge: 1440
+          negativeCache:
+            enabled: true
+            timeToLive: 1440
+          docker:
+            v1Enabled: false
+            forceBasicAuth: true
+          dockerProxy:
+            indexType: "REGISTRY"
+        status_code: 201
+      when:
+        - nexus_binary_installed.stat.exists
+        - existing_repos is defined
+        - "'gdc-docker-proxy' not in existing_repos"
+
+    # Create gdc-docker-group if missing (Port 5001)
+    - name: "GDC-NEXUS-INIT | Create gdc-docker-group repository"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8081/service/rest/v1/repositories/docker/group"
+        method: POST
+        user: admin
+        password: "{{ nexus_admin_pass }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: "gdc-docker-group"
+          online: true
+          storage:
+            blobStoreName: "default"
+            strictContentTypeValidation: true
+          group:
+            memberNames:
+              - "gdc-docker-hosted"
+              - "gdc-docker-proxy"
+          docker:
+            v1Enabled: false
+            forceBasicAuth: true
+            httpPort: 5001
+        status_code: 201
+      when:
+        - nexus_binary_installed.stat.exists
+        - existing_repos is defined
+        - "'gdc-docker-group' not in existing_repos"
+
+    # Create gdc-raw-hosted if missing
+    - name: "GDC-NEXUS-INIT | Create gdc-raw-hosted repository"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8081/service/rest/v1/repositories/raw/hosted"
+        method: POST
+        user: admin
+        password: "{{ nexus_admin_pass }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: "gdc-raw-hosted"
+          online: true
+          storage:
+            blobStoreName: "default"
+            strictContentTypeValidation: true
+            writePolicy: "allow"
+        status_code: 201
+      when:
+        - nexus_binary_installed.stat.exists
+        - existing_repos is defined
+        - "'gdc-raw-hosted' not in existing_repos"
+
+    # Create gdc-raw-proxy if missing
+    - name: "GDC-NEXUS-INIT | Create gdc-raw-proxy repository"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8081/service/rest/v1/repositories/raw/proxy"
+        method: POST
+        user: admin
+        password: "{{ nexus_admin_pass }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: "gdc-raw-proxy"
+          online: true
+          storage:
+            blobStoreName: "default"
+            strictContentTypeValidation: true
+          proxy:
+            remoteUrl: "https://huggingface.co"
+            contentMaxAge: 1440
+            metadataMaxAge: 1440
+          negativeCache:
+            enabled: true
+            timeToLive: 1440
+        status_code: 201
+      when:
+        - nexus_binary_installed.stat.exists
+        - existing_repos is defined
+        - "'gdc-raw-proxy' not in existing_repos"
+
+    # --------------------------------------------------------------------------
     # Stage 2: Retrieve Disk and Block Partition Layout
     # --------------------------------------------------------------------------
     - name: "GDC-VERIFY-004 | Query System Block Devices (lsblk)"
@@ -291,6 +565,63 @@
         name: gdc-provision.timer
         enabled: true
         state: started
+
+    # --------------------------------------------------------------------------
+    # Stage 8: Administrative Configurations & OS Slimming
+    # --------------------------------------------------------------------------
+    - name: "GDC-ADMIN-SETUP | Ensure gdc-admin group exists"
+      ansible.builtin.group:
+        name: gdc-admin
+        state: present
+        system: true
+
+    - name: "GDC-ADMIN-SETUP | Ensure gdc-admin user exists"
+      ansible.builtin.user:
+        name: gdc-admin
+        group: gdc-admin
+        shell: /bin/bash
+        state: present
+        system: true
+        create_home: true
+        home: /home/gdc-admin
+
+    - name: "GDC-ADMIN-SETUP | Set up secure passwordless sudo for gdc-admin"
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/gdc-admin
+        owner: root
+        group: root
+        mode: '0440'
+        content: |
+          gdc-admin ALL=(ALL) NOPASSWD:ALL
+
+    - name: "GDC-ADMIN-SETUP | Configure authorized SSH keys for gdc-admin"
+      ansible.builtin.file:
+        path: /home/gdc-admin/.ssh
+        state: directory
+        owner: gdc-admin
+        group: gdc-admin
+        mode: '0700'
+
+    - name: "GDC-ADMIN-SETUP | Inject administrative public SSH key for gdc-admin"
+      ansible.builtin.copy:
+        dest: /home/gdc-admin/.ssh/authorized_keys
+        owner: gdc-admin
+        group: gdc-admin
+        mode: '0600'
+        content: "{{ ssh_pub_key | default('') }}"
+      when:
+        - ssh_pub_key is defined
+        - ssh_pub_key != ""
+
+    - name: "GDC-SLIMMING | Purge redundant heavy system packages"
+      ansible.builtin.apt:
+        name:
+          - snapd
+          - lxd
+          - x11-common
+        state: absent
+        purge: true
+      ignore_errors: true
 
     # --------------------------------------------------------------------------
     # Stage 7: Hardware Security (TPM 2.0 LUKS Sealing & Passcode Purging)
