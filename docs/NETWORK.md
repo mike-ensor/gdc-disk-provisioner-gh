@@ -4,33 +4,60 @@ This document specifies the network architecture, communication boundaries, and 
 
 ---
 
-## 1. Network Segmentation Strategy: Machine vs. Kubernetes
+## 1. Network Segmentation Strategy: Split-Plane Management
 
-To satisfy GDC's strict security and multi-tenancy requirements, edge nodes segment network traffic into two completely isolated routing domains over a **single physical network interface** (e.g., `eth0` or `enp0s3`):
+To satisfy GDC's strict security and multi-tenancy requirements, edge nodes segment network traffic into two isolated routing domains:
 
-1. **The Machine (Host) Network:**
-   * **Purpose:** For node-level administrative tasks, SSH access, system log streaming (webhooks), GCS asset syncing, and host maintenance.
-   * **VRF Device:** `vrf-machine` (mapped to Routing Table `10`)
-   * **VLAN Tag:** `10` (or local standard tag)
+1. **The Host/Machine (Default) Network:**
+   * **Purpose:** For node-level administrative tasks, SSH access, system log streaming (webhooks), GCS asset syncing, internet-facing queries, and host maintenance.
+   * **Configuration:** Standard IPv4 DHCP enabled natively in the `main` routing table. No VRF encapsulation is applied, ensuring standard administrative lookups, diagnostic pings, and DNS queries resolve instantly out-of-the-box.
 2. **The Kubernetes (Cluster) Network:**
    * **Purpose:** Dedicated exclusively to Kubernetes cluster operations, control plane traffic, etcd syncing, worker node cross-talk, and pod networks.
    * **VRF Device:** `vrf-k8s` (mapped to Routing Table `20`)
-   * **VLAN Tag:** `20` (or cluster standard tag)
+   * **VLAN Tag:** `109` (attached as sub-interface `enp1s0.109` or local standard tag)
 
-This architecture guarantees that all Kubernetes resources are created and maintained within their own defined network, completely isolated from administrative or out-of-band host management interfaces.
+This architecture guarantees that all Kubernetes resources are created and maintained within their own defined network, completely isolated from administrative or out-of-band host management interfaces, while keeping host diagnostics simple and failure-tolerant.
+
+---
+
+## 1.1. Networking Interface Layout Goal
+
+Below is the targeted, production-grade segmented interface specification designed for bare-metal nodes:
+
+### 1. Default Interface (Host Interface / Machine Interface)
+* **Physical Interface:** `enp1s0` (first NIC, native/untagged port)
+* **IP Address Allocation:** DHCP Enabled (`dhcp4: true`)
+* **IPv6 Configuration:** Disabled (`dhcp6: no`)
+* **VRF Association:** None *(runs natively in the default `main` routing table)*
+
+### 2. Kubernetes Interface (Cluster Control Plane Segment)
+* **VLAN Interface:** `enp1s0.109` (VLAN tag `109` on the primary NIC)
+* **IP Address Allocation:** `192.168.109.14/24` *(widened from /29 to /24 to guarantee Layer 2 gateway reachability)*
+* **Gateway:** `192.168.109.1`
+* **DNS Nameservers:** `192.168.109.1` *(VLAN Gateway)*, `8.8.8.8`, and `8.8.4.4`
+* **VRF Association:** Bound to `vrf-k8s` (Routing Table `20`)
+
+### 3. Secondary/Additional Physical Interface (Administrative Fallback)
+* **Physical Interface:** `enp2s0` (second NIC, if present)
+* **Purpose:** Auxiliary fallback segment in the `main` routing table.
+* **IPv4 Configuration:** DHCP enabled (`dhcp4: true`)
+* **IPv6 Configuration:** Disabled (`dhcp6: no`)
+* **VRF Association:** None *(completely isolated from GDC routing constraints)*
+
+This setup guarantees that all core GDC workload traffic stays locked inside hardware-backed VRFs, while keeping host-level diagnostic lookups simple and failure-tolerant.
 
 ```text
-                             [ PHYSICAL PORT: eth0 ]
-                                        │
-                    ┌───────────────────┴───────────────────┐
-                    ▼                                       ▼
-        [ VLAN Sub-interface: eth0.10 ]         [ VLAN Sub-interface: eth0.20 ]
-                    │                                       │
-                    ▼                                       ▼
-         [ VRF Master: vrf-machine ]              [ VRF Master: vrf-k8s ]
-         • Routing Table: 10                     • Routing Table: 20
-         • Independent Gateway/DNS               • Independent Gateway/DNS
-         • Scoped: Host Admin & SSH              • Scoped: K8s / etcd / Pods
+                             [ PHYSICAL PORT: enp1s0 ]
+                                         │
+                    ┌────────────────────┴────────────────────┐
+                    ▼                                         ▼
+        [ Native IP: DHCP Enabled ]              [ VLAN Sub-interface: enp1s0.109 ]
+                    │                                         │
+                    ▼                                         ▼
+         [ Default / main Table ]                  [ VRF Master: vrf-k8s ]
+         • Standard Host shell                     • Routing Table: 20
+         • Default Outbound & DNS                  • Independent Gateway/DNS
+         • Scoped: Host Admin & Webhooks           • Scoped: K8s / etcd / Pods
 ```
 
 ---
@@ -39,52 +66,41 @@ This architecture guarantees that all Kubernetes resources are created and maint
 
 Ubuntu 24.04 LTS utilizes **Netplan** as its default network configuration renderer (backed by `systemd-networkd`). The initial networking configuration is declared inside our Subiquity autoinstall profile (`/nocloud/user-data`) and persistently written to `/etc/netplan/01-netcfg.yaml` upon installation.
 
-Below is the standard, production-grade Netplan layout implementing the isolated dual-VRF configuration:
+Below is the standard, production-grade Netplan layout implementing the isolated split-plane configuration:
 
 ```yaml
 network:
   version: 2
   renderer: networkd
   ethernets:
-    eth0:
-      dhcp4: no
+    enp1s0:
+      dhcp4: true
+      dhcp6: no
+      link-local: []
+    enp2s0:
+      dhcp4: true
       dhcp6: no
       link-local: []
   vlans:
-    eth0.10:
-      id: 10
-      link: eth0
+    enp1s0.109:
+      id: 109
+      link: enp1s0
       addresses:
-        - 192.168.10.5/24
+        - 192.168.109.14/24
       routes:
         - to: default
-          via: 192.168.10.1
-          metric: 100
-      nameservers:
-        addresses:
-          - 8.8.8.8
-          - 8.8.4.4
-    eth0.20:
-      id: 20
-      link: eth0
-      addresses:
-        - 192.168.20.5/24
-      routes:
-        - to: default
-          via: 192.168.20.1
+          via: 192.168.109.1
           metric: 200
       nameservers:
         addresses:
-          - 1.1.1.1
+          - 192.168.109.1
+          - 8.8.8.8
+          - 8.8.4.4
   vrfs:
-    vrf-machine:
-      table: 10
-      interfaces:
-        - eth0.10
     vrf-k8s:
       table: 20
       interfaces:
-        - eth0.20
+        - enp1s0.109
 ```
 
 ---
