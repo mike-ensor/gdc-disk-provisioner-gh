@@ -390,6 +390,7 @@ else:
     report["network_connectivity"]["public_wan_dns"] = {"reachable": False}
 
 # 5. System Minimum Requirements Assessment
+logical_cpus = os.cpu_count() or 1
 physical_cores = logical_cpus
 try:
     threads_per_core = int(subprocess.getoutput("lscpu | grep 'Thread(s) per core:' | awk '{print $4}'").strip() or 1)
