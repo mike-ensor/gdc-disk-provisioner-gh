@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import os
 import sys
-import subprocess
 
 def log_info(msg):
     print(f"[-] [Netplan-Hydrator] {msg}")
