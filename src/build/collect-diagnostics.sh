@@ -740,7 +740,10 @@ MGMT_GATEWAY=$(ip route show default 2>/dev/null | grep 'via' | awk '{print $3}'
 K8S_GATEWAY=$(ip route show table 20 default 2>/dev/null | grep 'via' | awk '{print $3}' | head -n 1 || echo "192.168.109.1")
 
 # 1. Ping Management Gateway
-ping_mgmt=$(ping -c 2 -W 1 -I "${MGMT_IFACE}" "${MGMT_GATEWAY}" 2>/dev/null || echo "")
+ping_mgmt=""
+if ping -c 2 -W 1 -I "${MGMT_IFACE}" "${MGMT_GATEWAY}" &>/dev/null; then
+  ping_mgmt=$(ping -c 2 -W 1 -I "${MGMT_IFACE}" "${MGMT_GATEWAY}" 2>/dev/null || echo "")
+fi
 if [[ -n "${ping_mgmt}" ]]; then
   avg_rtt=$(echo "${ping_mgmt}" | tail -n 1 | cut -d'/' -f5)
   echo "     [+] Management Gateway (${MGMT_GATEWAY}): REACHABLE (${avg_rtt}ms)"
@@ -750,10 +753,12 @@ else
   echo "Management Gateway (${MGMT_GATEWAY}) via ${MGMT_IFACE}: UNREACHABLE" >> "${OUT_DIR}/report.txt"
 fi
 
-# 2. Ping Kubernetes Gateway
+# 2. Ping Kubernetes Gateway (expecting REACHABLE within VRF)
 ping_k8s=""
 if [ "${IS_PRIVILEGED}" = "true" ]; then
-  ping_k8s=$(ip vrf exec vrf-k8s ping -c 2 -W 1 "${K8S_GATEWAY}" 2>/dev/null || echo "")
+  if ip vrf exec vrf-k8s ping -c 2 -W 1 "${K8S_GATEWAY}" &>/dev/null; then
+    ping_k8s=$(ip vrf exec vrf-k8s ping -c 2 -W 1 "${K8S_GATEWAY}" 2>/dev/null || echo "")
+  fi
 fi
 
 if [[ -n "${ping_k8s}" ]]; then
@@ -781,7 +786,10 @@ else
 fi
 
 # 4. Ping Public WAN Access
-ping_wan=$(ping -c 2 -W 1 -I "${MGMT_IFACE}" 8.8.8.8 2>/dev/null || echo "")
+ping_wan=""
+if ping -c 2 -W 1 -I "${MGMT_IFACE}" 8.8.8.8 &>/dev/null; then
+  ping_wan=$(ping -c 2 -W 1 -I "${MGMT_IFACE}" 8.8.8.8 2>/dev/null || echo "")
+fi
 if [[ -n "${ping_wan}" ]]; then
   avg_rtt=$(echo "${ping_wan}" | tail -n 1 | cut -d'/' -f5)
   echo "     [+] Public WAN (8.8.8.8):  REACHABLE (${avg_rtt}ms)"
