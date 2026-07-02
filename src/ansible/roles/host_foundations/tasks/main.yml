@@ -179,6 +179,22 @@
   changed_when: true
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-05 | Restore public Ubuntu DEB822 sources for connected testing"
+  ansible.builtin.command: mv /etc/apt/sources.list.d/ubuntu.sources.bak /etc/apt/sources.list.d/ubuntu.sources
+  args:
+    removes: /etc/apt/sources.list.d/ubuntu.sources.bak
+  when: not (deactivate_public_sources | default(true) | bool)
+  changed_when: true
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-05 | Restore standard sources.list for connected testing"
+  ansible.builtin.command: mv /etc/apt/sources.list.bak /etc/apt/sources.list
+  args:
+    removes: /etc/apt/sources.list.bak
+  when: not (deactivate_public_sources | default(true) | bool)
+  changed_when: true
+  tags: ["strictly-local"]
+
 # --------------------------------------------------------------------------
 # Task 06: Package Upgrade & Dependency Installation
 # --------------------------------------------------------------------------

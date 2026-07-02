@@ -126,7 +126,7 @@ echo "[-] Executing playbook on the guest..."
 set +e
 if [[ -n "${GDC_PASS}" ]]; then
     ${SSH_CMD_PREFIX} "${TARGET_USER}@${TARGET_HOST}" \
-        "echo '${GDC_PASS}' | sudo -S ansible-playbook -i localhost, -c local /tmp/ansible/local.yml ${*:-}"
+        "echo '${GDC_PASS}' | sudo -S ansible-playbook -i localhost, -c local --extra-vars 'ansible_become_password=${GDC_PASS}' /tmp/ansible/local.yml ${*:-}"
 else
     ${SSH_CMD_PREFIX} "${TARGET_USER}@${TARGET_HOST}" \
         "sudo ansible-playbook -i localhost, -c local /tmp/ansible/local.yml ${*:-}"
