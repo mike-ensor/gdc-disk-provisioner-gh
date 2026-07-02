@@ -15,6 +15,13 @@
     system: true
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-04 | Ensure supplementary docker group exists"
+  ansible.builtin.group:
+    name: "docker"
+    state: present
+    system: true
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-04 | Ensure administrative system user exists"
   ansible.builtin.user:
     name: "{{ gdc_admin_user }}"
