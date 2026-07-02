@@ -409,6 +409,7 @@
       register: ping_result
       changed_when: false
       ignore_errors: true
+      tags: ["machine:connected"]
 
     - name: "GDC-VERIFY-007 | Report Outbound Network State"
       ansible.builtin.debug:
@@ -549,6 +550,7 @@
       register: apt_upgrade_result
       ignore_errors: true
       when: trigger_system_upgrade | default(false)
+      tags: ["machine:connected", "machine:private-mode-normal"]
 
     - name: "GDC-PROVISION-103 | Log System Package Upgrade Results"
       ansible.builtin.debug:
@@ -578,6 +580,7 @@
       loop: "{{ package_check.results }}"
       when: item.rc != 0
       register: apt_install_result
+      tags: ["machine:connected", "machine:private-mode-normal"]
 
     # --------------------------------------------------------------------------
     # Stage 6: Configure Persistent GPG Signed-Commits for Ansible-Pull
@@ -615,6 +618,14 @@
         name: gdc-provision.timer
         enabled: true
         state: started
+
+    - name: "GDC-GCLOUD | Configure regular gcloud components update cron job"
+      ansible.builtin.cron:
+        name: "Update Google Cloud SDK components regularly"
+        job: "/usr/local/bin/gcloud components update -q > /dev/null 2>&1"
+        special_time: "weekly"
+        state: present
+      tags: ["machine:connected"]
 
     # --------------------------------------------------------------------------
     # Stage 8: Administrative Configurations & OS Slimming

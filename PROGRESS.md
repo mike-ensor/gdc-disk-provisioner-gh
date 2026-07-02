@@ -18,6 +18,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [x] **GDC-SPEC-005-TURNUP: GDC Offline Cluster Turnup** — Written & Approved
 - [x] **GDC-SPEC-006: GDC Lifecycle Update Flows** — Written & Approved
 - [x] **GDC-SPEC-DEP-001: GDC Master Dependency Matrix** — Written & Approved
+- [x] **GDC-SPEC-READY-LINUX: GDC Ready-Linux & Idempotent Post-Install Provisioning Plan** — Written & Approved
 - [x] **Stage-Gate Software Supply Chain Design (`docs/specs/01-iso-build-pipeline.md`)** — Aligned & Approved
 - [x] **Jinja2 Declarative Configuration Templating (`docs/specs/02-baseline-installer.md`)** — Aligned & Approved
 - [x] **Port-forwarding Loopback Isolation & SSH Assertions (`docs/specs/04-verification-and-testing.md`)** — Aligned & Approved
@@ -53,6 +54,9 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
     - [x] Establish APT Repository Group for local deb uploads + upstream cache proxies
     - [x] Establish LLM Raw Group for local GGUF weight files + Hugging Face proxies
   - [ ] Pre-populate initial offline caches & packages into Gitea and Nexus blobs
+    - [ ] Preload official Google GDC dependencies into the local Nexus APT repository (Ref: https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/installing/package-server#needed_packages_and_their_dependencies)
+    - [ ] Pre-seed and upload system OCI images to the local Nexus Docker hosted registry with authenticated client registry-mirroring (Ref: https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/node-agent#deploy-na and https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/installing/registry-mirror#authenticate_with_your_registry_and_share_the_tls_certificate)
+    - [ ] Download and pre-seed the standalone Google Cloud SDK (gcloud CLI) archive into `/custom-data/tools/` for offline installation (Ref: https://docs.cloud.google.com/sdk/docs/install-sdk#latest-version)
 - [x] **Live ISO systemd Integration**
   - [x] Configure Live environment `live-gitea.service` unit file
   - [x] Configure Live environment `live-nexus.service` unit file
@@ -115,9 +119,25 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [ ] SSH host key TPM-secure binding using `ssh-tpm-agent`
   - [x] Generate TPM-backed device identity certs via Step-CA (Remote Attestation, Quote & Cloud CSR verification)
   - [ ] **NodeAgent mTLS Certificate Pre-Seeding:** Address the generation and automated injection of unique Server CA, Client CA, and Node Server Cert/Key to enable 100% Zero-SSH bootstrapping.
+  - [ ] **Future GPG Signed-Commit Enforcement:** Mandate cryptographic signed-commits for Ansible-Pull (`--verify-commit` activation) and configure local GPG release keyrings during ISO pre-seeding for 100% verified playbook executions.
 - [ ] **CIS Hardening & Slimming**
   - [ ] Implement Ansible roles for CIS Level 2 benchmark rules
   - [x] Implement Ansible tasks to purge unneeded packages (snapd, x11, etc.)
+- [ ] **Idempotent Post-Install System Hardening (Ansible-Pull)**
+  - [ ] Task 01: Wait on local boundary hubs readiness (Gitea Port 3000, Nexus Port 8081)
+  - [ ] Task 02: Programmatic Sonatype Nexus repository group/hosted/proxy setup
+  - [ ] Task 03: Create `/var/gdc-install/` workspace directories (fully owned by `gdc-admin` with `0755` permissions)
+  - [ ] Task 04: Implement `gdc-admin` user creation, supplementary groups setup (`sudo`, `docker`), and passwordless sudoers rules
+  - [ ] Task 05: Offline APT sources setup (Write DEB822 sources and deactivate default public Ubuntu files)
+  - [ ] Task 06: Package installation loop (`gdc_core_packages` list containing `containerd.io`, `docker-ce`, `chrony`, `step-cli`, etc.; Tagged: `external-dependency`)
+  - [ ] Task 07: Deploy persistent kernel sysctl tuning parameters (`99-gdc.conf` for max inotify and BPF JIT)
+  - [ ] Task 08: Enforce universal UTC system timezone and configure Chrony NTP with Google pools (Tagged: `external-dependency`)
+  - [ ] Task 09: Setup Container engines (`docker-ce` daemon and `containerd` config/hosts TOML definitions for local mirrors redirects)
+  - [ ] Task 10: Standalone non-apt Google Cloud SDK deployment, silent installer configuration, and global symlinking (Tagged: `external-dependency`)
+  - [ ] Task 11: Security configurations (Mask `ufw` firewall, implement reboot-free unattended-upgrades with blacklist)
+  - [ ] Task 12: Offline management deployment (Deploy skeleton update scripts and link daily logrotate hourly with mode `0755` executable permissions)
+  - [ ] Deploy weekly cron job for automated Google Cloud SDK updates (`gcloud components update -q`; Tagged: `external-dependency`)
+  - [ ] Ensure all playbook tasks are tagged according to GDC Machine State Taxonomy
 
 ---
 
@@ -131,7 +151,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [ ] Write update sync script for Git Bundles to Gitea
 - [ ] **API Upload Sync Pipelines**
   - [ ] Write Nexus API upload scripts for APT debs
-  - [ ] Write Docker registry push wrapper scripts
+  - [ ] Write Docker registry push wrapper scripts (supporting secure registry authentication and TLS certificate sharing; Ref: https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/installing/registry-mirror#authenticate_with_your_registry_and_share_the_tls_certificate)
   - [ ] Write LLM weights Raw upload sync tooling
 
 ---

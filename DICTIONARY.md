@@ -95,3 +95,19 @@ The default physical interface that the network is using. It carries the primary
 #### 2. Kubernetes Interface
 
 The network interface/sub-interface that Kubernetes uses to define the Control Plane, Node IPs, VIPs, and MetalLB CIDR ranges, isolating container orchestration traffic from standard machine administration.
+
+---
+
+### Machine States & Connectivity Modes
+
+#### 1. Connected Mode
+
+Indicates a node with full outbound public internet connectivity. It can directly pass-thru local proxies to pull updates, packages, and container layers from public upstream registries and repositories.
+
+#### 2. Private Mode Normal (or Private Mode)
+
+Indicates an air-gapped node operating offline/locally. It has automated update and upgrade processes configured identically to Connected mode, with the key difference being that it retrieves assets strictly from local Gitea and Sonatype Nexus mirrors/proxies, and will fail if those local repositories are not pre-seeded or updated.
+
+#### 3. Private Mode Strict
+
+Indicates a high-security machine that is exclusively off the internet. It does not attempt any automated update, upgrade, or synchronization processes. All maintenance, patching, and configuration updates must be executed purely as manual, operator-triggered efforts.
