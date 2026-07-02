@@ -135,6 +135,7 @@
       Components: main restricted universe multiverse
       Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
       Trusted: yes
+  when: deactivate_public_sources | default(true) | bool
   tags: ["strictly-local"]
 
 - name: "GDC-TASK-05 | Enforce Hosted APT Priority Pinning"
@@ -147,6 +148,7 @@
       Package: *
       Pin: release o=gdc-apt-hosted
       Pin-Priority: 1001
+  when: deactivate_public_sources | default(true) | bool
   tags: ["strictly-local"]
 
 - name: "GDC-TASK-05 | Check for active public Ubuntu sources"
@@ -213,6 +215,7 @@
   ansible.builtin.apt_repository:
     repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable"
     state: present
+    update_cache: false
   when: not (deactivate_public_sources | default(true) | bool)
   tags: ["machine:connected", "external-dependency"]
 
@@ -228,12 +231,14 @@
   ansible.builtin.apt_repository:
     repo: "deb [signed-by=/etc/apt/keyrings/smallstep.asc] https://packages.smallstep.com/stable/debian debs main"
     state: present
+    update_cache: false
   when: not (deactivate_public_sources | default(true) | bool)
   tags: ["machine:connected", "external-dependency"]
 
 - name: "GDC-TASK-06 | Update APT package cache after adding repositories"
   ansible.builtin.apt:
     update_cache: true
+  ignore_errors: true
   when: not (deactivate_public_sources | default(true) | bool)
   tags: ["machine:connected", "external-dependency"]
 
