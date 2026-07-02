@@ -57,6 +57,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
     - [ ] Preload official Google GDC dependencies into the local Nexus APT repository (Ref: https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/installing/package-server#needed_packages_and_their_dependencies)
     - [ ] Pre-seed and upload system OCI images to the local Nexus Docker hosted registry with authenticated client registry-mirroring (Ref: https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/how-to/node-agent#deploy-na and https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/installing/registry-mirror#authenticate_with_your_registry_and_share_the_tls_certificate)
     - [ ] Download and pre-seed the standalone Google Cloud SDK (gcloud CLI) archive into `/custom-data/tools/` for offline installation (Ref: https://docs.cloud.google.com/sdk/docs/install-sdk#latest-version)
+    - [ ] Compare system packages with baseline Ubuntu Core ISO (`dpkg --get-selections | grep -v deinstall`) and download missing dependencies into local Nexus APT repository (APT Hosted/Proxy)
 - [x] **Live ISO systemd Integration**
   - [x] Configure Live environment `live-gitea.service` unit file
   - [x] Configure Live environment `live-nexus.service` unit file

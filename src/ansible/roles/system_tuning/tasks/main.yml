@@ -1,0 +1,212 @@
+---
+# ==============================================================================
+# Role Tasks: system_tuning
+# ==============================================================================
+# Tasks 07, 08, 09, and 10 of GDC-SPEC-READY-LINUX.
+# ==============================================================================
+
+# --------------------------------------------------------------------------
+# Task 07: Kernel Tuning (Sysctl & BPF JIT)
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-07 | Deploy persistent kernel sysctl tuning parameters"
+  ansible.builtin.template:
+    src: 99-gdc.conf.j2
+    dest: /etc/sysctl.d/99-gdc.conf
+    owner: root
+    group: root
+    mode: '0644'
+  register: sysctl_deploy
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-07 | Reload kernel parameters on configuration change"
+  ansible.builtin.command: /sbin/sysctl -p /etc/sysctl.d/99-gdc.conf
+  when: sysctl_deploy.changed
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Task 08: NTP Alignment & Timezone
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-08 | Mask systemd-timesyncd daemon to avoid collision"
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    enabled: false
+    masked: true
+    state: stopped
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-08 | Enforce UTC system timezone"
+  ansible.builtin.timezone:
+    name: "{{ gdc_system_timezone }}"
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-08 | Deploy GDC optimized chrony.conf template"
+  ansible.builtin.template:
+    src: chrony.conf.j2
+    dest: /etc/chrony/chrony.conf
+    owner: root
+    group: root
+    mode: '0644'
+  register: chrony_config
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-08 | Restart Chrony NTP service"
+  ansible.builtin.systemd:
+    name: chrony
+    state: restarted
+    enabled: true
+  when: chrony_config.changed
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+# --------------------------------------------------------------------------
+# Task 09: Container Engines Setup & Loopback Redirects
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-09 | Deploy Docker daemon local mirror configuration"
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {
+        "registry-mirrors": [
+          "{{ gdc_docker_registry_mirror }}"
+        ],
+        "exec-opts": [
+          "native.cgroupdriver=systemd"
+        ]
+      }
+  register: docker_config
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-09 | Restart Docker daemon service"
+  ansible.builtin.systemd:
+    name: docker
+    state: restarted
+    enabled: true
+  when: docker_config.changed
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-09 | Deploy containerd local mirror configuration"
+  ansible.builtin.copy:
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      version = 2
+      [plugins]
+        [plugins."io.containerd.grpc.v1.cri"]
+          sandbox_image = "nexus.gdc.local:5001/pause:3.9"
+          [plugins."io.containerd.grpc.v1.cri".containerd]
+            default_runtime_name = "runc"
+            [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+              [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+                runtime_type = "io.containerd.runc.v2"
+                [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+                  SystemdCgroup = true
+          [plugins."io.containerd.grpc.v1.cri".registry]
+            config_path = "/etc/containerd/certs.d"
+  register: containerd_config
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-09 | Ensure containerd certificates directory structure exists"
+  ansible.builtin.file:
+    path: /etc/containerd/certs.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-09 | Restart containerd engine service"
+  ansible.builtin.systemd:
+    name: containerd
+    state: restarted
+    enabled: true
+  when: containerd_config.changed
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Task 10: Standalone Google Cloud SDK Inception
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-10 | Ensure gcloud SDK installation directory parent exists"
+  ansible.builtin.file:
+    path: "/var/gdc-install/tools"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10 | Check if gcloud SDK tarball archive is present"
+  ansible.builtin.stat:
+    path: "{{ gdc_gcloud_tarball_path }}"
+  register: gcloud_tarball_stat
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10 | Extract Standalone Google Cloud SDK archive"
+  ansible.builtin.unarchive:
+    src: "{{ gdc_gcloud_tarball_path }}"
+    dest: "/var/gdc-install/tools/"
+    remote_src: true
+    creates: "{{ gdc_gcloud_install_dir }}/bin/gcloud"
+  when: gcloud_tarball_stat.stat.exists
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10 | Run gcloud quiet installation script"
+  ansible.builtin.command:
+    cmd: "{{ gdc_gcloud_install_dir }}/install.sh --quiet --usage-reporting=false --path-update=false"
+    creates: "{{ gdc_gcloud_install_dir }}/bin/gcloud-installed-token"
+  when: gcloud_tarball_stat.stat.exists
+  register: gcloud_install_run
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10 | Create gcloud installation sentinel"
+  ansible.builtin.file:
+    path: "{{ gdc_gcloud_install_dir }}/bin/gcloud-installed-token"
+    state: touch
+    owner: root
+    group: root
+    mode: '0644'
+  when: gcloud_install_run is succeeded and not gcloud_install_run.skipped | default(false)
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10 | Install Google Cloud SDK Components"
+  ansible.builtin.command:
+    cmd: "{{ gdc_gcloud_install_dir }}/bin/gcloud components install {{ item.app }} --quiet"
+  loop: "{{ gdc_gcloud_components }}"
+  when:
+    - gcloud_tarball_stat.stat.exists
+    - not ansible_check_mode
+  ignore_errors: true
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10 | Create global symlinks for gcloud command utilities"
+  ansible.builtin.file:
+    src: "{{ gdc_gcloud_install_dir }}/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    owner: root
+    group: root
+    mode: '0755'
+    state: link
+    force: yes
+  loop:
+    - "gcloud"
+    - "gsutil"
+    - "bq"
+  when: gcloud_tarball_stat.stat.exists
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10 | Create global symlinks for GDC-specific SDK components"
+  ansible.builtin.file:
+    src: "{{ gdc_gcloud_install_dir }}/bin/{{ item.app }}"
+    dest: "/usr/local/bin/{{ item.app }}"
+    owner: root
+    group: root
+    mode: '0755'
+    state: link
+    force: yes
+  loop: "{{ gdc_gcloud_components }}"
+  when: gcloud_tarball_stat.stat.exists
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
