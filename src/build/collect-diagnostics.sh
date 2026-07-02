@@ -222,6 +222,41 @@ if command -v systemctl &>/dev/null; then
 fi
 echo "" >> "${OUT_DIR}/report.txt"
 
+echo "--- GDC ANSIBLE PROVISIONING RUN AUDITS ---" >> "${OUT_DIR}/report.txt"
+if [ "${IS_PRIVILEGED}" = "true" ] || groups | grep -qE "systemd-journal|adm|sudo|root"; then
+  # Count the number of provisioning attempts
+  runs_started=$(journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c "Starting Ansible Pull" || echo "0")
+  runs_succeeded=$(journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c "SUCCESS: All Ready-Linux Post-Install" || echo "0")
+  
+  # Get timestamps of first and last runs
+  first_run_time=$(journalctl -u gdc-provision --no-pager -o short-iso 2>/dev/null | grep "Starting Ansible Pull" | head -n 1 | awk '{print $1}' || echo "N/A")
+  last_run_time=$(journalctl -u gdc-provision --no-pager -o short-iso 2>/dev/null | grep "Starting Ansible Pull" | tail -n 1 | awk '{print $1}' || echo "N/A")
+  
+  echo "Total Ansible-Pull Provisioning Runs Started: ${runs_started}" >> "${OUT_DIR}/report.txt"
+  echo "Total Ansible-Pull Provisioning Runs Succeeded: ${runs_succeeded}" >> "${OUT_DIR}/report.txt"
+  echo "First Run Timestamp: ${first_run_time}" >> "${OUT_DIR}/report.txt"
+  echo "Last Run Timestamp:  ${last_run_time}" >> "${OUT_DIR}/report.txt"
+  
+  # Determine current status of provisioning service
+  if systemctl is-active --quiet gdc-provision 2>/dev/null; then
+    sub_state=$(systemctl show gdc-provision --property=SubState 2>/dev/null | cut -d'=' -f2)
+    if [ "${sub_state}" = "running" ]; then
+      echo "Current Provisioning Status: IN_PROGRESS (Running)" >> "${OUT_DIR}/report.txt"
+    else
+      if journalctl -u gdc-provision -n 100 --no-pager 2>/dev/null | grep -q "GDC_BOOTSTRAP_COMPLETE_SUCCESSFULLY"; then
+        echo "Current Provisioning Status: COMPLETED (Success)" >> "${OUT_DIR}/report.txt"
+      else
+        echo "Current Provisioning Status: FAILED (Check logs)" >> "${OUT_DIR}/report.txt"
+      fi
+    fi
+  else
+    echo "Current Provisioning Status: INACTIVE (Not started/Failed)" >> "${OUT_DIR}/report.txt"
+  fi
+else
+  echo "Skipped due to lack of permissions to query systemd-journal" >> "${OUT_DIR}/report.txt"
+fi
+echo "" >> "${OUT_DIR}/report.txt"
+
 # ------------------------------------------------------------------------------
 # SECTION 8: GDC LOCAL SERVICE HUB HEALTH CHECKS
 # ------------------------------------------------------------------------------
@@ -648,13 +683,32 @@ else
   echo "[-] Gathering GDC provisioning configurations... Skipped due to lack of permissions" >> "${OUT_DIR}/report.txt"
 fi
 
+# Gcloud CLI configuration and version check
+echo "     [+] GDC SDK check"
+echo "--- GDC GCLOUD CLI CHECK ---" >> "${OUT_DIR}/report.txt"
+if [ -x /usr/local/bin/gcloud ]; then
+  echo "gcloud CLI found at /usr/local/bin/gcloud" >> "${OUT_DIR}/report.txt"
+  echo "gcloud Version Information:" >> "${OUT_DIR}/report.txt"
+  /usr/local/bin/gcloud version >> "${OUT_DIR}/report.txt" 2>&1
+  
+  # Also write it to a dedicated file in logs to make it easy to find in the tarball
+  /usr/local/bin/gcloud version > "${OUT_DIR}/logs/gcloud-version.txt" 2>&1
+else
+  echo "gcloud CLI is not present at /usr/local/bin/gcloud" >> "${OUT_DIR}/report.txt"
+fi
+echo "" >> "${OUT_DIR}/report.txt"
+
 # ------------------------------------------------------------------------------
 # SECTION 14: SYSTEMD JOURNALS EXTRACTION (Guarded)
 # ------------------------------------------------------------------------------
 echo "[-] Saving active systemd service journals..."
 for svc in gdc-provision gitea nexus ssh systemd-networkd; do
   if [ "${IS_PRIVILEGED}" = "true" ] || groups | grep -qE "systemd-journal|adm|sudo|root"; then
-    journalctl -u "${svc}" --no-pager -n 1000 > "${OUT_DIR}/logs/${svc}.log" 2>/dev/null || echo "Unable to query journal for ${svc}." > "${OUT_DIR}/logs/${svc}.log"
+    if [ "${svc}" = "gdc-provision" ]; then
+      journalctl -u "${svc}" --no-pager -n 10000 > "${OUT_DIR}/logs/${svc}.log" 2>/dev/null || echo "Unable to query journal for ${svc}." > "${OUT_DIR}/logs/${svc}.log"
+    else
+      journalctl -u "${svc}" --no-pager -n 1000 > "${OUT_DIR}/logs/${svc}.log" 2>/dev/null || echo "Unable to query journal for ${svc}." > "${OUT_DIR}/logs/${svc}.log"
+    fi
   else
     echo "Service journal: ${svc} | Skipped due to lack of permissions" >> "${OUT_DIR}/report.txt"
   fi
