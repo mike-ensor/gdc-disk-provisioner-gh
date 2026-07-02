@@ -740,11 +740,8 @@ MGMT_GATEWAY=$(ip route show default 2>/dev/null | grep 'via' | awk '{print $3}'
 K8S_GATEWAY=$(ip route show table 20 default 2>/dev/null | grep 'via' | awk '{print $3}' | head -n 1 || echo "192.168.109.1")
 
 # 1. Ping Management Gateway
-ping_mgmt=""
-if ping -c 2 -W 1 -I "${MGMT_IFACE}" "${MGMT_GATEWAY}" &>/dev/null; then
-  ping_mgmt=$(ping -c 2 -W 1 -I "${MGMT_IFACE}" "${MGMT_GATEWAY}" 2>/dev/null || echo "")
-fi
-if [[ -n "${ping_mgmt}" ]]; then
+ping_mgmt=$(ping -c 2 -W 1 -I "${MGMT_IFACE}" "${MGMT_GATEWAY}" 2>/dev/null || echo "")
+if [[ -n "${ping_mgmt}" ]] && echo "${ping_mgmt}" | grep -q "rtt"; then
   avg_rtt=$(echo "${ping_mgmt}" | tail -n 1 | cut -d'/' -f5)
   echo "     [+] Management Gateway (${MGMT_GATEWAY}): REACHABLE (${avg_rtt}ms)"
   echo "Management Gateway (${MGMT_GATEWAY}) via ${MGMT_IFACE}: REACHABLE (${avg_rtt}ms)" >> "${OUT_DIR}/report.txt"
@@ -756,12 +753,10 @@ fi
 # 2. Ping Kubernetes Gateway (expecting REACHABLE within VRF)
 ping_k8s=""
 if [ "${IS_PRIVILEGED}" = "true" ]; then
-  if ip vrf exec vrf-k8s ping -c 2 -W 1 "${K8S_GATEWAY}" &>/dev/null; then
-    ping_k8s=$(ip vrf exec vrf-k8s ping -c 2 -W 1 "${K8S_GATEWAY}" 2>/dev/null || echo "")
-  fi
+  ping_k8s=$(ip vrf exec vrf-k8s ping -c 2 -W 1 "${K8S_GATEWAY}" 2>/dev/null || echo "")
 fi
 
-if [[ -n "${ping_k8s}" ]]; then
+if [[ -n "${ping_k8s}" ]] && echo "${ping_k8s}" | grep -q "rtt"; then
   avg_rtt=$(echo "${ping_k8s}" | tail -n 1 | cut -d'/' -f5)
   echo "     [+] Kubernetes Gateway (${K8S_GATEWAY}): REACHABLE (${avg_rtt}ms)"
   echo "Kubernetes Gateway (${K8S_GATEWAY}) via ${K8S_IFACE}: REACHABLE (${avg_rtt}ms)" >> "${OUT_DIR}/report.txt"
@@ -777,7 +772,7 @@ fi
 
 # 3. Ping Cross-Link Isolation (expecting BLOCKED)
 K8S_IP=$(ip -o addr show dev "${K8S_IFACE}" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || echo "192.168.109.14")
-if ping -c 2 -W 1 -I "${MGMT_IFACE}" "${K8S_IP}" &>/dev/null; then
+if ping -c 2 -W 1 -I "${MGMT_IFACE}" "${K8S_IP}" 2>/dev/null | grep -q "rtt"; then
   echo "     [!] Cross-Link Isolation:  LEAKING (Failed)"
   echo "Cross-Link Isolation between ${MGMT_IFACE} and ${K8S_IFACE}: LEAKING" >> "${OUT_DIR}/report.txt"
 else
@@ -786,11 +781,8 @@ else
 fi
 
 # 4. Ping Public WAN Access
-ping_wan=""
-if ping -c 2 -W 1 -I "${MGMT_IFACE}" 8.8.8.8 &>/dev/null; then
-  ping_wan=$(ping -c 2 -W 1 -I "${MGMT_IFACE}" 8.8.8.8 2>/dev/null || echo "")
-fi
-if [[ -n "${ping_wan}" ]]; then
+ping_wan=$(ping -c 2 -W 1 -I "${MGMT_IFACE}" 8.8.8.8 2>/dev/null || echo "")
+if [[ -n "${ping_wan}" ]] && echo "${ping_wan}" | grep -q "rtt"; then
   avg_rtt=$(echo "${ping_wan}" | tail -n 1 | cut -d'/' -f5)
   echo "     [+] Public WAN (8.8.8.8):  REACHABLE (${avg_rtt}ms)"
   echo "Public WAN (8.8.8.8) via ${MGMT_IFACE}: REACHABLE (${avg_rtt}ms)" >> "${OUT_DIR}/report.txt"
