@@ -36,8 +36,11 @@
   tags: ["strictly-local"]
 
 - name: "GDC-TASK-08 | Enforce UTC system timezone"
-  ansible.builtin.timezone:
-    name: "{{ gdc_system_timezone }}"
+  ansible.builtin.file:
+    src: "/usr/share/zoneinfo/{{ gdc_system_timezone }}"
+    dest: /etc/localtime
+    state: link
+    force: yes
   tags: ["strictly-local"]
 
 - name: "GDC-TASK-08 | Deploy GDC optimized chrony.conf template"

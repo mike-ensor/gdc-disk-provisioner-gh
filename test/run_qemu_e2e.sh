@@ -18,10 +18,15 @@ OUTPUT_DIR="${WORKSPACE}/output"
 
 # Parse arguments
 DRY_RUN_ALLOWED=false
+REUSE_DISKS=false
 for arg in "$@"; do
     case $arg in
         -d|--dry-run)
             DRY_RUN_ALLOWED=true
+            shift
+            ;;
+        -r|--reuse)
+            REUSE_DISKS=true
             shift
             ;;
     esac
@@ -56,8 +61,10 @@ echo "GDC Bootloader ISO Headless E2E Boot Tester & Validator"
 echo "=============================================================================="
 
 # Force hydration and assembly with non-zero VLAN and dual-VRF configuration for the E2E test
-echo "[-] Compiling test ISO with Dual-VRF parameters (VLAN 109)..."
-ADMIN_SSH_PUB_KEYS="${TEST_PUB_KEY}" COMPANION_IP=192.168.120.2 COMPANION_HOST=gdc-companion.ensor-labs.com INSTALL_COMPANION_URL=http://gdc-companion.ensor-labs.com:8080/v1/install-logs MACHINE_VLAN_ID=0 K8S_VLAN_ID=109 K8S_IP_CIDR=192.168.109.10/24 K8S_GATEWAY=192.168.109.1 SINGLE_DISK=false DISK1=vda DISK2=vdb BOOT_MODE=bios DISABLE_SSH_DNS="${DISABLE_SSH_DNS}" make -C "${PROJECT_ROOT}/src/build" hydrate assemble
+if [[ "${REUSE_DISKS}" = "false" ]]; then
+    echo "[-] Compiling test ISO with Dual-VRF parameters (VLAN 109)..."
+    ADMIN_SSH_PUB_KEYS="${TEST_PUB_KEY}" COMPANION_IP=192.168.120.2 COMPANION_HOST=gdc-companion.ensor-labs.com INSTALL_COMPANION_URL=http://gdc-companion.ensor-labs.com:8080/v1/install-logs MACHINE_VLAN_ID=0 K8S_VLAN_ID=109 K8S_IP_CIDR=192.168.109.10/24 K8S_GATEWAY=192.168.109.1 SINGLE_DISK=false DISK1=vda DISK2=vdb BOOT_MODE=bios DISABLE_SSH_DNS="${DISABLE_SSH_DNS}" make -C "${PROJECT_ROOT}/src/build" hydrate assemble
+fi
 
 # 1. Locate generated ISO
 BUILD_META="${WORKSPACE}/build_meta.env"
@@ -140,7 +147,10 @@ TEMP_DISK_1="/tmp/opencode/gdc-test-sys.qcow2"
 TEMP_DISK_2="/tmp/opencode/gdc-test-data.qcow2"
 SERIAL_LOG="/tmp/opencode/gdc-serial.log"
 
-rm -f "${TEMP_DISK_1}" "${TEMP_DISK_2}" "${SERIAL_LOG}"
+if [[ "${REUSE_DISKS}" = "false" ]]; then
+    rm -f "${TEMP_DISK_1}" "${TEMP_DISK_2}"
+fi
+rm -f "${SERIAL_LOG}"
 
 # Start local GDC Installation Companion on host in background
 echo "[-] Starting local GDC Installation Companion on host (port 8080)..."
@@ -152,12 +162,14 @@ sleep 2
 TPM_TEMP_DIR=""
 SWTPM_PID=""
 
-echo "[-] Creating 250 GiB sparse validation target System disk..."
-qemu-img create -f qcow2 "${TEMP_DISK_1}" 250G &>/dev/null
+if [[ "${REUSE_DISKS}" = "false" ]]; then
+    echo "[-] Creating 250 GiB sparse validation target System disk..."
+    qemu-img create -f qcow2 "${TEMP_DISK_1}" 250G &>/dev/null
 
-# Dual Disk topology allocation (Disk 2)
-echo "[-] Creating 350 GiB sparse validation target Data disk..."
-qemu-img create -f qcow2 "${TEMP_DISK_2}" 350G &>/dev/null
+    # Dual Disk topology allocation (Disk 2)
+    echo "[-] Creating 350 GiB sparse validation target Data disk..."
+    qemu-img create -f qcow2 "${TEMP_DISK_2}" 350G &>/dev/null
+fi
 
 # Setup isolated software TPM if available
 TPM_ARGS=""
