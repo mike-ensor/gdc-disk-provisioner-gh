@@ -117,6 +117,8 @@ autoinstall:
       # Add static DNS host mapping for GDC Companion resolving and block security upgrades
       echo "{{ companion_ip }} {{ companion_host }}" >> /etc/hosts
       echo "127.0.0.1 security.ubuntu.com" >> /etc/hosts
+      echo "127.0.0.1 geoip.ubuntu.com" >> /etc/hosts
+      echo "127.0.0.1 geoip.canonical.com" >> /etc/hosts
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Verifying connectivity to GDC Installation Companion"
@@ -356,6 +358,8 @@ autoinstall:
       
       # Redirect security upgrades to loopback to prevent long hangs during curtin installation
       echo "127.0.0.1 security.ubuntu.com" >> /target/etc/hosts
+      echo "127.0.0.1 geoip.ubuntu.com" >> /target/etc/hosts
+      echo "127.0.0.1 geoip.canonical.com" >> /target/etc/hosts
       
       # Ensure local hostname and GDC companion gateway mappings are present in /etc/hosts to prevent resolver hangs on boot
       if ! grep -q "{{ hostname }}" /target/etc/hosts; then

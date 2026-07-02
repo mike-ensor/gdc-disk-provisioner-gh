@@ -56,7 +56,7 @@
 
 - name: "GDC-TASK-02 | Wait for Nexus REST API to become responsive"
   ansible.builtin.uri:
-    url: "http://nexus.gdc.local:8081/service/rest/v1/status"
+    url: "http://127.0.0.1:8081/service/rest/v1/status"
     method: GET
     status_code: 200
   register: nexus_api_status
@@ -64,6 +64,7 @@
   retries: 45
   delay: 5
   when: nexus_binary_installed.stat.exists
+  check_mode: no
   tags: ["strictly-local"]
 
 - name: "GDC-TASK-02 | Check if provision.yml exists"
@@ -113,7 +114,7 @@
 
 - name: "GDC-TASK-02 | Reset Nexus admin password to configured secure password"
   ansible.builtin.uri:
-    url: "http://nexus.gdc.local:8081/service/rest/v1/security/users/admin/change-password"
+    url: "http://127.0.0.1:8081/service/rest/v1/security/users/admin/change-password"
     method: PUT
     user: admin
     password: "{{ nexus_initial_password }}"
@@ -131,7 +132,7 @@
 
 - name: "GDC-TASK-02 | Get list of existing repositories"
   ansible.builtin.uri:
-    url: "http://nexus.gdc.local:8081/service/rest/v1/repositories"
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories"
     method: GET
     user: admin
     password: "{{ nexus_admin_pass }}"
@@ -139,6 +140,7 @@
     status_code: 200
   register: existing_repos_result
   when: nexus_binary_installed.stat.exists
+  check_mode: no
   tags: ["strictly-local"]
   ignore_errors: true
 
@@ -184,7 +186,7 @@
 
 - name: "GDC-TASK-02 | Create gdc-apt-hosted repository"
   ansible.builtin.uri:
-    url: "http://nexus.gdc.local:8081/service/rest/v1/repositories/apt/hosted"
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/apt/hosted"
     method: POST
     user: admin
     password: "{{ nexus_admin_pass }}"
@@ -211,7 +213,7 @@
 
 - name: "GDC-TASK-02 | Create gdc-apt-proxy repository"
   ansible.builtin.uri:
-    url: "http://nexus.gdc.local:8081/service/rest/v1/repositories/apt/proxy"
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/apt/proxy"
     method: POST
     user: admin
     password: "{{ nexus_admin_pass }}"
@@ -247,7 +249,7 @@
 
 - name: "GDC-TASK-02 | Create gdc-docker-hosted repository"
   ansible.builtin.uri:
-    url: "http://nexus.gdc.local:8081/service/rest/v1/repositories/docker/hosted"
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/docker/hosted"
     method: POST
     user: admin
     password: "{{ nexus_admin_pass }}"
@@ -273,7 +275,7 @@
 
 - name: "GDC-TASK-02 | Create gdc-docker-proxy repository"
   ansible.builtin.uri:
-    url: "http://nexus.gdc.local:8081/service/rest/v1/repositories/docker/proxy"
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/docker/proxy"
     method: POST
     user: admin
     password: "{{ nexus_admin_pass }}"
@@ -306,7 +308,7 @@
 
 - name: "GDC-TASK-02 | Create gdc-docker-group repository"
   ansible.builtin.uri:
-    url: "http://nexus.gdc.local:8081/service/rest/v1/repositories/docker/group"
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/docker/group"
     method: POST
     user: admin
     password: "{{ nexus_admin_pass }}"
@@ -335,7 +337,7 @@
 
 - name: "GDC-TASK-02 | Create gdc-raw-hosted repository"
   ansible.builtin.uri:
-    url: "http://nexus.gdc.local:8081/service/rest/v1/repositories/raw/hosted"
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/raw/hosted"
     method: POST
     user: admin
     password: "{{ nexus_admin_pass }}"
@@ -357,7 +359,7 @@
 
 - name: "GDC-TASK-02 | Create gdc-raw-proxy repository"
   ansible.builtin.uri:
-    url: "http://nexus.gdc.local:8081/service/rest/v1/repositories/raw/proxy"
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/raw/proxy"
     method: POST
     user: admin
     password: "{{ nexus_admin_pass }}"

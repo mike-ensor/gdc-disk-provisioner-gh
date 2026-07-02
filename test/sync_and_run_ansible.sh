@@ -100,11 +100,16 @@ if [[ "${REIMAGE_RECOMMENDED}" = "true" ]]; then
     echo "To test a clean first-boot deployment loop from a raw baseline OS state,"
     echo "it is highly beneficial to RE-IMAGE the device via PXE/Bootimus now."
     echo "=============================================================================="
-    read -p "Do you still want to force push and execute on this active device? (y/N) " -n 1 -r
-    echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "[-] Execution aborted by operator recommendation."
-        exit 0
+    GDC_FORCE="${GDC_FORCE:-false}"
+    if [[ "${GDC_FORCE}" = "true" ]]; then
+        echo "[-] Bypassing re-image recommendation prompt (GDC_FORCE=true)..."
+    else
+        read -p "Do you still want to force push and execute on this active device? (y/N) " -n 1 -r
+        echo ""
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "[-] Execution aborted by operator recommendation."
+            exit 0
+        fi
     fi
 else
     echo "[x] Clean slate baseline state verified. No re-image required."
@@ -119,8 +124,13 @@ echo "[x] Sync completed successfully."
 # 5. Execute playbook locally inside VM with any additional parameters passed
 echo "[-] Executing playbook on the guest..."
 set +e
-${SSH_CMD_PREFIX} -t "${TARGET_USER}@${TARGET_HOST}" \
-    "sudo ansible-playbook -i localhost, -c local /tmp/ansible/local.yml ${*:-}"
+if [[ -n "${GDC_PASS}" ]]; then
+    ${SSH_CMD_PREFIX} "${TARGET_USER}@${TARGET_HOST}" \
+        "echo '${GDC_PASS}' | sudo -S ansible-playbook -i localhost, -c local /tmp/ansible/local.yml ${*:-}"
+else
+    ${SSH_CMD_PREFIX} "${TARGET_USER}@${TARGET_HOST}" \
+        "sudo ansible-playbook -i localhost, -c local /tmp/ansible/local.yml ${*:-}"
+fi
 EXIT_CODE=$?
 set -e
 

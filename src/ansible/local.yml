@@ -10,6 +10,7 @@
 - name: "GDC Ready-Linux Post-Install & Provisioning Suite"
   hosts: localhost
   connection: local
+  become: true
   gather_facts: true
   gather_subset:
     - "!network"
