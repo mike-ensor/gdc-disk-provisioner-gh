@@ -125,6 +125,7 @@
       Suites: noble
       Components: main restricted universe multiverse
       Signed-By: /etc/apt/keyrings/gdc-nexus.gpg
+      Trusted: yes
 
       # Local GDC Proxy (Upstream Cache) Repository
       Enabled: yes
@@ -133,6 +134,7 @@
       Suites: noble
       Components: main restricted universe multiverse
       Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+      Trusted: yes
   tags: ["strictly-local"]
 
 - name: "GDC-TASK-05 | Enforce Hosted APT Priority Pinning"
@@ -155,7 +157,9 @@
 
 - name: "GDC-TASK-05 | Deactivate public Ubuntu DEB822 sources"
   ansible.builtin.command: mv /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.bak
-  when: public_sources_stat.stat.exists
+  when:
+    - public_sources_stat.stat.exists
+    - deactivate_public_sources | default(true) | bool
   changed_when: true
   tags: ["strictly-local"]
 
@@ -167,7 +171,9 @@
 
 - name: "GDC-TASK-05 | Deactivate standard sources.list"
   ansible.builtin.command: mv /etc/apt/sources.list /etc/apt/sources.list.bak
-  when: standard_sources_stat.stat.exists
+  when:
+    - standard_sources_stat.stat.exists
+    - deactivate_public_sources | default(true) | bool
   changed_when: true
   tags: ["strictly-local"]
 
@@ -189,6 +195,48 @@
   changed_when: false
   ignore_errors: true
 
+- name: "GDC-TASK-06 | Update APT package cache"
+  ansible.builtin.apt:
+    update_cache: true
+  ignore_errors: true
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-06 | Add upstream Docker GPG key for connected testing"
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: '0644'
+  when: not (deactivate_public_sources | default(true) | bool)
+  tags: ["machine:connected", "external-dependency"]
+
+- name: "GDC-TASK-06 | Add upstream Docker repository for connected testing"
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable"
+    state: present
+  when: not (deactivate_public_sources | default(true) | bool)
+  tags: ["machine:connected", "external-dependency"]
+
+- name: "GDC-TASK-06 | Add upstream Smallstep GPG key for connected testing"
+  ansible.builtin.get_url:
+    url: https://packages.smallstep.com/keys/apt/repo-signing-key.gpg
+    dest: /etc/apt/keyrings/smallstep.asc
+    mode: '0644'
+  when: not (deactivate_public_sources | default(true) | bool)
+  tags: ["machine:connected", "external-dependency"]
+
+- name: "GDC-TASK-06 | Add upstream Smallstep repository for connected testing"
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/smallstep.asc] https://packages.smallstep.com/stable/debian debs main"
+    state: present
+  when: not (deactivate_public_sources | default(true) | bool)
+  tags: ["machine:connected", "external-dependency"]
+
+- name: "GDC-TASK-06 | Update APT package cache after adding repositories"
+  ansible.builtin.apt:
+    update_cache: true
+  when: not (deactivate_public_sources | default(true) | bool)
+  tags: ["machine:connected", "external-dependency"]
+
 - name: "GDC-TASK-06 | Check if core packages are already installed"
   ansible.builtin.command: dpkg -s {{ item }}
   loop: "{{ gdc_core_packages }}"
@@ -199,10 +247,9 @@
 
 - name: "GDC-TASK-06 | Install GDC Configured Post-Install Packages"
   ansible.builtin.apt:
-    name: "{{ item.item }}"
+    name: "{{ package_check.results | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) | map(attribute='item') | list }}"
     state: present
     update_cache: false
-  loop: "{{ package_check.results }}"
-  when: item.rc != 0
+  when: (package_check.results | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) | list | length) > 0
   register: apt_install_result
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
