@@ -88,6 +88,27 @@
   when: nexus_binary_installed.stat.exists
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-02 | Test connection to Nexus using configured secure password"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/status"
+    method: GET
+    user: admin
+    password: "{{ nexus_admin_pass }}"
+    force_basic_auth: true
+    status_code: [200, 401]
+  register: nexus_auth_test
+  when: nexus_binary_installed.stat.exists
+  check_mode: no
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Set fact if Nexus is already configured with secure password"
+  ansible.builtin.set_fact:
+    nexus_already_configured: "{{ nexus_auth_test.status == 200 }}"
+  when:
+    - nexus_binary_installed.stat.exists
+    - nexus_auth_test.status is defined
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-02 | Check if Nexus admin.password exists (first boot)"
   ansible.builtin.stat:
     path: /var/lib/nexus/sonatype-work/nexus3/admin.password
@@ -102,6 +123,7 @@
   when:
     - nexus_binary_installed.stat.exists
     - nexus_admin_password_file.stat.exists
+    - not (nexus_already_configured | default(false))
   tags: ["strictly-local"]
 
 - name: "GDC-TASK-02 | Set initial admin password variable"
@@ -110,6 +132,7 @@
   when:
     - nexus_binary_installed.stat.exists
     - nexus_admin_password_file.stat.exists
+    - not (nexus_already_configured | default(false))
   tags: ["strictly-local"]
 
 - name: "GDC-TASK-02 | Reset Nexus admin password to configured secure password"
@@ -127,6 +150,7 @@
   when:
     - nexus_binary_installed.stat.exists
     - nexus_admin_password_file.stat.exists
+    - not (nexus_already_configured | default(false))
   register: password_reset_result
   tags: ["strictly-local"]
 
@@ -299,6 +323,11 @@
         forceBasicAuth: true
       dockerProxy:
         indexType: "REGISTRY"
+      httpClient:
+        blocked: false
+        autoBlock: true
+        connection:
+          useTrustStore: false
     status_code: 201
   when:
     - nexus_binary_installed.stat.exists
@@ -378,6 +407,11 @@
       negativeCache:
         enabled: true
         timeToLive: 1440
+      httpClient:
+        blocked: false
+        autoBlock: true
+        connection:
+          useTrustStore: false
     status_code: 201
   when:
     - nexus_binary_installed.stat.exists
