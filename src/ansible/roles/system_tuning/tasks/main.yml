@@ -148,20 +148,37 @@
   register: gcloud_tarball_stat
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
+- name: "GDC-TASK-10 | Download Google Cloud SDK tarball for connected testing"
+  ansible.builtin.get_url:
+    url: "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz"
+    dest: "/tmp/google-cloud-cli-linux-x86_64.tar.gz"
+    mode: '0644'
+  when:
+    - not gcloud_tarball_stat.stat.exists
+    - not (deactivate_public_sources | default(true) | bool)
+  register: gcloud_download_run
+  tags: ["machine:connected", "external-dependency"]
+
+- name: "GDC-TASK-10 | Set fact for gcloud tarball source path and availability"
+  ansible.builtin.set_fact:
+    gcloud_source_path: "{{ '/tmp/google-cloud-cli-linux-x86_64.tar.gz' if (not gcloud_tarball_stat.stat.exists and gcloud_download_run is succeeded) else gdc_gcloud_tarball_path }}"
+    gcloud_available: "{{ gcloud_tarball_stat.stat.exists or (gcloud_download_run is defined and gcloud_download_run is succeeded) }}"
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
 - name: "GDC-TASK-10 | Extract Standalone Google Cloud SDK archive"
   ansible.builtin.unarchive:
-    src: "{{ gdc_gcloud_tarball_path }}"
+    src: "{{ gcloud_source_path }}"
     dest: "/var/gdc-install/tools/"
     remote_src: true
     creates: "{{ gdc_gcloud_install_dir }}/bin/gcloud"
-  when: gcloud_tarball_stat.stat.exists
+  when: gcloud_available | bool
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
 - name: "GDC-TASK-10 | Run gcloud quiet installation script"
   ansible.builtin.command:
     cmd: "{{ gdc_gcloud_install_dir }}/install.sh --quiet --usage-reporting=false --path-update=false"
     creates: "{{ gdc_gcloud_install_dir }}/bin/gcloud-installed-token"
-  when: gcloud_tarball_stat.stat.exists
+  when: gcloud_available | bool
   register: gcloud_install_run
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
@@ -180,7 +197,7 @@
     cmd: "{{ gdc_gcloud_install_dir }}/bin/gcloud components install {{ item.app }} --quiet"
   loop: "{{ gdc_gcloud_components }}"
   when:
-    - gcloud_tarball_stat.stat.exists
+    - gcloud_available | bool
     - not ansible_check_mode
   ignore_errors: true
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
@@ -198,7 +215,7 @@
     - "gcloud"
     - "gsutil"
     - "bq"
-  when: gcloud_tarball_stat.stat.exists
+  when: gcloud_available | bool
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
 - name: "GDC-TASK-10 | Create global symlinks for GDC-specific SDK components"
@@ -211,5 +228,5 @@
     state: link
     force: yes
   loop: "{{ gdc_gcloud_components }}"
-  when: gcloud_tarball_stat.stat.exists
+  when: gcloud_available | bool
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
