@@ -361,10 +361,15 @@ autoinstall:
       echo "127.0.0.1 geoip.ubuntu.com" >> /target/etc/hosts
       echo "127.0.0.1 geoip.canonical.com" >> /target/etc/hosts
       
+      # Dynamically configure unique hostname based on primary network interface MAC address
+      PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
+      MAC_ADDR=$(cat /sys/class/net/${PHYS_IFACE}/address | tr -d ':')
+      MAC_SUFFIX=$(echo -n "${MAC_ADDR}" | tail -c 4)
+      NEW_HOSTNAME="gdc-standalone-node-${MAC_SUFFIX}"
+      echo "${NEW_HOSTNAME}" > /target/etc/hostname
+      
       # Ensure local hostname and GDC companion gateway mappings are present in /etc/hosts to prevent resolver hangs on boot
-      if ! grep -q "{{ hostname }}" /target/etc/hosts; then
-        echo "127.0.1.1 {{ hostname }}" >> /target/etc/hosts
-      fi
+      echo "127.0.1.1 ${NEW_HOSTNAME}" >> /target/etc/hosts
       echo "192.168.120.2 gdc-companion.ensor-labs.com" >> /target/etc/hosts
       
       # Purge cloud-init and write the official disabled trigger file to prevent first-boot stalls
