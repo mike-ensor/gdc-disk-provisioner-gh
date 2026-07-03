@@ -163,7 +163,7 @@ Baked directly into every custom ISO at `/usr/local/bin/collect-diagnostics`, th
 *   **Manual Trigger on Node:**
     ```bash
     # SSH into the node and run manually:
-    echo "troubled-marble-150" | sudo -S /usr/local/bin/collect-diagnostics
+    echo "temporary-installer-password-here" | sudo -S /usr/local/bin/collect-diagnostics
     ```
 *   **Artifact Output:**
     Generates a versioned tarball at `~/gdc-diagnostics-<TIMESTAMP>.tar.gz` and copies it to physical root mount partitions to survive system reboots.
@@ -174,11 +174,11 @@ Located locally under `test/remote_diagnostics.py`, this Python script automates
 *   **Preferred Execution (Automated Subnet Scan):**
     For security hygiene (preventing password history tracking) and dynamic DHCP IP discovery, run with the inline `GDC_PASSWORD` variable and `--scan <CIDR>` option:
     ```bash
-    GDC_PASSWORD="troubled-marble-150" ./test/remote_diagnostics.py --scan "192.168.9.240/29" --output-dir "/tmp/gdc-diagnostics"
+    GDC_PASSWORD="temporary-installer-password-here" ./test/remote_diagnostics.py --scan "192.168.1.230/28" --output-dir "/tmp/gdc-diagnostics"
     ```
 *   **Alternative Execution (Explicit IP List):**
     ```bash
-    GDC_PASSWORD="troubled-marble-150" ./test/remote_diagnostics.py --ips "192.168.9.241,192.168.9.242" --output-dir "/tmp/gdc-diagnostics"
+    GDC_PASSWORD="temporary-installer-password-here" ./test/remote_diagnostics.py --ips "192.168.1.241,192.168.1.242" --output-dir "/tmp/gdc-diagnostics"
     ```
 *   **Main Outcomes Produced:**
     1.  📄 **`health_report.md` (Human-readable):** Rich, structured Markdown report linking to syntax-highlighted error logs.
