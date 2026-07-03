@@ -169,15 +169,16 @@ Baked directly into every custom ISO at `/usr/local/bin/collect-diagnostics`, th
     Generates a versioned tarball at `~/gdc-diagnostics-<TIMESTAMP>.tar.gz` and copies it to physical root mount partitions to survive system reboots.
 
 ### B. The Remote Orchestrator & Analyzer (`remote_diagnostics.py`)
-Located locally under `test/remote_diagnostics.py`, this Python script automates node health collection across multiple IPs in parallel, pulls and extracts tarballs, executes regex log searches, and compiles a dual-format **Markdown & JSON Report**.
+Located locally under `test/remote_diagnostics.py`, this Python script automates node health collection across multiple IPs or subnets in parallel, pulls and extracts tarballs, executes regex log searches, and compiles a dual-format **Markdown & JSON Report**.
 
-*   **Setup Environment Variable:**
+*   **Preferred Execution (Automated Subnet Scan):**
+    For security hygiene (preventing password history tracking) and dynamic DHCP IP discovery, run with the inline `GDC_PASSWORD` variable and `--scan <CIDR>` option:
     ```bash
-    export GDC_PASSWORD="troubled-marble-150"
+    GDC_PASSWORD="troubled-marble-150" ./test/remote_diagnostics.py --scan "192.168.9.240/29" --output-dir "/tmp/gdc-diagnostics"
     ```
-*   **Run Orchestrator Check:**
+*   **Alternative Execution (Explicit IP List):**
     ```bash
-    ./test/remote_diagnostics.py --ips "192.168.9.235,192.168.9.240" --output-dir "/tmp/gdc-diagnostics"
+    GDC_PASSWORD="troubled-marble-150" ./test/remote_diagnostics.py --ips "192.168.9.241,192.168.9.242" --output-dir "/tmp/gdc-diagnostics"
     ```
 *   **Main Outcomes Produced:**
     1.  📄 **`health_report.md` (Human-readable):** Rich, structured Markdown report linking to syntax-highlighted error logs.
