@@ -186,8 +186,16 @@ def main():
         os.makedirs(node_dir, exist_ok=True)
 
         # 1. Execute diagnostics remotely
-        log_info("Triggering remote collect-diagnostics script...")
-        cmd_run = "echo 'troubled-marble-150' | sudo -S /usr/local/bin/collect-diagnostics"
+        local_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "build", "collect-diagnostics.sh")
+        cmd_run = f"echo '{password}' | sudo -S /usr/local/bin/collect-diagnostics"
+        if os.path.exists(local_script):
+            log_info(f"Syncing latest local diagnostics script to remote node {ip}...")
+            push_cmd = f'sshpass -p "{password}" scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "{local_script}" temporary-installer@{ip}:/tmp/collect-diagnostics.sh'
+            subprocess.run(push_cmd, shell=True, capture_output=True)
+            log_info("Triggering remote collect-diagnostics script dynamically from /tmp...")
+            cmd_run = f"echo '{password}' | sudo -S bash /tmp/collect-diagnostics.sh"
+        else:
+            log_info("Triggering remote collect-diagnostics script...")
         res_run = run_remote(ip, cmd_run, password)
         if res_run.returncode != 0:
             log_error(f"Failed to execute diagnostics on {ip}: {res_run.stderr}")
@@ -256,6 +264,20 @@ def main():
         with open(report_json_path, 'r') as jf:
             node_json = json.load(jf)
 
+        report_txt_content = ""
+        report_txt_path = os.path.join(extracted_gdc_dir, "report.txt")
+        if os.path.exists(report_txt_path):
+            try:
+                with open(report_txt_path, 'r', errors='ignore') as rtf:
+                    content = rtf.read()
+                    if "GDC SOFTWARE-ONLY BARE METAL OS PREREQUISITES" in content:
+                        parts = content.split("GDC SOFTWARE-ONLY BARE METAL OS PREREQUISITES")
+                        report_txt_content = "================================================================================\n===             GDC SOFTWARE-ONLY BARE METAL OS PREREQUISITES" + parts[-1]
+                    else:
+                        report_txt_content = content
+            except Exception as e:
+                log_error(f"Failed to read report.txt on {ip}: {e}")
+
         # 5. Build stage categorization health metrics
         stages = {
             "Stage 1": {"status": "COMPLETED", "details": "ISO build version verified", "errors": []},
@@ -323,7 +345,8 @@ def main():
             "host_metadata": node_json.get("host_metadata", {}),
             "system_health": node_json.get("system_health", {}),
             "tpm_status": node_json.get("tpm_status", {}),
-            "system_minimum_requirements": node_json.get("system_minimum_requirements", {})
+            "system_minimum_requirements": node_json.get("system_minimum_requirements", {}),
+            "report_txt": report_txt_content
         }
 
     # 7. Mutual Ping Checks (Matrix)
@@ -406,6 +429,13 @@ def main():
                 for err in stage["errors"]:
                     md_content.append(f"- [!] {err}")
                 md_content.append("\n")
+
+        # Embed GDC bare-metal prerequisites and tables
+        if data.get("report_txt"):
+            md_content.append(f"#### GDC OS Prerequisites & Telemetry Audit (`{ip}`)")
+            md_content.append("```text")
+            md_content.append(data["report_txt"].strip())
+            md_content.append("```\n")
 
         # Subiquity Log Analysis
         md_content.append(f"#### Subiquity Logs Forensics Check (`{ip}`)")
