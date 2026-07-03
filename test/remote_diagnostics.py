@@ -99,9 +99,18 @@ def scan_file_for_errors(file_path, patterns):
         log_error(f"Failed to read log {file_path}: {e}")
     return matches
 
+def is_ping_reachable(ip):
+    res = subprocess.run(["ping", "-c", "1", "-W", "0.5", ip], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return res.returncode == 0
+
+def is_ssh_authenticated(ip, password):
+    res = run_remote(ip, "echo AUTH_OK", password)
+    return res.returncode == 0 and "AUTH_OK" in res.stdout
+
 def main():
     parser = argparse.ArgumentParser(description="GDC Remote Diagnostics & Health Check Orchestrator")
-    parser.add_argument("--ips", required=True, help="Comma-separated list of remote host IPs")
+    parser.add_argument("--ips", help="Comma-separated list of remote host IPs")
+    parser.add_argument("--scan", help="CIDR subnet block to scan (e.g. 192.168.9.230/27)")
     parser.add_argument("--output-dir", default="/tmp/gdc-diagnostics", help="Local directory to output results")
     args = parser.parse_args()
 
@@ -110,9 +119,44 @@ def main():
         log_error("GDC_PASSWORD environment variable is not set!")
         sys.exit(1)
 
-    ips = [ip.strip() for ip in args.ips.split(",") if ip.strip()]
+    if not args.ips and not args.scan:
+        parser.error("At least one of --ips or --scan must be specified!")
+
+    ips = []
+    if args.ips:
+        ips = [ip.strip() for ip in args.ips.split(",") if ip.strip()]
+
+    if args.scan:
+        log_info(f"Scanning CIDR network {args.scan} for active and SSH-authenticated GDC nodes...")
+        try:
+            import ipaddress
+            net = ipaddress.ip_network(args.scan, strict=False)
+            candidates = [str(ip) for ip in net.hosts()]
+        except Exception as e:
+            log_error(f"Invalid CIDR network {args.scan}: {e}")
+            sys.exit(2)
+
+        scanned_ips = []
+        for ip in candidates:
+            # Quick ping pre-check to speed up scanning
+            if is_ping_reachable(ip):
+                log_info(f"Host {ip} is ping-reachable. Testing SSH authentication...")
+                if is_ssh_authenticated(ip, password):
+                    log_info(f"[+] Found active GDC node: {ip} (SSH Auth OK)")
+                    scanned_ips.append(ip)
+                else:
+                    log_info(f"[-] Host {ip}: SSH authentication failed.")
+        
+        # Merge scanned IPs
+        if scanned_ips:
+            for ip in scanned_ips:
+                if ip not in ips:
+                    ips.append(ip)
+        else:
+            log_warn(f"No active GDC nodes found with valid SSH authentication in range {args.scan}")
+
     if not ips:
-        log_error("No valid IPs provided!")
+        log_error("No valid, active GDC node IPs available to analyze!")
         sys.exit(1)
 
     # Initialize directories
