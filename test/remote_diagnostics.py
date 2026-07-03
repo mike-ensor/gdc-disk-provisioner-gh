@@ -179,7 +179,7 @@ def main():
             continue
 
         # 3. Extract tarball
-        log_info("Extraction completed successfully.")
+        log_info("Extracting diagnostics tarball locally...")
         try:
             with tarfile.open(local_tar_path, "r:gz") as tar:
                 tar.extractall(path=node_dir)
