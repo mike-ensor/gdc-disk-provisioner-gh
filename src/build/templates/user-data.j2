@@ -30,6 +30,8 @@ autoinstall:
   packages:
     - ansible
     - git
+    - net-tools
+    - arp-scan
   reporting:
     gdc-gateway:
       type: webhook
@@ -150,51 +152,15 @@ autoinstall:
       echo "[GDC-INSTALL-GOAL] Starting Task: Scanning for free Machine & Kubernetes IPs"
       echo "=============================================================================="
       PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
-      ALLOCATED_SUFFIX=""
       
-      echo "[-] Commencing active Layer 2 (ARP) and Layer 3 (ICMP) network scans..."
-      for i in 8 9 10 11 12 13 14; do
-        TARGET_IP="192.168.9.${i}"
-        echo "[-] Testing IP: ${TARGET_IP}..."
-        
-        # 1. ARP Scan (arping checks local L2 subnet)
-        if command -v arping >/dev/null 2>&1; then
-          if arping -c 2 -w 1 -I "${PHYS_IFACE}" "${TARGET_IP}" >/dev/null 2>&1; then
-            echo "  [!] Taken: Active ARP response on ${TARGET_IP}."
-            continue
-          fi
-        fi
-        
-        # 2. ICMP Ping Scan
-        if ping -c 1 -W 1 "${TARGET_IP}" >/dev/null 2>&1; then
-          echo "  [!] Taken: Active ICMP response on ${TARGET_IP}."
-          continue
-        fi
-        
-        # 3. Check local neighbor cache table
-        if ip neigh show dev "${PHYS_IFACE}" | grep -q "${TARGET_IP}"; then
-          echo "  [!] Taken: IP active in local neighbor cache."
-          continue
-        fi
-        
-        # Free IP found
-        ALLOCATED_SUFFIX="${i}"
-        echo "[x] SUCCESS: Allocated free IP suffix .${ALLOCATED_SUFFIX} for this host."
-        break
-      done
-      
-      if [ -z "${ALLOCATED_SUFFIX}" ]; then
-        echo "[!] CRITICAL ERROR: All IP slots in range 192.168.9.8-14 are occupied!"
-        echo "[!] Defaulting to fallback safety IP .14 to prevent installation lock..."
-        ALLOCATED_SUFFIX="14"
+      # Ensure arp-scan and net-tools are dynamically bootstrapped in live environment (connected mode)
+      if ! command -v arp-scan &>/dev/null; then
+        echo "[-] Sideloading net-tools & arp-scan packages in live environment..."
+        apt-get update &>/dev/null && apt-get install -y arp-scan net-tools &>/dev/null || true
       fi
-      
-      # Record dynamic IP metadata to a temporary state file
-      echo "ALLOC_SUFFIX=${ALLOCATED_SUFFIX}" > /tmp/allocated_ips.env
-      echo "MACHINE_IP=192.168.9.${ALLOCATED_SUFFIX}" >> /tmp/allocated_ips.env
-      echo "K8S_IP=192.168.109.${ALLOCATED_SUFFIX}" >> /tmp/allocated_ips.env
-      echo "MACHINE_IP_CIDR={{ machine_ip_cidr }}" >> /tmp/allocated_ips.env
-      echo "K8S_IP_CIDR={{ k8s_ip_cidr }}" >> /tmp/allocated_ips.env
+
+      # Invoke the robust splay python IP scanner
+      python3 /cdrom/custom-data/scan_ips.py --cidr "192.168.9.8/29" --interface "${PHYS_IFACE}" --fallback "192.168.9.14" --output "/tmp/allocated_ips.env" --machine-cidr "{{ machine_ip_cidr }}" --k8s-cidr "{{ k8s_ip_cidr }}"
   late-commands:
     # Sync pre-seeded assets cleanly and set up service persistent storage
     - |
