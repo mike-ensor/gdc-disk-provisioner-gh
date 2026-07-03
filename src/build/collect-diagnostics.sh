@@ -1014,6 +1014,78 @@ try:
         rf.write("-" * 80 + "\n")
         rf.write(f"OVERALL GDC PRE-FLIGHT COMPLIANCE STATUS: [ {overall_prereq_status} ]\n")
         rf.write("================================================================================\n")
+
+        # New Section: Disks & LVM Volumes Enumeration
+        rf.write("\n")
+        rf.write("================================================================================\n")
+        rf.write("===             GDC STORAGE: DISKS & LVM VOLUMES ENUMERATION                 ===\n")
+        rf.write("================================================================================\n")
+        lsblk_tree = subprocess.getoutput("lsblk -o NAME,TYPE,SIZE,FSTYPE,MOUNTPOINT 2>/dev/null || lsblk")
+        rf.write(lsblk_tree + "\n")
+        rf.write("================================================================================\n")
+
+        # New Section: Networking Interface Details
+        rf.write("\n")
+        rf.write("================================================================================\n")
+        rf.write("===                     GDC NETWORKING INTERFACE DETAILS                    ===\n")
+        rf.write("================================================================================\n")
+        rf.write(f"{'Interface':15} {'IP Address':20} {'Link Status':15} {'Gateway':15}\n")
+        rf.write("-" * 80 + "\n")
+        
+        # Active gateway discovery
+        gateways = {}
+        try:
+            route_out = subprocess.getoutput("ip route show").strip().split('\n')
+            for line in route_out:
+                if "default via" in line:
+                    parts = line.split()
+                    dev = parts[parts.index("dev") + 1] if "dev" in parts else "unknown"
+                    gw = parts[parts.index("via") + 1] if "via" in parts else "unknown"
+                    gateways[dev] = gw
+        except Exception:
+            pass
+
+        try:
+            table20_out = subprocess.getoutput("ip route show table 20").strip().split('\n')
+            for line in table20_out:
+                if "default via" in line:
+                    parts = line.split()
+                    dev = parts[parts.index("dev") + 1] if "dev" in parts else "unknown"
+                    gw = parts[parts.index("via") + 1] if "via" in parts else "unknown"
+                    gateways[dev] = gw
+        except Exception:
+            pass
+
+        try:
+            for iface in sorted(os.listdir("/sys/class/net")):
+                if iface == "lo":
+                    continue
+                ip = "None"
+                try:
+                    ip_out = subprocess.getoutput(f"ip -o -4 addr show dev {iface} 2>/dev/null")
+                    if ip_out:
+                        ip = ip_out.split()[3].split('/')[0]
+                except Exception:
+                    pass
+                status = "DOWN"
+                try:
+                    with open(f"/sys/class/net/{iface}/operstate", "r") as f:
+                        status = f.read().strip().upper()
+                except Exception:
+                    pass
+                gw = gateways.get(iface, "None")
+                rf.write(f"{iface:15} {ip:20} {status:15} {gw:15}\n")
+        except Exception:
+            pass
+        rf.write("-" * 80 + "\n")
+        
+        # Egress summary
+        mgmt_summary = f"{endpoint_counts.get('management', {}).get('connected', 0)}/25 Connected"
+        k8s_summary = f"{endpoint_counts.get('kubernetes', {}).get('connected', 0)}/25 Connected"
+        rf.write("Domain Access Efficacy (Google APIs):\n")
+        rf.write(f"  - Management Network:     {mgmt_summary} domains accessed successfully\n")
+        rf.write(f"  - Kubernetes VRF Network: {k8s_summary} domains accessed successfully\n")
+        rf.write("================================================================================\n")
 except Exception as e:
     pass
 
