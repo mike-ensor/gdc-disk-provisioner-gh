@@ -954,83 +954,83 @@ overall_prereq_status = report["gdc_os_prerequisites"]["overall_compliance"]
 try:
     with open(os.path.join(out_dir_path, "report.txt"), "a") as rf:
         rf.write("\n")
-        rf.write("================================================================================\n")
-        rf.write("===             GDC SOFTWARE-ONLY BARE METAL OS PREREQUISITES               ===\n")
-        rf.write("================================================================================\n")
-        rf.write(f"{'Requirement':32} {'Target':18} {'Actual':18} {'Status':8}\n")
-        rf.write("-" * 80 + "\n")
+        rf.write("=====================================================================================================\n")
+        rf.write("===             GDC SOFTWARE-ONLY BARE METAL OS PREREQUISITES                                     ===\n")
+        rf.write("=====================================================================================================\n")
+        rf.write(f"{'Requirement':35} {'Target':24} {'Actual':34} {'Status':8}\n")
+        rf.write("-" * 101 + "\n")
         
         # 1. cgroupsv2
-        rf.write(f"{'cgroupsv2 Active':32} {'No cgroupsv1':18} {gdc_checks['cgroupsv2']['details']:18} [ {gdc_checks['cgroupsv2']['status']} ]\n")
+        rf.write(f"{'cgroupsv2 Active':35} {'No cgroupsv1':24} {gdc_checks['cgroupsv2']['details']:34} [ {gdc_checks['cgroupsv2']['status']} ]\n")
         # 2. BPF JIT
-        rf.write(f"{'BPF JIT Compiler':32} {'Enabled (1)':18} {('Active (' + bpf_val + ')'):18} [ {gdc_checks['bpf_jit_compiler']['status']} ]\n")
+        rf.write(f"{'BPF JIT Compiler':35} {'Enabled (1)':24} {('Active (' + bpf_val + ')'):34} [ {gdc_checks['bpf_jit_compiler']['status']} ]\n")
         # 3. Package manager
-        rf.write(f"{'Apt Package Manager':32} {'Healthy':18} {gdc_checks['apt_package_manager']['details'][:18]:18} [ {gdc_checks['apt_package_manager']['status']} ]\n")
+        rf.write(f"{'Apt Package Manager':35} {'Healthy':24} {gdc_checks['apt_package_manager']['details'][:34]:34} [ {gdc_checks['apt_package_manager']['status']} ]\n")
         # 4. UFW
-        rf.write(f"{'UFW Firewall':32} {'Inactive':18} {gdc_checks['ufw_firewall']['details'][:18]:18} [ {gdc_checks['ufw_firewall']['status']} ]\n")
+        rf.write(f"{'UFW Firewall':35} {'Inactive':24} {gdc_checks['ufw_firewall']['details'][:34]:34} [ {gdc_checks['ufw_firewall']['status']} ]\n")
         # 5. Time sync
-        rf.write(f"{'System Time Sync':32} {'Synchronized':18} {gdc_checks['time_synchronization']['details'][:18]:18} [ {gdc_checks['time_synchronization']['status']} ]\n")
+        rf.write(f"{'System Time Sync':35} {'Synchronized':24} {gdc_checks['time_synchronization']['details'][:34]:34} [ {gdc_checks['time_synchronization']['status']} ]\n")
         # 6. inotify
-        rf.write(f"{'Linux inotify Limits':32} {'Inst>=8192':18} {('inst=' + str(max_instances)):18} [ {gdc_checks['inotify_limits']['status']} ]\n")
-        rf.write(f"{'':32} {'Watch>=524288':18} {('watch=' + str(max_watches)):18} [ {gdc_checks['inotify_limits']['status']} ]\n")
+        rf.write(f"{'Linux inotify Limits':35} {'Inst>=8192':24} {('inst=' + str(max_instances)):34} [ {gdc_checks['inotify_limits']['status']} ]\n")
+        rf.write(f"{'':35} {'Watch>=524288':24} {('watch=' + str(max_watches)):34} [ {gdc_checks['inotify_limits']['status']} ]\n")
         # 7. iptables
-        rf.write(f"{'Iptables Backend':32} {'nf_tables':18} {('compliant' if iptables_ok else 'legacy'):18} [ {gdc_checks['iptables_backend']['status']} ]\n")
+        rf.write(f"{'Iptables Backend':35} {'nf_tables':24} {('compliant' if iptables_ok else 'legacy'):34} [ {gdc_checks['iptables_backend']['status']} ]\n")
         # 8. docker
-        rf.write(f"{'Docker Version':32} {'>= 20.10.0':18} {(doc_ver.split(' ')[-1] if ' ' in doc_ver else doc_ver)[:18]:18} [ {gdc_checks['docker_version']['status']} ]\n")
+        rf.write(f"{'Docker Version':35} {'>= 20.10.0':24} {(doc_ver.split(' ')[-1] if ' ' in doc_ver else doc_ver)[:34]:34} [ {gdc_checks['docker_version']['status']} ]\n")
         # 9. Clean Installation paths
-        rf.write(f"{'Clean Installation Paths':32} {'etcd & k8s empty':18} {('Clean' if paths_clean else 'Dirty'):18} [ {gdc_checks['clean_installation_paths']['status']} ]\n")
+        rf.write(f"{'Clean Installation Paths':35} {'etcd & k8s empty':24} {('Clean' if paths_clean else 'Dirty'):34} [ {gdc_checks['clean_installation_paths']['status']} ]\n")
         
         # 10. gcloud SDK CLI
-        rf.write(f"{'gcloud SDK CLI':32} {'Exists on PATH':18} {gdc_checks['gcloud_cli']['details'][:18]:18} [ {gdc_checks['gcloud_cli']['status']} ]\n")
+        rf.write(f"{'gcloud SDK CLI':35} {'Exists on PATH':24} {gdc_checks['gcloud_cli']['details'][:34]:34} [ {gdc_checks['gcloud_cli']['status']} ]\n")
         # 11. GDC Admin Directory
-        rf.write(f"{'GDC Admin Directory':32} {'/var/gdc-admin':18} {gdc_checks['gdc_admin_dir']['details'][:18]:18} [ {gdc_checks['gdc_admin_dir']['status']} ]\n")
+        rf.write(f"{'GDC Admin Directory':35} {'/var/gdc-admin':24} {gdc_checks['gdc_admin_dir']['details'][:34]:34} [ {gdc_checks['gdc_admin_dir']['status']} ]\n")
         # 12. GDC Admin Keys
-        rf.write(f"{'GDC Admin Keys':32} {'Keys folder':18} {gdc_checks['gdc_keys_dir']['details'][:18]:18} [ {gdc_checks['gdc_keys_dir']['status']} ]\n")
+        rf.write(f"{'GDC Admin Keys':35} {'Keys folder':24} {gdc_checks['gdc_keys_dir']['details'][:34]:34} [ {gdc_checks['gdc_keys_dir']['status']} ]\n")
         # 13. curl Diagnostic Tool
-        rf.write(f"{'curl Diagnostic Tool':32} {'Installed':18} {gdc_checks['curl_tool']['details'][:18]:18} [ {gdc_checks['curl_tool']['status']} ]\n")
+        rf.write(f"{'curl Diagnostic Tool':35} {'Installed':24} {gdc_checks['curl_tool']['details'][:34]:34} [ {gdc_checks['curl_tool']['status']} ]\n")
         # 14. ss Socket Tool
-        rf.write(f"{'ss Socket Tool':32} {'Installed':18} {gdc_checks['ss_tool']['details'][:18]:18} [ {gdc_checks['ss_tool']['status']} ]\n")
+        rf.write(f"{'ss Socket Tool':35} {'Installed':24} {gdc_checks['ss_tool']['details'][:34]:34} [ {gdc_checks['ss_tool']['status']} ]\n")
         # 15. TPM 2.0 Security Module
-        rf.write(f"{'TPM 2.0 Security Device':32} {'/dev/tpmrm0 exists':18} {gdc_checks['tpm_security']['details'][:18]:18} [ {gdc_checks['tpm_security']['status']} ]\n")
+        rf.write(f"{'TPM 2.0 Security Device':35} {'/dev/tpmrm0 exists':24} {gdc_checks['tpm_security']['details'][:34]:34} [ {gdc_checks['tpm_security']['status']} ]\n")
         
         # Services Section
-        rf.write("-" * 80 + "\n")
+        rf.write("-" * 101 + "\n")
         rf.write("GDC Component Services Status:\n")
-        rf.write(f"{'Service Unit':32} {'Required State':18} {'Current State':18} {'Status':8}\n")
-        rf.write("-" * 80 + "\n")
-        rf.write(f"{'Gitea Git Server':32} {'Active & Running':18} {gdc_checks['gitea_service']['details']:18} [ {gdc_checks['gitea_service']['status']} ]\n")
-        rf.write(f"{'Nexus Package Hub':32} {'Active & Running':18} {gdc_checks['nexus_service']['details']:18} [ {gdc_checks['nexus_service']['status']} ]\n")
-        rf.write(f"{'GDC Provision Service':32} {'Active & Running':18} {gdc_checks['gdc_provision_service']['details']:18} [ {gdc_checks['gdc_provision_service']['status']} ]\n")
-        rf.write(f"{'SSH Terminal Server':32} {'Active & Running':18} {gdc_checks['ssh_service']['details']:18} [ {gdc_checks['ssh_service']['status']} ]\n")
-        rf.write(f"{'Systemd Networkd':32} {'Active & Running':18} {gdc_checks['networkd_service']['details']:18} [ {gdc_checks['networkd_service']['status']} ]\n")
+        rf.write(f"{'Service Unit':35} {'Required State':24} {'Current State':34} {'Status':8}\n")
+        rf.write("-" * 101 + "\n")
+        rf.write(f"{'Gitea Git Server':35} {'Active & Running':24} {gdc_checks['gitea_service']['details']:34} [ {gdc_checks['gitea_service']['status']} ]\n")
+        rf.write(f"{'Nexus Package Hub':35} {'Active & Running':24} {gdc_checks['nexus_service']['details']:34} [ {gdc_checks['nexus_service']['status']} ]\n")
+        rf.write(f"{'GDC Provision Service':35} {'Active & Running':24} {gdc_checks['gdc_provision_service']['details']:34} [ {gdc_checks['gdc_provision_service']['status']} ]\n")
+        rf.write(f"{'SSH Terminal Server':35} {'Active & Running':24} {gdc_checks['ssh_service']['details']:34} [ {gdc_checks['ssh_service']['status']} ]\n")
+        rf.write(f"{'Systemd Networkd':35} {'Active & Running':24} {gdc_checks['networkd_service']['details']:34} [ {gdc_checks['networkd_service']['status']} ]\n")
         
         # Partition space section
-        rf.write("-" * 80 + "\n")
+        rf.write("-" * 101 + "\n")
         rf.write("Storage Directories Free Space partitions:\n")
-        rf.write(f"{'Mount Point':15} {'Free (GiB)':10} {'Required (GiB)':15} {'Status':10} {'Shared By Systems':30}\n")
-        rf.write("-" * 80 + "\n")
+        rf.write(f"{'Mount Point':25} {'Free (GiB)':15} {'Required (GiB)':18} {'Status':10} {'Shared By Systems':32}\n")
+        rf.write("-" * 101 + "\n")
         for p in storage_partition_details:
-            rf.write(f"{p['mount']:15} {p['free_gib']:<10} {p['required_gib']:<15} [ {p['status']} ]     {p['shared_by'][:25]:30}\n")
-        rf.write("-" * 80 + "\n")
+            rf.write(f"{p['mount']:25} {p['free_gib']:<15} {p['required_gib']:<18} [ {p['status']} ]     {p['shared_by'][:30]:32}\n")
+        rf.write("-" * 101 + "\n")
         rf.write(f"OVERALL GDC PRE-FLIGHT COMPLIANCE STATUS: [ {overall_prereq_status} ]\n")
-        rf.write("================================================================================\n")
+        rf.write("=====================================================================================================\n")
 
         # New Section: Disks & LVM Volumes Enumeration
         rf.write("\n")
-        rf.write("================================================================================\n")
-        rf.write("===             GDC STORAGE: DISKS & LVM VOLUMES ENUMERATION                 ===\n")
-        rf.write("================================================================================\n")
+        rf.write("=====================================================================================================\n")
+        rf.write("===             GDC STORAGE: DISKS & LVM VOLUMES ENUMERATION                                      ===\n")
+        rf.write("=====================================================================================================\n")
         lsblk_tree = subprocess.getoutput("lsblk -o NAME,TYPE,SIZE,FSTYPE,MOUNTPOINT 2>/dev/null || lsblk")
         rf.write(lsblk_tree + "\n")
-        rf.write("================================================================================\n")
+        rf.write("=====================================================================================================\n")
 
         # New Section: Networking Interface Details
         rf.write("\n")
-        rf.write("================================================================================\n")
-        rf.write("===                     GDC NETWORKING INTERFACE DETAILS                    ===\n")
-        rf.write("================================================================================\n")
-        rf.write(f"{'Interface':15} {'IP Address':20} {'Link Status':15} {'Gateway':15}\n")
-        rf.write("-" * 80 + "\n")
+        rf.write("=====================================================================================================\n")
+        rf.write("===                     GDC NETWORKING INTERFACE DETAILS                                          ===\n")
+        rf.write("=====================================================================================================\n")
+        rf.write(f"{'Interface':25} {'IP Address':25} {'Link Status':15} {'Gateway':25}\n")
+        rf.write("-" * 90 + "\n")
         
         # Active gateway discovery
         gateways = {}
@@ -1074,10 +1074,10 @@ try:
                 except Exception:
                     pass
                 gw = gateways.get(iface, "None")
-                rf.write(f"{iface:15} {ip:20} {status:15} {gw:15}\n")
+                rf.write(f"{iface:25} {ip:25} {status:15} {gw:25}\n")
         except Exception:
             pass
-        rf.write("-" * 80 + "\n")
+        rf.write("-" * 90 + "\n")
         
         # Egress summary
         mgmt_summary = f"{endpoint_counts.get('management', {}).get('connected', 0)}/25 Connected"
@@ -1085,7 +1085,7 @@ try:
         rf.write("Domain Access Efficacy (Google APIs):\n")
         rf.write(f"  - Management Network:     {mgmt_summary} domains accessed successfully\n")
         rf.write(f"  - Kubernetes VRF Network: {k8s_summary} domains accessed successfully\n")
-        rf.write("================================================================================\n")
+        rf.write("=====================================================================================================\n")
 except Exception as e:
     pass
 
