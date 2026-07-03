@@ -103,6 +103,8 @@ def main():
     parser.add_argument("--interface", required=True, help="Network interface to scan on")
     parser.add_argument("--fallback", default="192.168.9.14", help="Default fallback IP if all are taken (default: 192.168.9.14)")
     parser.add_argument("--output", default="/tmp/allocated_ips.env", help="Output file path (default: /tmp/allocated_ips.env)")
+    parser.add_argument("--machine-cidr", default="192.168.9.11/24", help="Baseline machine subnet CIDR")
+    parser.add_argument("--k8s-cidr", default="192.168.109.8/24", help="Baseline kubernetes subnet CIDR")
     args = parser.parse_args()
 
     # Validate that fallback IP is within the CIDR range to prevent configuration faults
@@ -132,8 +134,8 @@ def main():
             f.write(f"ALLOC_SUFFIX={allocated_suffix}\n")
             f.write(f"MACHINE_IP={selected_ip}\n")
             f.write(f"K8S_IP=192.168.109.{allocated_suffix}\n")
-            f.write(f"MACHINE_IP_CIDR=192.168.9.8/24\n")
-            f.write(f"K8S_IP_CIDR=192.168.109.8/24\n")
+            f.write(f"MACHINE_IP_CIDR={args.machine_cidr}\n")
+            f.write(f"K8S_IP_CIDR={args.k8s_cidr}\n")
         log_info(f"Dynamic IP allocation written to {args.output}")
     except Exception as e:
         print(f"[!] Failed to write output env file: {e}", file=sys.stderr)
