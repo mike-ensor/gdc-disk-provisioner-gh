@@ -225,8 +225,12 @@ echo "" >> "${OUT_DIR}/report.txt"
 echo "--- GDC ANSIBLE PROVISIONING RUN AUDITS ---" >> "${OUT_DIR}/report.txt"
 if [ "${IS_PRIVILEGED}" = "true" ] || groups | grep -qE "systemd-journal|adm|sudo|root"; then
   # Count the number of provisioning attempts
-  runs_started=$(journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c "Starting Ansible Pull" || echo "0")
-  runs_succeeded=$(journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c "SUCCESS: All Ready-Linux Post-Install" || echo "0")
+  runs_started=$(journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c "Starting Ansible Pull" || true)
+  runs_succeeded=$(journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c "SUCCESS: All Ready-Linux Post-Install" || true)
+  
+  # Default to 0 if empty
+  runs_started="${runs_started:-0}"
+  runs_succeeded="${runs_succeeded:-0}"
   
   # Get timestamps of first and last runs
   first_run_time=$(journalctl -u gdc-provision --no-pager -o short-iso 2>/dev/null | grep "Starting Ansible Pull" | head -n 1 | awk '{print $1}' || echo "N/A")
@@ -435,7 +439,7 @@ except Exception:
     threads_per_core = 1
 
 cpu_status = "FAIL"
-if physical_cores >= 2 and threads_per_core >= 2:
+if physical_cores >= 4:
     cpu_status = "OK"
 elif physical_cores >= 2:
     cpu_status = "CAUTION"
@@ -446,9 +450,9 @@ mem_bytes = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
 mem_gib = mem_bytes / (1024**3)
 
 mem_status = "FAIL"
-if mem_gib >= 8.0:
+if mem_gib >= 16.0:
     mem_status = "OK"
-elif mem_gib >= 4.0:
+elif mem_gib >= 8.0:
     mem_status = "CAUTION"
 else:
     mem_status = "FAIL"
@@ -470,17 +474,13 @@ except Exception:
 disk_sizes.sort(reverse=True)
 
 storage_status = "FAIL_MINIMUM"
-if len(disk_sizes) >= 2:
-    if disk_sizes[0] >= 120.0 and disk_sizes[1] >= 240.0:
-        storage_status = "OK"
-    elif disk_sizes[0] >= 120.0:
-        storage_status = "CAUTION"
+total_space = sum(disk_sizes)
+if total_space >= 256.0:
+    storage_status = "OK"
+elif total_space >= 128.0:
+    storage_status = "CAUTION"
 else:
-    total_space = sum(disk_sizes)
-    if total_space >= 360.0:
-        storage_status = "OK"
-    elif total_space >= 120.0:
-        storage_status = "CAUTION"
+    storage_status = "FAIL"
 
 # Record statuses
 report["system_minimum_requirements"] = {
@@ -510,9 +510,8 @@ except Exception:
     pass
 
 # Append results to report.txt
+out_dir_path = "/tmp/gdc-diagnostics" if os.getuid() == 0 else f"/tmp/gdc-diagnostics-{subprocess.getoutput('whoami').strip()}"
 try:
-    # Ensure OUT_DIR is resolved dynamically inside Python as well
-    out_dir_path = "/tmp/gdc-diagnostics" if os.getuid() == 0 else f"/tmp/gdc-diagnostics-{subprocess.getoutput('whoami').strip()}"
     with open(os.path.join(out_dir_path, "report.txt"), "a") as rf:
         rf.write("--- SYSTEM MINIMUM REQUIREMENTS CHECK ---\n")
         rf.write(f"CPU:                                     [{cpu_status}] ({physical_cores} physical cores, {logical_cpus} threads, HT={'enabled' if threads_per_core >= 2 else 'disabled'})\n")
@@ -525,7 +524,7 @@ try:
 except Exception:
     pass
 
-# 6. GDC Endpoints Readiness Audit
+# GDC Endpoints Readiness Audit
 domains = [
     "accounts.google.com",
     "cloudresourcemanager.googleapis.com",
@@ -600,6 +599,12 @@ for name_lbl, ip_addr, dev_lbl in [("management", mgmt_ip, mgmt_iface), ("kubern
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(1.5)
+                # BIND TO DEVICE IF ROOT & TESTING KUBERNETES INTERFACE FOR CORRECT VRF ROUTING
+                if name_lbl == "kubernetes" and os.getuid() == 0:
+                    try:
+                        s.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_BINDTODEVICE", 25), bytes(dev_lbl, "utf-8"))
+                    except Exception:
+                        pass
                 s.bind((ip_addr, 0))
                 s.connect((resolved_ip, 443))
                 s.close()
@@ -634,6 +639,279 @@ try:
         sf.write(f"management:{endpoint_counts.get('management', {}).get('resolved', 0)}:{endpoint_counts.get('management', {}).get('connected', 0)}\n")
         sf.write(f"kubernetes:{endpoint_counts.get('kubernetes', {}).get('resolved', 0)}:{endpoint_counts.get('kubernetes', {}).get('connected', 0)}\n")
 except Exception:
+    pass
+
+# ==============================================================================
+# GDC SOFTWARE-ONLY BARE METAL OS PREREQUISITES AND STANDALONE PRE-FLIGHT AUDIT
+# ==============================================================================
+
+gdc_checks = {}
+
+# 1. cgroupsv2 active (no cgroupsv1 detected)
+cgroupsv1_detected = False
+try:
+    with open("/proc/mounts", "r") as f:
+        for line in f:
+            if "cgroup" in line and "cgroup2" not in line:
+                cgroupsv1_detected = True
+                break
+except Exception:
+    pass
+gdc_checks["cgroupsv2"] = {
+    "status": "FAIL" if cgroupsv1_detected else "PASS",
+    "details": "cgroupsv1 detected in system mounts!" if cgroupsv1_detected else "Pure cgroupsv2 active"
+}
+
+# 2. BPF JIT compiler active
+bpf_jit_enabled = False
+bpf_val = "0"
+try:
+    with open("/proc/sys/net/core/bpf_jit_enable", "r") as f:
+        bpf_val = f.read().strip()
+        if bpf_val == "1":
+            bpf_jit_enabled = True
+except Exception:
+    pass
+if not bpf_jit_enabled:
+    try:
+        kernel_ver = subprocess.getoutput("uname -r").strip()
+        config_path = f"/boot/config-{kernel_ver}"
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                for line in f:
+                    if "CONFIG_BPF_JIT=y" in line:
+                        bpf_jit_enabled = True
+                        bpf_val = "y"
+                        break
+    except Exception:
+        pass
+gdc_checks["bpf_jit_compiler"] = {
+    "status": "PASS" if bpf_jit_enabled else "FAIL",
+    "details": f"BPF JIT compiler is enabled (state={bpf_val})" if bpf_jit_enabled else "BPF JIT compiler is disabled"
+}
+
+# 3. Apt package manager integrity
+apt_check_ok = False
+apt_err_msg = ""
+try:
+    res = subprocess.run(["apt-get", "check"], capture_output=True, text=True)
+    if res.returncode == 0:
+        apt_check_ok = True
+        apt_err_msg = "No package errors"
+    else:
+        apt_err_msg = (res.stderr or res.stdout or "Error return code").strip().split('\n')[0]
+except Exception as e:
+    apt_err_msg = str(e)
+gdc_checks["apt_package_manager"] = {
+    "status": "PASS" if apt_check_ok else "FAIL",
+    "details": apt_err_msg
+}
+
+# 4. UFW status (should be inactive)
+ufw_inactive = True
+ufw_status_str = "inactive"
+try:
+    res = subprocess.run(["ufw", "status"], capture_output=True, text=True)
+    if "Status: active" in res.stdout or "active" in res.stdout.lower():
+        ufw_inactive = False
+        ufw_status_str = "active"
+except Exception:
+    pass
+gdc_checks["ufw_firewall"] = {
+    "status": "PASS" if ufw_inactive else "FAIL",
+    "details": f"UFW firewall is {ufw_status_str}"
+}
+
+# 5. NTP / Time synchronization
+time_synchronized = False
+ntp_details = "Not synchronized"
+try:
+    out = subprocess.getoutput("timedatectl show --property=NTPSynchronized 2>/dev/null").strip()
+    if "NTPSynchronized=yes" in out:
+        time_synchronized = True
+        ntp_details = "Synchronized (timedatectl yes)"
+    else:
+        status_out = subprocess.getoutput("timedatectl status 2>/dev/null")
+        if "System clock synchronized: yes" in status_out or "synchronized: yes" in status_out.lower():
+            time_synchronized = True
+            ntp_details = "Synchronized (System clock synchronized: yes)"
+except Exception:
+    pass
+gdc_checks["time_synchronization"] = {
+    "status": "PASS" if time_synchronized else "FAIL",
+    "details": ntp_details
+}
+
+# 6. Linux inotify limits
+max_instances = 0
+max_watches = 0
+try:
+    with open("/proc/sys/fs/inotify/max_user_instances", "r") as f:
+        max_instances = int(f.read().strip())
+except Exception:
+    pass
+try:
+    with open("/proc/sys/fs/inotify/max_user_watches", "r") as f:
+        max_watches = int(f.read().strip())
+except Exception:
+    pass
+inotify_ok = (max_instances >= 8192) and (max_watches >= 524288)
+gdc_checks["inotify_limits"] = {
+    "status": "PASS" if inotify_ok else "FAIL",
+    "details": f"instances={max_instances} (req>=8192), watches={max_watches} (req>=524288)"
+}
+
+# 7. Iptables backend (uses nf_tables)
+ipt_out = ""
+iptables_ok = False
+try:
+    ipt_out = subprocess.getoutput("iptables --version 2>/dev/null").strip()
+    if "nf_tables" in ipt_out or "nftables" in ipt_out or "nf_table" in ipt_out.lower():
+        iptables_ok = True
+    elif "legacy" in ipt_out:
+        iptables_ok = False
+    else:
+        iptables_ok = True  # Default ok if installed
+except Exception:
+    pass
+gdc_checks["iptables_backend"] = {
+    "status": "PASS" if iptables_ok else "FAIL",
+    "details": f"Iptables backend is compliant: {ipt_out}" if iptables_ok else f"Legacy iptables detected! ({ipt_out})"
+}
+
+# 8. Docker Daemon version >= 20.10.0
+docker_ok = False
+doc_ver = "Unknown"
+try:
+    doc_ver = subprocess.getoutput("docker --version 2>/dev/null").strip()
+    if "version" in doc_ver.lower():
+        parts = doc_ver.lower().split("version")[-1].strip().split(",")
+        ver_str = parts[0].strip().split(" ")[0].strip()
+        ver_parts = [int(p) for p in ver_str.split(".") if p.isdigit()]
+        if ver_parts and ver_parts[0] >= 20:
+            if ver_parts[0] > 20 or (len(ver_parts) > 1 and ver_parts[1] >= 10):
+                docker_ok = True
+except Exception:
+    pass
+gdc_checks["docker_version"] = {
+    "status": "PASS" if docker_ok else "FAIL",
+    "details": f"Docker {doc_ver} matches required >= 20.10.0" if docker_ok else f"Docker version non-compliant: {doc_ver}"
+}
+
+# 9. Clean Installation Paths (/var/lib/etcd and /etc/kubernetes)
+etcd_clean = True
+k8s_clean = True
+if os.path.exists("/var/lib/etcd") and os.listdir("/var/lib/etcd"):
+    etcd_clean = False
+if os.path.exists("/etc/kubernetes") and os.listdir("/etc/kubernetes"):
+    k8s_clean = False
+paths_clean = etcd_clean and k8s_clean
+gdc_checks["clean_installation_paths"] = {
+    "status": "PASS" if paths_clean else "FAIL",
+    "details": "Installation directories /var/lib/etcd and /etc/kubernetes are clean/empty" if paths_clean else f"Dirty directories! etcd_clean={etcd_clean}, k8s_clean={k8s_clean}"
+}
+
+# 10. Storage Directories Space (Partition Groups)
+dir_reqs = [
+    ("/", 4 * 1024**3, "Root Directory"),
+    ("/var/log", 12 * 1024**3, "Fluent-Bit Buffers"),
+    ("/var/opt/buffered-metrics", 10016 * 1024**2, "Buffered Metrics"),
+    ("/var/lib/containerd", 30 * 1024**3, "Containerd Storage"),
+    ("/var/lib/kubelet", 500 * 1024**2, "Kubelet Storage"),
+    ("/var/lib/etcd", 20 * 1024**3, "Etcd Database"),
+    ("/var/lib/etcd-events", 5 * 1024**3, "Etcd Events")
+]
+
+partition_groups = {}
+for path, req_bytes, desc in dir_reqs:
+    cur_path = path
+    while not os.path.exists(cur_path):
+        parent = os.path.dirname(cur_path)
+        if parent == cur_path:
+            break
+        cur_path = parent
+    try:
+        dev_id = os.stat(cur_path).st_dev
+        st = os.statvfs(cur_path)
+        free_bytes = st.f_bavail * st.f_frsize
+    except Exception:
+        dev_id = 0
+        free_bytes = 0
+    
+    if dev_id not in partition_groups:
+        partition_groups[dev_id] = {
+            "free_bytes": free_bytes,
+            "paths": [],
+            "required_sum": 0,
+            "actual_mount": cur_path
+        }
+    partition_groups[dev_id]["paths"].append((path, req_bytes, desc))
+    partition_groups[dev_id]["required_sum"] += req_bytes
+
+storage_partitions_ok = True
+storage_partition_details = []
+for dev_id, group in partition_groups.items():
+    free_gib = group["free_bytes"] / (1024**3)
+    req_gib = group["required_sum"] / (1024**3)
+    status = "PASS" if group["free_bytes"] >= group["required_sum"] else "FAIL"
+    if status == "FAIL":
+        storage_partitions_ok = False
+    paths_str = ", ".join([p[2] for p in group["paths"]])
+    storage_partition_details.append({
+        "mount": group["actual_mount"],
+        "shared_by": paths_str,
+        "free_gib": round(free_gib, 2),
+        "required_gib": round(req_gib, 2),
+        "status": status
+    })
+
+# Overwriting GDC OS Prerequisites check in the report
+report["gdc_os_prerequisites"] = {
+    "software_checks": gdc_checks,
+    "storage_partitions": storage_partition_details,
+    "overall_compliance": "PASS" if (all(c["status"] == "PASS" for c in gdc_checks.values()) and storage_partitions_ok) else "FAIL"
+}
+
+# APPEND THE COMPREHENSIVE TEXT TABLE TO THE BOTTOM OF REPORT.TXT
+overall_prereq_status = report["gdc_os_prerequisites"]["overall_compliance"]
+try:
+    with open(os.path.join(out_dir_path, "report.txt"), "a") as rf:
+        rf.write("\n")
+        rf.write("================================================================================\n")
+        rf.write("===             GDC SOFTWARE-ONLY BARE METAL OS PREREQUISITES               ===\n")
+        rf.write("================================================================================\n")
+        rf.write(f"{'Requirement':32} {'Target':18} {'Actual':18} {'Status':8}\n")
+        rf.write("-" * 80 + "\n")
+        
+        # 1. cgroupsv2
+        rf.write(f"{'cgroupsv2 Active':32} {'No cgroupsv1':18} {gdc_checks['cgroupsv2']['details']:18} [ {gdc_checks['cgroupsv2']['status']} ]\n")
+        # 2. BPF JIT
+        rf.write(f"{'BPF JIT Compiler':32} {'Enabled (1)':18} {('Active (' + bpf_val + ')'):18} [ {gdc_checks['bpf_jit_compiler']['status']} ]\n")
+        # 3. Package manager
+        rf.write(f"{'Apt Package Manager':32} {'Healthy':18} {gdc_checks['apt_package_manager']['details'][:18]:18} [ {gdc_checks['apt_package_manager']['status']} ]\n")
+        # 4. UFW
+        rf.write(f"{'UFW Firewall':32} {'Inactive':18} {gdc_checks['ufw_firewall']['details'][:18]:18} [ {gdc_checks['ufw_firewall']['status']} ]\n")
+        # 5. Time sync
+        rf.write(f"{'System Time Sync':32} {'Synchronized':18} {gdc_checks['time_synchronization']['details'][:18]:18} [ {gdc_checks['time_synchronization']['status']} ]\n")
+        # 6. inotify
+        rf.write(f"{'Linux inotify Limits':32} {'Inst>=8192':18} {('inst=' + str(max_instances)):18} [ {gdc_checks['inotify_limits']['status']} ]\n")
+        rf.write(f"{'':32} {'Watch>=524288':18} {('watch=' + str(max_watches)):18} [ {gdc_checks['inotify_limits']['status']} ]\n")
+        # 7. iptables
+        rf.write(f"{'Iptables Backend':32} {'nf_tables':18} {('compliant' if iptables_ok else 'legacy'):18} [ {gdc_checks['iptables_backend']['status']} ]\n")
+        # 8. docker
+        rf.write(f"{'Docker Version':32} {'>= 20.10.0':18} {(doc_ver.split(' ')[-1] if ' ' in doc_ver else doc_ver)[:18]:18} [ {gdc_checks['docker_version']['status']} ]\n")
+        # 9. Clean Installation paths
+        rf.write(f"{'Clean Installation Paths':32} {'etcd & k8s empty':18} {('Clean' if paths_clean else 'Dirty'):18} [ {gdc_checks['clean_installation_paths']['status']} ]\n")
+        rf.write("-" * 80 + "\n")
+        rf.write("Storage Directories Free Space partitions:\n")
+        rf.write(f"{'Mount Point':15} {'Free (GiB)':10} {'Required (GiB)':15} {'Status':10} {'Shared By Systems':30}\n")
+        rf.write("-" * 80 + "\n")
+        for p in storage_partition_details:
+            rf.write(f"{p['mount']:15} {p['free_gib']:<10} {p['required_gib']:<15} [ {p['status']} ]     {p['shared_by'][:25]:30}\n")
+        rf.write("-" * 80 + "\n")
+        rf.write(f"OVERALL GDC PRE-FLIGHT COMPLIANCE STATUS: [ {overall_prereq_status} ]\n")
+        rf.write("================================================================================\n")
+except Exception as e:
     pass
 
 print(json.dumps(report, indent=2))
