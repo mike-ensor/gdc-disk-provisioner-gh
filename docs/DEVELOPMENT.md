@@ -150,3 +150,61 @@ steps:
     args: ['-c', 'make -C src/build deploy && make -C src/build publish']
 ```
 This guarantees that any syntax errors or build anomalies are identical and reproducible regardless of where the compiler is triggered.
+
+---
+
+## 6. Remote Diagnostics & Stage-Gate Health Monitoring
+
+This project includes a fully automated post-provisioning **Diagnostics & Health-Check Suite** designed to collect, parse, and verify active bare-metal nodes completely headlessly. It maps retrieved system logs directly to the respective **GDC Lifecycle Stages** for high-visibility forensics.
+
+### A. The In-Target Diagnostics Collector (`collect-diagnostics.sh`)
+Baked directly into every custom ISO at `/usr/local/bin/collect-diagnostics`, this local script aggregates core OS telemetry, Netplan configs, systemd journals, LVM mappings, and Google API DNS/TCP audits.
+
+*   **Manual Trigger on Node:**
+    ```bash
+    # SSH into the node and run manually:
+    echo "troubled-marble-150" | sudo -S /usr/local/bin/collect-diagnostics
+    ```
+*   **Artifact Output:**
+    Generates a versioned tarball at `~/gdc-diagnostics-<TIMESTAMP>.tar.gz` and copies it to physical root mount partitions to survive system reboots.
+
+### B. The Remote Orchestrator & Analyzer (`remote_diagnostics.py`)
+Located locally under `test/remote_diagnostics.py`, this Python script automates node health collection across multiple IPs in parallel, pulls and extracts tarballs, executes regex log searches, and compiles a dual-format **Markdown & JSON Report**.
+
+*   **Setup Environment Variable:**
+    ```bash
+    export GDC_PASSWORD="troubled-marble-150"
+    ```
+*   **Run Orchestrator Check:**
+    ```bash
+    ./test/remote_diagnostics.py --ips "192.168.9.235,192.168.9.240" --output-dir "/tmp/gdc-diagnostics"
+    ```
+*   **Main Outcomes Produced:**
+    1.  📄 **`health_report.md` (Human-readable):** Rich, structured Markdown report linking to syntax-highlighted error logs.
+    2.  ⚙️ **`health_report.json` (Machine-parseable):** JSON health status schema, ideal for CI/CD assertions and telemetry collectors.
+
+---
+
+## 7. Stage-Gate Log Diagnostics Reference
+
+When debugging a node, map failures directly to the GDC Lifecycle Stages using the retrieved diagnostic log directory:
+
+### Stage 1: ISO Generation & Build (IaC Build)
+*   **Logs to check:** `logs/casper-md5check.json`, `report.json`
+*   **Verification:** Ensure build banners are correct and the live CD boot integrity checksum is passing.
+
+### Stage 2: Baseline OS & LVM Setup (Boot & Install)
+*   **Logs to check:** `logs/subiquity-server-debug.log`, `logs/curtin-install.log`, `logs/installer-journal.txt`, `dmesg.txt`
+*   **Verification:** Check for disk layout configurations, partition formatting failures, or `apparmor="DENIED"` events during the Subiquity unattended install.
+
+### Stage 3: Ready-Linux Provisioning (Crypto-Sealing & Hardening)
+*   **Logs to check:** `logs/gdc-provision.log`, `logs/ssh.log`, `report.json`
+*   **Verification:** Confirm that first-boot `ansible-pull` playbooks executed to completion with zero failures and generated the completion token `GDC_BOOTSTRAP_COMPLETE_SUCCESSFULLY`.
+
+### Stage 4: GDC Bootstrapping (Local Dependency Integration)
+*   **Logs to check:** `logs/gitea.log`, `logs/nexus.log`, `report.json`
+*   **Verification:** Confirm Port `3000` (Gitea) and Port `8081` (Nexus) respond to HTTP health handshakes and local OCI registries are active.
+
+### Stage 5: Cluster Turnup (Cluster Creation & NodeAgent Deployment)
+*   **Logs to check:** `report.json`, `health_report.md` (mutual pings matrix)
+*   **Verification:** Verify that outbound DNS/TCP connection to Google endpoints succeed and mutual ping connectivity between all node interfaces is 100% active.
