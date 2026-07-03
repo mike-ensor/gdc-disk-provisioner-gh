@@ -157,28 +157,28 @@ This guarantees that any syntax errors or build anomalies are identical and repr
 
 This project includes a fully automated post-provisioning **Diagnostics & Health-Check Suite** designed to collect, parse, and verify active bare-metal nodes completely headlessly. It maps retrieved system logs directly to the respective **GDC Lifecycle Stages** for high-visibility forensics.
 
-### A. The In-Target Diagnostics Collector (`collect-diagnostics.sh`)
-Baked directly into every custom ISO at `/usr/local/bin/collect-diagnostics`, this local script aggregates core OS telemetry, Netplan configs, systemd journals, LVM mappings, and Google API DNS/TCP audits.
+### A. The In-Target Diagnostics Collector (`collect-node-diagnostics.sh`)
+Baked directly into every custom ISO at `/usr/local/bin/collect-node-diagnostics.sh`, this local script aggregates core OS telemetry, Netplan configs, systemd journals, LVM mappings, and Google API DNS/TCP audits.
 
 *   **Manual Trigger on Node:**
     ```bash
     # SSH into the node and run manually:
-    echo "temporary-installer-password-here" | sudo -S /usr/local/bin/collect-diagnostics
+    echo "temporary-installer-password-here" | sudo -S /usr/local/bin/collect-node-diagnostics.sh
     ```
 *   **Artifact Output:**
-    Generates a versioned tarball at `~/gdc-diagnostics-<TIMESTAMP>.tar.gz` and copies it to physical root mount partitions to survive system reboots.
+    Generates a versioned tarball at `~/gdc-node-diagnostics-<TIMESTAMP>.tar.gz` and copies it to physical root mount partitions to survive system reboots.
 
-### B. The Remote Orchestrator & Analyzer (`remote_diagnostics.py`)
-Located locally under `test/remote_diagnostics.py`, this Python script automates node health collection across multiple IPs or subnets in parallel, pulls and extracts tarballs, executes regex log searches, and compiles a dual-format **Markdown & JSON Report**.
+### B. The Remote Orchestrator & Analyzer (`gdc-diagnostics-transmit-analyze.py`)
+Located locally under `bin/gdc-diagnostics-transmit-analyze.py`, this Python script automates node health collection across multiple IPs or subnets in parallel, pulls and extracts tarballs, executes regex log searches, and compiles a dual-format **Markdown & JSON Report**.
 
 *   **Preferred Execution (Automated Subnet Scan):**
     For security hygiene (preventing password history tracking) and dynamic DHCP IP discovery, run with the inline `GDC_PASSWORD` variable and `--scan <CIDR>` option:
     ```bash
-    GDC_PASSWORD="temporary-installer-password-here" ./test/remote_diagnostics.py --scan "192.168.1.230/28" --output-dir "/tmp/gdc-diagnostics"
+    GDC_PASSWORD="temporary-installer-password-here" ./bin/gdc-diagnostics-transmit-analyze.py --scan "192.168.1.230/28" --output-dir "/tmp/gdc-diagnostics"
     ```
 *   **Alternative Execution (Explicit IP List):**
     ```bash
-    GDC_PASSWORD="temporary-installer-password-here" ./test/remote_diagnostics.py --ips "192.168.1.241,192.168.1.242" --output-dir "/tmp/gdc-diagnostics"
+    GDC_PASSWORD="temporary-installer-password-here" ./bin/gdc-diagnostics-transmit-analyze.py --ips "192.168.1.241,192.168.1.242" --output-dir "/tmp/gdc-diagnostics"
     ```
 *   **Main Outcomes Produced:**
     1.  📄 **`health_report.md` (Human-readable):** Rich, structured Markdown report linking to syntax-highlighted error logs.

@@ -1267,7 +1267,7 @@ echo "[-] System Minimum Requirements:         $(cat /tmp/gdc_reqs.status 2>/dev
 # ------------------------------------------------------------------------------
 USER_HOME="${HOME:-/home/temporary-installer}"
 TIMESTAMP=$(date +'%d-%b-%Y-%H-%M' | tr '[:lower:]' '[:upper:]')
-TAR_PATH="${USER_HOME}/gdc-diagnostics-${TIMESTAMP}.tar.gz"
+TAR_PATH="${USER_HOME}/gdc-node-diagnostics-${TIMESTAMP}.tar.gz"
 
 # Format display path replacing local $HOME with '~'
 PRINT_PATH="${TAR_PATH}"
@@ -1285,16 +1285,16 @@ else
   echo "[-] SKIPPED Permission denied ${PRINT_PATH}"
   TAR_SUCCESS=false
   # Fallback to write inside /tmp RAM directory
-  TAR_PATH="/tmp/gdc-diagnostics-${TIMESTAMP}.tar.gz"
-  PRINT_PATH="/tmp/gdc-diagnostics-${TIMESTAMP}.tar.gz"
+  TAR_PATH="/tmp/gdc-node-diagnostics-${TIMESTAMP}.tar.gz"
+  PRINT_PATH="/tmp/gdc-node-diagnostics-${TIMESTAMP}.tar.gz"
   tar -czf "${TAR_PATH}" -C "/tmp" "${OUT_BASE}"
 fi
 
 # Duplicate package target to physical mount partition to survive VM reboots (Guarded)
 if [ "${IS_PRIVILEGED}" = "true" ] && [ -d "/target" ]; then
-  cp "${TAR_PATH}" "/target/gdc-diagnostics-${TIMESTAMP}.tar.gz" || true
+  cp "${TAR_PATH}" "/target/gdc-node-diagnostics-${TIMESTAMP}.tar.gz" || true
   mkdir -p /target/root
-  cp "${TAR_PATH}" "/target/root/gdc-diagnostics-${TIMESTAMP}.tar.gz" || true
+  cp "${TAR_PATH}" "/target/root/gdc-node-diagnostics-${TIMESTAMP}.tar.gz" || true
 fi
 
 # Output final terminal compilation success message matching requested pattern

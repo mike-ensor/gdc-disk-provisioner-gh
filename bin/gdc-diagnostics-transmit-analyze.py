@@ -186,16 +186,16 @@ def main():
         os.makedirs(node_dir, exist_ok=True)
 
         # 1. Execute diagnostics remotely
-        local_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "build", "collect-diagnostics.sh")
-        cmd_run = f"echo '{password}' | sudo -S /usr/local/bin/collect-diagnostics"
+        local_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "collect-node-diagnostics.sh")
+        cmd_run = f"echo '{password}' | sudo -S /usr/local/bin/collect-node-diagnostics.sh"
         if os.path.exists(local_script):
             log_info(f"Syncing latest local diagnostics script to remote node {ip}...")
-            push_cmd = f'sshpass -p "{password}" scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "{local_script}" temporary-installer@{ip}:/tmp/collect-diagnostics.sh'
+            push_cmd = f'sshpass -p "{password}" scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "{local_script}" temporary-installer@{ip}:/tmp/collect-node-diagnostics.sh'
             subprocess.run(push_cmd, shell=True, capture_output=True)
-            log_info("Triggering remote collect-diagnostics script dynamically from /tmp...")
-            cmd_run = f"echo '{password}' | sudo -S bash /tmp/collect-diagnostics.sh"
+            log_info("Triggering remote collect-node-diagnostics script dynamically from /tmp...")
+            cmd_run = f"echo '{password}' | sudo -S bash /tmp/collect-node-diagnostics.sh"
         else:
-            log_info("Triggering remote collect-diagnostics script...")
+            log_info("Triggering remote collect-node-diagnostics script...")
         res_run = run_remote(ip, cmd_run, password)
         if res_run.returncode != 0:
             log_error(f"Failed to execute diagnostics on {ip}: {res_run.stderr}")
@@ -203,8 +203,8 @@ def main():
             continue
 
         # Extract generated filename from stdout
-        # e.g. - Target RAM path: ~/gdc-diagnostics-02-JUL-2026-23-47.tar.gz
-        tar_match = re.search(r"gdc-diagnostics-.*\.tar\.gz", res_run.stdout)
+        # e.g. - Target RAM path: ~/gdc-node-diagnostics-02-JUL-2026-23-47.tar.gz
+        tar_match = re.search(r"gdc-node-diagnostics-.*\.tar\.gz", res_run.stdout)
         if not tar_match:
             log_error(f"Could not locate generated tarball file name in stdout of {ip}!")
             report_data["nodes"][ip] = {"status": "FAILED_COLLECTION", "stdout": res_run.stdout}
@@ -214,7 +214,7 @@ def main():
 
         # Move to remote /tmp/ and set read permissions
         log_info("Staging remote tarball on host /tmp/ and adjusting permissions...")
-        cmd_perm = f"echo 'troubled-marble-150' | sudo -S cp /root/{tar_name} /tmp/ && echo 'troubled-marble-150' | sudo -S chmod 644 /tmp/{tar_name}"
+        cmd_perm = f"echo '{password}' | sudo -S cp /home/temporary-installer/{tar_name} /tmp/ 2>/dev/null || echo '{password}' | sudo -S cp /root/{tar_name} /tmp/ 2>/dev/null || echo '{password}' | sudo -S cp ~/{tar_name} /tmp/ 2>/dev/null; echo '{password}' | sudo -S chmod 644 /tmp/{tar_name}"
         res_perm = run_remote(ip, cmd_perm, password)
         if res_perm.returncode != 0:
             log_error(f"Failed to adjust remote tarball permissions on {ip}: {res_perm.stderr}")
