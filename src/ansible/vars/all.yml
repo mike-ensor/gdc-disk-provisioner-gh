@@ -29,6 +29,8 @@ gdc_core_packages:
   - "auditd"
   - "audispd-plugins"
   - "unattended-upgrades" # Ensured for no-reboot security patching
+  - "net-tools"
+  - "arp-scan"
 
 # Packages to purge for OS slimming & security reduction
 gdc_purge_packages:
