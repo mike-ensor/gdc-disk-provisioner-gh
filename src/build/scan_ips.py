@@ -35,12 +35,27 @@ def get_mac_address(interface):
     # Safety default mock MAC
     return "00:00:00:00:00:00"
 
-def calculate_preferred_ip(mac_addr, hosts):
+def get_dhcp_ip_suffix(interface):
+    try:
+        # Check ip addr show dev <interface>
+        res = subprocess.run(["ip", "-o", "-4", "addr", "show", "dev", interface], capture_output=True, text=True)
+        if res.returncode == 0:
+            match = re.search(r"inet\s+([0-9.]+)", res.stdout)
+            if match:
+                ip = match.group(1)
+                return int(ip.split(".")[-1])
+    except Exception:
+        pass
+    return 0
+
+def calculate_preferred_ip(mac_addr, dhcp_suffix, hosts):
     try:
         last_byte = int(mac_addr.split(":")[-1], 16)
     except Exception:
         last_byte = 0
-    idx = last_byte % len(hosts)
+    
+    # Combined mathematical hashing of both MAC last byte and DHCP suffix
+    idx = (last_byte + dhcp_suffix) % len(hosts)
     return hosts[idx]
 
 def bind_defensive_ip(ip, interface):
@@ -115,10 +130,11 @@ def scan_network_hybrid(cidr, interface):
         sys.exit(2)
 
     mac_addr = get_mac_address(interface)
-    log_info(f"Primary Interface: {interface} | MAC: {mac_addr}")
+    dhcp_suffix = get_dhcp_ip_suffix(interface)
+    log_info(f"Primary Interface: {interface} | MAC: {mac_addr} | DHCP Suffix: {dhcp_suffix}")
 
-    # Compute preferred IP deterministically
-    preferred_ip = calculate_preferred_ip(mac_addr, hosts)
+    # Compute preferred IP deterministically using combined entropy
+    preferred_ip = calculate_preferred_ip(mac_addr, dhcp_suffix, hosts)
     log_info(f"Deterministic preferred IP: {preferred_ip}")
 
     # Pass 1: Jitter and check the preferred IP
@@ -150,7 +166,7 @@ def scan_network_hybrid(cidr, interface):
 
 def main():
     parser = argparse.ArgumentParser(description="GDC Jittered Hybrid IP Suffix Allocator")
-    parser.add_argument("--cidr", default="192.168.9.8/29", help="CIDR candidate pool network (default: 192.168.9.8/29)")
+    parser.add_argument("--cidr", default="192.168.9.8/29", help="CIDR pool network (default: 192.168.9.8/29)")
     parser.add_argument("--interface", required=True, help="Network interface to scan on")
     parser.add_argument("--fallback", default="192.168.9.14", help="Default fallback IP if all are taken (default: 192.168.9.14)")
     parser.add_argument("--output", default="/tmp/allocated_ips.env", help="Output file path (default: /tmp/allocated_ips.env)")
