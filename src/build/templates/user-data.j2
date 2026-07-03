@@ -49,14 +49,14 @@ autoinstall:
       sed -i 's/#\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config
       sed -i 's/#\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config
       systemctl restart ssh || systemctl restart sshd
+      {% endif %}
       
       # Set up the Diagnostics script as a globally executable utility on the Live CD
       if [ -f /cdrom/custom-data/collect-diagnostics.sh ]; then
         cp /cdrom/custom-data/collect-diagnostics.sh /usr/local/bin/collect-diagnostics
         chmod +x /usr/local/bin/collect-diagnostics
-        echo "[DEBUG-ISO] Diagnostics tool registered as globally executable: 'collect-diagnostics'"
+        echo "[-] Diagnostics tool registered as globally executable: 'collect-diagnostics'"
       fi
-      {% endif %}
     - |
       # Dynamic storage configuration generation and merging (GDC-SPEC-002-SEQ)
       echo "=============================================================================="
