@@ -79,7 +79,7 @@ Orchestrates the creation of the bootable media:
 
 ### Stage 4: Test-Artifact (`make test-static` & `make test-dynamic`)
 Runs automated testing loops:
-*   **Static (`make test-static`):** Checks file signatures within the unmounted `.iso` file.
+*   **Static (`make test-static`):** Checks file signatures and extracts and validates structural layout files from the unmounted `.iso` file via `./test/validate_iso_static.py`.
 *   **Dynamic (`make test-dynamic`):** Runs `test/run_qemu_e2e.sh` which:
     1.  Provisions two sparse block devices (250GB System disk, 350GB Data disk).
     2.  Spawns an isolated `swtpm` daemon under a randomized directory to prevent port/socket conflicts.
