@@ -811,7 +811,84 @@ gdc_checks["clean_installation_paths"] = {
     "details": "Installation directories /var/lib/etcd and /etc/kubernetes are clean/empty" if paths_clean else f"Dirty directories! etcd_clean={etcd_clean}, k8s_clean={k8s_clean}"
 }
 
-# 10. Storage Directories Space (Partition Groups)
+# 10. gcloud CLI exists
+gcloud_path = subprocess.getoutput("which gcloud 2>/dev/null").strip() or ("/usr/local/bin/gcloud" if os.path.exists("/usr/local/bin/gcloud") else None)
+gdc_checks["gcloud_cli"] = {
+    "status": "PASS" if gcloud_path else "FAIL",
+    "details": f"Found at {gcloud_path}" if gcloud_path else "Not found on PATH"
+}
+
+# 11. /var/gdc-admin directory exists
+gdc_admin_exists = os.path.isdir("/var/gdc-admin")
+gdc_checks["gdc_admin_dir"] = {
+    "status": "PASS" if gdc_admin_exists else "FAIL",
+    "details": "Directory exists" if gdc_admin_exists else "Missing /var/gdc-admin"
+}
+
+# 12. /var/gdc-admin/keys directory exists
+gdc_keys_exists = os.path.isdir("/var/gdc-admin/keys")
+gdc_checks["gdc_keys_dir"] = {
+    "status": "PASS" if gdc_keys_exists else "FAIL",
+    "details": "Directory exists" if gdc_keys_exists else "Missing keys directory"
+}
+
+# 13. TPM 2.0 Security Module
+tpm_exists = os.path.exists("/dev/tpmrm0")
+gdc_checks["tpm_security"] = {
+    "status": "PASS" if tpm_exists else "FAIL",
+    "details": "TPM 2.0 device present" if tpm_exists else "No /dev/tpmrm0"
+}
+
+# 14. curl tool exists
+curl_path = subprocess.getoutput("which curl 2>/dev/null").strip()
+gdc_checks["curl_tool"] = {
+    "status": "PASS" if curl_path else "FAIL",
+    "details": f"Found at {curl_path}" if curl_path else "Not found on PATH"
+}
+
+# 15. ss tool exists
+ss_path = subprocess.getoutput("which ss 2>/dev/null").strip()
+gdc_checks["ss_tool"] = {
+    "status": "PASS" if ss_path else "FAIL",
+    "details": f"Found at {ss_path}" if ss_path else "Not found on PATH"
+}
+
+# 16. Services Check - Gitea
+gitea_active = report["services"]["gitea"]["active"]
+gdc_checks["gitea_service"] = {
+    "status": "PASS" if gitea_active else "FAIL",
+    "details": "Active & Running" if gitea_active else "Inactive/Failed"
+}
+
+# 17. Services Check - Nexus
+nexus_active = report["services"]["nexus"]["active"]
+gdc_checks["nexus_service"] = {
+    "status": "PASS" if nexus_active else "FAIL",
+    "details": "Active & Running" if nexus_active else "Inactive/Failed"
+}
+
+# 18. Services Check - GDC Provision
+gdc_provision_active = report["services"]["gdc-provision"]["active"]
+gdc_checks["gdc_provision_service"] = {
+    "status": "PASS" if gdc_provision_active else "FAIL",
+    "details": "Active & Running" if gdc_provision_active else "Inactive/Failed"
+}
+
+# 19. Services Check - SSH
+ssh_active = report["services"]["ssh"]["active"]
+gdc_checks["ssh_service"] = {
+    "status": "PASS" if ssh_active else "FAIL",
+    "details": "Active & Running" if ssh_active else "Inactive/Failed"
+}
+
+# 20. Services Check - Systemd Networkd
+networkd_active = report["services"]["systemd-networkd"]["active"]
+gdc_checks["networkd_service"] = {
+    "status": "PASS" if networkd_active else "FAIL",
+    "details": "Active & Running" if networkd_active else "Inactive/Failed"
+}
+
+# 21. Storage Directories Space (Partition Groups)
 dir_reqs = [
     ("/", 4 * 1024**3, "Root Directory"),
     ("/var/log", 12 * 1024**3, "Fluent-Bit Buffers"),
@@ -902,6 +979,32 @@ try:
         rf.write(f"{'Docker Version':32} {'>= 20.10.0':18} {(doc_ver.split(' ')[-1] if ' ' in doc_ver else doc_ver)[:18]:18} [ {gdc_checks['docker_version']['status']} ]\n")
         # 9. Clean Installation paths
         rf.write(f"{'Clean Installation Paths':32} {'etcd & k8s empty':18} {('Clean' if paths_clean else 'Dirty'):18} [ {gdc_checks['clean_installation_paths']['status']} ]\n")
+        
+        # 10. gcloud SDK CLI
+        rf.write(f"{'gcloud SDK CLI':32} {'Exists on PATH':18} {gdc_checks['gcloud_cli']['details'][:18]:18} [ {gdc_checks['gcloud_cli']['status']} ]\n")
+        # 11. GDC Admin Directory
+        rf.write(f"{'GDC Admin Directory':32} {'/var/gdc-admin':18} {gdc_checks['gdc_admin_dir']['details'][:18]:18} [ {gdc_checks['gdc_admin_dir']['status']} ]\n")
+        # 12. GDC Admin Keys
+        rf.write(f"{'GDC Admin Keys':32} {'Keys folder':18} {gdc_checks['gdc_keys_dir']['details'][:18]:18} [ {gdc_checks['gdc_keys_dir']['status']} ]\n")
+        # 13. curl Diagnostic Tool
+        rf.write(f"{'curl Diagnostic Tool':32} {'Installed':18} {gdc_checks['curl_tool']['details'][:18]:18} [ {gdc_checks['curl_tool']['status']} ]\n")
+        # 14. ss Socket Tool
+        rf.write(f"{'ss Socket Tool':32} {'Installed':18} {gdc_checks['ss_tool']['details'][:18]:18} [ {gdc_checks['ss_tool']['status']} ]\n")
+        # 15. TPM 2.0 Security Module
+        rf.write(f"{'TPM 2.0 Security Device':32} {'/dev/tpmrm0 exists':18} {gdc_checks['tpm_security']['details'][:18]:18} [ {gdc_checks['tpm_security']['status']} ]\n")
+        
+        # Services Section
+        rf.write("-" * 80 + "\n")
+        rf.write("GDC Component Services Status:\n")
+        rf.write(f"{'Service Unit':32} {'Required State':18} {'Current State':18} {'Status':8}\n")
+        rf.write("-" * 80 + "\n")
+        rf.write(f"{'Gitea Git Server':32} {'Active & Running':18} {gdc_checks['gitea_service']['details']:18} [ {gdc_checks['gitea_service']['status']} ]\n")
+        rf.write(f"{'Nexus Package Hub':32} {'Active & Running':18} {gdc_checks['nexus_service']['details']:18} [ {gdc_checks['nexus_service']['status']} ]\n")
+        rf.write(f"{'GDC Provision Service':32} {'Active & Running':18} {gdc_checks['gdc_provision_service']['details']:18} [ {gdc_checks['gdc_provision_service']['status']} ]\n")
+        rf.write(f"{'SSH Terminal Server':32} {'Active & Running':18} {gdc_checks['ssh_service']['details']:18} [ {gdc_checks['ssh_service']['status']} ]\n")
+        rf.write(f"{'Systemd Networkd':32} {'Active & Running':18} {gdc_checks['networkd_service']['details']:18} [ {gdc_checks['networkd_service']['status']} ]\n")
+        
+        # Partition space section
         rf.write("-" * 80 + "\n")
         rf.write("Storage Directories Free Space partitions:\n")
         rf.write(f"{'Mount Point':15} {'Free (GiB)':10} {'Required (GiB)':15} {'Status':10} {'Shared By Systems':30}\n")
