@@ -1,0 +1,276 @@
+---
+# ==============================================================================
+# Role Tasks: host_foundations
+# ==============================================================================
+# Tasks 03, 04, 05, and 06 of GDC-SPEC-READY-LINUX.
+# ==============================================================================
+
+# --------------------------------------------------------------------------
+# Task 04: Administrator & Sudoers Provisioning
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-04 | Ensure administrative system group exists"
+  ansible.builtin.group:
+    name: "{{ gdc_admin_group }}"
+    state: present
+    system: true
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-04 | Ensure supplementary docker group exists"
+  ansible.builtin.group:
+    name: "docker"
+    state: present
+    system: true
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-04 | Ensure administrative system user exists"
+  ansible.builtin.user:
+    name: "{{ gdc_admin_user }}"
+    group: "{{ gdc_admin_group }}"
+    groups: "{{ gdc_admin_additional_groups }}"
+    append: true
+    shell: /bin/bash
+    state: present
+    system: true
+    create_home: true
+    home: "/home/{{ gdc_admin_user }}"
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-04 | Set up secure passwordless sudo for gdc-admin"
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ gdc_admin_user }}"
+    owner: root
+    group: root
+    mode: '0440'
+    content: |
+      {{ gdc_admin_user }} ALL=(ALL) NOPASSWD:ALL
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-04 | Configure authorized SSH keys for gdc-admin"
+  ansible.builtin.file:
+    path: "/home/{{ gdc_admin_user }}/.ssh"
+    state: directory
+    owner: "{{ gdc_admin_user }}"
+    group: "{{ gdc_admin_group }}"
+    mode: '0700'
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-04 | Inject administrative public SSH key for gdc-admin"
+  ansible.builtin.copy:
+    dest: "/home/{{ gdc_admin_user }}/.ssh/authorized_keys"
+    owner: "{{ gdc_admin_user }}"
+    group: "{{ gdc_admin_group }}"
+    mode: '0600'
+    content: "{{ ssh_pub_key | default('') }}"
+  when:
+    - ssh_pub_key is defined
+    - ssh_pub_key != ""
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Task 03: Local Workspace Layout Provisioning
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-03 | Ensure GDC installation root exists"
+  ansible.builtin.file:
+    path: "{{ gdc_install_root }}"
+    state: directory
+    owner: "{{ gdc_admin_user }}"
+    group: "{{ gdc_admin_group }}"
+    mode: '0755'
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-03 | Create GDC workspace directories recursively"
+  ansible.builtin.file:
+    path: "{{ gdc_install_root }}/{{ item }}"
+    state: directory
+    owner: "{{ gdc_admin_user }}"
+    group: "{{ gdc_admin_group }}"
+    mode: '0755'
+  loop: "{{ gdc_install_directories }}"
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Task 05: Offline APT Repository Inception
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-05 | Ensure GDC APT keyrings directory exists"
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-05 | Register GDC Nexus trusted keyring from release certs"
+  ansible.builtin.copy:
+    src: /etc/ssl/certs/gdc-release.gpg
+    dest: /etc/apt/keyrings/gdc-nexus.gpg
+    owner: root
+    group: root
+    mode: '0644'
+    remote_src: true
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-05 | Write DEB822 local loopback Nexus sources"
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/gdc-nexus.sources
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Local GDC Hosted (Sideloaded Update) Repository
+      Enabled: yes
+      Types: deb
+      URIs: http://nexus.gdc.local:8081/repository/gdc-apt-hosted/
+      Suites: noble
+      Components: main restricted universe multiverse
+      Signed-By: /etc/apt/keyrings/gdc-nexus.gpg
+      Trusted: yes
+
+      # Local GDC Proxy (Upstream Cache) Repository
+      Enabled: yes
+      Types: deb
+      URIs: http://nexus.gdc.local:8081/repository/gdc-apt-proxy/
+      Suites: noble
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+      Trusted: yes
+  when: deactivate_public_sources | default(true) | bool
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-05 | Enforce Hosted APT Priority Pinning"
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/gdc-nexus-pin
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      Package: *
+      Pin: release o=gdc-apt-hosted
+      Pin-Priority: 1001
+  when: deactivate_public_sources | default(true) | bool
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-05 | Check for active public Ubuntu sources"
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/ubuntu.sources
+  register: public_sources_stat
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-05 | Deactivate public Ubuntu DEB822 sources"
+  ansible.builtin.command: mv /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.bak
+  when:
+    - public_sources_stat.stat.exists
+    - deactivate_public_sources | default(true) | bool
+  changed_when: true
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-05 | Check for standard sources.list"
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list
+  register: standard_sources_stat
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-05 | Deactivate standard sources.list"
+  ansible.builtin.command: mv /etc/apt/sources.list /etc/apt/sources.list.bak
+  when:
+    - standard_sources_stat.stat.exists
+    - deactivate_public_sources | default(true) | bool
+  changed_when: true
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-05 | Restore public Ubuntu DEB822 sources for connected testing"
+  ansible.builtin.command: mv /etc/apt/sources.list.d/ubuntu.sources.bak /etc/apt/sources.list.d/ubuntu.sources
+  args:
+    removes: /etc/apt/sources.list.d/ubuntu.sources.bak
+  when: not (deactivate_public_sources | default(true) | bool)
+  changed_when: true
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-05 | Restore standard sources.list for connected testing"
+  ansible.builtin.command: mv /etc/apt/sources.list.bak /etc/apt/sources.list
+  args:
+    removes: /etc/apt/sources.list.bak
+  when: not (deactivate_public_sources | default(true) | bool)
+  changed_when: true
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Task 06: Package Upgrade & Dependency Installation
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-06 | Perform Complete Offline System Package Upgrade"
+  ansible.builtin.apt:
+    upgrade: safe
+    update_cache: false
+  register: apt_upgrade_result
+  ignore_errors: true
+  when: trigger_system_upgrade | default(false)
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-LOG-CON | Log packages wait to serial console"
+  ansible.builtin.shell: |
+    timeout 3 sh -c 'echo "--- GDC SYSTEM PACKAGES INSTALLATION STARTED ---" > /dev/ttyS0' || true
+  changed_when: false
+  ignore_errors: true
+
+- name: "GDC-TASK-06 | Update APT package cache"
+  ansible.builtin.apt:
+    update_cache: true
+  ignore_errors: true
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-06 | Add upstream Docker GPG key for connected testing"
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: '0644'
+  when: not (deactivate_public_sources | default(true) | bool)
+  tags: ["machine:connected", "external-dependency"]
+
+- name: "GDC-TASK-06 | Add upstream Docker repository for connected testing"
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable"
+    state: present
+    update_cache: false
+  when: not (deactivate_public_sources | default(true) | bool)
+  tags: ["machine:connected", "external-dependency"]
+
+- name: "GDC-TASK-06 | Add upstream Smallstep GPG key for connected testing"
+  ansible.builtin.get_url:
+    url: https://packages.smallstep.com/keys/apt/repo-signing-key.gpg
+    dest: /etc/apt/keyrings/smallstep.asc
+    mode: '0644'
+  when: not (deactivate_public_sources | default(true) | bool)
+  tags: ["machine:connected", "external-dependency"]
+
+- name: "GDC-TASK-06 | Add upstream Smallstep repository for connected testing"
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/smallstep.asc] https://packages.smallstep.com/stable/debian debs main"
+    state: present
+    update_cache: false
+  when: not (deactivate_public_sources | default(true) | bool)
+  tags: ["machine:connected", "external-dependency"]
+
+- name: "GDC-TASK-06 | Update APT package cache after adding repositories"
+  ansible.builtin.apt:
+    update_cache: true
+  ignore_errors: true
+  when: not (deactivate_public_sources | default(true) | bool)
+  tags: ["machine:connected", "external-dependency"]
+
+- name: "GDC-TASK-06 | Check if core packages are already installed"
+  ansible.builtin.command: dpkg -s {{ item }}
+  loop: "{{ gdc_core_packages }}"
+  register: package_check
+  ignore_errors: true
+  changed_when: false
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-06 | Install GDC Configured Post-Install Packages"
+  ansible.builtin.apt:
+    name: "{{ package_check.results | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) | map(attribute='item') | list }}"
+    state: present
+    update_cache: false
+  when: (package_check.results | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) | list | length) > 0
+  register: apt_install_result
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
