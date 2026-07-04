@@ -246,17 +246,7 @@ test-unit: $(VENV_DIR)
 
 test-static: assemble
 	@echo "[-] [Stage: test-artifact] Running static inspection checks..."
-	@if [ ! -f "$(FINAL_ISO_PATH)" ]; then \
-		echo "[!] Error: No compiled ISO found at $(FINAL_ISO_PATH). Run 'make assemble' first." >&2; \
-		exit 1; \
-	fi
-	@echo "  [-] Inspecting compiled ISO directory index structures..."
-	@xorriso -indev "$(FINAL_ISO_PATH)" -find /nocloud -or -find /custom-data &>/dev/null || (echo "[!] ERROR: Injected GGD directory components are missing from output ISO!" >&2; exit 1)
-	@echo "  [-] Verifying that Task 2 dependencies are present in their target paths inside the ISO..."
-	@xorriso -indev "$(FINAL_ISO_PATH)" -find /custom-data/gitea/gitea &>/dev/null || (echo "[!] ERROR: Gitea binary is missing inside compiled ISO!" >&2; exit 1)
-	@xorriso -indev "$(FINAL_ISO_PATH)" -find /custom-data/nexus/jre/bin/java &>/dev/null || (echo "[!] ERROR: Java JRE binary is missing inside compiled ISO!" >&2; exit 1)
-	@xorriso -indev "$(FINAL_ISO_PATH)" -find /custom-data/nexus/nexus-bin/bin/nexus &>/dev/null || (echo "[!] ERROR: Nexus core binary is missing inside compiled ISO!" >&2; exit 1)
-	@echo "  [x] Static file location integrity and dependency path checks passed cleanly."
+	@$(VENV_DIR)/bin/python3 ../../test/validate_iso_static.py
 
 test-dynamic: test-static
 	@echo "[-] [Stage: test-artifact] Launching dynamic headless QEMU E2E test VM..."

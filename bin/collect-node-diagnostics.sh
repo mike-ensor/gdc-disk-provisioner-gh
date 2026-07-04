@@ -222,6 +222,45 @@ if command -v systemctl &>/dev/null; then
 fi
 echo "" >> "${OUT_DIR}/report.txt"
 
+echo "--- GDC ANSIBLE PROVISIONING RUN AUDITS ---" >> "${OUT_DIR}/report.txt"
+if [ "${IS_PRIVILEGED}" = "true" ] || groups | grep -qE "systemd-journal|adm|sudo|root"; then
+  # Count the number of provisioning attempts
+  runs_started=$(journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c "Starting Ansible Pull" || true)
+  runs_succeeded=$(journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c "SUCCESS: All Ready-Linux Post-Install" || true)
+  
+  # Default to 0 if empty
+  runs_started="${runs_started:-0}"
+  runs_succeeded="${runs_succeeded:-0}"
+  
+  # Get timestamps of first and last runs
+  first_run_time=$(journalctl -u gdc-provision --no-pager -o short-iso 2>/dev/null | grep "Starting Ansible Pull" | head -n 1 | awk '{print $1}' || echo "N/A")
+  last_run_time=$(journalctl -u gdc-provision --no-pager -o short-iso 2>/dev/null | grep "Starting Ansible Pull" | tail -n 1 | awk '{print $1}' || echo "N/A")
+  
+  echo "Total Ansible-Pull Provisioning Runs Started: ${runs_started}" >> "${OUT_DIR}/report.txt"
+  echo "Total Ansible-Pull Provisioning Runs Succeeded: ${runs_succeeded}" >> "${OUT_DIR}/report.txt"
+  echo "First Run Timestamp: ${first_run_time}" >> "${OUT_DIR}/report.txt"
+  echo "Last Run Timestamp:  ${last_run_time}" >> "${OUT_DIR}/report.txt"
+  
+  # Determine current status of provisioning service
+  if systemctl is-active --quiet gdc-provision 2>/dev/null; then
+    sub_state=$(systemctl show gdc-provision --property=SubState 2>/dev/null | cut -d'=' -f2)
+    if [ "${sub_state}" = "running" ]; then
+      echo "Current Provisioning Status: IN_PROGRESS (Running)" >> "${OUT_DIR}/report.txt"
+    else
+      if journalctl -u gdc-provision -n 100 --no-pager 2>/dev/null | grep -q "GDC_BOOTSTRAP_COMPLETE_SUCCESSFULLY"; then
+        echo "Current Provisioning Status: COMPLETED (Success)" >> "${OUT_DIR}/report.txt"
+      else
+        echo "Current Provisioning Status: FAILED (Check logs)" >> "${OUT_DIR}/report.txt"
+      fi
+    fi
+  else
+    echo "Current Provisioning Status: INACTIVE (Not started/Failed)" >> "${OUT_DIR}/report.txt"
+  fi
+else
+  echo "Skipped due to lack of permissions to query systemd-journal" >> "${OUT_DIR}/report.txt"
+fi
+echo "" >> "${OUT_DIR}/report.txt"
+
 # ------------------------------------------------------------------------------
 # SECTION 8: GDC LOCAL SERVICE HUB HEALTH CHECKS
 # ------------------------------------------------------------------------------
@@ -400,7 +439,7 @@ except Exception:
     threads_per_core = 1
 
 cpu_status = "FAIL"
-if physical_cores >= 2 and threads_per_core >= 2:
+if physical_cores >= 4:
     cpu_status = "OK"
 elif physical_cores >= 2:
     cpu_status = "CAUTION"
@@ -411,9 +450,9 @@ mem_bytes = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
 mem_gib = mem_bytes / (1024**3)
 
 mem_status = "FAIL"
-if mem_gib >= 8.0:
+if mem_gib >= 16.0:
     mem_status = "OK"
-elif mem_gib >= 4.0:
+elif mem_gib >= 8.0:
     mem_status = "CAUTION"
 else:
     mem_status = "FAIL"
@@ -435,17 +474,13 @@ except Exception:
 disk_sizes.sort(reverse=True)
 
 storage_status = "FAIL_MINIMUM"
-if len(disk_sizes) >= 2:
-    if disk_sizes[0] >= 120.0 and disk_sizes[1] >= 240.0:
-        storage_status = "OK"
-    elif disk_sizes[0] >= 120.0:
-        storage_status = "CAUTION"
+total_space = sum(disk_sizes)
+if total_space >= 256.0:
+    storage_status = "OK"
+elif total_space >= 128.0:
+    storage_status = "CAUTION"
 else:
-    total_space = sum(disk_sizes)
-    if total_space >= 360.0:
-        storage_status = "OK"
-    elif total_space >= 120.0:
-        storage_status = "CAUTION"
+    storage_status = "FAIL"
 
 # Record statuses
 report["system_minimum_requirements"] = {
@@ -475,9 +510,8 @@ except Exception:
     pass
 
 # Append results to report.txt
+out_dir_path = "/tmp/gdc-diagnostics" if os.getuid() == 0 else f"/tmp/gdc-diagnostics-{subprocess.getoutput('whoami').strip()}"
 try:
-    # Ensure OUT_DIR is resolved dynamically inside Python as well
-    out_dir_path = "/tmp/gdc-diagnostics" if os.getuid() == 0 else f"/tmp/gdc-diagnostics-{subprocess.getoutput('whoami').strip()}"
     with open(os.path.join(out_dir_path, "report.txt"), "a") as rf:
         rf.write("--- SYSTEM MINIMUM REQUIREMENTS CHECK ---\n")
         rf.write(f"CPU:                                     [{cpu_status}] ({physical_cores} physical cores, {logical_cpus} threads, HT={'enabled' if threads_per_core >= 2 else 'disabled'})\n")
@@ -490,7 +524,7 @@ try:
 except Exception:
     pass
 
-# 6. GDC Endpoints Readiness Audit
+# GDC Endpoints Readiness Audit
 domains = [
     "accounts.google.com",
     "cloudresourcemanager.googleapis.com",
@@ -565,6 +599,12 @@ for name_lbl, ip_addr, dev_lbl in [("management", mgmt_ip, mgmt_iface), ("kubern
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(1.5)
+                # BIND TO DEVICE IF ROOT & TESTING KUBERNETES INTERFACE FOR CORRECT VRF ROUTING
+                if name_lbl == "kubernetes" and os.getuid() == 0:
+                    try:
+                        s.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_BINDTODEVICE", 25), bytes(dev_lbl, "utf-8"))
+                    except Exception:
+                        pass
                 s.bind((ip_addr, 0))
                 s.connect((resolved_ip, 443))
                 s.close()
@@ -599,6 +639,454 @@ try:
         sf.write(f"management:{endpoint_counts.get('management', {}).get('resolved', 0)}:{endpoint_counts.get('management', {}).get('connected', 0)}\n")
         sf.write(f"kubernetes:{endpoint_counts.get('kubernetes', {}).get('resolved', 0)}:{endpoint_counts.get('kubernetes', {}).get('connected', 0)}\n")
 except Exception:
+    pass
+
+# ==============================================================================
+# GDC SOFTWARE-ONLY BARE METAL OS PREREQUISITES AND STANDALONE PRE-FLIGHT AUDIT
+# ==============================================================================
+
+gdc_checks = {}
+
+# 1. cgroupsv2 active (no cgroupsv1 detected)
+cgroupsv1_detected = False
+try:
+    with open("/proc/mounts", "r") as f:
+        for line in f:
+            if "cgroup" in line and "cgroup2" not in line:
+                cgroupsv1_detected = True
+                break
+except Exception:
+    pass
+gdc_checks["cgroupsv2"] = {
+    "status": "FAIL" if cgroupsv1_detected else "PASS",
+    "details": "cgroupsv1 detected in system mounts!" if cgroupsv1_detected else "Pure cgroupsv2 active"
+}
+
+# 2. BPF JIT compiler active
+bpf_jit_enabled = False
+bpf_val = "0"
+try:
+    with open("/proc/sys/net/core/bpf_jit_enable", "r") as f:
+        bpf_val = f.read().strip()
+        if bpf_val == "1":
+            bpf_jit_enabled = True
+except Exception:
+    pass
+if not bpf_jit_enabled:
+    try:
+        kernel_ver = subprocess.getoutput("uname -r").strip()
+        config_path = f"/boot/config-{kernel_ver}"
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                for line in f:
+                    if "CONFIG_BPF_JIT=y" in line:
+                        bpf_jit_enabled = True
+                        bpf_val = "y"
+                        break
+    except Exception:
+        pass
+gdc_checks["bpf_jit_compiler"] = {
+    "status": "PASS" if bpf_jit_enabled else "FAIL",
+    "details": f"BPF JIT compiler is enabled (state={bpf_val})" if bpf_jit_enabled else "BPF JIT compiler is disabled"
+}
+
+# 3. Apt package manager integrity
+apt_check_ok = False
+apt_err_msg = ""
+try:
+    res = subprocess.run(["apt-get", "check"], capture_output=True, text=True)
+    if res.returncode == 0:
+        apt_check_ok = True
+        apt_err_msg = "No package errors"
+    else:
+        apt_err_msg = (res.stderr or res.stdout or "Error return code").strip().split('\n')[0]
+except Exception as e:
+    apt_err_msg = str(e)
+gdc_checks["apt_package_manager"] = {
+    "status": "PASS" if apt_check_ok else "FAIL",
+    "details": apt_err_msg
+}
+
+# 4. UFW status (should be inactive)
+ufw_inactive = True
+ufw_status_str = "inactive"
+try:
+    res = subprocess.run(["ufw", "status"], capture_output=True, text=True)
+    if "Status: active" in res.stdout or "active" in res.stdout.lower():
+        ufw_inactive = False
+        ufw_status_str = "active"
+except Exception:
+    pass
+gdc_checks["ufw_firewall"] = {
+    "status": "PASS" if ufw_inactive else "FAIL",
+    "details": f"UFW firewall is {ufw_status_str}"
+}
+
+# 5. NTP / Time synchronization
+time_synchronized = False
+ntp_details = "Not synchronized"
+try:
+    out = subprocess.getoutput("timedatectl show --property=NTPSynchronized 2>/dev/null").strip()
+    if "NTPSynchronized=yes" in out:
+        time_synchronized = True
+        ntp_details = "Synchronized (timedatectl yes)"
+    else:
+        status_out = subprocess.getoutput("timedatectl status 2>/dev/null")
+        if "System clock synchronized: yes" in status_out or "synchronized: yes" in status_out.lower():
+            time_synchronized = True
+            ntp_details = "Synchronized (System clock synchronized: yes)"
+except Exception:
+    pass
+gdc_checks["time_synchronization"] = {
+    "status": "PASS" if time_synchronized else "FAIL",
+    "details": ntp_details
+}
+
+# 6. Linux inotify limits
+max_instances = 0
+max_watches = 0
+try:
+    with open("/proc/sys/fs/inotify/max_user_instances", "r") as f:
+        max_instances = int(f.read().strip())
+except Exception:
+    pass
+try:
+    with open("/proc/sys/fs/inotify/max_user_watches", "r") as f:
+        max_watches = int(f.read().strip())
+except Exception:
+    pass
+inotify_ok = (max_instances >= 8192) and (max_watches >= 524288)
+gdc_checks["inotify_limits"] = {
+    "status": "PASS" if inotify_ok else "FAIL",
+    "details": f"instances={max_instances} (req>=8192), watches={max_watches} (req>=524288)"
+}
+
+# 7. Iptables backend (uses nf_tables)
+ipt_out = ""
+iptables_ok = False
+try:
+    ipt_out = subprocess.getoutput("iptables --version 2>/dev/null").strip()
+    if "nf_tables" in ipt_out or "nftables" in ipt_out or "nf_table" in ipt_out.lower():
+        iptables_ok = True
+    elif "legacy" in ipt_out:
+        iptables_ok = False
+    else:
+        iptables_ok = True  # Default ok if installed
+except Exception:
+    pass
+gdc_checks["iptables_backend"] = {
+    "status": "PASS" if iptables_ok else "FAIL",
+    "details": f"Iptables backend is compliant: {ipt_out}" if iptables_ok else f"Legacy iptables detected! ({ipt_out})"
+}
+
+# 8. Docker Daemon version >= 20.10.0
+docker_ok = False
+doc_ver = "Unknown"
+try:
+    doc_ver = subprocess.getoutput("docker --version 2>/dev/null").strip()
+    if "version" in doc_ver.lower():
+        parts = doc_ver.lower().split("version")[-1].strip().split(",")
+        ver_str = parts[0].strip().split(" ")[0].strip()
+        ver_parts = [int(p) for p in ver_str.split(".") if p.isdigit()]
+        if ver_parts and ver_parts[0] >= 20:
+            if ver_parts[0] > 20 or (len(ver_parts) > 1 and ver_parts[1] >= 10):
+                docker_ok = True
+except Exception:
+    pass
+gdc_checks["docker_version"] = {
+    "status": "PASS" if docker_ok else "FAIL",
+    "details": f"Docker {doc_ver} matches required >= 20.10.0" if docker_ok else f"Docker version non-compliant: {doc_ver}"
+}
+
+# 9. Clean Installation Paths (/var/lib/etcd and /etc/kubernetes)
+etcd_clean = True
+k8s_clean = True
+if os.path.exists("/var/lib/etcd") and os.listdir("/var/lib/etcd"):
+    etcd_clean = False
+if os.path.exists("/etc/kubernetes") and os.listdir("/etc/kubernetes"):
+    k8s_clean = False
+paths_clean = etcd_clean and k8s_clean
+gdc_checks["clean_installation_paths"] = {
+    "status": "PASS" if paths_clean else "FAIL",
+    "details": "Installation directories /var/lib/etcd and /etc/kubernetes are clean/empty" if paths_clean else f"Dirty directories! etcd_clean={etcd_clean}, k8s_clean={k8s_clean}"
+}
+
+# 10. gcloud CLI exists
+gcloud_path = subprocess.getoutput("which gcloud 2>/dev/null").strip() or ("/usr/local/bin/gcloud" if os.path.exists("/usr/local/bin/gcloud") else None)
+gdc_checks["gcloud_cli"] = {
+    "status": "PASS" if gcloud_path else "FAIL",
+    "details": f"Found at {gcloud_path}" if gcloud_path else "Not found on PATH"
+}
+
+# 11. /var/gdc-admin directory exists
+gdc_admin_exists = os.path.isdir("/var/gdc-admin")
+gdc_checks["gdc_admin_dir"] = {
+    "status": "PASS" if gdc_admin_exists else "FAIL",
+    "details": "Directory exists" if gdc_admin_exists else "Missing /var/gdc-admin"
+}
+
+# 12. /var/gdc-admin/keys directory exists
+gdc_keys_exists = os.path.isdir("/var/gdc-admin/keys")
+gdc_checks["gdc_keys_dir"] = {
+    "status": "PASS" if gdc_keys_exists else "FAIL",
+    "details": "Directory exists" if gdc_keys_exists else "Missing keys directory"
+}
+
+# 13. TPM 2.0 Security Module
+tpm_exists = os.path.exists("/dev/tpmrm0")
+gdc_checks["tpm_security"] = {
+    "status": "PASS" if tpm_exists else "FAIL",
+    "details": "TPM 2.0 device present" if tpm_exists else "No /dev/tpmrm0"
+}
+
+# 14. curl tool exists
+curl_path = subprocess.getoutput("which curl 2>/dev/null").strip()
+gdc_checks["curl_tool"] = {
+    "status": "PASS" if curl_path else "FAIL",
+    "details": f"Found at {curl_path}" if curl_path else "Not found on PATH"
+}
+
+# 15. ss tool exists
+ss_path = subprocess.getoutput("which ss 2>/dev/null").strip()
+gdc_checks["ss_tool"] = {
+    "status": "PASS" if ss_path else "FAIL",
+    "details": f"Found at {ss_path}" if ss_path else "Not found on PATH"
+}
+
+# 16. Services Check - Gitea
+gitea_active = report["services"]["gitea"]["active"]
+gdc_checks["gitea_service"] = {
+    "status": "PASS" if gitea_active else "FAIL",
+    "details": "Active & Running" if gitea_active else "Inactive/Failed"
+}
+
+# 17. Services Check - Nexus
+nexus_active = report["services"]["nexus"]["active"]
+gdc_checks["nexus_service"] = {
+    "status": "PASS" if nexus_active else "FAIL",
+    "details": "Active & Running" if nexus_active else "Inactive/Failed"
+}
+
+# 18. Services Check - GDC Provision
+gdc_provision_active = report["services"]["gdc-provision"]["active"]
+gdc_checks["gdc_provision_service"] = {
+    "status": "PASS" if gdc_provision_active else "FAIL",
+    "details": "Active & Running" if gdc_provision_active else "Inactive/Failed"
+}
+
+# 19. Services Check - SSH
+ssh_active = report["services"]["ssh"]["active"]
+gdc_checks["ssh_service"] = {
+    "status": "PASS" if ssh_active else "FAIL",
+    "details": "Active & Running" if ssh_active else "Inactive/Failed"
+}
+
+# 20. Services Check - Systemd Networkd
+networkd_active = report["services"]["systemd-networkd"]["active"]
+gdc_checks["networkd_service"] = {
+    "status": "PASS" if networkd_active else "FAIL",
+    "details": "Active & Running" if networkd_active else "Inactive/Failed"
+}
+
+# 21. Storage Directories Space (Partition Groups)
+dir_reqs = [
+    ("/", 4 * 1024**3, "Root Directory"),
+    ("/var/log", 12 * 1024**3, "Fluent-Bit Buffers"),
+    ("/var/opt/buffered-metrics", 10016 * 1024**2, "Buffered Metrics"),
+    ("/var/lib/containerd", 30 * 1024**3, "Containerd Storage"),
+    ("/var/lib/kubelet", 500 * 1024**2, "Kubelet Storage"),
+    ("/var/lib/etcd", 20 * 1024**3, "Etcd Database"),
+    ("/var/lib/etcd-events", 5 * 1024**3, "Etcd Events")
+]
+
+partition_groups = {}
+for path, req_bytes, desc in dir_reqs:
+    cur_path = path
+    while not os.path.exists(cur_path):
+        parent = os.path.dirname(cur_path)
+        if parent == cur_path:
+            break
+        cur_path = parent
+    try:
+        dev_id = os.stat(cur_path).st_dev
+        st = os.statvfs(cur_path)
+        free_bytes = st.f_bavail * st.f_frsize
+    except Exception:
+        dev_id = 0
+        free_bytes = 0
+    
+    if dev_id not in partition_groups:
+        partition_groups[dev_id] = {
+            "free_bytes": free_bytes,
+            "paths": [],
+            "required_sum": 0,
+            "actual_mount": cur_path
+        }
+    partition_groups[dev_id]["paths"].append((path, req_bytes, desc))
+    partition_groups[dev_id]["required_sum"] += req_bytes
+
+storage_partitions_ok = True
+storage_partition_details = []
+for dev_id, group in partition_groups.items():
+    free_gib = group["free_bytes"] / (1024**3)
+    req_gib = group["required_sum"] / (1024**3)
+    status = "PASS" if group["free_bytes"] >= group["required_sum"] else "FAIL"
+    if status == "FAIL":
+        storage_partitions_ok = False
+    paths_str = ", ".join([p[2] for p in group["paths"]])
+    storage_partition_details.append({
+        "mount": group["actual_mount"],
+        "shared_by": paths_str,
+        "free_gib": round(free_gib, 2),
+        "required_gib": round(req_gib, 2),
+        "status": status
+    })
+
+# Overwriting GDC OS Prerequisites check in the report
+report["gdc_os_prerequisites"] = {
+    "software_checks": gdc_checks,
+    "storage_partitions": storage_partition_details,
+    "overall_compliance": "PASS" if (all(c["status"] == "PASS" for c in gdc_checks.values()) and storage_partitions_ok) else "FAIL"
+}
+
+# APPEND THE COMPREHENSIVE TEXT TABLE TO THE BOTTOM OF REPORT.TXT
+overall_prereq_status = report["gdc_os_prerequisites"]["overall_compliance"]
+try:
+    with open(os.path.join(out_dir_path, "report.txt"), "a") as rf:
+        rf.write("\n")
+        rf.write("=====================================================================================================\n")
+        rf.write("===             GDC SOFTWARE-ONLY BARE METAL OS PREREQUISITES                                     ===\n")
+        rf.write("=====================================================================================================\n")
+        rf.write(f"{'Requirement':35} {'Target':24} {'Actual':34} {'Status':8}\n")
+        rf.write("-" * 101 + "\n")
+        
+        # 1. cgroupsv2
+        rf.write(f"{'cgroupsv2 Active':35} {'No cgroupsv1':24} {gdc_checks['cgroupsv2']['details']:34} [ {gdc_checks['cgroupsv2']['status']} ]\n")
+        # 2. BPF JIT
+        rf.write(f"{'BPF JIT Compiler':35} {'Enabled (1)':24} {('Active (' + bpf_val + ')'):34} [ {gdc_checks['bpf_jit_compiler']['status']} ]\n")
+        # 3. Package manager
+        rf.write(f"{'Apt Package Manager':35} {'Healthy':24} {gdc_checks['apt_package_manager']['details'][:34]:34} [ {gdc_checks['apt_package_manager']['status']} ]\n")
+        # 4. UFW
+        rf.write(f"{'UFW Firewall':35} {'Inactive':24} {gdc_checks['ufw_firewall']['details'][:34]:34} [ {gdc_checks['ufw_firewall']['status']} ]\n")
+        # 5. Time sync
+        rf.write(f"{'System Time Sync':35} {'Synchronized':24} {gdc_checks['time_synchronization']['details'][:34]:34} [ {gdc_checks['time_synchronization']['status']} ]\n")
+        # 6. inotify
+        rf.write(f"{'Linux inotify Limits':35} {'Inst>=8192':24} {('inst=' + str(max_instances)):34} [ {gdc_checks['inotify_limits']['status']} ]\n")
+        rf.write(f"{'':35} {'Watch>=524288':24} {('watch=' + str(max_watches)):34} [ {gdc_checks['inotify_limits']['status']} ]\n")
+        # 7. iptables
+        rf.write(f"{'Iptables Backend':35} {'nf_tables':24} {('compliant' if iptables_ok else 'legacy'):34} [ {gdc_checks['iptables_backend']['status']} ]\n")
+        # 8. docker
+        rf.write(f"{'Docker Version':35} {'>= 20.10.0':24} {(doc_ver.split(' ')[-1] if ' ' in doc_ver else doc_ver)[:34]:34} [ {gdc_checks['docker_version']['status']} ]\n")
+        # 9. Clean Installation paths
+        rf.write(f"{'Clean Installation Paths':35} {'etcd & k8s empty':24} {('Clean' if paths_clean else 'Dirty'):34} [ {gdc_checks['clean_installation_paths']['status']} ]\n")
+        
+        # 10. gcloud SDK CLI
+        rf.write(f"{'gcloud SDK CLI':35} {'Exists on PATH':24} {gdc_checks['gcloud_cli']['details'][:34]:34} [ {gdc_checks['gcloud_cli']['status']} ]\n")
+        # 11. GDC Admin Directory
+        rf.write(f"{'GDC Admin Directory':35} {'/var/gdc-admin':24} {gdc_checks['gdc_admin_dir']['details'][:34]:34} [ {gdc_checks['gdc_admin_dir']['status']} ]\n")
+        # 12. GDC Admin Keys
+        rf.write(f"{'GDC Admin Keys':35} {'Keys folder':24} {gdc_checks['gdc_keys_dir']['details'][:34]:34} [ {gdc_checks['gdc_keys_dir']['status']} ]\n")
+        # 13. curl Diagnostic Tool
+        rf.write(f"{'curl Diagnostic Tool':35} {'Installed':24} {gdc_checks['curl_tool']['details'][:34]:34} [ {gdc_checks['curl_tool']['status']} ]\n")
+        # 14. ss Socket Tool
+        rf.write(f"{'ss Socket Tool':35} {'Installed':24} {gdc_checks['ss_tool']['details'][:34]:34} [ {gdc_checks['ss_tool']['status']} ]\n")
+        # 15. TPM 2.0 Security Module
+        rf.write(f"{'TPM 2.0 Security Device':35} {'/dev/tpmrm0 exists':24} {gdc_checks['tpm_security']['details'][:34]:34} [ {gdc_checks['tpm_security']['status']} ]\n")
+        
+        # Services Section
+        rf.write("-" * 101 + "\n")
+        rf.write("GDC Component Services Status:\n")
+        rf.write(f"{'Service Unit':35} {'Required State':24} {'Current State':34} {'Status':8}\n")
+        rf.write("-" * 101 + "\n")
+        rf.write(f"{'Gitea Git Server':35} {'Active & Running':24} {gdc_checks['gitea_service']['details']:34} [ {gdc_checks['gitea_service']['status']} ]\n")
+        rf.write(f"{'Nexus Package Hub':35} {'Active & Running':24} {gdc_checks['nexus_service']['details']:34} [ {gdc_checks['nexus_service']['status']} ]\n")
+        rf.write(f"{'GDC Provision Service':35} {'Active & Running':24} {gdc_checks['gdc_provision_service']['details']:34} [ {gdc_checks['gdc_provision_service']['status']} ]\n")
+        rf.write(f"{'SSH Terminal Server':35} {'Active & Running':24} {gdc_checks['ssh_service']['details']:34} [ {gdc_checks['ssh_service']['status']} ]\n")
+        rf.write(f"{'Systemd Networkd':35} {'Active & Running':24} {gdc_checks['networkd_service']['details']:34} [ {gdc_checks['networkd_service']['status']} ]\n")
+        
+        # Partition space section
+        rf.write("-" * 101 + "\n")
+        rf.write("Storage Directories Free Space partitions:\n")
+        rf.write(f"{'Mount Point':25} {'Free (GiB)':15} {'Required (GiB)':18} {'Status':10} {'Shared By Systems':32}\n")
+        rf.write("-" * 101 + "\n")
+        for p in storage_partition_details:
+            rf.write(f"{p['mount']:25} {p['free_gib']:<15} {p['required_gib']:<18} [ {p['status']} ]     {p['shared_by'][:30]:32}\n")
+        rf.write("-" * 101 + "\n")
+        rf.write(f"OVERALL GDC PRE-FLIGHT COMPLIANCE STATUS: [ {overall_prereq_status} ]\n")
+        rf.write("=====================================================================================================\n")
+
+        # New Section: Disks & LVM Volumes Enumeration
+        rf.write("\n")
+        rf.write("=====================================================================================================\n")
+        rf.write("===             GDC STORAGE: DISKS & LVM VOLUMES ENUMERATION                                      ===\n")
+        rf.write("=====================================================================================================\n")
+        lsblk_tree = subprocess.getoutput("lsblk -o NAME,TYPE,SIZE,FSTYPE,MOUNTPOINT 2>/dev/null || lsblk")
+        rf.write(lsblk_tree + "\n")
+        rf.write("=====================================================================================================\n")
+
+        # New Section: Networking Interface Details
+        rf.write("\n")
+        rf.write("=====================================================================================================\n")
+        rf.write("===                     GDC NETWORKING INTERFACE DETAILS                                          ===\n")
+        rf.write("=====================================================================================================\n")
+        rf.write(f"{'Interface':25} {'IP Address':25} {'Link Status':15} {'Gateway':25}\n")
+        rf.write("-" * 90 + "\n")
+        
+        # Active gateway discovery
+        gateways = {}
+        try:
+            route_out = subprocess.getoutput("ip route show").strip().split('\n')
+            for line in route_out:
+                if "default via" in line:
+                    parts = line.split()
+                    dev = parts[parts.index("dev") + 1] if "dev" in parts else "unknown"
+                    gw = parts[parts.index("via") + 1] if "via" in parts else "unknown"
+                    gateways[dev] = gw
+        except Exception:
+            pass
+
+        try:
+            table20_out = subprocess.getoutput("ip route show table 20").strip().split('\n')
+            for line in table20_out:
+                if "default via" in line:
+                    parts = line.split()
+                    dev = parts[parts.index("dev") + 1] if "dev" in parts else "unknown"
+                    gw = parts[parts.index("via") + 1] if "via" in parts else "unknown"
+                    gateways[dev] = gw
+        except Exception:
+            pass
+
+        try:
+            for iface in sorted(os.listdir("/sys/class/net")):
+                if iface == "lo":
+                    continue
+                ip = "None"
+                try:
+                    ip_out = subprocess.getoutput(f"ip -o -4 addr show dev {iface} 2>/dev/null")
+                    if ip_out:
+                        ip = ip_out.split()[3].split('/')[0]
+                except Exception:
+                    pass
+                status = "DOWN"
+                try:
+                    with open(f"/sys/class/net/{iface}/operstate", "r") as f:
+                        status = f.read().strip().upper()
+                except Exception:
+                    pass
+                gw = gateways.get(iface, "None")
+                rf.write(f"{iface:25} {ip:25} {status:15} {gw:25}\n")
+        except Exception:
+            pass
+        rf.write("-" * 90 + "\n")
+        
+        # Egress summary
+        mgmt_summary = f"{endpoint_counts.get('management', {}).get('connected', 0)}/25 Connected"
+        k8s_summary = f"{endpoint_counts.get('kubernetes', {}).get('connected', 0)}/25 Connected"
+        rf.write("Domain Access Efficacy (Google APIs):\n")
+        rf.write(f"  - Management Network:     {mgmt_summary} domains accessed successfully\n")
+        rf.write(f"  - Kubernetes VRF Network: {k8s_summary} domains accessed successfully\n")
+        rf.write("=====================================================================================================\n")
+except Exception as e:
     pass
 
 print(json.dumps(report, indent=2))
@@ -648,13 +1136,32 @@ else
   echo "[-] Gathering GDC provisioning configurations... Skipped due to lack of permissions" >> "${OUT_DIR}/report.txt"
 fi
 
+# Gcloud CLI configuration and version check
+echo "     [+] GDC SDK check"
+echo "--- GDC GCLOUD CLI CHECK ---" >> "${OUT_DIR}/report.txt"
+if [ -x /usr/local/bin/gcloud ]; then
+  echo "gcloud CLI found at /usr/local/bin/gcloud" >> "${OUT_DIR}/report.txt"
+  echo "gcloud Version Information:" >> "${OUT_DIR}/report.txt"
+  /usr/local/bin/gcloud version >> "${OUT_DIR}/report.txt" 2>&1
+  
+  # Also write it to a dedicated file in logs to make it easy to find in the tarball
+  /usr/local/bin/gcloud version > "${OUT_DIR}/logs/gcloud-version.txt" 2>&1
+else
+  echo "gcloud CLI is not present at /usr/local/bin/gcloud" >> "${OUT_DIR}/report.txt"
+fi
+echo "" >> "${OUT_DIR}/report.txt"
+
 # ------------------------------------------------------------------------------
 # SECTION 14: SYSTEMD JOURNALS EXTRACTION (Guarded)
 # ------------------------------------------------------------------------------
 echo "[-] Saving active systemd service journals..."
 for svc in gdc-provision gitea nexus ssh systemd-networkd; do
   if [ "${IS_PRIVILEGED}" = "true" ] || groups | grep -qE "systemd-journal|adm|sudo|root"; then
-    journalctl -u "${svc}" --no-pager -n 1000 > "${OUT_DIR}/logs/${svc}.log" 2>/dev/null || echo "Unable to query journal for ${svc}." > "${OUT_DIR}/logs/${svc}.log"
+    if [ "${svc}" = "gdc-provision" ]; then
+      journalctl -u "${svc}" --no-pager -n 10000 > "${OUT_DIR}/logs/${svc}.log" 2>/dev/null || echo "Unable to query journal for ${svc}." > "${OUT_DIR}/logs/${svc}.log"
+    else
+      journalctl -u "${svc}" --no-pager -n 1000 > "${OUT_DIR}/logs/${svc}.log" 2>/dev/null || echo "Unable to query journal for ${svc}." > "${OUT_DIR}/logs/${svc}.log"
+    fi
   else
     echo "Service journal: ${svc} | Skipped due to lack of permissions" >> "${OUT_DIR}/report.txt"
   fi
@@ -687,7 +1194,7 @@ K8S_GATEWAY=$(ip route show table 20 default 2>/dev/null | grep 'via' | awk '{pr
 
 # 1. Ping Management Gateway
 ping_mgmt=$(ping -c 2 -W 1 -I "${MGMT_IFACE}" "${MGMT_GATEWAY}" 2>/dev/null || echo "")
-if [[ -n "${ping_mgmt}" ]]; then
+if [[ -n "${ping_mgmt}" ]] && echo "${ping_mgmt}" | grep -q "rtt"; then
   avg_rtt=$(echo "${ping_mgmt}" | tail -n 1 | cut -d'/' -f5)
   echo "     [+] Management Gateway (${MGMT_GATEWAY}): REACHABLE (${avg_rtt}ms)"
   echo "Management Gateway (${MGMT_GATEWAY}) via ${MGMT_IFACE}: REACHABLE (${avg_rtt}ms)" >> "${OUT_DIR}/report.txt"
@@ -696,13 +1203,13 @@ else
   echo "Management Gateway (${MGMT_GATEWAY}) via ${MGMT_IFACE}: UNREACHABLE" >> "${OUT_DIR}/report.txt"
 fi
 
-# 2. Ping Kubernetes Gateway
+# 2. Ping Kubernetes Gateway (expecting REACHABLE within VRF)
 ping_k8s=""
 if [ "${IS_PRIVILEGED}" = "true" ]; then
   ping_k8s=$(ip vrf exec vrf-k8s ping -c 2 -W 1 "${K8S_GATEWAY}" 2>/dev/null || echo "")
 fi
 
-if [[ -n "${ping_k8s}" ]]; then
+if [[ -n "${ping_k8s}" ]] && echo "${ping_k8s}" | grep -q "rtt"; then
   avg_rtt=$(echo "${ping_k8s}" | tail -n 1 | cut -d'/' -f5)
   echo "     [+] Kubernetes Gateway (${K8S_GATEWAY}): REACHABLE (${avg_rtt}ms)"
   echo "Kubernetes Gateway (${K8S_GATEWAY}) via ${K8S_IFACE}: REACHABLE (${avg_rtt}ms)" >> "${OUT_DIR}/report.txt"
@@ -718,7 +1225,7 @@ fi
 
 # 3. Ping Cross-Link Isolation (expecting BLOCKED)
 K8S_IP=$(ip -o addr show dev "${K8S_IFACE}" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || echo "192.168.109.14")
-if ping -c 2 -W 1 -I "${MGMT_IFACE}" "${K8S_IP}" &>/dev/null; then
+if ping -c 2 -W 1 -I "${MGMT_IFACE}" "${K8S_IP}" 2>/dev/null | grep -q "rtt"; then
   echo "     [!] Cross-Link Isolation:  LEAKING (Failed)"
   echo "Cross-Link Isolation between ${MGMT_IFACE} and ${K8S_IFACE}: LEAKING" >> "${OUT_DIR}/report.txt"
 else
@@ -728,7 +1235,7 @@ fi
 
 # 4. Ping Public WAN Access
 ping_wan=$(ping -c 2 -W 1 -I "${MGMT_IFACE}" 8.8.8.8 2>/dev/null || echo "")
-if [[ -n "${ping_wan}" ]]; then
+if [[ -n "${ping_wan}" ]] && echo "${ping_wan}" | grep -q "rtt"; then
   avg_rtt=$(echo "${ping_wan}" | tail -n 1 | cut -d'/' -f5)
   echo "     [+] Public WAN (8.8.8.8):  REACHABLE (${avg_rtt}ms)"
   echo "Public WAN (8.8.8.8) via ${MGMT_IFACE}: REACHABLE (${avg_rtt}ms)" >> "${OUT_DIR}/report.txt"
@@ -760,7 +1267,7 @@ echo "[-] System Minimum Requirements:         $(cat /tmp/gdc_reqs.status 2>/dev
 # ------------------------------------------------------------------------------
 USER_HOME="${HOME:-/home/temporary-installer}"
 TIMESTAMP=$(date +'%d-%b-%Y-%H-%M' | tr '[:lower:]' '[:upper:]')
-TAR_PATH="${USER_HOME}/gdc-diagnostics-${TIMESTAMP}.tar.gz"
+TAR_PATH="${USER_HOME}/gdc-node-diagnostics-${TIMESTAMP}.tar.gz"
 
 # Format display path replacing local $HOME with '~'
 PRINT_PATH="${TAR_PATH}"
@@ -778,16 +1285,16 @@ else
   echo "[-] SKIPPED Permission denied ${PRINT_PATH}"
   TAR_SUCCESS=false
   # Fallback to write inside /tmp RAM directory
-  TAR_PATH="/tmp/gdc-diagnostics-${TIMESTAMP}.tar.gz"
-  PRINT_PATH="/tmp/gdc-diagnostics-${TIMESTAMP}.tar.gz"
+  TAR_PATH="/tmp/gdc-node-diagnostics-${TIMESTAMP}.tar.gz"
+  PRINT_PATH="/tmp/gdc-node-diagnostics-${TIMESTAMP}.tar.gz"
   tar -czf "${TAR_PATH}" -C "/tmp" "${OUT_BASE}"
 fi
 
 # Duplicate package target to physical mount partition to survive VM reboots (Guarded)
 if [ "${IS_PRIVILEGED}" = "true" ] && [ -d "/target" ]; then
-  cp "${TAR_PATH}" "/target/gdc-diagnostics-${TIMESTAMP}.tar.gz" || true
+  cp "${TAR_PATH}" "/target/gdc-node-diagnostics-${TIMESTAMP}.tar.gz" || true
   mkdir -p /target/root
-  cp "${TAR_PATH}" "/target/root/gdc-diagnostics-${TIMESTAMP}.tar.gz" || true
+  cp "${TAR_PATH}" "/target/root/gdc-node-diagnostics-${TIMESTAMP}.tar.gz" || true
 fi
 
 # Output final terminal compilation success message matching requested pattern

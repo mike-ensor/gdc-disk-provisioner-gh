@@ -1,0 +1,420 @@
+---
+# ==============================================================================
+# Role Tasks: service_hubs
+# ==============================================================================
+# Tasks 00, 01, and 02 of GDC-SPEC-READY-LINUX.
+# ==============================================================================
+
+# --------------------------------------------------------------------------
+# Task 00: DNS & Domain Mappings (Vanity Feature)
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-00 | Ensure GDC domain mappings are present in /etc/hosts"
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "127.0.0.1 {{ item }}"
+    state: present
+  loop:
+    - "nexus.gdc.local"
+    - "git.gdc.local"
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Task 01: Wait on Boundary Service Hub Readiness
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-01 | Check Gitea Service Hub Readiness (Port 3000)"
+  ansible.builtin.wait_for:
+    host: git.gdc.local
+    port: 3000
+    state: started
+    timeout: 300
+    msg: "Timeout waiting for Gitea to listen on local port 3000."
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-01 | Check Nexus Service Hub Readiness (Port 8081)"
+  ansible.builtin.wait_for:
+    host: nexus.gdc.local
+    port: 8081
+    state: started
+    timeout: 300
+    msg: "Timeout waiting for Nexus to listen on local port 8081."
+  tags: ["strictly-local"]
+
+- name: "GDC-LOG-CON | Log services ready to serial console"
+  ansible.builtin.shell: |
+    timeout 3 sh -c 'echo "--- GDC LOCAL SERVICE HUBS OPERATIONAL & READY ---" > /dev/ttyS0' || true
+  changed_when: false
+  ignore_errors: true
+
+# --------------------------------------------------------------------------
+# Task 02: Sonatype Nexus Repository Inception
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-02 | Check if Nexus is actually installed"
+  ansible.builtin.stat:
+    path: /var/lib/nexus/nexus-bin/bin/nexus
+  register: nexus_binary_installed
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Wait for Nexus REST API to become responsive"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/status"
+    method: GET
+    status_code: 200
+  register: nexus_api_status
+  until: nexus_api_status.status is defined and nexus_api_status.status == 200
+  retries: 45
+  delay: 5
+  when: nexus_binary_installed.stat.exists
+  check_mode: no
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Check if provision.yml exists"
+  ansible.builtin.stat:
+    path: /etc/gdc/provision.yml
+  register: gdc_provision_file
+  when: nexus_binary_installed.stat.exists
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Load provision.yml variables"
+  ansible.builtin.include_vars:
+    file: /etc/gdc/provision.yml
+  when:
+    - nexus_binary_installed.stat.exists
+    - gdc_provision_file.stat.exists
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Set fact for Nexus target admin password"
+  ansible.builtin.set_fact:
+    nexus_admin_pass: "{{ nexus_admin_password | default('default-password-123') }}"
+  when: nexus_binary_installed.stat.exists
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Test connection to Nexus using configured secure password"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/status"
+    method: GET
+    user: admin
+    password: "{{ nexus_admin_pass }}"
+    force_basic_auth: true
+    status_code: [200, 401]
+  register: nexus_auth_test
+  when: nexus_binary_installed.stat.exists
+  check_mode: no
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Set fact if Nexus is already configured with secure password"
+  ansible.builtin.set_fact:
+    nexus_already_configured: "{{ nexus_auth_test.status == 200 }}"
+  when:
+    - nexus_binary_installed.stat.exists
+    - nexus_auth_test.status is defined
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Check if Nexus admin.password exists (first boot)"
+  ansible.builtin.stat:
+    path: /var/lib/nexus/sonatype-work/nexus3/admin.password
+  register: nexus_admin_password_file
+  when: nexus_binary_installed.stat.exists
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Read initial Nexus admin password"
+  ansible.builtin.slurp:
+    src: /var/lib/nexus/sonatype-work/nexus3/admin.password
+  register: slurped_password_file
+  when:
+    - nexus_binary_installed.stat.exists
+    - nexus_admin_password_file.stat.exists
+    - not (nexus_already_configured | default(false))
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Set initial admin password variable"
+  ansible.builtin.set_fact:
+    nexus_initial_password: "{{ slurped_password_file.content | b64decode | trim }}"
+  when:
+    - nexus_binary_installed.stat.exists
+    - nexus_admin_password_file.stat.exists
+    - not (nexus_already_configured | default(false))
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Reset Nexus admin password to configured secure password"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/security/users/admin/change-password"
+    method: PUT
+    user: admin
+    password: "{{ nexus_initial_password }}"
+    force_basic_auth: true
+    body_format: raw
+    body: "{{ nexus_admin_pass }}"
+    headers:
+      Content-Type: "text/plain"
+    status_code: 204
+  when:
+    - nexus_binary_installed.stat.exists
+    - nexus_admin_password_file.stat.exists
+    - not (nexus_already_configured | default(false))
+  register: password_reset_result
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Get list of existing repositories"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories"
+    method: GET
+    user: admin
+    password: "{{ nexus_admin_pass }}"
+    force_basic_auth: true
+    status_code: 200
+  register: existing_repos_result
+  when: nexus_binary_installed.stat.exists
+  check_mode: no
+  tags: ["strictly-local"]
+  ignore_errors: true
+
+- name: "GDC-TASK-02 | Set fact for existing repositories names"
+  ansible.builtin.set_fact:
+    existing_repos: "{{ existing_repos_result.json | map(attribute='name') | list }}"
+  when:
+    - nexus_binary_installed.stat.exists
+    - existing_repos_result is defined
+    - existing_repos_result.status == 200
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Generate dynamic GPG signing key for local Nexus APT mirror"
+  ansible.builtin.shell: |
+    gpg --batch --passphrase "gdc-nexus-secret" --quick-gen-key "GDC Nexus Signing <builder@gdc.local>" default default 2>/dev/null || true
+  changed_when: false
+  when:
+    - nexus_binary_installed.stat.exists
+    - existing_repos is defined
+    - "'gdc-apt-hosted' not in existing_repos"
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Export GPG private key block"
+  ansible.builtin.shell: |
+    gpg --batch --passphrase "gdc-nexus-secret" --pinentry-mode loopback --export-secret-keys --armor "builder@gdc.local"
+  register: gpg_private_key_export
+  changed_when: false
+  when:
+    - nexus_binary_installed.stat.exists
+    - existing_repos is defined
+    - "'gdc-apt-hosted' not in existing_repos"
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Export GDC Nexus trusted keyring to system"
+  ansible.builtin.shell: |
+    gpg --export "builder@gdc.local" > /etc/apt/keyrings/gdc-nexus.gpg
+  changed_when: true
+  when:
+    - nexus_binary_installed.stat.exists
+    - existing_repos is defined
+    - "'gdc-apt-hosted' not in existing_repos"
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Create gdc-apt-hosted repository"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/apt/hosted"
+    method: POST
+    user: admin
+    password: "{{ nexus_admin_pass }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: "gdc-apt-hosted"
+      online: true
+      storage:
+        blobStoreName: "default"
+        strictContentTypeValidation: true
+        writePolicy: "allow"
+      apt:
+        distribution: "noble"
+      aptSigning:
+        keypair: "{{ gpg_private_key_export.stdout }}"
+        passphrase: "gdc-nexus-secret"
+    status_code: 201
+  when:
+    - nexus_binary_installed.stat.exists
+    - existing_repos is defined
+    - "'gdc-apt-hosted' not in existing_repos"
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Create gdc-apt-proxy repository"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/apt/proxy"
+    method: POST
+    user: admin
+    password: "{{ nexus_admin_pass }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: "gdc-apt-proxy"
+      online: true
+      storage:
+        blobStoreName: "default"
+        strictContentTypeValidation: true
+      proxy:
+        remoteUrl: "http://archive.ubuntu.com/ubuntu/"
+        contentMaxAge: 1440
+        metadataMaxAge: 1440
+      negativeCache:
+        enabled: true
+        timeToLive: 1440
+      apt:
+        distribution: "noble"
+        flat: false
+      httpClient:
+        blocked: false
+        autoBlock: true
+        connection:
+          useTrustStore: false
+    status_code: 201
+  when:
+    - nexus_binary_installed.stat.exists
+    - existing_repos is defined
+    - "'gdc-apt-proxy' not in existing_repos"
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Create gdc-docker-hosted repository"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/docker/hosted"
+    method: POST
+    user: admin
+    password: "{{ nexus_admin_pass }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: "gdc-docker-hosted"
+      online: true
+      storage:
+        blobStoreName: "default"
+        strictContentTypeValidation: true
+        writePolicy: "allow"
+      docker:
+        v1Enabled: false
+        forceBasicAuth: true
+        httpPort: 5002
+    status_code: 201
+  when:
+    - nexus_binary_installed.stat.exists
+    - existing_repos is defined
+    - "'gdc-docker-hosted' not in existing_repos"
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Create gdc-docker-proxy repository"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/docker/proxy"
+    method: POST
+    user: admin
+    password: "{{ nexus_admin_pass }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: "gdc-docker-proxy"
+      online: true
+      storage:
+        blobStoreName: "default"
+        strictContentTypeValidation: true
+      proxy:
+        remoteUrl: "https://registry-1.docker.io"
+        contentMaxAge: 1440
+        metadataMaxAge: 1440
+      negativeCache:
+        enabled: true
+        timeToLive: 1440
+      docker:
+        v1Enabled: false
+        forceBasicAuth: true
+      dockerProxy:
+        indexType: "REGISTRY"
+      httpClient:
+        blocked: false
+        autoBlock: true
+        connection:
+          useTrustStore: false
+    status_code: 201
+  when:
+    - nexus_binary_installed.stat.exists
+    - existing_repos is defined
+    - "'gdc-docker-proxy' not in existing_repos"
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Create gdc-docker-group repository"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/docker/group"
+    method: POST
+    user: admin
+    password: "{{ nexus_admin_pass }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: "gdc-docker-group"
+      online: true
+      storage:
+        blobStoreName: "default"
+        strictContentTypeValidation: true
+      group:
+        memberNames:
+          - "gdc-docker-hosted"
+          - "gdc-docker-proxy"
+      docker:
+        v1Enabled: false
+        forceBasicAuth: true
+        httpPort: 5001
+    status_code: 201
+  when:
+    - nexus_binary_installed.stat.exists
+    - existing_repos is defined
+    - "'gdc-docker-group' not in existing_repos"
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Create gdc-raw-hosted repository"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/raw/hosted"
+    method: POST
+    user: admin
+    password: "{{ nexus_admin_pass }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: "gdc-raw-hosted"
+      online: true
+      storage:
+        blobStoreName: "default"
+        strictContentTypeValidation: true
+        writePolicy: "allow"
+    status_code: 201
+  when:
+    - nexus_binary_installed.stat.exists
+    - existing_repos is defined
+    - "'gdc-raw-hosted' not in existing_repos"
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Create gdc-raw-proxy repository"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/repositories/raw/proxy"
+    method: POST
+    user: admin
+    password: "{{ nexus_admin_pass }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: "gdc-raw-proxy"
+      online: true
+      storage:
+        blobStoreName: "default"
+        strictContentTypeValidation: true
+      proxy:
+        remoteUrl: "https://huggingface.co"
+        contentMaxAge: 1440
+        metadataMaxAge: 1440
+      negativeCache:
+        enabled: true
+        timeToLive: 1440
+      httpClient:
+        blocked: false
+        autoBlock: true
+        connection:
+          useTrustStore: false
+    status_code: 201
+  when:
+    - nexus_binary_installed.stat.exists
+    - existing_repos is defined
+    - "'gdc-raw-proxy' not in existing_repos"
+  tags: ["strictly-local"]
