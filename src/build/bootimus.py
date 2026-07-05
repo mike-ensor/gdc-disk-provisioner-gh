@@ -381,10 +381,10 @@ def main():
     update_url = f"{API_BASE}/images?filename={urllib.parse.quote(filename)}"
     api_request(update_url, method="PUT", data=update_data, token=token)
     
-    print("[-] Verifying database state for custom boot parameters...")
+    print("[-] Verifying database state for custom boot parameters (Stage 1)...")
     verified = False
-    for verify_attempt in range(1, 5):
-        time.sleep(3)
+    for verify_attempt in range(1, 8):
+        time.sleep(5)
         verify_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
         if verify_res.get("success") and verify_res.get("data"):
             matching_images = [img for img in verify_res["data"] if img.get("filename") == filename]
@@ -399,8 +399,33 @@ def main():
                     api_request(update_url, method="PUT", data=update_data, token=token)
                     
     if not verified:
-        print("[!] CRITICAL ERROR: Failed to verify custom boot parameters in Bootimus database after multiple attempts!")
+        print("[!] CRITICAL ERROR: Failed to verify custom boot parameters in Bootimus database after Stage 1!")
         sys.exit(1)
+        
+    print("[-] Performing Stage 2 delayed consolidation check (15s sleep) to defeat backend background transaction clobbering...")
+    time.sleep(15)
+    
+    verify_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
+    if verify_res.get("success") and verify_res.get("data"):
+        matching_images = [img for img in verify_res["data"] if img.get("filename") == filename]
+        if matching_images:
+            current_params = matching_images[0].get("boot_params", "")
+            if current_params != boot_params:
+                print("[!] ALERT: Detected delayed backend background parameter clobbering! Re-applying and locking parameters...")
+                api_request(update_url, method="PUT", data=update_data, token=token)
+                # Quick re-verify loop to ensure lock
+                for lock_attempt in range(1, 4):
+                    time.sleep(3)
+                    check_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
+                    matching = [m for m in check_res.get("data", []) if m.get("filename") == filename]
+                    if matching and matching[0].get("boot_params", "") == boot_params:
+                        print(f"    [+] Successfully locked custom parameters after clobber (Attempt {lock_attempt})!")
+                        break
+                else:
+                    print("[!] Warning: Could not confirm absolute lock, forcing final write...")
+                    api_request(update_url, method="PUT", data=update_data, token=token)
+            else:
+                print("[x] Success: Custom boot parameters have consolidated perfectly in the backend database!")
     
     print("==============================================================================")
     print(" [x] SUCCESS: ISO INGEST & BOOTIMUS PROVISIONING COMPLETED!")

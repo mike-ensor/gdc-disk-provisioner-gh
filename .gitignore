@@ -7,7 +7,6 @@
 Thumbs.db
 
 # Project-specific / generic outputs
-bin/
 dist/
 out/
 build/
