@@ -8,6 +8,16 @@
 
 set -euo pipefail
 
+# Find script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${SCRIPT_DIR}"
+
+# Load ISO_VERSION from the committed VERSION file as the source of truth
+if [[ -f "${PROJECT_ROOT}/VERSION" ]]; then
+    export ISO_VERSION=$(tr -d '[:space:]' < "${PROJECT_ROOT}/VERSION")
+    echo "[-] Loaded ISO_VERSION from VERSION file: ${ISO_VERSION}"
+fi
+
 # ==========================================
 # 1. Enforce Mandatory Environment Variables
 # ==========================================
@@ -29,13 +39,10 @@ if [[ "${MISSING_VARS}" -eq 1 ]]; then
     exit 1
 fi
 
-# Find script directory and project root
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="${SCRIPT_DIR}"
 ENV_FILE="${PROJECT_ROOT}/src/build/build.env"
 
 # ==========================================
-# 2. Auto-Increment ISO_VERSION Patch in .envrc
+# 2. Auto-Increment ISO_VERSION Patch in VERSION and .envrc
 # ==========================================
 if [[ "${ISO_VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
     MAJOR="${BASH_REMATCH[1]}"
@@ -44,7 +51,11 @@ if [[ "${ISO_VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
     NEW_PATCH=$((PATCH + 1))
     NEW_ISO_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
     
-    echo "[-] Auto-incrementing ISO_VERSION in .envrc: ${ISO_VERSION} -> ${NEW_ISO_VERSION}"
+    echo "[-] Auto-incrementing ISO_VERSION: ${ISO_VERSION} -> ${NEW_ISO_VERSION}"
+    
+    # Update VERSION file
+    echo "${NEW_ISO_VERSION}" > "${PROJECT_ROOT}/VERSION"
+    echo "[-] Successfully updated VERSION file to ${NEW_ISO_VERSION}."
     
     # Update .envrc on disk
     ENVRC_FILE="${PROJECT_ROOT}/.envrc"

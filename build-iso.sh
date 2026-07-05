@@ -20,6 +20,11 @@ fi
 # shellcheck source=/dev/null
 source "${ENVRC_FILE}"
 
+# Sync with VERSION file as the main source of truth
+if [[ -f "${PROJECT_ROOT}/VERSION" ]]; then
+    export ISO_VERSION=$(tr -d '[:space:]' < "${PROJECT_ROOT}/VERSION")
+fi
+
 echo "=============================================================================="
 echo -e "\033[93m\033[1m[ISO-JOB] LOADING ACTIVE WORKSPACE ENVIRONMENT...\033[0m"
 echo "=============================================================================="

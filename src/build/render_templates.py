@@ -202,6 +202,25 @@ if __name__ == "__main__":
     env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
     env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
     
+    env['persist_add_hosts'] = env.get('PERSIST_ADD_HOSTS', 'false').lower() == 'true'
+    
+    # Parse git-ignored add-hosts file for custom DNS mappings
+    add_hosts_lines = []
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_src_dir = os.path.dirname(script_dir)
+    add_hosts_path = os.path.join(script_dir, 'add-hosts')
+    if not os.path.exists(add_hosts_path):
+        add_hosts_path = os.path.join(project_src_dir, 'add-hosts')
+        
+    if os.path.exists(add_hosts_path):
+        with open(add_hosts_path, 'r') as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped and not stripped.startswith('#'):
+                    add_hosts_lines.append(stripped)
+                    
+    env['add_hosts_lines'] = add_hosts_lines
+    
     # Map and self-heal the temporary installer credential password hash
     env['password_hash'] = env.get('PASSWORD_HASH', '')
     if not env['password_hash'] and env.get('TEMPORARY_INSTALLER_PASSWORD'):

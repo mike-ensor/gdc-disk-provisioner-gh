@@ -100,6 +100,8 @@ class TestGgdTemplateHydration(unittest.TestCase):
         env['k8s_dns'] = env.get('K8S_DNS', '')
         env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
         env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
+        env['persist_add_hosts'] = False
+        env['add_hosts_lines'] = []
         
         # storage config parameters
         env['single_disk'] = env.get('SINGLE_DISK') == 'true'
@@ -318,6 +320,39 @@ class TestGgdTemplateHydration(unittest.TestCase):
         parsed = yaml.safe_load(rendered)
         self.assertEqual(parsed.get("autoinstall", {}).get("version"), 1)
         self.assertIn("python3 /cdrom/custom-data/configure_netplan.py", rendered)
+
+    def test_user_data_with_add_hosts(self):
+        """Validates that add-hosts mappings are correctly rendered and injected conditionally."""
+        # Test Case 1: Active add-hosts, persist_add_hosts is False
+        ctx = self.get_context()
+        ctx['add_hosts_lines'] = ['1.2.3.4 foo.bar.com', '5.6.7.8 baz.qux.com']
+        ctx['persist_add_hosts'] = False
+        
+        template = self.jinja_env.get_template('user-data.j2')
+        rendered = template.render(ctx)
+        
+        self.assert_no_unrendered_jinja_or_placeholders(rendered, "user-data-add-hosts")
+        
+        # Should be present in early-commands (installer system)
+        self.assertIn('echo "1.2.3.4 foo.bar.com" >> /etc/hosts', rendered)
+        self.assertIn('echo "5.6.7.8 baz.qux.com" >> /etc/hosts', rendered)
+        
+        # Should NOT be present in late-commands (target system)
+        self.assertNotIn('echo "1.2.3.4 foo.bar.com" >> /target/etc/hosts', rendered)
+        self.assertNotIn('echo "5.6.7.8 baz.qux.com" >> /target/etc/hosts', rendered)
+        
+        # Test Case 2: Active add-hosts, persist_add_hosts is True
+        ctx_persist = self.get_context()
+        ctx_persist['add_hosts_lines'] = ['1.2.3.4 foo.bar.com', '5.6.7.8 baz.qux.com']
+        ctx_persist['persist_add_hosts'] = True
+        
+        rendered_persist = template.render(ctx_persist)
+        
+        # Should be present in both
+        self.assertIn('echo "1.2.3.4 foo.bar.com" >> /etc/hosts', rendered_persist)
+        self.assertIn('echo "5.6.7.8 baz.qux.com" >> /etc/hosts', rendered_persist)
+        self.assertIn('echo "1.2.3.4 foo.bar.com" >> /target/etc/hosts', rendered_persist)
+        self.assertIn('echo "5.6.7.8 baz.qux.com" >> /target/etc/hosts', rendered_persist)
 
     # ==========================================================================
     # TEST SUITE 4: Netplan and python-driven runtime hydrator tests (Crossover)

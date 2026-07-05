@@ -43,6 +43,8 @@ skills/
 .envrc
 local.env
 *.local.env
+add-hosts
+src/build/add-hosts
 
 # Local cache and workspace directories
 .cache/

@@ -23,6 +23,10 @@ The build engine utilizes two configuration files in `src/build/` to drive varia
     Holds non-sensitive default parameters (e.g. `SOURCE_ISO_URL`, default `ANSIBLE_PULL_SCHEDULE`, default GCS buckets, and required binary download URLs/SHA-256 hashes).
 *   **`local.env` (Personal overrides - Git-Ignored):**
     Used to inject secure passwords (`TEMPORARY_INSTALLER_PASSWORD`), administrative SSH keys (`ADMIN_SSH_PUB_KEYS`), network overrides, or target VLAN identifiers.
+*   **`add-hosts` (Custom DNS overrides - Git-Ignored):**
+    Placing an `/etc/hosts`-formatted file named `add-hosts` under `src/build/` allows injecting custom host mappings during deployment.
+    By default, these mappings are only injected into the installer's live CD environment (`/etc/hosts`) in `early-commands` to bypass boot-time DNS resolutions.
+    If you also want these mappings to persist inside the installed target operating system's persistent `/etc/hosts` file post-reboot, define `PERSIST_ADD_HOSTS=true` inside `local.env` or `build.env`.
     
 *Note on Secret Hygiene: Plain-text secrets or keys must never be committed to Git. The build system automatically reads plain text from `local.env`, hashes credentials dynamically using salted SHA-512 crypt algorithms at build-time, and injects only the secure hashes into target configurations.*
 

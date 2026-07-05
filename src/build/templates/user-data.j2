@@ -119,6 +119,13 @@ autoinstall:
       echo "127.0.0.1 security.ubuntu.com" >> /etc/hosts
       echo "127.0.0.1 geoip.ubuntu.com" >> /etc/hosts
       echo "127.0.0.1 geoip.canonical.com" >> /etc/hosts
+      
+      # Append custom local host mappings from add-hosts
+      {% if add_hosts_lines %}
+      {% for line in add_hosts_lines %}
+      echo "{{ line }}" >> /etc/hosts
+      {% endfor %}
+      {% endif %}
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Verifying connectivity to GDC Installation Companion"
@@ -334,7 +341,14 @@ autoinstall:
       
       # Ensure local hostname and GDC companion gateway mappings are present in /etc/hosts to prevent resolver hangs on boot
       echo "127.0.1.1 ${NEW_HOSTNAME}" >> /target/etc/hosts
-      echo "192.168.120.2 gdc-companion.ensor-labs.com" >> /target/etc/hosts
+      echo "{{ companion_ip }} {{ companion_host }}" >> /target/etc/hosts
+      
+      # Append custom local host mappings from add-hosts to target OS
+      {% if persist_add_hosts and add_hosts_lines %}
+      {% for line in add_hosts_lines %}
+      echo "{{ line }}" >> /target/etc/hosts
+      {% endfor %}
+      {% endif %}
       
       # Purge cloud-init and write the official disabled trigger file to prevent first-boot stalls
       logger -t gdc-provisioner "[GOAL] Disabling cloud-init on target OS"
