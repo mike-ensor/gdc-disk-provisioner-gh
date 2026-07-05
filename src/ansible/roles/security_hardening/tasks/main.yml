@@ -204,11 +204,22 @@
     - tpm_device_stat.stat.exists
     - (cryptenroll_uefi_result is succeeded and not cryptenroll_uefi_result.skipped | default(false)) or (cryptenroll_bios_result is succeeded and not cryptenroll_bios_result.skipped | default(false))
 
+- name: "GDC-TPM-SEAL | Ensure CRYPTENROLL is enabled in cryptsetup-initramfs conf-hook"
+  ansible.builtin.lineinfile:
+    path: /etc/cryptsetup-initramfs/conf-hook
+    regexp: '^#?CRYPTENROLL='
+    line: 'CRYPTENROLL=y'
+    create: yes
+  register: cryptenroll_hook_configured
+  when:
+    - tpm_device_stat.stat.exists
+    - (cryptenroll_uefi_result is succeeded and not cryptenroll_uefi_result.skipped | default(false)) or (cryptenroll_bios_result is succeeded and not cryptenroll_bios_result.skipped | default(false))
+
 - name: "GDC-TPM-SEAL | Rebuild initramfs to pack active TPM unlock hooks"
   ansible.builtin.command: update-initramfs -u -k all
   when:
     - tpm_device_stat.stat.exists
-    - crypttab_reconfigured is defined and crypttab_reconfigured.changed
+    - (crypttab_reconfigured is defined and crypttab_reconfigured.changed) or (cryptenroll_hook_configured is defined and cryptenroll_hook_configured.changed)
 
 - name: "GDC-TPM-SEAL | Purge insecure temporary passcode slot from LUKS keyslots"
   ansible.builtin.shell: |

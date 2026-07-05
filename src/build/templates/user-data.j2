@@ -279,10 +279,15 @@ autoinstall:
         if ! grep -q "KEYFILE_PATTERN" /target/etc/cryptsetup-initramfs/conf-hook; then
           echo "KEYFILE_PATTERN=\"/etc/keys/*\"" >> /target/etc/cryptsetup-initramfs/conf-hook
         fi
-        logger -t gdc-provisioner "[GOAL] Configured KEYFILE_PATTERN in cryptsetup-initramfs conf-hook"
+        sed -i 's/#\?CRYPTENROLL=.*/CRYPTENROLL=y/' /target/etc/cryptsetup-initramfs/conf-hook
+        if ! grep -q "CRYPTENROLL" /target/etc/cryptsetup-initramfs/conf-hook; then
+          echo "CRYPTENROLL=y" >> /target/etc/cryptsetup-initramfs/conf-hook
+        fi
+        logger -t gdc-provisioner "[GOAL] Configured KEYFILE_PATTERN and CRYPTENROLL in cryptsetup-initramfs conf-hook"
       else
         echo "KEYFILE_PATTERN=\"/etc/keys/*\"" > /target/etc/cryptsetup-initramfs/conf-hook
-        logger -t gdc-provisioner "[GOAL] Created cryptsetup-initramfs conf-hook with KEYFILE_PATTERN"
+        echo "CRYPTENROLL=y" >> /target/etc/cryptsetup-initramfs/conf-hook
+        logger -t gdc-provisioner "[GOAL] Created cryptsetup-initramfs conf-hook with KEYFILE_PATTERN and CRYPTENROLL"
       fi
       echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /tmp/pass.txt
       LUKS_DEVS=$(blkid -t TYPE=crypto_LUKS -o device)
