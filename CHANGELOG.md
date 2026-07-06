@@ -4,6 +4,20 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.1.21] - 2026-07-06
+
+### Added
+- **Centralized Version Tracker (`VERSION`):** Created a central, Git-tracked `VERSION` file in the project root to manage the active ISO version. Upgraded `build.sh` and `build-iso.sh` to read and auto-increment the version in both `VERSION` and `.envrc` in lock-step.
+- **Git-Ignored Host Overlay (`add-hosts`):** Supported an `/etc/hosts`-formatted file at `src/build/add-hosts` allowing custom DNS overrides to be injected during template hydration without leaking local setups to git.
+- **Flexible Host Persistence (`PERSIST_ADD_HOSTS`):** Introduced a configurable boolean mapping custom host overrides strictly to the live installer (`early-commands` only) or persisting them into `/target/etc/hosts` (`late-commands`) post-boot.
+- **Automated Ingestion & Diagnostics summary table:** Upgraded `bin/gdc-diagnostics-transmit-analyze.py` to automatically upload extracted node tarballs to the `gdc-companion` API. Added active port-22 scans to identify possible GDC nodes stuck in pre-boot, print their console crash cart snippets, and output a beautifully aligned console ASCII summary table representing all diagnostic stages.
+- **Bootimus Safety Locks & Delayed Verification:** Added a software-enforced API lock in `src/build/bootimus.py` that temporarily disables newly scanned ISOs during kernel extraction to prevent premature PXE boots. Implemented a Stage 2 delayed check (15-second background transaction sleep) to ensure the server-side sync does not clobber custom autoinstall parameters.
+
+### Fixed
+- **TPM 2.0 Boot-Unlocking:** Explicitly wrote `CRYPTENROLL=y` to the target `/etc/cryptsetup-initramfs/conf-hook` during both the CD late-commands phase and the post-boot security hardening playbook. This ensures that the rebuilt `initramfs` ramdisk compiles systemd's cryptenroll and TPM2 TSS libraries, completely resolving the fatal unsealing boot-loop issue (`ignoring unknown option 'tpm2-device'`).
+- **Subiquity Storage Curtin formatting Crash:** Patched `src/build/templates/storage_config.j2` to add `wipe: superblock-recursive` to both system and data disk storage configurations. This recursively wipes stale LUKS, LVM, or superblock signatures before partitioning, preventing Curtin from trying to re-open locked containers on re-runs.
+- **Crash Cart CLI Helper:** Updated `bin/bootloader-crash-cart.sh` to immediately print copy-pasteable root shell commands (without `sudo`) and create `/etc/ssh/sshd_config.d/99-root-ssh.conf` to override default systemd-sshd rules.
+
 ## [0.1.11] - 2026-07-01
 
 ### Added
