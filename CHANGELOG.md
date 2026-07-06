@@ -4,6 +4,12 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.1.23] - 2026-07-06
+
+### Fixed
+- **TPM 2.0 Boot Unlocking Regression (`systemd-initramfs`):** Identified and resolved a critical boot failure where rebooting a TPM-sealed GDC node gets stuck at the `Please unlock disk crypt-system` console prompt, complaining `cryptsetup: WARNING: crypt-system: ignoring unknown option 'tpm2-device'`. The root cause is that Ubuntu's default `initramfs-tools` uses standard POSIX shell-based scripts during boot, which do not recognize systemd-specific options like `tpm2-device`. Resolved this by installing the `systemd-initramfs` package in `gdc_core_packages` (via `src/ansible/vars/all.yml`). This switches the initramfs to use a systemd-based boot runtime, ensuring that `systemd-cryptsetup` and `systemd-cryptenroll` natively parse `/etc/crypttab`, communicate with the physical TPM 2.0 chip, and automatically unlock the disk on boot.
+- **Node Recovery Utility (`recover-tpm-unseal.sh`):** Created an automated recovery script in `bin/recover-tpm-unseal.sh` that can be run from the Live CD of a bricked node. The script unlocks the LUKS partition using the motherboard TPM, mounts root and boot partitions, chroots into the environment, installs `systemd-initramfs` and `cryptsetup-initramfs`, and regenerates the boot ramdisks with correct systemd and TPM2 TSS hooks.
+
 ## [0.1.21] - 2026-07-06
 
 ### Added
