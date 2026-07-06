@@ -110,7 +110,81 @@ The final promotion gate. Marks a specific tested ISO candidate as officially pr
 
 ---
 
-## 5. Local Workstation vs. CI/CD Cloud Build Alignment
+---
+
+## 5. Build Scenarios & Compilation Workflows
+
+Depending on whether you are initializing a new build environment, developing templates, or performing quality assurance audits on the PXE server, you can trigger one of three structured pipelines.
+
+### Scenario A: Build All (Complete Pipeline)
+*   **Trigger:** `./build-builder.sh` followed by `./build-iso.sh`
+*   **Use Case:** Compiling a new `iso-builder` compilation environment container (e.g., when dependencies, python compilers, or shell checkers change) and then building and deploying a fresh ISO.
+*   **Workflow:**
+
+```mermaid
+graph TD
+    Start([Start: Build All]) --> Step1[Run ./build-builder.sh]
+    Step1 --> Step2[Increment BUILD_VERSION in .envrc]
+    Step2 --> Step3[Compile iso-builder image locally / cloud]
+    Step3 --> Step4[Push iso-builder to Google Artifact Registry]
+    Step4 --> Step5[Run ./build-iso.sh]
+    Step5 --> Step6[Increment ISO_VERSION in .envrc & VERSION]
+    Step6 --> Step7[Trigger Google Cloud Build asynchronously using new iso-builder]
+    Step7 --> Step8[Poll Cloud Build status until SUCCESS]
+    Step8 --> Step9[Run bootimus.py to ingest, extract, & register ISO on PXE]
+    Step9 --> Step10[Run check-bootimus-settings.py to verify autoinstall compliance]
+    Step10 --> End([Finish: Environment Ready & Verified])
+
+    style Step1 fill:#f9f,stroke:#333,stroke-width:2px
+    style Step5 fill:#bbf,stroke:#333,stroke-width:2px
+    style Step10 fill:#bfb,stroke:#333,stroke-width:2px
+```
+
+---
+
+### Scenario B: Build ISO (Most Common Flow)
+*   **Trigger:** `./build-iso.sh`
+*   **Use Case:** **The primary developer loop.** Used to compile a new version of the GDC installer ISO using pre-compiled, cached container runtimes, automatically registering it and locking it in secure, non-interactive mode on the Bootimus server.
+*   **Workflow:**
+
+```mermaid
+graph TD
+    Start([Start: Build ISO]) --> Step1[Run ./build-iso.sh]
+    Step1 --> Step2[Increment ISO_VERSION in .envrc & VERSION]
+    Step2 --> Step3[Trigger Google Cloud Build using existing cached iso-builder]
+    Step3 --> Step4[Poll Cloud Build status until SUCCESS]
+    Step4 --> Step5[Run bootimus.py to ingest, extract, & register ISO on PXE]
+    Step5 --> Step6[Run check-bootimus-settings.py to verify autoinstall compliance]
+    Step6 --> End([Finish: ISO Registered & Verified Non-Interactive])
+
+    style Step1 fill:#bbf,stroke:#333,stroke-width:2px
+    style Step6 fill:#bfb,stroke:#333,stroke-width:2px
+```
+
+---
+
+### Scenario C: Verify Bootimus (Standalone Verification)
+*   **Trigger:** `python3 bin/check-bootimus-settings.py`
+*   **Use Case:** Standalone verification audit. Connects directly to the Bootimus API to verify that all registered GDC target images are locked into secure, non-interactive autoinstall configurations, preventing any node from entering interactive console prompts.
+*   **Workflow:**
+
+```mermaid
+graph TD
+    Start([Start: Verify Bootimus]) --> Step1[Run python3 bin/check-bootimus-settings.py]
+    Step1 --> Step2[Authenticate with Bootimus API using Infisical Creds]
+    Step2 --> Step3[Retrieve all active images from /api/images]
+    Step3 --> Step4[For each Ubuntu Image: Verify 'autoinstall' and 'ds=nocloud-net' in boot_params]
+    Step4 --> Decision{Any missing / vulnerable?}
+    Decision -- Yes --> Fail[Exit 1: Raise Warning and Alert]
+    Decision -- No --> Success[Exit 0: Print Verification success table]
+
+    style Success fill:#bfb,stroke:#333,stroke-width:2px
+    style Fail fill:#fbb,stroke:#333,stroke-width:2px
+```
+
+---
+
+## 6. Local Workstation vs. CI/CD Cloud Build Alignment
 
 To prevent drift between developer environments and automated release systems, **both local and remote runs execute the exact same Stage-Gate targets**.
 
@@ -157,7 +231,7 @@ This guarantees that any syntax errors or build anomalies are identical and repr
 
 ---
 
-## 6. Remote Diagnostics & Stage-Gate Health Monitoring
+## 7. Remote Diagnostics & Stage-Gate Health Monitoring
 
 This project includes a fully automated post-provisioning **Diagnostics & Health-Check Suite** designed to collect, parse, and verify active bare-metal nodes completely headlessly. It maps retrieved system logs directly to the respective **GDC Lifecycle Stages** for high-visibility forensics.
 
@@ -190,7 +264,7 @@ Located locally under `bin/gdc-diagnostics-transmit-analyze.py`, this Python scr
 
 ---
 
-## 7. Stage-Gate Log Diagnostics Reference
+## 8. Stage-Gate Log Diagnostics Reference
 
 When debugging a node, map failures directly to the GDC Lifecycle Stages using the retrieved diagnostic log directory:
 
