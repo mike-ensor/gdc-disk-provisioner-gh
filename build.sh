@@ -191,9 +191,25 @@ echo "  Source ISO Name: ${SOURCE_ISO_FILENAME}"
 echo "=============================================================================="
 echo "[-] Initiating gcloud builds submit..."
 
-gcloud builds submit "${PROJECT_ROOT}" \
+BUILD_ID=$(gcloud builds submit "${PROJECT_ROOT}" \
     --config="${PROJECT_ROOT}/cloudbuild.yaml" \
     --project="${PROJECT_ID}" \
-    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME},_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false}"
+    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME},_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false}" \
+    --async --format="value(id)")
 
-echo "[-] Cloud Build job finished successfully."
+echo "[+] Cloud Build job created with ID: ${BUILD_ID}"
+echo "[-] Polling build status until completion..."
+
+# Wait loop to ensure the gcloud build is completed
+for i in {1..80}; do
+  b_status=$(gcloud builds describe "${BUILD_ID}" --project="${PROJECT_ID}" --format="value(status)")
+  echo "[Cloud Build] Status: ${b_status} (Attempt ${i}/80)"
+  if [[ "${b_status}" == "SUCCESS" ]]; then
+    echo "[x] Cloud Build finished successfully."
+    break
+  elif [[ "${b_status}" == "FAILURE" || "${b_status}" == "TIMEOUT" || "${b_status}" == "CANCELLED" ]]; then
+    echo "[!] Cloud Build failed with status: ${b_status}" >&2
+    exit 1
+  fi
+  sleep 15
+done
