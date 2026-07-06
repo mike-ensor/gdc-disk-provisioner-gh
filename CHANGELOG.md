@@ -4,6 +4,11 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.1.24] - 2026-07-06
+
+### Fixed
+- **Subiquity Offline Installation Sandbox (`file:///cdrom/`):** Fixed an installation failure on offline nodes during the Subiquity filesystem probe and driver search phases. Under air-gapped/offline configurations, Subiquity attempts to contact default public Ubuntu APT repositories (e.g., `security.ubuntu.com`), which we map to `127.0.0.1` to prevent network timeouts. However, on nodes with low memory or packet drops, the full 4GB ISO download over HTTP (`url=http://...`) can result in incomplete `/cdrom` reads, causing APT cache lookups to fail with a fatal `Failed to retrieve available kernel versions` error. Solved this by explicitly overriding Subiquity's `apt:` block in `src/build/templates/user-data.j2`. We now configure the `primary` and `security` mirrors to point strictly to `file:///cdrom/` and set `preserve_sources_list: false`. This isolates all APT checks to local, zero-network, local-CDROM operations, rendering the installation completely self-contained and bulletproof in offline environments.
+
 ## [0.1.23] - 2026-07-06
 
 ### Fixed

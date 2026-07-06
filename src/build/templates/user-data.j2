@@ -5,6 +5,13 @@ autoinstall:
   apt:
     unattended-upgrades:
       enabled: false
+    preserve_sources_list: false
+    primary:
+      - arches: [default]
+        uri: "file:///cdrom/"
+    security:
+      - arches: [default]
+        uri: "file:///cdrom/"
   storage:
 {{ storage_config }}
   identity:
