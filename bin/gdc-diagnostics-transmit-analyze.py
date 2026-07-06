@@ -107,6 +107,46 @@ def is_ssh_authenticated(ip, password):
     res = run_remote(ip, "echo AUTH_OK", password)
     return res.returncode == 0 and "AUTH_OK" in res.stdout
 
+def is_ssh_port_open(ip):
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.5)
+        result = s.connect_ex((ip, 22))
+        s.close()
+        return result == 0
+    except Exception:
+        return False
+
+def upload_to_companion(tarball_path):
+    import urllib.request
+    import uuid
+    url = "http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+    boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
+    try:
+        with open(tarball_path, 'rb') as f:
+            file_data = f.read()
+        filename = os.path.basename(tarball_path)
+        body = []
+        body.append(f"--{boundary}".encode('utf-8'))
+        body.append(f'Content-Disposition: form-data; name="file"; filename="{filename}"'.encode('utf-8'))
+        body.append(f'Content-Type: application/x-gzip'.encode('utf-8'))
+        body.append(b'')
+        body.append(file_data)
+        body.append(f"--{boundary}--".encode('utf-8'))
+        body.append(b'')
+        payload = b'\r\n'.join(body)
+        req = urllib.request.Request(url, method='POST', data=payload)
+        req.add_header('Content-Type', f'multipart/form-data; boundary={boundary}')
+        req.add_header('Content-Length', str(len(payload)))
+        with urllib.request.urlopen(req, timeout=15) as res:
+            resp_data = json.loads(res.read().decode('utf-8'))
+            if resp_data.get('status') == 'ingested':
+                return True, resp_data.get('id')
+            return False, f"Unexpected response status: {resp_data}"
+    except Exception as e:
+        return False, str(e)
+
 def main():
     parser = argparse.ArgumentParser(description="GDC Remote Diagnostics & Health Check Orchestrator")
     parser.add_argument("--ips", help="Comma-separated list of remote host IPs")
@@ -122,12 +162,14 @@ def main():
     if not args.ips and not args.scan:
         parser.error("At least one of --ips or --scan must be specified!")
 
-    ips = []
-    if args.ips:
-        ips = [ip.strip() for ip in args.ips.split(",") if ip.strip()]
+    summary_records = []
+    possible_nodes = []
+    candidates = []
 
-    if args.scan:
-        log_info(f"Scanning CIDR network {args.scan} for active and SSH-authenticated GDC nodes...")
+    if args.ips:
+        candidates = [ip.strip() for ip in args.ips.split(",") if ip.strip()]
+    elif args.scan:
+        log_info(f"Scanning CIDR network {args.scan} for active and GDC nodes...")
         try:
             import ipaddress
             net = ipaddress.ip_network(args.scan, strict=False)
@@ -136,28 +178,32 @@ def main():
             log_error(f"Invalid CIDR network {args.scan}: {e}")
             sys.exit(2)
 
-        scanned_ips = []
-        for ip in candidates:
-            # Quick ping pre-check to speed up scanning
-            if is_ping_reachable(ip):
-                log_info(f"Host {ip} is ping-reachable. Testing SSH authentication...")
-                if is_ssh_authenticated(ip, password):
-                    log_info(f"[+] Found active GDC node: {ip} (SSH Auth OK)")
-                    scanned_ips.append(ip)
-                else:
-                    log_info(f"[-] Host {ip}: SSH authentication failed.")
-        
-        # Merge scanned IPs
-        if scanned_ips:
-            for ip in scanned_ips:
-                if ip not in ips:
-                    ips.append(ip)
-        else:
-            log_warn(f"No active GDC nodes found with valid SSH authentication in range {args.scan}")
-
-    if not ips:
-        log_error("No valid, active GDC node IPs available to analyze!")
-        sys.exit(1)
+    ips = []
+    for ip in candidates:
+        if is_ssh_port_open(ip):
+            log_info(f"Host {ip}: SSH port 22 is open. Testing GDC SSH authentication...")
+            if is_ssh_authenticated(ip, password):
+                log_info(f"[+] Found active GDC node: {ip} (SSH Auth OK)")
+                ips.append(ip)
+            else:
+                log_info(f"[!] Host {ip}: SSH port is open but GDC authentication failed. Marking as POSSIBLE GDC Node.")
+                possible_nodes.append(ip)
+                summary_records.append({
+                    "name": "Possible GDC",
+                    "ip": ip,
+                    "run": "Failed",
+                    "pulled": "Skipped",
+                    "pushed": "Skipped"
+                })
+        elif is_ping_reachable(ip):
+            log_info(f"Host {ip}: Ping-reachable but SSH port 22 is closed.")
+            summary_records.append({
+                "name": "Unknown (No SSH)",
+                "ip": ip,
+                "run": "OFFLINE",
+                "pulled": "N/A",
+                "pushed": "N/A"
+            })
 
     # Initialize directories
     os.makedirs(args.output_dir, exist_ok=True)
@@ -200,6 +246,13 @@ def main():
         if res_run.returncode != 0:
             log_error(f"Failed to execute diagnostics on {ip}: {res_run.stderr}")
             report_data["nodes"][ip] = {"status": "UNREACHABLE", "error": res_run.stderr}
+            summary_records.append({
+                "name": "Unknown",
+                "ip": ip,
+                "run": "Failed",
+                "pulled": "Skipped",
+                "pushed": "Skipped"
+            })
             continue
 
         # Extract generated filename from stdout
@@ -208,6 +261,13 @@ def main():
         if not tar_match:
             log_error(f"Could not locate generated tarball file name in stdout of {ip}!")
             report_data["nodes"][ip] = {"status": "FAILED_COLLECTION", "stdout": res_run.stdout}
+            summary_records.append({
+                "name": "Unknown",
+                "ip": ip,
+                "run": "Failed",
+                "pulled": "Skipped",
+                "pushed": "Skipped"
+            })
             continue
         tar_name = tar_match.group(0)
         log_info(f"Detected remote tarball name: {tar_name}")
@@ -219,6 +279,13 @@ def main():
         if res_perm.returncode != 0:
             log_error(f"Failed to adjust remote tarball permissions on {ip}: {res_perm.stderr}")
             report_data["nodes"][ip] = {"status": "PERMISSION_ADJUSTMENT_FAILED", "error": res_perm.stderr}
+            summary_records.append({
+                "name": "Unknown",
+                "ip": ip,
+                "run": "Success",
+                "pulled": "Failed",
+                "pushed": "Skipped"
+            })
             continue
 
         # 2. Scp pull tarball
@@ -228,6 +295,13 @@ def main():
         if res_pull.returncode != 0:
             log_error(f"Scp pull failed on {ip}: {res_pull.stderr}")
             report_data["nodes"][ip] = {"status": "PULL_FAILED", "error": res_pull.stderr}
+            summary_records.append({
+                "name": "Unknown",
+                "ip": ip,
+                "run": "Success",
+                "pulled": "Failed",
+                "pushed": "Skipped"
+            })
             continue
 
         # 3. Extract tarball
@@ -239,6 +313,13 @@ def main():
         except Exception as e:
             log_error(f"Failed to extract tarball for {ip}: {e}")
             report_data["nodes"][ip] = {"status": "EXTRACTION_FAILED", "error": str(e)}
+            summary_records.append({
+                "name": "Unknown",
+                "ip": ip,
+                "run": "Success",
+                "pulled": "Failed",
+                "pushed": "Skipped"
+            })
             continue
 
         # Paths inside extracted tarball
@@ -259,6 +340,13 @@ def main():
         if not os.path.exists(report_json_path):
             log_error(f"report.json missing on {ip}!")
             report_data["nodes"][ip] = {"status": "MISSING_METADATA"}
+            summary_records.append({
+                "name": "Unknown (No JSON)",
+                "ip": ip,
+                "run": "Success",
+                "pulled": "Success",
+                "pushed": "Skipped"
+            })
             continue
 
         with open(report_json_path, 'r') as jf:
@@ -348,6 +436,27 @@ def main():
             "system_minimum_requirements": node_json.get("system_minimum_requirements", {}),
             "report_txt": report_txt_content
         }
+
+        # Parse host hostname
+        node_name = node_json.get("host_metadata", {}).get("hostname", "Unknown")
+        
+        # Ingest report to companion
+        log_info(f"Uploading diagnostics tarball to GDC Companion...")
+        uploaded, upload_res = upload_to_companion(local_tar_path)
+        if uploaded:
+            log_info(f"[+] Ingestion successful! Report ID: {upload_res}")
+            pushed_status = "Success"
+        else:
+            log_error(f"[-] Ingestion failed: {upload_res}")
+            pushed_status = "Failed"
+            
+        summary_records.append({
+            "name": node_name,
+            "ip": ip,
+            "run": "Success",
+            "pulled": "Success",
+            "pushed": pushed_status
+        })
 
     # 7. Mutual Ping Checks (Matrix)
     log_info("==============================================================================")
@@ -462,6 +571,35 @@ def main():
     with open(md_report_path, "w") as mf:
         mf.write("\n".join(md_content))
     log_info(f"[x] Human-readable Markdown health report exported to {md_report_path}")
+
+    # Print the custom GDC Diagnostics summary table
+    if summary_records:
+        print("\n" + "="*112)
+        print(" GDC DIAGNOSTICS & TELEMETRY INGESTION SUMMARY")
+        print("="*112)
+        header = f"| {'Machine Name':<30} | {'Machine IP':<15} | {'Diagnostics Run':<15} | {'Diagnostics Pulled':<18} | {'Diagnostics Pushed':<18} |"
+        print(header)
+        print("|" + "-"*32 + "|" + "-"*17 + "|" + "-"*17 + "|" + "-"*20 + "|" + "-"*20 + "|")
+        for r in summary_records:
+            row = f"| {r['name']:<30} | {r['ip']:<15} | {r['run']:<15} | {r['pulled']:<18} | {r['pushed']:<18} |"
+            print(row)
+        print("="*112 + "\n")
+
+    # Output crash cart script if possible GDC nodes were detected
+    if possible_nodes:
+        print("="*76)
+        print(" POSSIBLE GDC NODES DETECTED (SSH ACTIVE BUT AUTHENTICATION FAILED)")
+        print("="*76)
+        for ip in possible_nodes:
+            print(f"Node IP: {ip}")
+            print("Please paste the following crash-cart block directly into its root console:")
+            print("\n"
+                  "echo \"root:gdc-password-123\" | chpasswd\n"
+                  "mkdir -p /etc/ssh/sshd_config.d\n"
+                  "echo \"PermitRootLogin yes\" > /etc/ssh/sshd_config.d/99-root-ssh.conf\n"
+                  "echo \"PasswordAuthentication yes\" >> /etc/ssh/sshd_config.d/99-root-ssh.conf\n"
+                  "systemctl restart ssh || systemctl restart sshd\n")
+        print("="*76 + "\n")
 
 if __name__ == "__main__":
     main()
