@@ -4,6 +4,11 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.1.26] - 2026-07-06
+
+### Fixed
+- **Subiquity Offline Package Installation (`gdc-apt-proxy`):** Fixed a critical post-install crash during the `install_ansible` stage of Subiquity, which threw `Command 'system-install' --download-only -- ansible returned non-zero exit status 100`. The root cause was that `ansible` is not part of the standard Ubuntu `/cdrom` file repository. When we locked sources to `file:///cdrom/` in the previous version, Subiquity could not locate the Ansible package offline. Resolved this by updating `src/build/templates/user-data.j2` to point the Subiquity `primary` and `security` APT mirrors to the **local Live ISO Nexus server** (`http://127.0.0.1:8081/repository/gdc-apt-proxy/`). Since the Live ISO boots Gitea and Nexus as part of its live service hub, and the offline GDC ISO pre-bundles a complete, offline-cached package pool in the outer ISO directory, Subiquity can fetch and install `ansible`, `git`, and all Python/system dependencies completely offline with zero internet access, resolving the installation crash.
+
 ## [0.1.24] - 2026-07-06
 
 ### Added
