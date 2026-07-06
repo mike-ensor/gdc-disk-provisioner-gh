@@ -3,7 +3,7 @@
 config:
   {% if single_disk %}
   # --- Single Disk Topology (/dev/{{ disk1 }}) ---
-  - {type: disk, id: disk-system, path: /dev/{{ disk1 }}, ptable: gpt, grub_device: true}
+  - {type: disk, id: disk-system, path: /dev/{{ disk1 }}, ptable: gpt, grub_device: true, wipe: superblock-recursive}
   {% if boot_mode == 'bios' %}
   - {type: partition, id: partition-bios-grub, device: disk-system, size: 1048576, flag: bios_grub}
   {% else %}
@@ -36,8 +36,8 @@ config:
   - {type: lvm_partition, id: lv-sds, volgroup: vg-system, name: lv_sds, size: -1} 
   {% else %}
   # --- Dual Disk Topology (/dev/{{ disk1 }}, /dev/{{ disk2 }}) ---
-  - {type: disk, id: disk-system, path: /dev/{{ disk1 }}, ptable: gpt, grub_device: true}
-  - {type: disk, id: disk-data, path: /dev/{{ disk2 }}, ptable: gpt}
+  - {type: disk, id: disk-system, path: /dev/{{ disk1 }}, ptable: gpt, grub_device: true, wipe: superblock-recursive}
+  - {type: disk, id: disk-data, path: /dev/{{ disk2 }}, ptable: gpt, wipe: superblock-recursive}
   
   # Disk 1
   {% if boot_mode == 'bios' %}
