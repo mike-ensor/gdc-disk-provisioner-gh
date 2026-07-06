@@ -310,6 +310,20 @@ def main():
             if matching_images:
                 image_data = matching_images[0]
                 print(f"[x] Located image: {image_data['name']} (Size: {image_data['size']} bytes)")
+                
+                # Immediately disable to prevent premature booting of unconfigured/unextracted image
+                if image_data.get("enabled", True):
+                    print("[-] Temporarily disabling image during extraction and configuration to prevent premature PXE boots...")
+                    disable_data = {
+                        "boot_method": image_data.get("boot_method", "iso"),
+                        "distro": image_data.get("distro", ""),
+                        "boot_params": image_data.get("boot_params", ""),
+                        "enabled": False
+                    }
+                    try:
+                        api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", method="PUT", data=disable_data, token=token)
+                    except Exception as e:
+                        print(f"[!] Warning: Failed to temporarily disable image: {e}")
                 break
         print(f"[-] Still searching... ({retries} retries left)")
         time.sleep(BOOTIMUS_SCAN_DELAY)

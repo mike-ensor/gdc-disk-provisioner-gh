@@ -40,6 +40,12 @@ echo "==========================================================================
 # Trigger the Cloud Build ISO remastering pipeline (auto-increments ISO_VERSION in .envrc)
 "${PROJECT_ROOT}/build.sh"
 
+echo ""
+echo -e "\033[91m\033[1m[!] CRITICAL WARNING: DO NOT REBOOT YOUR GDC TARGET NODES YET!\033[0m"
+echo -e "\033[93mThe ISO is uploaded but Bootimus PXE parameters are NOT yet registered and locked.\033[0m"
+echo -e "\033[93mPlease wait for this script to complete Bootimus registration and print SUCCESS.\033[0m"
+echo ""
+
 # Reload .envrc to capture the newly incremented ISO_VERSION written by build.sh
 # shellcheck source=/dev/null
 source "${ENVRC_FILE}"
