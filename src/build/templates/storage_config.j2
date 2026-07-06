@@ -10,7 +10,7 @@ config:
   - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: uefi, grub_device: true}
   {% endif %}
   - {type: partition, id: partition-boot, device: disk-system, size: 2147483648}
-  - {type: partition, id: partition-lvm, device: disk-system, size: -1}
+  - {type: partition, id: partition-lvm, device: disk-system, size: -1, wipe: superblock}
   {% if boot_mode == 'uefi' %}
   - {type: format, id: format-efi, volume: partition-efi, fstype: vfat}
   {% endif %}
@@ -46,7 +46,7 @@ config:
   - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: uefi, grub_device: true}
   {% endif %}
   - {type: partition, id: partition-boot, device: disk-system, size: 2147483648}
-  - {type: partition, id: partition-lvm-sys, device: disk-system, size: -1}
+  - {type: partition, id: partition-lvm-sys, device: disk-system, size: -1, wipe: superblock}
   {% if boot_mode == 'uefi' %}
   - {type: format, id: format-efi, volume: partition-efi, fstype: vfat}
   {% endif %}
@@ -59,7 +59,7 @@ config:
   - {type: lvm_volgroup, id: vg-system, name: vg_system, devices: [crypt-system]}
 
   # Disk 2
-  - {type: partition, id: partition-lvm-data, device: disk-data, size: -1}
+  - {type: partition, id: partition-lvm-data, device: disk-data, size: -1, wipe: superblock}
   - {type: dm_crypt, id: crypt-data, volume: partition-lvm-data, key: "temporary_bootstrap_key_to_be_enrolled_to_tpm", options: "noinitramfs,discard"}
   - {type: lvm_volgroup, id: vg-data, name: vg_data, devices: [crypt-data]}
   

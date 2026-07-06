@@ -20,6 +20,18 @@ After `ready-linux`, this phase invovles reaching up to the **machine database**
 
 ---
 
+### Core Boot & Installation States
+
+#### 1. Live ISO State
+
+The ephemeral operating state where the target bare-metal machine boots and runs entirely in-memory from the read-only custom bootloader ISO (backed by a RAM `tmpfs` / `overlayfs`). In this state, physical disk partitioning, LUKS volume creation, target system image writing, and baseline boundary service configurations are staged via Subiquity and cloud-init, ending once a physical reboot is initiated.
+
+#### 2. First Initial Boot State
+
+The initial boot cycle of the newly written operating system on the physical target drive after rebooting from the Live ISO. This state is characterized by unlocking the LUKS storage with a temporary boot-unlock key, starting persistent local services (Gitea and Nexus), dynamically installing the core orchestration utilities (`ansible` and `git`) from the local persistent loopback Nexus, and running local `ansible-pull` playbooks to enroll the physical TPM 2.0 chip, apply CIS hardening, and finalize the node into an immutable, secure GDC-ready state.
+
+---
+
 ### Architecture & Service Topologies
 
 #### 1. Hub-and-Spoke Topology
@@ -111,3 +123,15 @@ Indicates an air-gapped node operating offline/locally. It has automated update 
 #### 3. Private Mode Strict
 
 Indicates a high-security machine that is exclusively off the internet. It does not attempt any automated update, upgrade, or synchronization processes. All maintenance, patching, and configuration updates must be executed purely as manual, operator-triggered efforts.
+
+---
+
+### Diagnostics & Recovery
+
+#### 1. Crashed Provision
+
+A term used to identify that a remote system has tried to run the ISO self-installer, and there was a failure before a fully provisioned system. A system in this state will not have the default user (`gdc-installer`) or password. In this state, we need to use the "Crash Cart" scripts to be run on the system, enabling `ssh` and setting `root` password and enabling root as an SSH user.
+
+#### 2. Crash Cart
+
+A script that is run on a remote machine that is in "Crashed Provision" state. The script is intended to be run from within the crashed shell. The script enables SSH, temporarily sets up a root password, and enables root to use SSH. Scripts or Agent/LLM tools can then be used to extract the failure reason.

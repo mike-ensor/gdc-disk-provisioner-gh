@@ -8,10 +8,10 @@ autoinstall:
     preserve_sources_list: false
     primary:
       - arches: [default]
-        uri: "http://127.0.0.1:8081/repository/gdc-apt-proxy/"
+        uri: "file:///cdrom/"
     security:
       - arches: [default]
-        uri: "http://127.0.0.1:8081/repository/gdc-apt-proxy/"
+        uri: "file:///cdrom/"
   storage:
 {{ storage_config }}
   identity:
@@ -34,9 +34,6 @@ autoinstall:
     authorized-keys:
       - "{{ ssh_pub_key }}"
     {% endif %}
-  packages:
-    - ansible
-    - git
   reporting:
     gdc-gateway:
       type: webhook
@@ -186,6 +183,38 @@ autoinstall:
       ssh_pub_key: "{{ ssh_pub_key }}"
       EOF
       chmod 600 /target/etc/gdc/provision.yml
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Registering GDC local loopback Nexus sources"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Registering GDC local loopback Nexus sources"
+      mkdir -p /target/etc/apt/sources.list.d
+      cat <<'EOF' > /target/etc/apt/sources.list.d/gdc-nexus.sources
+      # Local GDC Hosted (Sideloaded Update) Repository
+      Enabled: yes
+      Types: deb
+      URIs: http://127.0.0.1:8081/repository/gdc-apt-hosted/
+      Suites: noble
+      Components: main restricted universe multiverse
+      Signed-By: /etc/apt/keyrings/gdc-nexus.gpg
+      Trusted: yes
+
+      # Local GDC Proxy (Upstream Cache) Repository
+      Enabled: yes
+      Types: deb
+      URIs: http://127.0.0.1:8081/repository/gdc-apt-proxy/
+      Suites: noble
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+      Trusted: yes
+      EOF
+      chmod 644 /target/etc/apt/sources.list.d/gdc-nexus.sources
+      
+      # Rename default public Ubuntu sources to enforce air-gapped security and prevent hangs on boot
+      if [ -f /target/etc/apt/sources.list.d/ubuntu.sources ]; then
+        mv /target/etc/apt/sources.list.d/ubuntu.sources /target/etc/apt/sources.list.d/ubuntu.sources.bak
+        logger -t gdc-provisioner "[GOAL] Default public Ubuntu sources deactivated."
+      fi
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Syncing Gitea, Nexus, & Ansible collections"

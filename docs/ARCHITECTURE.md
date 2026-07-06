@@ -87,9 +87,14 @@ sequenceDiagram
 At ISO build time, our custom scripting clones the target Ansible playbooks repository as a read-only Git mirror and bakes it into Gitea's persistent data directories inside the ISO (`/custom-data/gitea/`). When the node boots into production, Gitea automatically launches and serves this exact bare Git repository locally on port `3000` via loopback. This ensures `ansible-pull` runs purely from local loopback with zero external network dependencies.
 
 ### Dual-Mode Sonatype Nexus Proxy (Local Package Mirrors)
-During both the Live CD boot and the Subiquity installation stages, a local instance of Sonatype Nexus is automatically spun up on port `8081` to act as the local APT registry (`gdc-apt-proxy`):
+On the **First Initial Boot** of the target machine, a local instance of Sonatype Nexus is automatically spun up on port `8081` to act as the local APT registry (`gdc-apt-proxy`):
 *   **Connected Mode (Developer Labs & Connected Testing):** If the node has external internet connectivity, Nexus operates as an on-demand caching proxy. If a requested package is missing from the local cache, Nexus fetches it from public Ubuntu mirrors, caches it in its persistent local blob store, and serves it to the node's package manager.
 *   **Air-Gapped Mode (Isolated GDC Production Targets):** In fully isolated production networks with no internet routing, Nexus operates completely offline. Because our remastering pipeline (`remaster.sh`) pre-populates and bundles every required system package (such as `ansible`, `git`, `python3`, and all of their python/system dependencies) directly into the offline GDC ISO during compilation, all required packages are guaranteed to already reside inside the local Nexus cache. If an un-cached package is requested, Nexus gracefully returns a `404/504` error instead of hanging on infinite timeouts, guaranteeing deterministic, 100% offline installation success.
+
+### Transition of Overarching States
+The GDC deployment enforces a clean separation between two states:
+* **Live ISO State:** The target node runs in RAM from the read-only custom bootloader ISO. Gitea and Nexus are inactive. Subiquity partitions the disks, formats LVM volumes, writes the base OS, and syncs pre-seeded service assets to `/target` before rebooting.
+* **First Initial Boot State:** The node reboots into the physical SSD, starts persistent Gitea and Nexus services, and launches `gdc-provision.service`. This service waits for local Nexus to initialize, automatically bootstraps the `ansible` and `git` packages completely offline, and runs local `ansible-pull` playbooks to enroll the TPM 2.0 cryptobindings and finalize the node.
 
 ### Transition of Network Stages
 * **Bootstrap Phase (Stage 1):** The Subiquity installer boots with native DHCP to establish a reliable connection to the `install-companion` log monitoring webhook.

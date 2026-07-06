@@ -68,9 +68,42 @@ TIME (MIN)   PHASE                         ACTIONS EXECUTED
 
 ---
 
-## 2. Analysis of Overlapping Issues & Transition Gaps
+## 2. Core Boot & Installation States: Live ISO vs. First Initial Boot
 
-### Gap 2.1: The Boot-Unlock "Chicken-and-Egg" Transition
+The GDC bootstrapping process is divided into two major architectural and physical runtime states. Understanding the boundary between these two states is critical for ensuring secure, reliable, and completely offline-first provisioning.
+
+```text
+               [ GDC LIFECYCLE REBOOT BOUNDARY ]
+  
+     ┌───────────────────────────────────┐      ┌───────────────────────────────────┐
+     │          LIVE ISO STATE           │      │     FIRST INITIAL BOOT STATE      │
+     ├───────────────────────────────────┤      ├───────────────────────────────────┤
+     │ • Runs entirely in RAM            │      │ • Runs on the target SSD/disk     │
+     │ • Read-Only /cdrom media          │      │ • LUKS decrypted via temp key    │
+     │ • Gitea/Nexus services INACTIVE   │ ───> │ • Gitea/Nexus services ACTIVE     │
+     │ • Subiquity partitions/installs   │      │ • Dynamic Ansible installation    │
+     │ • late-commands sync Gitea/Nexus  │      │ • TPM enrollment & CIS hardening  │
+     │ • Initiates hardware reboot       │      │ • Finalized as Ready-Linux        │
+     └───────────────────────────────────┘      └───────────────────────────────────┘
+```
+
+### 2.1. The Live ISO State
+* **Execution Boundary:** Spans from initial BIOS/UEFI boot ($T = 0.0\text{m}$) up to the execution of `late-commands` and the immediate reboot trigger ($T = 12.0\text{m}$).
+* **Environment:** The operating system runs entirely in-memory from a transient RAM-backed `overlayfs` created by the Ubuntu Live Casper boot system. All filesystem changes on the Live OS are lost upon reboot.
+* **Service Profile:** Local boundary service hubs (Gitea on Port 3000 and Nexus on Port 8081) are **inactive** and not running in the Live environment. This is because Nexus (JVM-based) is too resource-heavy to run in Live memory, and standard installation relies on the static `/cdrom` file repository.
+* **Core Outcomes:** Completes hardware discovery, generates autoinstall partition schemas, creates encrypted LVM partitions, writes the baseline OS, synchronizes the Gitea/Nexus pre-seeded directory assets from `/cdrom` into `/target/var/lib/`, writes systemd service units, and initiates a clean hardware restart.
+
+### 2.2. The First Initial Boot State
+* **Execution Boundary:** Spans from the first post-installation boot on the target physical drive ($T = 14.5\text{m}$) up to the completion of the Ansible bootstrap playbook and the write of the success token ($T = 16.0\text{m}$).
+* **Environment:** The operating system runs permanently on the physical target block devices (`vg_system-lv_root` etc.).
+* **Service Profile:** Persistent local loopback services (Gitea on Port 3000 and Nexus on Port 8081) are **active** and started automatically by systemd.
+* **Core Outcomes:** Unlocks LUKS on boot using a one-time `/boot/temp_key.key` file, starts `gdc-provision.service`, polls for local Nexus port 8081 to become active, installs `ansible` and `git` completely offline from the local Nexus proxy, runs `ansible-pull` against Gitea, performs hardware-backed TPM 2.0 cryptographic sealing of the LUKS key, erases the temporary `/boot/temp_key.key` file, applies CIS security configurations, and transitions the system into an immutable, secure GDC **Ready-Linux** node.
+
+---
+
+## 3. Analysis of Overlapping Issues & Transition Gaps
+
+### Gap 3.1: The Boot-Unlock "Chicken-and-Egg" Transition
 *   **The Threat:** You cannot enroll a LUKS partition to the TPM 2.0 chip during the Subiquity installation phase because Subiquity executes in a generic chroot environment without active access to the physical TPM device drivers and systemd-cryptenroll services on the target.
 *   **The Overlap:** The disk must be encrypted during install, but it must boot once passwordlessly to run the first-boot Ansible playbook which does the TPM enrollment.
 *   **The Resolution:** 
@@ -81,7 +114,7 @@ TIME (MIN)   PHASE                         ACTIONS EXECUTED
     5. The playbook rewrites `/etc/crypttab` with the `tpm2-device=auto` flag, **deletes `/boot/temp_key.key`**, and runs `systemd-cryptenroll --wipe-slot=password` to erase the temporary password.
     6. *Vulnerability Closed:* The node can now only boot on the physical motherboard with an un-tampered Secure Boot configuration.
 
-### Gap 2.2: Race Conditions between Gitea/Nexus Start and `ansible-pull`
+### Gap 3.2: Race Conditions between Gitea/Nexus Start and `ansible-pull`
 *   **The Threat:** On first boot, the systemd process manager launches `gdc-provision.service` (which executes `ansible-pull`) in parallel with the Gitea and Nexus startup scripts. Since Nexus (Java JVM-based) takes 30-45 seconds to initialize its database and bind to port 8081, `ansible-pull` will crash immediately on connection refused.
 *   **The Resolution:** We introduce a service dependency handshake within our Ansible playbooks (`local.yml`). The very first tasks execute a localized wait-for-port loop:
     ```yaml
@@ -101,7 +134,7 @@ TIME (MIN)   PHASE                         ACTIONS EXECUTED
     ```
     This holds playbook execution safely in memory until the Service Hub boundaries are listening and healthy.
 
-### Gap 2.3: Serial Console Logger Deadlocks
+### Gap 3.3: Serial Console Logger Deadlocks
 *   **The Threat:** If a script writes a success token to `/dev/ttyS0` but no serial connection is listening on the host hypervisor, the write command can block indefinitely under standard TTY flow control.
 *   **The Resolution:** We wrap the success signaling in a non-blocking shell loop:
     ```bash

@@ -10,7 +10,14 @@ Environment=ANSIBLE_FORCE_COLOR=1
 EnvironmentFile=-/etc/default/gdc-provision
 StandardOutput=journal
 StandardError=journal
-ExecStart=/bin/bash -c "git config --system --add safe.directory /var/lib/gitea/repos/gdc/bootstrap-playbooks.git || true; \
+ExecStart=/bin/bash -c " \
+if ! command -v ansible-pull &>/dev/null; then \
+  echo '[-] GDC Provisioner: Waiting for local Nexus repository...'; \
+  until curl -s -I --connect-timeout 1 http://127.0.0.1:8081/ &>/dev/null; do sleep 3; done; \
+  echo '[-] GDC Provisioner: Nexus is up. Installing ansible and git from local repository...'; \
+  apt-get update && apt-get install -y --no-install-recommends ansible git; \
+fi; \
+git config --system --add safe.directory /var/lib/gitea/repos/gdc/bootstrap-playbooks.git || true; \
 git config --system --add safe.directory '*' || true; \
 /usr/bin/ansible-pull \
   -U /var/lib/gitea/repos/gdc/bootstrap-playbooks.git \
