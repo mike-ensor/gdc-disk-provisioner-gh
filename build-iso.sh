@@ -69,5 +69,11 @@ echo "==========================================================================
 "${PROJECT_ROOT}/src/build/bootimus.py" "${NEW_ISO_NAME}"
 
 echo "=============================================================================="
-echo -e "\033[92m\033[1m[x] ISO-JOB SUCCESS: GDC ISO compiled and dynamically deployed on PXE!\033[0m"
+echo -e "\033[93m\033[1m[ISO-JOB] VERIFYING BOOTIMUS NON-INTERACTIVE COMPLIANCE AUDIT...\033[0m"
+echo "=============================================================================="
+# Verify all Bootimus boot parameters are locked into non-interactive mode
+python3 "${PROJECT_ROOT}/bin/check-bootimus-settings.py"
+
+echo "=============================================================================="
+echo -e "\033[92m\033[1m[x] ISO-JOB SUCCESS: GDC ISO compiled, deployed, and verified on Bootimus!\033[0m"
 echo "=============================================================================="
