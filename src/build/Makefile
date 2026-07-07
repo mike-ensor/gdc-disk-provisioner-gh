@@ -347,6 +347,7 @@ deploy:
 			echo "[!] Error: gcloud CLI is required but not installed." >&2; \
 			exit 1; \
 		fi; \
+		gcloud config set storage/parallel_composite_upload_enabled False; \
 		gcloud storage cp "$${ISO_OUTPUT_PATH}" "$(GCS_BUCKET)/sync/$${ISO_OUTPUT_NAME}"; \
 		if [ -f "$(OUTPUT_DIR)/debug-templates-v$(ISO_VERSION).tar.gz" ]; then \
 			echo "  [-] Uploading debug configurations tarball to GCS under debug/..."; \
