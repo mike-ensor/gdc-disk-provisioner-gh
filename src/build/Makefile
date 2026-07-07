@@ -52,6 +52,7 @@ STEP_CLI_SHA256 := $(call get_env,STEP_CLI_SHA256)
 STEP_CLI_URL := $(call get_env,STEP_CLI_URL)
 
 TEMPORARY_INSTALLER_PASSWORD := $(call get_env,TEMPORARY_INSTALLER_PASSWORD)
+GCLOUD_PRESENT := $(shell command -v gcloud &>/dev/null && echo "true" || echo "false")
 ANSIBLE_PLAYBOOK_HOME := $(call get_env,ANSIBLE_PLAYBOOK_HOME)
 GDC_RELEASE_USER_NAME := $(call get_env,GDC_RELEASE_USER_NAME)
 GDC_RELEASE_USER_EMAIL := $(call get_env,GDC_RELEASE_USER_EMAIL)
@@ -149,9 +150,9 @@ deps:
 	@mkdir -p $(BIN_CACHE_DIR)
 	@mkdir -p $(CACHE_DIR)/isos
 	@# GCS Pull Cache Phase
-	@if [ "$(ENABLE_GCS)" = "true" ]; then \
+	@if [ "$(ENABLE_GCS)" = "true" ] && [ "$(GCLOUD_PRESENT)" = "true" ]; then \
 		echo "  [-] GCS cache active. Pulling artifacts from gs://$(GCS_BUCKET)..."; \
-		BUCKET_NAME=$$($$(echo "gcloud info" &>/dev/null) && echo "$(GCS_BUCKET)" | sed 's/^gs:\/\///' || echo ""); \
+		BUCKET_NAME=$$(echo "$(GCS_BUCKET)" | sed 's/^gs:\/\///'); \
 		if [ -n "$$BUCKET_NAME" ]; then \
 			for file in "$(SOURCE_ISO_FILENAME)" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)"; do \
 				if [ "$$file" = "$(SOURCE_ISO_FILENAME)" ]; then \
@@ -219,9 +220,9 @@ deps:
 	@echo "$(STEP_CLI_SHA256)  $(BIN_CACHE_DIR)/$(STEP_CLI_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Smallstep CLI package hash mismatch!" >&2; exit 1)
 	@echo "  [x] Smallstep CLI binary integrity verified."
 	@# GCS Seed Cache Phase
-	@if [ "$(ENABLE_GCS)" = "true" ]; then \
+	@if [ "$(ENABLE_GCS)" = "true" ] && [ "$(GCLOUD_PRESENT)" = "true" ]; then \
 		echo "  [-] Synchronizing verified local cache back to GCS..."; \
-		BUCKET_NAME=$$($$(echo "gcloud info" &>/dev/null) && echo "$(GCS_BUCKET)" | sed 's/^gs:\/\///' || echo ""); \
+		BUCKET_NAME=$$(echo "$(GCS_BUCKET)" | sed 's/^gs:\/\///'); \
 		if [ -n "$$BUCKET_NAME" ]; then \
 			for file in "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)"; do \
 				local_path="$(BIN_CACHE_DIR)/$$file"; \
