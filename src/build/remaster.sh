@@ -204,31 +204,34 @@ echo "[-] Pre-seeding read-only bare Gitea playbook mirror..."
 git config --global --add safe.directory "${PROJECT_ROOT}" || true
 git config --global --add safe.directory "*" || true
 
-# If running in Cloud Build or without .git metadata, temporarily initialize a git repo to capture exact modifications
-TEMP_GIT_CREATED=false
-if [[ ! -d "${PROJECT_ROOT}/.git" ]]; then
-    echo "  [-] Initializing temporary Git repository for pre-seeding workspace modifications..."
-    git -C "${PROJECT_ROOT}" init -b main &>/dev/null
-    git -C "${PROJECT_ROOT}" config user.name "GDC Builder"
-    git -C "${PROJECT_ROOT}" config user.email "builder@gdc.local"
-    # Ensure we only add the playbooks and source files, skipping heavy caches/ISOs in build-workspace and .cache
-    git -C "${PROJECT_ROOT}" add src/ docs/ test/ &>/dev/null || true
-    git -C "${PROJECT_ROOT}" commit -m "Auto-generated compile pre-seed commit" &>/dev/null
-    TEMP_GIT_CREATED=true
+# Clean-room playbook repository assembly (GDC-SPEC-001 / Source Sanitization)
+TEMP_STAGING_DIR=$(mktemp -d)
+
+# Determine destination folder inside the staging directory based on ANSIBLE_PLAYBOOK_HOME
+TARGET_COPY_DIR="${TEMP_STAGING_DIR}"
+if [[ -n "${ANSIBLE_PLAYBOOK_HOME:-}" && "${ANSIBLE_PLAYBOOK_HOME}" != "/" ]]; then
+    TARGET_COPY_DIR="${TEMP_STAGING_DIR}/${ANSIBLE_PLAYBOOK_HOME}"
+    mkdir -p "${TARGET_COPY_DIR}"
 fi
 
-if git clone --bare "file://${PROJECT_ROOT}" "${TARGET_BARE_REPO}" &>/dev/null; then
-    echo "  [x] Local development playbooks pre-seeded successfully."
-elif git clone --bare "${UPSTREAM_PLAYBOOKS_REPO}" "${TARGET_BARE_REPO}" &>/dev/null; then
-    echo "  [x] Upstream playbooks cloned successfully."
+# Copy ONLY the contents of src/ansible/ into the target directory
+cp -r "${PROJECT_ROOT}/src/ansible"/* "${TARGET_COPY_DIR}/"
+
+# Initialize a fresh, clean git repository inside the staging directory
+git -C "${TEMP_STAGING_DIR}" init -b main &>/dev/null
+git -C "${TEMP_STAGING_DIR}" config user.name "${GDC_RELEASE_USER_NAME:-GDC Release Builder}"
+git -C "${TEMP_STAGING_DIR}" config user.email "${GDC_RELEASE_USER_EMAIL:-gdc-release@google.com}"
+git -C "${TEMP_STAGING_DIR}" add . &>/dev/null
+git -C "${TEMP_STAGING_DIR}" commit -m "GDC Ansible Playbook Release v${ISO_VERSION}" &>/dev/null
+
+# Clone this sanitized single-commit staging repository as a bare repo
+if git clone --bare "file://${TEMP_STAGING_DIR}" "${TARGET_BARE_REPO}" &>/dev/null; then
+    echo "  [x] GDC Playbooks pre-seeded, sanitized, and compiled cleanly (single-commit release)."
 else
-    echo "  [!] Upstream clone unreachable. Initializing local dummy playbook git repository."
+    echo "  [!] Failed to pre-seed playbooks locally. Initializing local dummy playbook git repository."
     git init --bare "${TARGET_BARE_REPO}" &>/dev/null
 fi
-
-if [[ "${TEMP_GIT_CREATED}" = "true" ]]; then
-    rm -rf "${PROJECT_ROOT}/.git"
-fi
+rm -rf "${TEMP_STAGING_DIR}"
 
 # Set Git pre-receive blocking hook for Read-Only assurance
 mkdir -p "${TARGET_BARE_REPO}/hooks"
@@ -262,6 +265,9 @@ else
         fi
     fi
 fi
+
+# Prune nested tests to prevent test.iso generation and other test bloat (GDC-SPEC-001)
+rm -rf "${COLLECTIONS_DIR}/collections/ansible_collections/community/general/tests"
 
 # ==========================================
 # 3. Dynamic Banners, bootloaders, and Casper bypass

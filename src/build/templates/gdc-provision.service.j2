@@ -24,7 +24,7 @@ git config --system --add safe.directory '*' || true; \
   -C {{ git_branch | default('main') }} \
   -i localhost, \
   $ANSIBLE_PULL_FLAGS \
-  src/ansible/local.yml"
+  local.yml"
 RemainAfterExit=true
 
 [Install]

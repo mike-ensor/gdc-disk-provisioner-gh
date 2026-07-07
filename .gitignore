@@ -6,6 +6,10 @@
 .DS_Store
 Thumbs.db
 
+#
+.git-workspace
+.review/
+
 # Project-specific / generic outputs
 dist/
 out/
