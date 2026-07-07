@@ -125,6 +125,8 @@ mkdir -p "${EXTRACT_DIR}/custom-data/gitea"
 mkdir -p "${EXTRACT_DIR}/custom-data/nexus"
 mkdir -p "${EXTRACT_DIR}/custom-data/systemd"
 mkdir -p "${EXTRACT_DIR}/custom-data/ansible/collections"
+mkdir -p "${EXTRACT_DIR}/custom-data/tools"
+mkdir -p "${EXTRACT_DIR}/custom-data/packages"
 mkdir -p "${OUTPUT_DIR}"
 
 # ==========================================
@@ -133,6 +135,12 @@ mkdir -p "${OUTPUT_DIR}"
 echo "[-] Installing pre-verified standalone Gitea binary..."
 cp "${BIN_CACHE_DIR}/${GITEA_BINARY_FILENAME}" "${EXTRACT_DIR}/custom-data/gitea/gitea"
 chmod +x "${EXTRACT_DIR}/custom-data/gitea/gitea"
+
+echo "[-] Copying pre-verified Google Cloud SDK tarball..."
+cp "${BIN_CACHE_DIR}/${GCLOUD_SDK_FILENAME}" "${EXTRACT_DIR}/custom-data/tools/google-cloud-cli-linux-x86_64.tar.gz"
+
+echo "[-] Copying pre-verified Smallstep CLI package..."
+cp "${BIN_CACHE_DIR}/${STEP_CLI_FILENAME}" "${EXTRACT_DIR}/custom-data/packages/"
 
 echo "[-] Extracting Java JRE 17 headless runtime..."
 rm -rf "${EXTRACT_DIR}/custom-data/nexus/jre"

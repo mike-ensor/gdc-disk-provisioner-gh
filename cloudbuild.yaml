@@ -57,6 +57,8 @@ steps:
           ISO_VERSION="${_ISO_VERSION}" \
           SOURCE_ISO_FILENAME="${_SOURCE_ISO_FILENAME}" \
           GDC_DEBUG_MODE="${_GDC_DEBUG_MODE}" \
+          ENABLE_GCS="true" \
+          GCS_BUCKET="gs://${_GCS_BUCKET_NAME}" \
           AUTO_APPROVE="true"
 
   # ==========================================
