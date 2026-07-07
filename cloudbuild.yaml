@@ -54,6 +54,15 @@ steps:
           fi
         done
 
+        echo "[-] Pulling cached GGD Debian packages from GCS packages/ prefix..."
+        mkdir -p .cache/packages
+        if gcloud storage ls "gs://${_GCS_BUCKET_NAME}/packages/*.deb" &>/dev/null; then
+          gcloud storage cp "gs://${_GCS_BUCKET_NAME}/packages/*.deb" ".cache/packages/"
+          echo "  [x] Successfully synchronized cached packages from GCS."
+        else
+          echo "  [!] No cached packages found in gs://${_GCS_BUCKET_NAME}/packages/."
+        fi
+
   # ==========================================
   # Step 2: ISO Template, Validate, and Assemble Gates
   # ==========================================
