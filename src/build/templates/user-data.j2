@@ -3,6 +3,7 @@ autoinstall:
   version: 1
   reboot: true
   apt:
+    fallback: offline-install
     unattended-upgrades:
       enabled: false
     preserve_sources_list: false
@@ -40,6 +41,10 @@ autoinstall:
       endpoint: {{ companion_report_url }}?client_cert_cn=gdc-provision-{{ ISO_VERSION }}
       level: info
   early-commands:
+    - |
+      # Deactivate default public sources on the Live CD parent environment to prevent connection refused crashes
+      echo "[-] [DEBUG-ISO] Purging Live CD parent public Ubuntu sources..."
+      rm -f /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources
     - |
       # Live-stream Subiquity server logs to serial console for real-time diagnostics
       touch /var/log/installer/subiquity-server-debug.log
