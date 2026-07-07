@@ -32,6 +32,8 @@ TEST_PACKAGES=(
     "socat"
     "net-tools"
     "arp-scan"
+    "ansible"
+    "git"
 )
 
 # Full production-grade offline dependency set
@@ -51,6 +53,8 @@ PROD_PACKAGES=(
     "libseccomp2"
     "auditd"
     "audispd-plugins"
+    "ansible"
+    "git"
 )
 
 # Choose package list based on execution profile

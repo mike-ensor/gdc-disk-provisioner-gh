@@ -142,6 +142,12 @@ cp "${BIN_CACHE_DIR}/${GCLOUD_SDK_FILENAME}" "${EXTRACT_DIR}/custom-data/tools/g
 echo "[-] Copying pre-verified Smallstep CLI package..."
 cp "${BIN_CACHE_DIR}/${STEP_CLI_FILENAME}" "${EXTRACT_DIR}/custom-data/packages/"
 
+echo "[-] Copying pre-seeded offline Debian packages..."
+mkdir -p "${EXTRACT_DIR}/custom-data/packages"
+if ls "${PROJECT_ROOT}/.cache/packages"/*.deb &>/dev/null; then
+    cp "${PROJECT_ROOT}/.cache/packages"/*.deb "${EXTRACT_DIR}/custom-data/packages/"
+fi
+
 echo "[-] Extracting Java JRE 17 headless runtime..."
 rm -rf "${EXTRACT_DIR}/custom-data/nexus/jre"
 mkdir -p "${EXTRACT_DIR}/custom-data/nexus/jre"

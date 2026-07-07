@@ -217,6 +217,20 @@ autoinstall:
       fi
     - |
       echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Installing pre-seeded offline Debian packages"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Installing pre-seeded offline Debian packages"
+      if [ -d /cdrom/custom-data/packages ] && [ "$(ls -A /cdrom/custom-data/packages/ 2>/dev/null)" ]; then
+        mkdir -p /target/tmp/packages
+        cp /cdrom/custom-data/packages/*.deb /target/tmp/packages/
+        curtin in-target -- sh -c "dpkg -i /tmp/packages/*.deb || apt-get install -f -y"
+        rm -rf /target/tmp/packages
+        logger -t gdc-provisioner "[GOAL] Pre-seeded offline Debian packages installed successfully"
+      else
+        logger -t gdc-provisioner "[GOAL] No pre-seeded Debian packages found, skipping"
+      fi
+    - |
+      echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Syncing Gitea, Nexus, & Ansible collections"
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Syncing Gitea, Nexus, & Ansible collections"
