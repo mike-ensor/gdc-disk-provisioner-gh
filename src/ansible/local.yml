@@ -25,8 +25,28 @@
     # Toggle to execute safe offline system upgrade
     trigger_system_upgrade: false
 
-  roles:
-    - role: service_hubs
-    - role: host_foundations
-    - role: system_tuning
-    - role: security_hardening
+  tasks:
+    - name: Run GDC Ready-Linux Post-Install Provisioning Suite
+      block:
+        - name: Run service_hubs role
+          include_role:
+            name: service_hubs
+        - name: Run host_foundations role
+          include_role:
+            name: host_foundations
+        - name: Run system_tuning role
+          include_role:
+            name: system_tuning
+        - name: Run security_hardening role
+          include_role:
+            name: security_hardening
+      always:
+        - name: Always execute diagnostics and upload telemetry
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
+              /usr/local/bin/collect-node-diagnostics.sh
+            else
+              echo "[!] Diagnostics collector script /usr/local/bin/collect-node-diagnostics.sh not found or not executable!" >&2
+              exit 1
+            fi
+          ignore_errors: true

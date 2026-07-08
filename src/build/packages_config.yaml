@@ -1,0 +1,89 @@
+# ==============================================================================
+# GDC Bootloader Offline Packages Pre-Seeding Configuration
+# ==============================================================================
+# This configuration file dictates the packages to be pre-seeded on the remastered GDC ISO
+# and controls recursive dependency resolution and exclusion filtering logic.
+
+ubuntu_version: "24.04"
+
+# High-level package suites to include in the remastered ISO's pre-seeded cache.
+# The compiler will download these packages and recursively resolve their dependencies.
+packages_to_include:
+  # Core platform-required packages (essential for GDC first-boot Ansible success)
+  platform_required:
+    - "conntrack"
+    - "ebtables"
+    - "ethtool"
+    - "iproute2"
+    - "iptables"
+    - "locales"
+    - "logrotate"
+    - "socat"
+    - "unzip"
+    - "chrony"
+    - "net-tools"
+    - "arp-scan"
+    - "libseccomp2"
+    - "auditd"
+    - "audispd-plugins"
+    - "ansible"
+    - "git"
+
+  # Optional packages specified by the customer/operator for target environments
+  customer_added: []
+
+# Core system libraries and utilities already pre-installed on the base OS.
+# These MUST be excluded from recursive downloads to prevent mismatched library
+# overrides that corrupt bootloaders (e.g. newer glibc breaking standard system binaries).
+exclude_from_dependency_resolution:
+  - "^libc6$"
+  - "^libgcc-s1$"
+  - "^libstdc\\+\\+6$"
+  - "^zlib1g$"
+  - "^dpkg$"
+  - "^base-passwd$"
+  - "^debianutils$"
+  - "^perl-base$"
+  - "^libcrypt1$"
+  - "^libssl3.*"
+  - "^libsystemd0$"
+  - "^libsystemd-shared$"
+  - "^libudev1$"
+  - "^libkmod2$"
+  - "^gcc-.*-base$"
+  - "^libtinfo6$"
+  - "^tzdata.*$"
+  - "^libpam0g$"
+  - "^libcap2.*"
+  - "^libaudit-common$"
+  - "^libaudit1$"
+  - "^libacl1$"
+  - "^libattr1$"
+  - "^libgmp10$"
+  - "^libgdbm-compat4$"
+  - "^libgdbm6$"
+  - "^libselinux1$"
+  - "^libzstd1$"
+  - "^libbz2-1\\.0$"
+  - "^liblzma5$"
+  - "^libmd0$"
+  - "^libpcre2-8-0$"
+  - "^tar$"
+  - "^gzip$"
+  - "^coreutils$"
+  - "^mount$"
+  - "^passwd$"
+  - "^login$"
+  - "^util-linux$"
+  - "^sysvinit-utils$"
+  - "^sensible-utils$"
+  - "^init-system-helpers$"
+  - "^libcap-ng0$"
+  - "^libsemanage.*"
+  - "^libsepol2$"
+  - "^libdb5\\.3.*"
+  - "^openssh-.*"
+  - "^systemd.*"
+  - "^udev$"
+  - "^kmod$"
+  - "^libncurses6$"

@@ -1,0 +1,78 @@
+# ==============================================================================
+# GDC Bootloader - GCS Cache Pre-Seeding & Fill Pipeline
+# ==============================================================================
+# This pipeline runs anytime to download, verify, and cache all required GGD
+# offline system dependencies (Gitea, JRE, Sonatype Nexus, Google Cloud SDK, 
+# and GDC APT packages) straight into the central GCS bucket.
+#
+# Offloads heavy multi-gigabyte downloads completely to Google's high-speed
+# internal networks, reducing bandwidth load on local workstations.
+# ==============================================================================
+
+steps:
+  # ==========================================
+  # Step 1: Download & Cache Local Service Hub Binaries
+  # ==========================================
+  # Executes 'make deps' with GCS active to pull existing assets, download any
+  # missing dependencies from upstream mirrors, verify hashes, and seed them GCS.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'cache-service-binaries'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "[-] [GCS Cache Fill] Checking and caching service binaries..."
+        make -C src/build deps \
+          ENABLE_GCS="true" \
+          GCS_BUCKET="gs://${_GCS_BUCKET_NAME}"
+
+  # ==========================================
+  # Step 2: Pre-resolve & Cache Offline .deb Packages
+  # ==========================================
+  # Runs preseed_packages.sh inside a native Ubuntu 24.04 Noble environment
+  # to correctly resolve and download Noble package versions recursively.
+  - name: 'ubuntu:24.04'
+    id: 'cache-debian-packages'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "[-] [GCS Cache Fill] Checking and caching debian packages inside Ubuntu 24.04 Noble..."
+        apt-get update -qq && apt-get install -y -qq curl
+        
+        ./src/build/preseed_packages.sh
+    env:
+      - 'GCS_BUCKET=gs://${_GCS_BUCKET_NAME}'
+      - 'ENABLE_GCS=false'
+      - 'TEST_ONLY=${_TEST_ONLY}'
+
+  # ==========================================
+  # Step 3: Synchronize .deb Packages Cache to GCS
+  # ==========================================
+  # Synchronizes the downloaded Noble .deb package files into the central GCS bucket.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'upload-debian-packages'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "[-] [GCS Cache Fill] Uploading compiled native Ubuntu 24.04 packages to GCS..."
+        BUCKET_NAME=$(echo "${_GCS_BUCKET_NAME}" | sed 's/^gs:\/\///')
+        if ls .cache/packages/*.deb &>/dev/null; then
+          gcloud storage cp .cache/packages/*.deb "gs://$${BUCKET_NAME}/packages/" --quiet
+          echo "  [x] Successfully synchronized cached packages to GCS."
+        else
+          echo "  [!] No packages found to synchronize!"
+          exit 1
+        fi
+
+# Default substitutions for cache execution
+substitutions:
+  _GCS_BUCKET_NAME: 'gdc-disk-provisioner-isos'
+  _TEST_ONLY: 'true'  # Set to false to seed the complete production GDC dependency set
+
+# 30 minutes timeout budget for downloading large binary sets
+timeout: '1800s'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
