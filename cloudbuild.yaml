@@ -20,6 +20,7 @@ steps:
       - |
         echo "[-] [CI Stage: deps] Creating local cache directory structure..."
         mkdir -p .cache/isos
+        mkdir -p .cache/binaries
         
         # Determine source bucket for the blessed ISO
         if [ -n "${_ISO_BLESSED_GCS_BUCKET}" ]; then
@@ -37,6 +38,29 @@ steps:
           echo "[!] Error: Source ISO not found at gs://$${BLESSED_BUCKET}/source/${_SOURCE_ISO_FILENAME}." >&2
           echo "[!] Please upload the blessed ISO to your bucket first to avoid heavy internet downloads." >&2
           exit 1
+        fi
+
+        echo "[-] Pulling cached GGD binaries from GCS binaries/ prefix..."
+        for file in "gitea-1.22.1-linux-amd64" "OpenJDK17U-jre_x64_linux_hotspot_17.0.11_9.tar.gz" "nexus-3.69.0-02-unix.tar.gz" "google-cloud-cli-575.0.0-linux-x86_64.tar.gz" "step-cli_0.26.1_amd64.deb"; do
+          gcs_path="gs://${_GCS_BUCKET_NAME}/binaries/$file"
+          local_path=".cache/binaries/$file"
+          if [ ! -f "$local_path" ]; then
+            if gcloud storage objects describe "$gcs_path" &>/dev/null; then
+              echo "  [x] Downloading $file from GCS cache..."
+              gcloud storage cp "$gcs_path" "$local_path"
+            else
+              echo "  [!] $file not found in GCS. Fallback to public curl will apply in compile step."
+            fi
+          fi
+        done
+
+        echo "[-] Pulling cached GGD Debian packages from GCS packages/ prefix..."
+        mkdir -p .cache/packages
+        if gcloud storage ls "gs://${_GCS_BUCKET_NAME}/packages/*.deb" &>/dev/null; then
+          gcloud storage cp "gs://${_GCS_BUCKET_NAME}/packages/*.deb" ".cache/packages/"
+          echo "  [x] Successfully synchronized cached packages from GCS."
+        else
+          echo "  [!] No cached packages found in gs://${_GCS_BUCKET_NAME}/packages/."
         fi
 
   # ==========================================
@@ -57,6 +81,8 @@ steps:
           ISO_VERSION="${_ISO_VERSION}" \
           SOURCE_ISO_FILENAME="${_SOURCE_ISO_FILENAME}" \
           GDC_DEBUG_MODE="${_GDC_DEBUG_MODE}" \
+          ENABLE_GCS="true" \
+          GCS_BUCKET="gs://${_GCS_BUCKET_NAME}" \
           AUTO_APPROVE="true"
 
   # ==========================================

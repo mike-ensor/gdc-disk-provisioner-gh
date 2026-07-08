@@ -47,9 +47,9 @@ def main():
         sys.exit(1)
 
     print(f"[+] Retrieved {len(images)} image records from database.")
-    print("==============================================================================")
-    print(f"{'IMAGE NAME':<40} | {'DISTRO':<10} | {'ENABLED':<7} | {'AUTOINSTALL':<11}")
-    print("-" * 78)
+    print("==========================================================================================")
+    print(f"{'IMAGE NAME':<40} | {'DISTRO':<10} | {'ENABLED':<7} | {'EXTRACTION':<11} | {'AUTOINSTALL':<11}")
+    print("-" * 90)
 
     failures = 0
     total_ubuntu = 0
@@ -61,9 +61,9 @@ def main():
             continue
             
         distro = img.get("distro", "unknown")
-        boot_method = img.get("boot_method", "unknown")
         boot_params = img.get("boot_params", "")
         enabled = img.get("enabled", False)
+        extracted = img.get("extracted", False)
 
         # We are specifically concerned with Ubuntu OS images
         if distro == "ubuntu":
@@ -71,34 +71,56 @@ def main():
             has_autoinstall = "autoinstall" in boot_params
             has_ds = "ds=nocloud-net" in boot_params
             
-            # Autoinstall is only healthy if both 'autoinstall' and the seed 'ds=nocloud-net' are present
-            is_healthy = has_autoinstall and has_ds
-            autoinstall_status = "YES" if is_healthy else "NO"
+            # Formulate detailed statuses based on actual database states
+            enabled_str = "TRUE" if enabled else "FALSE"
             
-            if not is_healthy:
-                autoinstall_status = "⚠️  MISSING"
+            if not extracted:
+                extraction_status = "IN-PROGRESS"
+                autoinstall_status = "PENDING"
+                # If extraction is in progress, it's not a failure yet
+                is_failed = False
+            else:
+                extraction_status = "COMPLETE"
+                if has_autoinstall and has_ds:
+                    autoinstall_status = "YES"
+                    # If extraction is complete, it must be enabled. If not, it was clobbered or failed!
+                    if not enabled:
+                        autoinstall_status = "🔒 LOCKED"
+                        is_failed = True
+                    else:
+                        is_failed = False
+                else:
+                    autoinstall_status = "⚠️  MISSING"
+                    is_failed = True
+
+            if is_failed:
                 failures += 1
 
-            enabled_str = "TRUE" if enabled else "FALSE"
-            print(f"{filename:<40} | {distro:<10} | {enabled_str:<7} | {autoinstall_status:<11}")
+            print(f"{filename:<40} | {distro:<10} | {enabled_str:<7} | {extraction_status:<11} | {autoinstall_status:<11}")
 
-            if not is_healthy:
-                print(f"    [ALERT] Invalid boot params found:")
-                print(f"            {boot_params}")
-                print("-" * 78)
+            if is_failed:
+                if not extracted:
+                    pass
+                elif not enabled and (has_autoinstall and has_ds):
+                    print(f"    [ALERT] Image is LOCKED/DISABLED in database but has valid boot params. Clobbering detected!")
+                    print("-" * 90)
+                else:
+                    print(f"    [ALERT] Invalid boot params found:")
+                    print(f"            {boot_params}")
+                    print("-" * 90)
 
-    print("==============================================================================")
+    print("==========================================================================================")
     print(f"AUDIT SUMMARY:")
     print(f"  Total Ubuntu Images Checked: {total_ubuntu}")
-    print(f"  Interactive Mode Vulnerable: {failures}")
-    print("==============================================================================")
+    print(f"  Interactive Mode/Locked Failures: {failures}")
+    print("==========================================================================================")
 
     if failures > 0:
-        print("[!] Warning: Some Ubuntu images are missing non-interactive autoinstall parameters!")
-        print("    These nodes could launch in interactive mode when PXE booted.")
+        print("[!] Warning: Some Ubuntu images are locked or missing autoinstall parameters!")
+        print("    These nodes could fail to boot or launch in interactive mode.")
         sys.exit(1)
     else:
-        print("[x] SUCCESS: All Ubuntu/GDC images are locked in secure, non-interactive autoinstall mode!")
+        print("[x] SUCCESS: All Ubuntu/GDC images are unlocked and configured in secure, non-interactive autoinstall mode!")
         sys.exit(0)
 
 if __name__ == "__main__":

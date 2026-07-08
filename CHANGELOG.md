@@ -4,6 +4,22 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.1.43] - 2026-07-08
+
+### Added
+- **Declarative Package Configuration (`packages_config.yaml`):** Implemented a structured YAML configuration to govern GDC pre-seeded package include/exclude rules, decoupling includes (`platform_required` and `customer_added`) from implementation scripts.
+- **Test-Driven Python Pre-seeding Engine (`preseed_packages.py`):** Re-engineered the caching engine from raw shell to object-oriented Python, supporting comprehensive unit test suites covering configuration ingestion and regex-based exclusions.
+- **Fail-Safe Automatic Telemetry Uploads:** Configured `collect-node-diagnostics.sh` and the first-boot playbook to automatically compile and upload telemetry tarballs to `gdc-companion.ensor-labs.com` upon completion via secure POST webhooks.
+- **Target OS Version Compatibility Guardrails:** Programmed strict container-to-target version assertions inside `preseed_packages.py` to prevent library pollution during recursive dependency resolutions.
+
+### Changed
+- **Padded LVM Logical Volumes:** Resized metrics, containerd, and etcd partitions up by 2-3 GiB to satisfy GDC available block capacities while absorbing filesystem metadata taxes.
+- **Superblock Wiping Integration:** Configured `wipe: superblock-recursive` on system disks and `wipe: superblock` on LVM partition elements in all four storage configs to support 100% automated reinstallations on previously structured physical drives.
+
+### Fixed
+- **Defensive UFW Hardening:** Patched the `security_hardening` role to retrieve service facts and stop/disable UFW only if the service exists, avoiding fatal playbook exits on pre-slimmed target hosts.
+- **False-Positive etcd Clean Patches:** Corrected `/var/lib/etcd` dirtiness checks to ignore standard ext4 `lost+found` system folders.
+
 ## [0.1.26] - 2026-07-06
 
 ### Fixed
