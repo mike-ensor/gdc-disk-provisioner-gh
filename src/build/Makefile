@@ -43,7 +43,16 @@ NEXUS_PACKAGE_FILENAME := $(call get_env,NEXUS_PACKAGE_FILENAME)
 NEXUS_PACKAGE_SHA256 := $(call get_env,NEXUS_PACKAGE_SHA256)
 NEXUS_PACKAGE_URL := $(call get_env,NEXUS_PACKAGE_URL)
 
+GCLOUD_SDK_FILENAME := $(call get_env,GCLOUD_SDK_FILENAME)
+GCLOUD_SDK_SHA256 := $(call get_env,GCLOUD_SDK_SHA256)
+GCLOUD_SDK_URL := $(call get_env,GCLOUD_SDK_URL)
+
+STEP_CLI_FILENAME := $(call get_env,STEP_CLI_FILENAME)
+STEP_CLI_SHA256 := $(call get_env,STEP_CLI_SHA256)
+STEP_CLI_URL := $(call get_env,STEP_CLI_URL)
+
 TEMPORARY_INSTALLER_PASSWORD := $(call get_env,TEMPORARY_INSTALLER_PASSWORD)
+GCLOUD_PRESENT := $(shell command -v gcloud &>/dev/null && echo "true" || echo "false")
 ANSIBLE_PLAYBOOK_HOME := $(call get_env,ANSIBLE_PLAYBOOK_HOME)
 GDC_RELEASE_USER_NAME := $(call get_env,GDC_RELEASE_USER_NAME)
 GDC_RELEASE_USER_EMAIL := $(call get_env,GDC_RELEASE_USER_EMAIL)
@@ -140,12 +149,37 @@ deps:
 	@echo "[-] [Stage: pre-artifact] Verifying GDC local service hub binaries cache..."
 	@mkdir -p $(BIN_CACHE_DIR)
 	@mkdir -p $(CACHE_DIR)/isos
-	@# Verify and download the original Base ISO if missing
+	@# GCS Pull Cache Phase
+	@if [ "$(ENABLE_GCS)" = "true" ] && [ "$(GCLOUD_PRESENT)" = "true" ]; then \
+		echo "  [-] GCS cache active. Pulling artifacts from gs://$(GCS_BUCKET)..."; \
+		BUCKET_NAME=$$(echo "$(GCS_BUCKET)" | sed 's/^gs:\/\///'); \
+		if [ -n "$$BUCKET_NAME" ]; then \
+			for file in "$(SOURCE_ISO_FILENAME)" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)"; do \
+				if [ "$$file" = "$(SOURCE_ISO_FILENAME)" ]; then \
+					local_path="$(CACHE_DIR)/isos/$$file"; \
+					gcs_path="gs://$$BUCKET_NAME/source/$$file"; \
+				else \
+					local_path="$(BIN_CACHE_DIR)/$$file"; \
+					gcs_path="gs://$$BUCKET_NAME/binaries/$$file"; \
+				fi; \
+				if [ ! -f "$$local_path" ]; then \
+					echo "    [-] Checking GCS for $$file..."; \
+					if gcloud storage objects describe "$$gcs_path" &>/dev/null; then \
+						echo "    [x] Downloading $$file from GCS..."; \
+						gcloud storage cp "$$gcs_path" "$$local_path"; \
+					else \
+						echo "    [-] $$file not found in GCS. Will download from public mirror."; \
+					fi; \
+				fi; \
+			done; \
+		fi; \
+	fi
+	@# 1. Base OS ISO
 	@if [ ! -f "$(CACHE_DIR)/isos/$(SOURCE_ISO_FILENAME)" ]; then \
 		echo "  [-] Base operating system ISO cache missing. Downloading from: $(SOURCE_ISO_URL)..."; \
 		curl -L -o "$(CACHE_DIR)/isos/$(SOURCE_ISO_FILENAME)" "$(SOURCE_ISO_URL)"; \
 	fi
-	@# Verify and retrieve Gitea Binary
+	@# 2. Gitea Binary
 	@if [ ! -f "$(BIN_CACHE_DIR)/$(GITEA_BINARY_FILENAME)" ]; then \
 		echo "  [-] Gitea cache missing. Downloading from: $(GITEA_BINARY_URL)..."; \
 		curl -L -o "$(BIN_CACHE_DIR)/$(GITEA_BINARY_FILENAME)" "$(GITEA_BINARY_URL)"; \
@@ -153,7 +187,7 @@ deps:
 	@echo "  [-] Verifying Gitea binary integrity..."
 	@echo "$(GITEA_BINARY_SHA256)  $(BIN_CACHE_DIR)/$(GITEA_BINARY_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Gitea binary hash mismatch!" >&2; exit 1)
 	@echo "  [x] Gitea binary integrity verified."
-	@# Verify and retrieve Adoptium Java JRE
+	@# 3. Java JRE
 	@if [ ! -f "$(BIN_CACHE_DIR)/$(JRE_PACKAGE_FILENAME)" ]; then \
 		echo "  [-] Java JRE cache missing. Downloading from: $(JRE_PACKAGE_URL)..."; \
 		curl -L -o "$(BIN_CACHE_DIR)/$(JRE_PACKAGE_FILENAME)" "$(JRE_PACKAGE_URL)"; \
@@ -161,7 +195,7 @@ deps:
 	@echo "  [-] Verifying Java JRE binary integrity..."
 	@echo "$(JRE_PACKAGE_SHA256)  $(BIN_CACHE_DIR)/$(JRE_PACKAGE_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Java JRE package hash mismatch!" >&2; exit 1)
 	@echo "  [x] Java JRE binary integrity verified."
-	@# Verify and retrieve Sonatype Nexus Package
+	@# 4. Sonatype Nexus
 	@if [ ! -f "$(BIN_CACHE_DIR)/$(NEXUS_PACKAGE_FILENAME)" ]; then \
 		echo "  [-] Nexus cache missing. Downloading from: $(NEXUS_PACKAGE_URL)..."; \
 		curl -L -o "$(BIN_CACHE_DIR)/$(NEXUS_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_URL)"; \
@@ -169,6 +203,45 @@ deps:
 	@echo "  [-] Verifying Sonatype Nexus integrity..."
 	@echo "$(NEXUS_PACKAGE_SHA256)  $(BIN_CACHE_DIR)/$(NEXUS_PACKAGE_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Sonatype Nexus package hash mismatch!" >&2; exit 1)
 	@echo "  [x] Sonatype Nexus binary integrity verified."
+	@# 5. Google Cloud SDK
+	@if [ ! -f "$(BIN_CACHE_DIR)/$(GCLOUD_SDK_FILENAME)" ]; then \
+		echo "  [-] Google Cloud SDK cache missing. Downloading from: $(GCLOUD_SDK_URL)..."; \
+		curl -L -o "$(BIN_CACHE_DIR)/$(GCLOUD_SDK_FILENAME)" "$(GCLOUD_SDK_URL)"; \
+	fi
+	@echo "  [-] Verifying Google Cloud SDK integrity..."
+	@echo "$(GCLOUD_SDK_SHA256)  $(BIN_CACHE_DIR)/$(GCLOUD_SDK_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Google Cloud SDK package hash mismatch!" >&2; exit 1)
+	@echo "  [x] Google Cloud SDK binary integrity verified."
+	@# 6. Smallstep CLI
+	@if [ ! -f "$(BIN_CACHE_DIR)/$(STEP_CLI_FILENAME)" ]; then \
+		echo "  [-] Smallstep CLI cache missing. Downloading from: $(STEP_CLI_URL)..."; \
+		curl -L -o "$(BIN_CACHE_DIR)/$(STEP_CLI_FILENAME)" "$(STEP_CLI_URL)"; \
+	fi
+	@echo "  [-] Verifying Smallstep CLI integrity..."
+	@echo "$(STEP_CLI_SHA256)  $(BIN_CACHE_DIR)/$(STEP_CLI_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Smallstep CLI package hash mismatch!" >&2; exit 1)
+	@echo "  [x] Smallstep CLI binary integrity verified."
+	@# GCS Seed Cache Phase
+	@if [ "$(ENABLE_GCS)" = "true" ] && [ "$(GCLOUD_PRESENT)" = "true" ]; then \
+		echo "  [-] Synchronizing verified local cache back to GCS..."; \
+		BUCKET_NAME=$$(echo "$(GCS_BUCKET)" | sed 's/^gs:\/\///'); \
+		if [ -n "$$BUCKET_NAME" ]; then \
+			for file in "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)"; do \
+				local_path="$(BIN_CACHE_DIR)/$$file"; \
+				gcs_path="gs://$$BUCKET_NAME/binaries/$$file"; \
+				if [ -f "$$local_path" ]; then \
+					if ! gcloud storage objects describe "$$gcs_path" &>/dev/null; then \
+						echo "    [-] Seeding $$file back to GCS cache..."; \
+						gcloud storage cp "$$local_path" "$$gcs_path"; \
+					fi; \
+				fi; \
+			done; \
+			local_iso="$(CACHE_DIR)/isos/$(SOURCE_ISO_FILENAME)"; \
+			gcs_iso="gs://$$BUCKET_NAME/source/$(SOURCE_ISO_FILENAME)"; \
+			if [ -f "$$local_iso" ] && ! gcloud storage objects describe "$$gcs_iso" &>/dev/null; then \
+				echo "    [-] Seeding base ISO back to GCS source..."; \
+				gcloud storage cp "$$local_iso" "$$gcs_iso"; \
+			fi; \
+		fi; \
+	fi
 
 extract: check-env deps
 	@if [ ! -f "$(EXTRACT_DIR)/boot/grub/grub.cfg" ]; then \
@@ -274,6 +347,7 @@ deploy:
 			echo "[!] Error: gcloud CLI is required but not installed." >&2; \
 			exit 1; \
 		fi; \
+		gcloud config set storage/parallel_composite_upload_enabled False; \
 		gcloud storage cp "$${ISO_OUTPUT_PATH}" "$(GCS_BUCKET)/sync/$${ISO_OUTPUT_NAME}"; \
 		if [ -f "$(OUTPUT_DIR)/debug-templates-v$(ISO_VERSION).tar.gz" ]; then \
 			echo "  [-] Uploading debug configurations tarball to GCS under debug/..."; \
@@ -353,6 +427,16 @@ publish:
 	echo "      \"version\": \"17.0.11+9\"," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "      \"filename\": \"$(JRE_PACKAGE_FILENAME)\"," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "      \"sha256\": \"$(JRE_PACKAGE_SHA256)\"" >> "$(PROVENANCE_MANIFEST)"; \
+	echo "    }," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "    \"google_cloud_sdk\": {" >> "$(PROVENANCE_MANIFEST)"; \
+	echo "      \"version\": \"575.0.0\"," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "      \"filename\": \"$(GCLOUD_SDK_FILENAME)\"," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "      \"sha256\": \"$(GCLOUD_SDK_SHA256)\"" >> "$(PROVENANCE_MANIFEST)"; \
+	echo "    }," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "    \"step_cli\": {" >> "$(PROVENANCE_MANIFEST)"; \
+	echo "      \"version\": \"0.26.1\"," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "      \"filename\": \"$(STEP_CLI_FILENAME)\"," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "      \"sha256\": \"$(STEP_CLI_SHA256)\"" >> "$(PROVENANCE_MANIFEST)"; \
 	echo "    }" >> "$(PROVENANCE_MANIFEST)"; \
 	echo "  }," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "  \"output_cryptographic_signatures\": {" >> "$(PROVENANCE_MANIFEST)"; \

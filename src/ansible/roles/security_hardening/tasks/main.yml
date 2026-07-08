@@ -9,12 +9,17 @@
 # --------------------------------------------------------------------------
 # Task 11: Security Hardening (UFW & Unattended Upgrades)
 # --------------------------------------------------------------------------
+- name: "GDC-TASK-11 | Populate active system service facts"
+  ansible.builtin.service_facts:
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-11 | Ensure UFW is stopped and disabled"
   ansible.builtin.systemd:
     name: ufw
     enabled: false
     state: stopped
     masked: true
+  when: "'ufw.service' in services or 'ufw' in services"
   ignore_errors: true
   tags: ["strictly-local"]
 
