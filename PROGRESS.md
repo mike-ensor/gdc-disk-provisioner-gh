@@ -56,7 +56,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Stage 8: Dynamic E2E boot (`make test-dynamic`) spawning VM and asserting interfaces
   - [x] Stage 9: Release deployment (`make deploy`) copying final build to regional GCS buckets
   - [x] Stage 10: Publication (`make publish`) updating symlinks and generating signed provenance JSONs
-- [ ] **Pre-seeding Asset Pipeline & Space Guardrails**
+- [x] **Pre-seeding Asset Pipeline & Space Guardrails**
   - [x] Configure Gitea Playbook Mirror:
     - [x] Dynamically clone `UPSTREAM_PLAYBOOKS_REPO` at ISO creation time
     - [x] Inject read-only Git `pre-receive` hook to block direct local pushes
@@ -152,21 +152,21 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [ ] **CIS Hardening & Slimming**
   - [ ] Implement Ansible roles for CIS Level 2 benchmark rules
   - [x] Implement Ansible tasks to purge unneeded packages (snapd, x11, lxd, compiler runtimes, etc.)
-- [ ] **Idempotent Post-Install System Hardening (Ansible-Pull)**
-  - [ ] Task 01: Wait on local boundary hubs readiness (Gitea Port 3000, Nexus Port 8081)
-  - [ ] Task 02: Programmatic Sonatype Nexus repository group/hosted/proxy setup (gdc-apt-hosted/proxy, gdc-docker-group port 5001, hosted port 5002)
-  - [ ] Task 03: Create `/var/gdc-install/` workspace directories (fully owned by `gdc-admin` with `0755` permissions)
-  - [ ] Task 04: Implement `gdc-admin` user creation, supplementary groups setup (`sudo`, `docker`), and passwordless sudoers rules
-  - [ ] Task 05: Offline APT sources setup (Write DEB822 sources and deactivate default public Ubuntu files)
-  - [ ] Task 06: Package installation loop (`gdc_core_packages` list containing `containerd.io`, `docker-ce`, `chrony`, `step-cli`, etc.; Tagged: `external-dependency`)
-  - [ ] Task 07: Deploy persistent kernel sysctl tuning parameters (`99-gdc.conf` for max inotify and BPF JIT)
-  - [ ] Task 08: Enforce universal UTC system timezone and configure Chrony NTP with Google pools (Tagged: `external-dependency`)
-  - [ ] Task 09: Setup Container engines (`docker-ce` daemon and `containerd` config/hosts TOML definitions for local mirrors redirects)
-  - [ ] Task 10: Standalone non-apt Google Cloud SDK deployment, silent installer configuration, and global symlinking (Tagged: `external-dependency`)
-  - [ ] Task 11: Security configurations (Mask `ufw` firewall, implement reboot-free unattended-upgrades with blacklist)
-  - [ ] Task 12: Offline management deployment (Deploy skeleton update scripts and link daily logrotate hourly with mode `0755` executable permissions)
-  - [ ] Deploy weekly cron job for automated Google Cloud SDK updates (`gcloud components update -q`; Tagged: `external-dependency`)
-  - [ ] Ensure all playbook tasks are tagged according to GDC Machine State Taxonomy
+- [x] **Idempotent Post-Install System Hardening (Ansible-Pull)**
+  - [x] Task 01: Wait on local boundary hubs readiness (Gitea Port 3000, Nexus Port 8081)
+  - [x] Task 02: Programmatic Sonatype Nexus repository group/hosted/proxy setup (gdc-apt-hosted/proxy, gdc-docker-group port 5001, hosted port 5002)
+  - [x] Task 03: Create `/var/gdc-install/` workspace directories (fully owned by `gdc-admin` with `0755` permissions)
+  - [x] Task 04: Implement `gdc-admin` user creation, supplementary groups setup (`sudo`, `docker`), and passwordless sudoers rules
+  - [x] Task 05: Offline APT sources setup (Write DEB822 sources and deactivate default public Ubuntu files)
+  - [x] Task 06: Package installation loop (`gdc_core_packages` list containing `containerd.io`, `docker-ce`, `chrony`, `step-cli`, etc.; Tagged: `external-dependency`)
+  - [x] Task 07: Deploy persistent kernel sysctl tuning parameters (`99-gdc.conf` for max inotify and BPF JIT)
+  - [x] Task 08: Enforce universal UTC system timezone and configure Chrony NTP with Google pools (Tagged: `external-dependency`)
+  - [x] Task 09: Setup Container engines (`docker-ce` daemon and `containerd` config/hosts TOML definitions for local mirrors redirects)
+  - [x] Task 10: Standalone non-apt Google Cloud SDK deployment, silent installer configuration, and global symlinking (Tagged: `external-dependency`)
+  - [x] Task 11: Security configurations (Mask `ufw` firewall, implement reboot-free unattended-upgrades with blacklist)
+  - [x] Task 12: Offline management deployment (Deploy skeleton update scripts and link daily logrotate hourly with mode `0755` executable permissions)
+  - [x] Deploy weekly cron job for automated Google Cloud SDK updates (`gcloud components update -q`; Tagged: `external-dependency`)
+  - [x] Ensure all playbook tasks are tagged according to GDC Machine State Taxonomy
 
 ---
 
@@ -258,6 +258,11 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ## 3. Unplanned & Future Reference
 
+- [ ] **Multi-LTS Target Compilation Architecture (Support for 22.04 Jammy & 26.06 Future LTS Options)**
+  - [ ] **Docker Builder Generalization:** Parameterize `src/build/Dockerfile` compilation rules to build and cache isolated compile images for separate target LTS releases.
+  - [ ] **GCS Packages Isolation:** Generalize Google Cloud Storage cache prefixes to include release target trees (e.g. `gs://.../packages/22.04/`, `gs://.../packages/24.04/`) to prevent library pollution across target node OS sets.
+  - [ ] **Preseed Resolvers Verification:** Enhance `preseed_packages.sh` to dynamically query and map release repositories matching `_UBUNTU_VERSION`.
+  - [ ] **Variables & Settings Audit:** Review LVM fstab patterns, Netplan DBus protocols, and systemd units for system-level differences across Jammy, Noble, and Plucky configurations.
 - [ ] **APT** configuration
   - [ ] https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#apt
   - [ ] https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#fallback

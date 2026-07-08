@@ -1,13 +1,13 @@
 # Generated dynamically by GDC storage orchestrator (UEFI Dual Disk)
   config:
     # --- Physical Drives ---
-    - {type: disk, id: disk-system, path: /dev/${DISK_1}, ptable: gpt, grub_device: true}
-    - {type: disk, id: disk-data, path: /dev/${DISK_2}, ptable: gpt}
+    - {type: disk, id: disk-system, path: /dev/${DISK_1}, ptable: gpt, grub_device: true, wipe: superblock-recursive}
+    - {type: disk, id: disk-data, path: /dev/${DISK_2}, ptable: gpt, wipe: superblock-recursive}
     
     # --- Disk 1 System Partitioning (EFI, Boot, and Core OS Services) ---
     - {type: partition, id: partition-efi, device: disk-system, size: 1073741824, flag: uefi, grub_device: true}
     - {type: partition, id: partition-boot, device: disk-system, size: 2147483648}
-    - {type: partition, id: partition-lvm-sys, device: disk-system, size: -1}
+    - {type: partition, id: partition-lvm-sys, device: disk-system, size: -1, wipe: superblock}
     - {type: format, id: format-efi, volume: partition-efi, fstype: vfat}
     - {type: format, id: format-boot, volume: partition-boot, fstype: ext4}
     - {type: mount, id: mount-efi, device: format-efi, path: /boot/efi}
@@ -19,15 +19,15 @@
     - {type: lvm_partition, id: lv-root, volgroup: vg-system, name: lv_root, size: 20G}
     - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 20G}
     - {type: lvm_partition, id: lv-varlog, volgroup: vg-system, name: lv_var_log, size: 15G}
-    - {type: lvm_partition, id: lv-metrics, volgroup: vg-system, name: lv_var_opt_metrics, size: 10G}
-    - {type: lvm_partition, id: lv-containerd, volgroup: vg-system, name: lv_containerd, size: 30G}
-    - {type: lvm_partition, id: lv-etcd, volgroup: vg-system, name: lv_etcd, size: 20G}
-    - {type: lvm_partition, id: lv-etcd-events, volgroup: vg-system, name: lv_etcd_events, size: 5G}
+    - {type: lvm_partition, id: lv-metrics, volgroup: vg-system, name: lv_var_opt_metrics, size: 12G}
+    - {type: lvm_partition, id: lv-containerd, volgroup: vg-system, name: lv_containerd, size: 33G}
+    - {type: lvm_partition, id: lv-etcd, volgroup: vg-system, name: lv_etcd, size: 22G}
+    - {type: lvm_partition, id: lv-etcd-events, volgroup: vg-system, name: lv_etcd_events, size: 7G}
     - {type: lvm_partition, id: lv-gitea, volgroup: vg-system, name: lv_gitea, size: 20G}
     - {type: lvm_partition, id: lv-nexus, volgroup: vg-system, name: lv_nexus, size: -1}
 
     # --- Disk 2 Data Partitioning (LUKS + Dedicated Data VG) ---
-    - {type: partition, id: partition-lvm-data, device: disk-data, size: -1}
+    - {type: partition, id: partition-lvm-data, device: disk-data, size: -1, wipe: superblock}
     - {type: dm_crypt, id: crypt-data, volume: partition-lvm-data, key: "temporary_bootstrap_key_to_be_enrolled_to_tpm", options: "noinitramfs,discard"}
     - {type: lvm_volgroup, id: vg-data, name: vg_data, devices: [crypt-data]}
     

@@ -29,23 +29,42 @@ steps:
   # ==========================================
   # Step 2: Pre-resolve & Cache Offline .deb Packages
   # ==========================================
-  # Runs preseed_packages.sh to resolve system dependencies, download Noble deb
-  # suites, and synchronize them to GCS under /packages/ prefix.
-  - name: 'gcr.io/cloud-builders/gcloud'
+  # Runs preseed_packages.sh inside a native Ubuntu 24.04 Noble environment
+  # to correctly resolve and download Noble package versions recursively.
+  - name: 'ubuntu:24.04'
     id: 'cache-debian-packages'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        echo "[-] [GCS Cache Fill] Checking and caching debian packages..."
-        # Install sudo to support the script running as non-root inside standard cloud-builders
-        apt-get update -qq && apt-get install -y -qq sudo
+        echo "[-] [GCS Cache Fill] Checking and caching debian packages inside Ubuntu 24.04 Noble..."
+        apt-get update -qq && apt-get install -y -qq curl
         
         ./src/build/preseed_packages.sh
     env:
       - 'GCS_BUCKET=gs://${_GCS_BUCKET_NAME}'
-      - 'ENABLE_GCS=true'
+      - 'ENABLE_GCS=false'
       - 'TEST_ONLY=${_TEST_ONLY}'
+
+  # ==========================================
+  # Step 3: Synchronize .deb Packages Cache to GCS
+  # ==========================================
+  # Synchronizes the downloaded Noble .deb package files into the central GCS bucket.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'upload-debian-packages'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "[-] [GCS Cache Fill] Uploading compiled native Ubuntu 24.04 packages to GCS..."
+        BUCKET_NAME=$(echo "${_GCS_BUCKET_NAME}" | sed 's/^gs:\/\///')
+        if ls .cache/packages/*.deb &>/dev/null; then
+          gcloud storage cp .cache/packages/*.deb "gs://$${BUCKET_NAME}/packages/" --quiet
+          echo "  [x] Successfully synchronized cached packages to GCS."
+        else
+          echo "  [!] No packages found to synchronize!"
+          exit 1
+        fi
 
 # Default substitutions for cache execution
 substitutions:
