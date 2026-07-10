@@ -168,6 +168,12 @@
   register: gcloud_tarball_stat
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
+- name: "GDC-TASK-10 | Check if gcloud SDK tarball is present in /tmp"
+  ansible.builtin.stat:
+    path: "/tmp/google-cloud-cli-linux-x86_64.tar.gz"
+  register: gcloud_tmp_tarball_stat
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
 - name: "GDC-TASK-10 | Download Google Cloud SDK tarball for connected testing"
   ansible.builtin.get_url:
     url: "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-x86_64.tar.gz"
@@ -175,14 +181,15 @@
     mode: '0644'
   when:
     - not gcloud_tarball_stat.stat.exists
+    - not gcloud_tmp_tarball_stat.stat.exists
     - not (deactivate_public_sources | default(true) | bool)
   register: gcloud_download_run
   tags: ["machine:connected", "external-dependency"]
 
 - name: "GDC-TASK-10 | Set fact for gcloud tarball source path and availability"
   ansible.builtin.set_fact:
-    gcloud_source_path: "{{ '/tmp/google-cloud-cli-linux-x86_64.tar.gz' if (not gcloud_tarball_stat.stat.exists and gcloud_download_run is succeeded) else gdc_gcloud_tarball_path }}"
-    gcloud_available: "{{ gcloud_tarball_stat.stat.exists or (gcloud_download_run is defined and gcloud_download_run is succeeded) }}"
+    gcloud_source_path: "{{ '/tmp/google-cloud-cli-linux-x86_64.tar.gz' if gcloud_tmp_tarball_stat.stat.exists else gdc_gcloud_tarball_path }}"
+    gcloud_available: "{{ gcloud_tarball_stat.stat.exists or gcloud_tmp_tarball_stat.stat.exists or (gcloud_download_run is defined and gcloud_download_run is succeeded and not gcloud_download_run.skipped | default(false)) }}"
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
 - name: "GDC-TASK-10 | Extract Standalone Google Cloud SDK archive"

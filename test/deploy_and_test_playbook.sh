@@ -249,6 +249,12 @@ echo "[-] Staging local 'src/ansible/' in guest's /tmp/ansible/..."
 ${SSH_CMD_PREFIX} "${TARGET_USER}@${TARGET_HOST}" "rm -rf /tmp/ansible && mkdir -p /tmp/ansible"
 ${SCP_CMD_PREFIX} -r "${PROJECT_ROOT}/src/ansible/"* "${TARGET_USER}@${TARGET_HOST}:/tmp/ansible/"
 
+# Stage pre-seeded google-cloud-cli tarball from local cache if available to prevent downloading
+if [[ -f "${PROJECT_ROOT}/.cache/binaries/google-cloud-cli-575.0.0-linux-x86_64.tar.gz" ]]; then
+    echo "[-] Staging local cached google-cloud-cli tarball in guest's /tmp/..."
+    ${SCP_CMD_PREFIX} "${PROJECT_ROOT}/.cache/binaries/google-cloud-cli-575.0.0-linux-x86_64.tar.gz" "${TARGET_USER}@${TARGET_HOST}:/tmp/google-cloud-cli-linux-x86_64.tar.gz"
+fi
+
 echo "[-] Moving staging files to target node's ansible folder: /etc/gdc/ansible/..."
 SSH_SUDO_PASS_CMD=""
 if [[ -n "${GDC_PASS}" ]]; then

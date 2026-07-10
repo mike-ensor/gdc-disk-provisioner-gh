@@ -125,4 +125,4 @@ gdc_unattended_blacklist:
 
 # Toggle to deactivate standard public Ubuntu apt repositories
 # (set to false for connected testing/development, true for strict air-gapped production)
-deactivate_public_sources: false
+deactivate_public_sources: true

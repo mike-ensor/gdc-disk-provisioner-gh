@@ -122,7 +122,7 @@
       Enabled: yes
       Types: deb
       URIs: http://nexus.gdc.local:8081/repository/gdc-apt-hosted/
-      Suites: noble
+      Suites: noble noble-updates noble-backports noble-security
       Components: main restricted universe multiverse
       Signed-By: /etc/apt/keyrings/gdc-nexus.gpg
       Trusted: yes
@@ -131,7 +131,7 @@
       Enabled: yes
       Types: deb
       URIs: http://nexus.gdc.local:8081/repository/gdc-apt-proxy/
-      Suites: noble
+      Suites: noble noble-updates noble-backports noble-security
       Components: main restricted universe multiverse
       Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
       Trusted: yes
@@ -180,11 +180,24 @@
   tags: ["strictly-local"]
 
 - name: "GDC-TASK-05 | Restore public Ubuntu DEB822 sources for connected testing"
-  ansible.builtin.command: mv /etc/apt/sources.list.d/ubuntu.sources.bak /etc/apt/sources.list.d/ubuntu.sources
-  args:
-    removes: /etc/apt/sources.list.d/ubuntu.sources.bak
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/ubuntu.sources
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      Types: deb
+      URIs: http://archive.ubuntu.com/ubuntu/
+      Suites: noble noble-updates noble-backports
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+      Types: deb
+      URIs: http://security.ubuntu.com/ubuntu/
+      Suites: noble-security
+      Components: main restricted universe multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
   when: not (deactivate_public_sources | default(true) | bool)
-  changed_when: true
   tags: ["strictly-local"]
 
 - name: "GDC-TASK-05 | Restore standard sources.list for connected testing"
@@ -193,6 +206,7 @@
     removes: /etc/apt/sources.list.bak
   when: not (deactivate_public_sources | default(true) | bool)
   changed_when: true
+  ignore_errors: true
   tags: ["strictly-local"]
 
 # --------------------------------------------------------------------------
@@ -205,6 +219,8 @@
   register: apt_upgrade_result
   ignore_errors: true
   when: trigger_system_upgrade | default(false)
+  environment:
+    NEEDRESTART_MODE: l
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
 - name: "GDC-LOG-CON | Log packages wait to serial console"
@@ -217,6 +233,16 @@
   ansible.builtin.apt:
     update_cache: true
   ignore_errors: true
+  environment:
+    NEEDRESTART_MODE: l
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-06 | Repair broken package dependencies"
+  ansible.builtin.command: apt-get --fix-broken install -y
+  changed_when: true
+  ignore_errors: true
+  environment:
+    NEEDRESTART_MODE: l
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
 - name: "GDC-TASK-06 | Add upstream Docker GPG key for connected testing"
@@ -271,6 +297,9 @@
     name: "{{ package_check.results | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) | map(attribute='item') | list }}"
     state: present
     update_cache: false
+    allow_downgrades: true
   when: (package_check.results | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) | list | length) > 0
   register: apt_install_result
+  environment:
+    NEEDRESTART_MODE: l
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
