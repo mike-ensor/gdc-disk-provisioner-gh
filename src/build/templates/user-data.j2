@@ -48,6 +48,21 @@ autoinstall:
       # Write a persistent GDC LUKS key file inside /run (shared tmpfs visible to both snap and host)
       echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /run/gdc-luks-key
       chmod 600 /run/gdc-luks-key
+
+      # Launch background disk-cache sync daemon to defeat bare-metal NVMe write caching clobbering
+      (
+        logger -t gdc-provisioner "[DAEMON] Starting background disk-cache sync loop..."
+        while [ ! -f /target/etc/fstab ]; do
+          sync 2>/dev/null || true
+          for dev in /dev/nvme* /dev/sd*; do
+            if [ -b "${dev}" ]; then
+              blockdev --flushbufs "${dev}" 2>/dev/null || true
+            fi
+          done
+          sleep 0.5
+        done
+        logger -t gdc-provisioner "[DAEMON] Target OS fstab detected. Stopping background sync loop."
+      ) &
     - |
       # Live-stream Subiquity server logs to serial console for real-time diagnostics
       touch /var/log/installer/subiquity-server-debug.log
