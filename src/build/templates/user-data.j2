@@ -91,6 +91,25 @@ autoinstall:
         echo "[!] Warning: Dynamic storage config generator not found on ISO! Falling back to static build config."
       fi
     - |
+      # Defensive disk sanitization & kernel partition table cache flush (Prevents LUKS open/re-format cache clobbering)
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Performing defensive block device sanitization & cache flushes"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Performing defensive block device sanitization & cache flushes"
+      for d in $(lsblk -dno NAME | grep -vE 'loop|sr|ram'); do
+        echo "   -> Cleaning device: /dev/${d}"
+        # Deactivate any active Volume Groups on the device
+        vgchange -an --force 2>/dev/null || true
+        # Close any open dm mappings
+        dmsetup remove_all --force || true
+        # Zero out the LUKS header area (first 16MB) defensively to prevent kernel block caching conflicts
+        dd if=/dev/zero of="/dev/${d}" bs=1M count=16 oflag=direct status=none || true
+        # Ask the kernel to re-read the partition table and drop block device caches
+        blockdev --rereadpt "/dev/${d}" 2>/dev/null || true
+      done
+      sync && echo 3 > /proc/sys/vm/drop_caches
+      udevadm settle
+    - |
       # Print GDC vintage parchment boot banner with version and build timestamp
       if [ -f /cdrom/custom-data/boot-banner.txt ]; then
         cat /cdrom/custom-data/boot-banner.txt > /dev/ttyS0 2>/dev/null || true
