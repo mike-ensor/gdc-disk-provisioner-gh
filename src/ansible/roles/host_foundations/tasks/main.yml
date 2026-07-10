@@ -259,7 +259,7 @@
   tags: ["machine:connected", "external-dependency"]
 
 - name: "GDC-TASK-06 | Check if core packages are already installed"
-  ansible.builtin.command: dpkg -s {{ item }}
+  ansible.builtin.shell: dpkg-query -W -f='${Status}' {{ item }} 2>/dev/null | grep -q 'ok installed'
   loop: "{{ gdc_core_packages }}"
   register: package_check
   ignore_errors: true

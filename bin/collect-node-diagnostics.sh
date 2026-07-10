@@ -11,6 +11,14 @@
 # ==============================================================================
 set -euo pipefail
 
+# Source environment configurations if present
+if [ -r /etc/default/gdc-provision ]; then
+  # Sourcing safely in case of undefined vars or flags
+  set +u
+  source /etc/default/gdc-provision 2>/dev/null || true
+  set -u
+fi
+
 # Determine if the script is running with privileged access (root/EUID 0)
 IS_PRIVILEGED=false
 if [ "$(id -u)" -eq 0 ]; then
@@ -69,6 +77,15 @@ if command -v timedatectl &>/dev/null; then
   timedatectl status >> "${OUT_DIR}/report.txt" 2>&1 || echo "Skipped due to lack of permissions" >> "${OUT_DIR}/report.txt"
 else
   date >> "${OUT_DIR}/report.txt"
+fi
+
+if command -v chronyc &>/dev/null; then
+  echo "" >> "${OUT_DIR}/report.txt"
+  echo "--- CHRONY NTP STATUS & TRACKING ---" >> "${OUT_DIR}/report.txt"
+  chronyc tracking >> "${OUT_DIR}/report.txt" 2>&1 || true
+  echo "" >> "${OUT_DIR}/report.txt"
+  echo "--- CHRONY NTP SOURCES ---" >> "${OUT_DIR}/report.txt"
+  chronyc sources -v >> "${OUT_DIR}/report.txt" 2>&1 || true
 fi
 echo "" >> "${OUT_DIR}/report.txt"
 
@@ -690,16 +707,18 @@ gdc_checks["bpf_jit_compiler"] = {
     "details": f"BPF JIT compiler is enabled (state={bpf_val})" if bpf_jit_enabled else "BPF JIT compiler is disabled"
 }
 
-# 3. Apt package manager integrity
+# 3. Apt package manager integrity (using simulation mode to prevent lock collision & unprivileged fail)
 apt_check_ok = False
 apt_err_msg = ""
 try:
-    res = subprocess.run(["apt-get", "check"], capture_output=True, text=True)
+    res = subprocess.run(["apt-get", "check", "-s"], capture_output=True, text=True)
     if res.returncode == 0:
         apt_check_ok = True
         apt_err_msg = "No package errors"
     else:
-        apt_err_msg = (res.stderr or res.stdout or "Error return code").strip().split('\n')[0]
+        # Strip standard APT simulation headers to extract the actual dependency error details
+        clean_lines = [l.strip() for l in (res.stderr or res.stdout or "").split('\n') if l.strip() and "simulation" not in l.lower() and "privileges" not in l.lower() and "locking" not in l.lower()]
+        apt_err_msg = clean_lines[0] if clean_lines else f"Unmet dependencies (Exit code: {res.returncode})"
 except Exception as e:
     apt_err_msg = str(e)
 gdc_checks["apt_package_manager"] = {
@@ -707,12 +726,12 @@ gdc_checks["apt_package_manager"] = {
     "details": apt_err_msg
 }
 
-# 4. UFW status (should be inactive)
+# 4. UFW status (should be inactive, queried via systemctl to support unprivileged execution)
 ufw_inactive = True
 ufw_status_str = "inactive"
 try:
-    res = subprocess.run(["ufw", "status"], capture_output=True, text=True)
-    if "Status: active" in res.stdout or "active" in res.stdout.lower():
+    res = subprocess.run(["systemctl", "is-active", "--quiet", "ufw"])
+    if res.returncode == 0:
         ufw_inactive = False
         ufw_status_str = "active"
 except Exception:
@@ -1107,6 +1126,14 @@ else
   echo "[-] Collecting installer log buffers... Skipped due to lack of permissions" >> "${OUT_DIR}/report.txt"
 fi
 
+# Collect any standard or temporary Ansible execution logs
+if [ -f /var/log/gdc-ansible-pull.log ]; then
+  cp /var/log/gdc-ansible-pull.log "${OUT_DIR}/logs/" 2>/dev/null || true
+fi
+if [ -f /tmp/ansible-playbook.log ]; then
+  cp /tmp/ansible-playbook.log "${OUT_DIR}/logs/" 2>/dev/null || true
+fi
+
 # ------------------------------------------------------------------------------
 # SECTION 13: CONFIGURATIONS GATHERING (Guarded)
 # ------------------------------------------------------------------------------
@@ -1131,6 +1158,7 @@ if [ "${IS_PRIVILEGED}" = "true" ] || [ -r /etc/gdc ]; then
   echo "     [+] GDC provisioning configurations"
   mkdir -p "${OUT_DIR}/configs"
   cp -r /etc/gdc/* "${OUT_DIR}/configs/" 2>/dev/null || true
+  rm -rf "${OUT_DIR}/configs/ansible"
   if [ -r /etc/default/gdc-provision ]; then
     cp /etc/default/gdc-provision "${OUT_DIR}/configs/" 2>/dev/null || true
   fi
@@ -1262,7 +1290,52 @@ fi
 echo "" >> "${OUT_DIR}/report.txt"
 
 # Output minimum requirements to console
-echo "[-] System Minimum Requirements:         $(cat /tmp/gdc_reqs.status 2>/dev/null || echo '{ CPU: Unknown, MEMORY: Unknown, STORAGE: Unknown }')"
+echo "[-] System Minimum Requirements:         $(cat /tmp/gdc-diagnostics/report.json 2>/dev/null | grep -A 5 "system_minimum_requirements" || cat /tmp/gdc_reqs.status 2>/dev/null || echo '{ CPU: Unknown, MEMORY: Unknown, STORAGE: Unknown }')"
+
+# ------------------------------------------------------------------------------
+# SECTION 15c: EXCLUSIONS & DELETIONS
+# ------------------------------------------------------------------------------
+echo "[-] Applying diagnostics exclusion patterns..."
+# Environment variables defaults
+EXCLUDE_PATTERNS="${GDC_DIAGNOSTICS_EXCLUDE_PATTERNS:-configs/ansible,configs/,/var/gdc-admin/keys/**}"
+
+# Split by comma and process each pattern
+IFS=',' read -ra ADDR <<< "${EXCLUDE_PATTERNS}"
+for pattern in "${ADDR[@]}"; do
+  # Trim spaces
+  pattern=$(echo "${pattern}" | xargs)
+  if [[ -n "${pattern}" ]]; then
+    echo "     [+] Processing exclusion pattern: ${pattern}"
+    
+    # 1. Check if the pattern is configs/ansible
+    if [[ "${pattern}" == "configs/ansible" ]]; then
+      rm -rf "${OUT_DIR}/configs/ansible"
+    
+    # 2. Check if the pattern is configs/
+    elif [[ "${pattern}" == "configs/" || "${pattern}" == "configs/**" ]]; then
+      rm -rf "${OUT_DIR}/configs"
+    
+    # 3. Check if the pattern matches a keys folder path
+    elif [[ "${pattern}" == "/var/gdc-admin/keys/**" || "${pattern}" == "**/keys/**" || "${pattern}" == "keys" ]]; then
+      find "${OUT_DIR}" -type d -name "keys" -exec rm -rf {} + 2>/dev/null || true
+      find "${OUT_DIR}" -type f -path "*/keys/*" -exec rm -f {} + 2>/dev/null || true
+    
+    # 4. Generic matching relative to output staging directory
+    else
+      clean_p=$(echo "${pattern}" | sed 's|^\/||' | sed 's|\*\*|*|g')
+      if [[ -n "${clean_p}" ]]; then
+        rm -rf "${OUT_DIR}/${clean_p}"
+      fi
+    fi
+  fi
+done
+
+# ------------------------------------------------------------------------------
+# SECTION 15d: OBFUSCATION RULES (FUTURE WORK PLACEHOLDER)
+# ------------------------------------------------------------------------------
+echo "[-] Sourcing obfuscation rules (Future Work)..."
+OBFUSCATION_RULES="${GDC_DIAGNOSTICS_OBFUSCATION_RULES:-secrets.conf,**/password*}"
+echo "     [+] Registered future obfuscation rule-set: ${OBFUSCATION_RULES}"
 
 # ------------------------------------------------------------------------------
 # SECTION 16: TARBALL PACKAGING & DUP
