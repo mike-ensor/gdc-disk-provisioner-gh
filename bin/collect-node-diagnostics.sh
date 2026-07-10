@@ -334,9 +334,10 @@ import json
 import subprocess
 import os
 import socket
+from datetime import datetime, timezone
 
 report = {
-    "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+    "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
     "host_metadata": {
         "hostname": subprocess.getoutput("hostname").strip(),
         "kernel": subprocess.getoutput("uname -r").strip(),
@@ -575,6 +576,7 @@ endpoint_counts = {}
 
 # Query the local IP addresses of the interfaces
 mgmt_ip = subprocess.getoutput(f"ip -o -4 addr show dev {mgmt_iface} 2>/dev/null | awk '{{print $4}}' | cut -d'/' -f1 | head -n 1").strip() or "127.0.0.1"
+report["ip_address"] = mgmt_ip
 k8s_ip = subprocess.getoutput(f"ip -o -4 addr show dev {k8s_iface} 2>/dev/null | awk '{{print $4}}' | cut -d'/' -f1 | head -n 1").strip() or "127.0.0.1"
 
 # Prepare report.txt entries

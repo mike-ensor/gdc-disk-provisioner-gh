@@ -236,6 +236,16 @@ autoinstall:
       fi
     - |
       echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Copying pre-seeded offline tools"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Copying pre-seeded offline tools"
+      if [ -d /cdrom/custom-data/tools ]; then
+        mkdir -p /target/tmp/
+        cp -r /cdrom/custom-data/tools/* /target/tmp/
+        logger -t gdc-provisioner "[GOAL] Pre-seeded offline tools staged successfully"
+      fi
+    - |
+      echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Syncing Gitea, Nexus, & Ansible collections"
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Syncing Gitea, Nexus, & Ansible collections"

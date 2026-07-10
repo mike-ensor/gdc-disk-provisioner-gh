@@ -110,6 +110,7 @@ EOF
     cat <<'EOF' > "${LOCAL_DIAG_DIR}/report.json"
 {
   "timestamp": "2026-07-08T15:40:00Z",
+  "ip_address": "192.168.9.11",
   "host_metadata": {
     "hostname": "gdc-ready-linux-node-1",
     "kernel": "6.8.0-31-generic",
