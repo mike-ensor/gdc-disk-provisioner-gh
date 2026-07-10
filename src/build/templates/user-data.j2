@@ -391,12 +391,12 @@ autoinstall:
         echo "CRYPTENROLL=y" >> /target/etc/cryptsetup-initramfs/conf-hook
         logger -t gdc-provisioner "[GOAL] Created cryptsetup-initramfs conf-hook with KEYFILE_PATTERN and CRYPTENROLL"
       fi
-      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /tmp/pass.txt
+      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /target/tmp/pass.txt
       LUKS_DEVS=$(blkid -t TYPE=crypto_LUKS -o device)
       if [ -n "${LUKS_DEVS}" ]; then
         for crypt_dev in ${LUKS_DEVS}; do
           logger -t gdc-provisioner "[GOAL] Adding key to LUKS device ${crypt_dev}..."
-          if cryptsetup luksAddKey --key-file=/tmp/pass.txt "${crypt_dev}" /target/etc/keys/temp_key.key; then
+          if curtin in-target -- cryptsetup luksAddKey --key-file=/tmp/pass.txt "${crypt_dev}" /etc/keys/temp_key.key; then
             logger -t gdc-provisioner "[GOAL] Added key to LUKS device ${crypt_dev}"
           else
             echo "[GDC-INSTALL-FAIL] Critical Failure: Failed to add key to LUKS device ${crypt_dev}!"
@@ -408,7 +408,7 @@ autoinstall:
       else
         logger -t gdc-provisioner "[GOAL] No LUKS devices found, skipping key enrollment"
       fi
-      rm -f /tmp/pass.txt
+      rm -f /target/tmp/pass.txt
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC SSH configurations"
