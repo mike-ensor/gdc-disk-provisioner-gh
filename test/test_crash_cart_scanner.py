@@ -3,12 +3,8 @@ from unittest.mock import patch, MagicMock
 import sys
 import os
 import ipaddress
-
-# Add bin directory or the script's path so we can import modules if needed,
-# or mock the main script behavior. Since we keep it in bin/crash-cart-scan-subnet.sh,
-# we will import it directly by loading the source file dynamically.
+import subprocess
 import importlib.util
-
 import importlib.machinery
 
 def load_scanner_module():
@@ -68,6 +64,119 @@ class TestCrashCartScanner(unittest.TestCase):
         self.assertEqual(active["ip"], "192.168.9.230")
         self.assertTrue(active["ping"])
         self.assertTrue(active["ssh"])
+
+    @patch('subprocess.run')
+    def test_is_ping_reachable(self, mock_run):
+        scanner = load_scanner_module()
+        
+        # Test ping success
+        mock_run.return_value = MagicMock(returncode=0)
+        self.assertTrue(scanner.is_ping_reachable("192.168.9.230", timeout=1.0))
+        mock_run.assert_called_with(
+            ["ping", "-c", "2", "-W", "1.0", "192.168.9.230"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        
+        # Test ping failure
+        mock_run.return_value = MagicMock(returncode=1)
+        self.assertFalse(scanner.is_ping_reachable("192.168.9.230", timeout=1.0))
+
+    @patch('socket.socket')
+    def test_is_ssh_open(self, mock_socket):
+        scanner = load_scanner_module()
+        
+        mock_sock_instance = MagicMock()
+        mock_socket.return_value = mock_sock_instance
+        
+        # Test SSH open (connect_ex returns 0)
+        mock_sock_instance.connect_ex.return_value = 0
+        self.assertTrue(scanner.is_ssh_open("192.168.9.230", port=22, timeout=1.0))
+        mock_sock_instance.connect_ex.assert_called_with(("192.168.9.230", 22))
+        
+        # Test SSH closed (connect_ex returns non-zero)
+        mock_sock_instance.connect_ex.return_value = 111
+        self.assertFalse(scanner.is_ssh_open("192.168.9.230", port=22, timeout=1.0))
+
+    @patch('subprocess.run')
+    @patch('socket.socket')
+    def test_check_ip_state(self, mock_socket, mock_run):
+        scanner = load_scanner_module()
+        
+        # Mock ping success, SSH closed
+        mock_run.return_value = MagicMock(returncode=0)
+        mock_sock_instance = MagicMock()
+        mock_sock_instance.connect_ex.return_value = 111
+        mock_socket.return_value = mock_sock_instance
+        
+        res = scanner.check_ip_state("192.168.9.230", timeout=1.0)
+        self.assertIsNotNone(res)
+        self.assertEqual(res["ip"], "192.168.9.230")
+        self.assertTrue(res["ping"])
+        self.assertFalse(res["ssh"])
+        
+        # Mock both closed
+        mock_run.return_value = MagicMock(returncode=1)
+        mock_sock_instance.connect_ex.return_value = 111
+        res = scanner.check_ip_state("192.168.9.231", timeout=1.0)
+        self.assertIsNone(res)
+
+    @patch('subprocess.run')
+    def test_run_diagnostics(self, mock_run):
+        scanner = load_scanner_module()
+        
+        mock_run.return_value = MagicMock(returncode=0, stdout="test-node\nUbuntu 24.04 LTS")
+        res = scanner.run_diagnostics("192.168.9.230", "test-user", "test-pass")
+        
+        self.assertEqual(res.returncode, 0)
+        self.assertEqual(res.stdout, "test-node\nUbuntu 24.04 LTS")
+        
+        expected_cmd = (
+            "sshpass -p 'test-pass' ssh "
+            "-o StrictHostKeyChecking=no "
+            "-o UserKnownHostsFile=/dev/null "
+            "-o ConnectTimeout=3 "
+            "test-user@192.168.9.230 "
+            "'hostname && cat /etc/os-release | grep PRETTY_NAME'"
+        )
+        mock_run.assert_called_with(expected_cmd, shell=True, capture_output=True, text=True)
+
+    @patch('sys.exit')
+    @patch('sys.stdout')
+    @patch('sys.stderr')
+    def test_main_invalid_cidr(self, mock_stderr, mock_stdout, mock_exit):
+        scanner = load_scanner_module()
+        
+        # Test invalid CIDR handling
+        test_args = ["crash-cart-scan-subnet.sh", "-c", "invalid_cidr"]
+        with patch('sys.argv', test_args):
+            scanner.main()
+            mock_exit.assert_called_with(1)
+
+    @patch('concurrent.futures.ThreadPoolExecutor')
+    @patch('sys.exit')
+    @patch('sys.stdout')
+    def test_main_valid_cidr_with_exclusions(self, mock_stdout, mock_exit, mock_executor):
+        scanner = load_scanner_module()
+        
+        # Mock executor to return check_ip_state results
+        mock_executor_instance = MagicMock()
+        mock_executor.return_value.__enter__.return_value = mock_executor_instance
+        
+        # Two active devices, one of which is excluded
+        mock_executor_instance.map.return_value = [
+            {"ip": "192.168.9.230", "ping": True, "ssh": True},
+            {"ip": "192.168.9.234", "ping": True, "ssh": False}
+        ]
+        
+        test_args = ["crash-cart-scan-subnet.sh", "-c", "192.168.9.230/30", "-e", "192.168.9.234"]
+        with patch('sys.argv', test_args), patch('crash_cart_scanner.run_diagnostics') as mock_diag:
+            mock_diag.return_value = MagicMock(returncode=0, stdout="node-230\nPRETTY_NAME=\"Ubuntu 24.04 LTS\"")
+            
+            scanner.main()
+            
+            # Since 192.168.9.234 was excluded, run_diagnostics should only be called for 192.168.9.230
+            mock_diag.assert_called_once_with("192.168.9.230", "temporary-installer", "troubled-marble-150")
 
 if __name__ == '__main__':
     unittest.main()
