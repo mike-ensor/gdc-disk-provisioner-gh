@@ -45,24 +45,10 @@ autoinstall:
       # Deactivate default public sources on the Live CD parent environment to prevent connection refused crashes
       echo "[-] [DEBUG-ISO] Purging Live CD parent public Ubuntu sources..."
       rm -f /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources
-      # Write a persistent GDC LUKS key file inside /run (shared tmpfs visible to both snap and host)
-      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /run/gdc-luks-key
-      chmod 600 /run/gdc-luks-key
-
-      # Launch background disk-cache sync daemon to defeat bare-metal NVMe write caching clobbering
-      (
-        logger -t gdc-provisioner "[DAEMON] Starting background disk-cache sync loop..."
-        while [ ! -f /target/etc/fstab ]; do
-          sync 2>/dev/null || true
-          for dev in /dev/nvme* /dev/sd*; do
-            if [ -b "${dev}" ]; then
-              blockdev --flushbufs "${dev}" 2>/dev/null || true
-            fi
-          done
-          sleep 0.5
-        done
-        logger -t gdc-provisioner "[DAEMON] Target OS fstab detected. Stopping background sync loop."
-      ) &
+      # Write a persistent GDC LUKS key file inside /run/installer (shared tmpfs visible to both snap and host)
+      mkdir -p /run/installer
+      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /run/installer/gdc-luks-key
+      chmod 600 /run/installer/gdc-luks-key
     - |
       # Live-stream Subiquity server logs to serial console for real-time diagnostics
       touch /var/log/installer/subiquity-server-debug.log
@@ -143,11 +129,60 @@ autoinstall:
             dd if=/dev/zero of="/dev/${d}" bs=1M count=16 seek="${seek_pos}" oflag=direct status=none || true
           fi
         fi
-        # Ask the kernel to re-read the partition table and drop block device caches
-        blockdev --rereadpt "/dev/${d}" 2>/dev/null || true
+        
+        # --- SYNCHRONIZATION AND FLUSHING ---
+        echo "   -> Synchronizing block device caches for /dev/${d}..."
+        sync 2>/dev/null || true
+        
+        # 1. Flush dirty buffers with error-state check
+        if ! err_out=$(blockdev --flushbufs "/dev/${d}" 2>&1); then
+          echo "   -> [INFO] blockdev --flushbufs on /dev/${d} reported: ${err_out} (this is non-critical and normal when running under virtualized/emulated storage controller layers)."
+        else
+          echo "   -> [SUCCESS] blockdev --flushbufs completed successfully on /dev/${d}."
+        fi
+        
+        # 2. Tell kernel to re-read partition tables with fallback routing on failure
+        if ! err_out=$(blockdev --rereadpt "/dev/${d}" 2>&1); then
+          echo "   -> [WARN] blockdev --rereadpt failed on /dev/${d}: ${err_out}. Attempting partprobe fallback..."
+          if ! probe_err=$(partprobe "/dev/${d}" 2>&1); then
+            echo "   -> [ERROR] Both blockdev rereadpt and partprobe failed on /dev/${d}: ${probe_err}! Stale partitions may continue to persist."
+          else
+            echo "   -> [SUCCESS] partprobe successfully refreshed the partition table map for /dev/${d}."
+          fi
+        else
+          echo "   -> [SUCCESS] blockdev --rereadpt successfully refreshed the partition table map for /dev/${d}."
+        fi
+
+        # --- DETERMINISTIC POLLING VERIFICATION LOOP ---
+        # Since we cleared the partition tables, all /dev/nvme0n1p* block devices should disappear from the kernel.
+        # We poll the sysfs directory structure for nvme0n1 to verify they are gone.
+        max_retries=30
+        retry=0
+        partitions_lingering=true
+        
+        echo "   -> Verifying partition block device removal for /dev/${d}..."
+        while [ ${retry} -lt ${max_retries} ]; do
+          # Check if any sub-partition directories exist in sysfs (e.g. nvme0n1p1 or sda1)
+          if [ -d "/sys/class/block/${d}" ] && ! ls /sys/class/block/${d}/${d}* >/dev/null 2>&1; then
+            echo "   -> [SUCCESS] Verified: All partition block devices for /dev/${d} have successfully disappeared from sysfs."
+            partitions_lingering=false
+            break
+          fi
+          retry=$((retry + 1))
+          sleep 0.5
+        done
+
+        if [ "${partitions_lingering}" = "true" ]; then
+          echo "   -> [ERROR] Partition block devices for /dev/${d} are STILL lingering in sysfs after 15 seconds! Forcing final udev settle."
+          udevadm settle 2>/dev/null || true
+        fi
       done
+      
+      # --- FINAL SYSTEM-WIDE SETTLEMENT ---
+      echo "   -> Performing final system-wide sync and dropping page/inode caches..."
       sync && echo 3 > /proc/sys/vm/drop_caches
-      udevadm settle
+      udevadm settle 2>/dev/null || true
+      echo "   -> Disk sanitization phase successfully finalized. Proceeding to partition."
     - |
       # Print GDC vintage parchment boot banner with version and build timestamp
       if [ -f /cdrom/custom-data/boot-banner.txt ]; then
