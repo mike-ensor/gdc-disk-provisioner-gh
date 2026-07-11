@@ -128,13 +128,20 @@ autoinstall:
         vgchange -an --force 2>/dev/null || true
         # Close any open dm mappings
         dmsetup remove_all --force || true
-        # Zero out the LUKS header area (first 16MB) defensively to prevent kernel block caching conflicts
-        dd if=/dev/zero of="/dev/${d}" bs=1M count=16 oflag=direct status=none || true
-        # Also zero out the last 16MB of the disk to destroy the backup GPT header!
-        disk_size=$(blockdev --getsize64 "/dev/${d}" 2>/dev/null || echo "0")
-        if [ "${disk_size}" -gt 16777216 ]; then
-          seek_pos=$(( (disk_size - 16777216) / 1048576 ))
-          dd if=/dev/zero of="/dev/${d}" bs=1M count=16 seek="${seek_pos}" oflag=direct status=none || true
+        # Attempt hardware-level blkdiscard to instantly reset the SSD/NVMe drive to baseline factory state
+        echo "   -> Attempting hardware-level blkdiscard on: /dev/${d}"
+        if blkdiscard --force "/dev/${d}" 2>/dev/null; then
+          echo "   -> [SUCCESS] Hardware-level blkdiscard reset completed successfully."
+        else
+          echo "   -> [FALLBACK] blkdiscard not supported. Running sector-level wiping..."
+          # Zero out the LUKS header area (first 16MB) defensively to prevent kernel block caching conflicts
+          dd if=/dev/zero of="/dev/${d}" bs=1M count=16 oflag=direct status=none || true
+          # Also zero out the last 16MB of the disk to destroy the backup GPT header!
+          disk_size=$(blockdev --getsize64 "/dev/${d}" 2>/dev/null || echo "0")
+          if [ "${disk_size}" -gt 16777216 ]; then
+            seek_pos=$(( (disk_size - 16777216) / 1048576 ))
+            dd if=/dev/zero of="/dev/${d}" bs=1M count=16 seek="${seek_pos}" oflag=direct status=none || true
+          fi
         fi
         # Ask the kernel to re-read the partition table and drop block device caches
         blockdev --rereadpt "/dev/${d}" 2>/dev/null || true
