@@ -10,7 +10,7 @@
     - {type: partition, id: partition-lvm-sys, device: disk-system, size: -1, wipe: superblock}
     - {type: format, id: format-boot, volume: partition-boot, fstype: ext4}
     - {type: mount, id: mount-boot, device: format-boot, path: /boot}
-    - {type: dm_crypt, id: crypt-system, volume: partition-lvm-sys, keyfile: "/run/installer/gdc-luks-key"}
+    - {type: dm_crypt, id: crypt-system, volume: partition-lvm-sys, key: "temporary_bootstrap_key_to_be_enrolled_to_tpm"}
     - {type: lvm_volgroup, id: vg-system, name: vg_system, devices: [crypt-system]}
 
     # OS Logical Volumes on Disk 1 (Fits cleanly on 250G drive)
@@ -26,7 +26,7 @@
 
     # --- Disk 2 Data Partitioning (LUKS + Dedicated Data VG) ---
     - {type: partition, id: partition-lvm-data, device: disk-data, size: -1, wipe: superblock}
-    - {type: dm_crypt, id: crypt-data, volume: partition-lvm-data, keyfile: "/run/installer/gdc-luks-key", options: "noinitramfs,discard"}
+    - {type: dm_crypt, id: crypt-data, volume: partition-lvm-data, key: "temporary_bootstrap_key_to_be_enrolled_to_tpm", options: "noinitramfs,discard"}
     - {type: lvm_volgroup, id: vg-data, name: vg_data, devices: [crypt-data]}
     
     # Data Logical Volumes on Disk 2
