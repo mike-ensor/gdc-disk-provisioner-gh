@@ -114,6 +114,14 @@ autoinstall:
       echo "[GDC-INSTALL-GOAL] Starting Task: Performing defensive block device sanitization & cache flushes"
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Performing defensive block device sanitization & cache flushes"
+      # A. Wipe all signatures on any existing partitions first before destroying partition table!
+      for p in /dev/nvme*p* /dev/sd*[0-9]; do
+        if [ -b "${p}" ]; then
+          echo "   -> Wiping existing signatures on partition: ${p}"
+          wipefs --all --force "${p}" 2>/dev/null || true
+        fi
+      done
+      # B. Now safely deactivate Volume Groups and destroy partition tables on physical disks
       for d in $(lsblk -dno NAME | grep -vE 'loop|sr|ram'); do
         echo "   -> Cleaning device: /dev/${d}"
         # Deactivate any active Volume Groups on the device
@@ -122,6 +130,12 @@ autoinstall:
         dmsetup remove_all --force || true
         # Zero out the LUKS header area (first 16MB) defensively to prevent kernel block caching conflicts
         dd if=/dev/zero of="/dev/${d}" bs=1M count=16 oflag=direct status=none || true
+        # Also zero out the last 16MB of the disk to destroy the backup GPT header!
+        disk_size=$(blockdev --getsize64 "/dev/${d}" 2>/dev/null || echo "0")
+        if [ "${disk_size}" -gt 16777216 ]; then
+          seek_pos=$(( (disk_size - 16777216) / 1048576 ))
+          dd if=/dev/zero of="/dev/${d}" bs=1M count=16 seek="${seek_pos}" oflag=direct status=none || true
+        fi
         # Ask the kernel to re-read the partition table and drop block device caches
         blockdev --rereadpt "/dev/${d}" 2>/dev/null || true
       done
