@@ -4,6 +4,14 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.1.57] - 2026-07-11
+
+### Added
+- **Dynamic Telemetry Parameter Injection (bootcmd):** Integrated a cloud-init `bootcmd` background python script in `src/build/templates/user-data.j2` that dynamically queries the target machine's unique SMBIOS product UUID and MAC address of the primary connected network interface, then parameterizes Subiquity's reporting webhook endpoint with these parameters (`product_uuid` and `mac`) before Subiquity initializes reporting.
+
+### Changed
+- **Dynamic autoinstall-user-data Preference:** Updated the `early-commands` custom partition script in `user-data.j2` to read `/run/installer/autoinstall-user-data` if it exists (instead of `/cdrom/nocloud/user-data`), ensuring the dynamically parameterized webhook URL persists when merging LVM storage configurations.
+
 ## [0.1.43] - 2026-07-08
 
 ### Added

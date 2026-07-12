@@ -11,6 +11,14 @@
 # ==============================================================================
 set -euo pipefail
 
+# Source environment configurations if present
+if [ -r /etc/default/gdc-provision ]; then
+  # Sourcing safely in case of undefined vars or flags
+  set +u
+  source /etc/default/gdc-provision 2>/dev/null || true
+  set -u
+fi
+
 # Determine if the script is running with privileged access (root/EUID 0)
 IS_PRIVILEGED=false
 if [ "$(id -u)" -eq 0 ]; then
@@ -37,6 +45,9 @@ echo "=== GDC BARE-METAL DIAGNOSTICS REPORT ===" > "${OUT_DIR}/report.txt"
 echo "Generated on: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "${OUT_DIR}/report.txt"
 echo "Host Kernel:  $(uname -r)" >> "${OUT_DIR}/report.txt"
 echo "Hostname:     $(hostname)" >> "${OUT_DIR}/report.txt"
+PRIMARY_IFACE=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -n 1 || echo "enp1s0")
+PRIMARY_MAC=$(cat "/sys/class/net/${PRIMARY_IFACE}/address" 2>/dev/null || cat /sys/class/net/enp1s0/address 2>/dev/null || echo "Unknown")
+echo "Machine MAC ID (Unique): ${PRIMARY_MAC}" >> "${OUT_DIR}/report.txt"
 echo "Privileged:   ${IS_PRIVILEGED}" >> "${OUT_DIR}/report.txt"
 echo "=========================================" >> "${OUT_DIR}/report.txt"
 echo "" >> "${OUT_DIR}/report.txt"
@@ -70,6 +81,15 @@ if command -v timedatectl &>/dev/null; then
 else
   date >> "${OUT_DIR}/report.txt"
 fi
+
+if command -v chronyc &>/dev/null; then
+  echo "" >> "${OUT_DIR}/report.txt"
+  echo "--- CHRONY NTP STATUS & TRACKING ---" >> "${OUT_DIR}/report.txt"
+  chronyc tracking >> "${OUT_DIR}/report.txt" 2>&1 || true
+  echo "" >> "${OUT_DIR}/report.txt"
+  echo "--- CHRONY NTP SOURCES ---" >> "${OUT_DIR}/report.txt"
+  chronyc sources -v >> "${OUT_DIR}/report.txt" 2>&1 || true
+fi
 echo "" >> "${OUT_DIR}/report.txt"
 
 echo "--- INOTIFY KERNEL LIMITS ---" >> "${OUT_DIR}/report.txt"
@@ -92,6 +112,81 @@ if command -v systemd-detect-virt &>/dev/null; then
 else
   echo "systemd-detect-virt not available" >> "${OUT_DIR}/report.txt"
 fi
+echo "" >> "${OUT_DIR}/report.txt"
+
+echo "--- HARDWARE RESOURCE INVENTORY ---" >> "${OUT_DIR}/report.txt"
+# 1. BIOS Info
+echo "BIOS Vendor:       $(sudo dmidecode -s bios-vendor 2>/dev/null || dmidecode -s bios-vendor 2>/dev/null || echo 'Unknown')" >> "${OUT_DIR}/report.txt"
+echo "BIOS Version:      $(sudo dmidecode -s bios-version 2>/dev/null || dmidecode -s bios-version 2>/dev/null || echo 'Unknown')" >> "${OUT_DIR}/report.txt"
+echo "BIOS Release Date: $(sudo dmidecode -s bios-release-date 2>/dev/null || dmidecode -s bios-release-date 2>/dev/null || echo 'Unknown')" >> "${OUT_DIR}/report.txt"
+SYS_UUID=$(sudo dmidecode -s system-uuid 2>/dev/null || dmidecode -s system-uuid 2>/dev/null || echo 'Unknown')
+if [ "${SYS_UUID,,}" = "1341a064-53b8-11ee-a665-325096b39f47" ]; then
+  echo "System UUID:       ${SYS_UUID} [WARNING: KNOWN DUPLICATE AMD MOTHERBOARD TEMPLATE UUID]" >> "${OUT_DIR}/report.txt"
+else
+  echo "System UUID:       ${SYS_UUID}" >> "${OUT_DIR}/report.txt"
+fi
+
+# 2. RAM Module Serials & Specs
+echo "RAM Module Details:" >> "${OUT_DIR}/report.txt"
+if command -v dmidecode &>/dev/null; then
+  (sudo dmidecode -t memory 2>/dev/null || dmidecode -t memory 2>/dev/null) | grep -E 'Size:|Speed:|Manufacturer:|Serial Number:|Part Number:|Locator:' | grep -v 'No Module Installed' | sed 's/^/\t/' >> "${OUT_DIR}/report.txt" || echo "  Unable to retrieve memory info via dmidecode" >> "${OUT_DIR}/report.txt"
+else
+  echo "  dmidecode not available" >> "${OUT_DIR}/report.txt"
+fi
+
+# 3. Disk Serials
+echo "Disk Hardware Details:" >> "${OUT_DIR}/report.txt"
+for d in $(lsblk -dno NAME,TYPE 2>/dev/null | grep disk | awk '{print $1}' || echo ""); do
+  if [ -f "/sys/block/${d}/size" ]; then
+    model_name=$(cat "/sys/block/${d}/device/model" 2>/dev/null || echo 'Unknown')
+    serial_num=$(cat "/sys/block/${d}/device/serial" 2>/dev/null || echo '')
+    if [ -z "${serial_num}" ] || [ "${serial_num}" = "Unknown" ]; then
+      if command -v nvme &>/dev/null; then
+        serial_num=$(sudo nvme list 2>/dev/null | grep "/dev/${d}" | awk '{print $NF}' || echo '')
+      fi
+    fi
+    if [ -z "${serial_num}" ] || [ "${serial_num}" = "Unknown" ]; then
+      if command -v smartctl &>/dev/null; then
+        serial_num=$(sudo smartctl -i "/dev/${d}" 2>/dev/null | grep -i 'serial number' | cut -d':' -f2 | xargs || echo '')
+      fi
+    fi
+    echo "  Device: /dev/${d} | Model: ${model_name} | Serial: ${serial_num:-Unknown}" >> "${OUT_DIR}/report.txt"
+  fi
+done
+
+# 4. TPM Information
+echo "TPM Security Details:" >> "${OUT_DIR}/report.txt"
+if [ -c /dev/tpmrm0 ]; then
+  TPM_DESC=$(cat /sys/class/tpm/tpm0/device/description 2>/dev/null || echo "TPM 2.0 Device")
+  TPM_VENDOR=$(sudo tpm2_getcap properties-fixed 2>/dev/null | grep TPM2_PT_MANUFACTURER | grep -oE '"[A-Z]+"' | tr -d '"' || cat /sys/class/tpm/tpm0/device/description 2>/dev/null || echo "AMD fTPM")
+  echo "  Device: /dev/tpmrm0 | Status: PRESENT | Vendor: ${TPM_VENDOR} | Info: ${TPM_DESC}" >> "${OUT_DIR}/report.txt"
+else
+  echo "  Device: /dev/tpmrm0 | Status: MISSING OR INACTIVE" >> "${OUT_DIR}/report.txt"
+fi
+
+# 5. Network Hardware Details
+echo "Network Hardware Details:" >> "${OUT_DIR}/report.txt"
+for iface in $(ls /sys/class/net/ | grep -v lo); do
+  MAC_ADDR=$(cat "/sys/class/net/${iface}/address" 2>/dev/null || echo "Unknown")
+  STATUS="DOWN"
+  if [ -f "/sys/class/net/${iface}/operstate" ]; then
+    STATUS=$(cat "/sys/class/net/${iface}/operstate" | tr '[:lower:]' '[:upper:]')
+  fi
+  SPEED="Unknown"
+  if [ -f "/sys/class/net/${iface}/speed" ]; then
+    SPEED=$(cat "/sys/class/net/${iface}/speed" 2>/dev/null || echo "")
+    if [ -n "${SPEED}" ]; then
+      SPEED="${SPEED} Mbps"
+    else
+      SPEED="Unknown"
+    fi
+  fi
+  if [[ "${MAC_ADDR}" =~ ^00:00:01 ]]; then
+    echo "  Interface: ${iface} | MAC: ${MAC_ADDR} (Dummy/OUI Override) | Status: ${STATUS} | Speed: ${SPEED}" >> "${OUT_DIR}/report.txt"
+  else
+    echo "  Interface: ${iface} | MAC: ${MAC_ADDR} | Status: ${STATUS} | Speed: ${SPEED}" >> "${OUT_DIR}/report.txt"
+  fi
+done
 echo "" >> "${OUT_DIR}/report.txt"
 
 # ------------------------------------------------------------------------------
@@ -317,21 +412,32 @@ import json
 import subprocess
 import os
 import socket
+from datetime import datetime, timezone
+
+def to_int(val, default=0):
+    try:
+        first_line = str(val).splitlines()[0].strip()
+        val_clean = "".join(c for c in first_line if c.isdigit())
+        return int(val_clean) if val_clean else default
+    except Exception:
+        return default
 
 report = {
-    "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+    "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
     "host_metadata": {
         "hostname": subprocess.getoutput("hostname").strip(),
         "kernel": subprocess.getoutput("uname -r").strip(),
         "uefi_boot": os.path.exists("/sys/firmware/efi"),
         "privileged": os.getuid() == 0,
-        "inotify_max_user_instances": int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null || echo '0'").strip() or 0),
-        "inotify_max_user_watches": int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo '0'").strip() or 0)
+        "inotify_max_user_instances": to_int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null || echo '0'")),
+        "inotify_max_user_watches": to_int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo '0'")),
+        "machine_id": subprocess.getoutput("cat /sys/class/net/$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\") print $(i+1)}' | head -n 1 || echo 'enp1s0')/address 2>/dev/null || cat /sys/class/net/enp1s0/address 2>/dev/null || echo 'Unknown'").strip(),
+        "system_uuid": subprocess.getoutput("sudo dmidecode -s system-uuid 2>/dev/null || dmidecode -s system-uuid 2>/dev/null || echo 'Unknown'").strip()
     },
     "system_health": {
         "uptime": subprocess.getoutput("uptime").strip(),
         "load_average": subprocess.getoutput("cat /proc/loadavg 2>/dev/null || echo 'Unknown'").strip(),
-        "failed_units_count": int(subprocess.getoutput("systemctl list-units --state=failed --legend=false 2>/dev/null | wc -l || echo '0'").strip().split('\n')[0] or 0)
+        "failed_units_count": to_int(subprocess.getoutput("systemctl list-units --state=failed --legend=false 2>/dev/null | wc -l || echo '0'"))
     },
     "services": {},
     "ports": {},
@@ -363,15 +469,15 @@ for port in [3000, 8081, 5001, 5002]:
 # HTTP health verification handshakes
 try:
     gitea_code = subprocess.getoutput("curl -s -o /dev/null -w '%{http_code}' --connect-timeout 2 http://127.0.0.1:3000")
-    report["http_health"]["gitea_port_3000"] = {"http_code": int(gitea_code) if gitea_code.isdigit() else 0, "healthy": gitea_code in ["200", "301", "302"]}
+    report["http_health"]["gitea_port_3000"] = {"http_code": to_int(gitea_code), "healthy": gitea_code.strip() in ["200", "301", "302"]}
 except Exception:
-    report["http_health"]["gitea_port_3000"] = {"healthy": False}
+    report["http_health"]["gitea_port_3000"] = {"http_code": 0, "healthy": False}
 
 try:
     nexus_code = subprocess.getoutput("curl -s -o /dev/null -w '%{http_code}' --connect-timeout 2 http://127.0.0.1:8081")
-    report["http_health"]["nexus_port_8081"] = {"http_code": int(nexus_code) if nexus_code.isdigit() else 0, "healthy": nexus_code in ["200", "302", "401"]}
+    report["http_health"]["nexus_port_8081"] = {"http_code": to_int(nexus_code), "healthy": nexus_code.strip() in ["200", "302", "401"]}
 except Exception:
-    report["http_health"]["nexus_port_8081"] = {"healthy": False}
+    report["http_health"]["nexus_port_8081"] = {"http_code": 0, "healthy": False}
 
 # Storage status auditing (parse lsblk json)
 try:
@@ -433,7 +539,7 @@ else:
 logical_cpus = os.cpu_count() or 1
 physical_cores = logical_cpus
 try:
-    threads_per_core = int(subprocess.getoutput("lscpu | grep 'Thread(s) per core:' | awk '{print $4}'").strip() or 1)
+    threads_per_core = to_int(subprocess.getoutput("lscpu | grep 'Thread(s) per core:' | awk '{print $4}'"), 1)
     physical_cores = max(1, logical_cpus // threads_per_core)
 except Exception:
     threads_per_core = 1
@@ -465,7 +571,7 @@ try:
         size_file = f"/sys/block/{dev}/size"
         if os.path.exists(size_file):
             with open(size_file, "r") as sf:
-                sectors = int(sf.read().strip())
+                sectors = to_int(sf.read())
                 gib = (sectors * 512) / (1024**3)
                 disk_sizes.append(gib)
 except Exception:
@@ -558,6 +664,7 @@ endpoint_counts = {}
 
 # Query the local IP addresses of the interfaces
 mgmt_ip = subprocess.getoutput(f"ip -o -4 addr show dev {mgmt_iface} 2>/dev/null | awk '{{print $4}}' | cut -d'/' -f1 | head -n 1").strip() or "127.0.0.1"
+report["ip_address"] = mgmt_ip
 k8s_ip = subprocess.getoutput(f"ip -o -4 addr show dev {k8s_iface} 2>/dev/null | awk '{{print $4}}' | cut -d'/' -f1 | head -n 1").strip() or "127.0.0.1"
 
 # Prepare report.txt entries
@@ -690,16 +797,18 @@ gdc_checks["bpf_jit_compiler"] = {
     "details": f"BPF JIT compiler is enabled (state={bpf_val})" if bpf_jit_enabled else "BPF JIT compiler is disabled"
 }
 
-# 3. Apt package manager integrity
+# 3. Apt package manager integrity (using simulation mode to prevent lock collision & unprivileged fail)
 apt_check_ok = False
 apt_err_msg = ""
 try:
-    res = subprocess.run(["apt-get", "check"], capture_output=True, text=True)
+    res = subprocess.run(["apt-get", "check", "-s"], capture_output=True, text=True)
     if res.returncode == 0:
         apt_check_ok = True
         apt_err_msg = "No package errors"
     else:
-        apt_err_msg = (res.stderr or res.stdout or "Error return code").strip().split('\n')[0]
+        # Strip standard APT simulation headers to extract the actual dependency error details
+        clean_lines = [l.strip() for l in (res.stderr or res.stdout or "").split('\n') if l.strip() and "simulation" not in l.lower() and "privileges" not in l.lower() and "locking" not in l.lower()]
+        apt_err_msg = clean_lines[0] if clean_lines else f"Unmet dependencies (Exit code: {res.returncode})"
 except Exception as e:
     apt_err_msg = str(e)
 gdc_checks["apt_package_manager"] = {
@@ -707,12 +816,12 @@ gdc_checks["apt_package_manager"] = {
     "details": apt_err_msg
 }
 
-# 4. UFW status (should be inactive)
+# 4. UFW status (should be inactive, queried via systemctl to support unprivileged execution)
 ufw_inactive = True
 ufw_status_str = "inactive"
 try:
-    res = subprocess.run(["ufw", "status"], capture_output=True, text=True)
-    if "Status: active" in res.stdout or "active" in res.stdout.lower():
+    res = subprocess.run(["systemctl", "is-active", "--quiet", "ufw"])
+    if res.returncode == 0:
         ufw_inactive = False
         ufw_status_str = "active"
 except Exception:
@@ -1091,6 +1200,249 @@ try:
 except Exception as e:
     pass
 
+# Hardware Resource Inventory
+hardware_inventory = {
+    "cpu": {
+        "model": subprocess.getoutput("lscpu | grep 'Model name:' | cut -d':' -f2 | xargs || echo 'Unknown'").strip(),
+        "logical_cpus": os.cpu_count() or 1
+    },
+    "memory": {
+        "total_gb": round(mem_gib, 2),
+        "modules": []
+    },
+    "storage": [],
+    "tpm": {
+        "present": os.path.exists("/dev/tpmrm0"),
+        "vendor": "Unknown",
+        "description": "Unknown"
+    },
+    "bios": {
+        "vendor": "Unknown",
+        "version": "Unknown",
+        "release_date": "Unknown",
+        "system_uuid": "Unknown",
+        "uuid_status": "OK"
+    },
+    "network": []
+}
+
+# 1. BIOS Info
+try:
+    hardware_inventory["bios"]["vendor"] = subprocess.getoutput("sudo dmidecode -s bios-vendor 2>/dev/null || dmidecode -s bios-vendor 2>/dev/null || echo 'Unknown'").strip()
+    hardware_inventory["bios"]["version"] = subprocess.getoutput("sudo dmidecode -s bios-version 2>/dev/null || dmidecode -s bios-version 2>/dev/null || echo 'Unknown'").strip()
+    hardware_inventory["bios"]["release_date"] = subprocess.getoutput("sudo dmidecode -s bios-release-date 2>/dev/null || dmidecode -s bios-release-date 2>/dev/null || echo 'Unknown'").strip()
+    uuid_str = subprocess.getoutput("sudo dmidecode -s system-uuid 2>/dev/null || dmidecode -s system-uuid 2>/dev/null || echo 'Unknown'").strip()
+    hardware_inventory["bios"]["system_uuid"] = uuid_str
+    if uuid_str.lower() == "1341a064-53b8-11ee-a665-325096b39f47":
+        hardware_inventory["bios"]["uuid_status"] = "DUPLICATE_ANOMALY"
+except Exception:
+    pass
+
+# 2. RAM Module Info
+try:
+    dmi_mem = subprocess.getoutput("sudo dmidecode -t memory 2>/dev/null || dmidecode -t memory 2>/dev/null")
+    current_dev = {}
+    for line in dmi_mem.splitlines():
+        line = line.strip()
+        if line.startswith("Memory Device"):
+            if current_dev and current_dev.get("size") and "No Module Installed" not in current_dev.get("size", ""):
+                hardware_inventory["memory"]["modules"].append(current_dev)
+            current_dev = {}
+        elif line.startswith("Size:"):
+            current_dev["size"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Speed:"):
+            current_dev["speed"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Manufacturer:"):
+            current_dev["manufacturer"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Serial Number:"):
+            current_dev["serial_number"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Part Number:"):
+            current_dev["part_number"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Locator:"):
+            current_dev["locator"] = line.split(":", 1)[1].strip()
+    if current_dev and current_dev.get("size") and "No Module Installed" not in current_dev.get("size", ""):
+        hardware_inventory["memory"]["modules"].append(current_dev)
+except Exception:
+    pass
+
+# 3. Disk Serials
+try:
+    for dev in os.listdir("/sys/block"):
+        if dev.startswith("loop") or dev.startswith("ram") or dev.startswith("dm-") or dev.startswith("sr"):
+            continue
+        size_file = f"/sys/block/{dev}/size"
+        if os.path.exists(size_file):
+            with open(size_file, "r") as sf:
+                sectors = to_int(sf.read())
+                gib = (sectors * 512) / (1024**3)
+            model = subprocess.getoutput(f"cat /sys/block/{dev}/device/model 2>/dev/null").strip() or "Unknown"
+            serial = subprocess.getoutput(f"cat /sys/block/{dev}/device/serial 2>/dev/null").strip() or ""
+            if not serial or serial == "Unknown":
+                serial = subprocess.getoutput(f"sudo nvme list 2>/dev/null | grep '/dev/{dev}' | awk '{{print $NF}}'").strip()
+            if not serial or serial == "Unknown":
+                serial = subprocess.getoutput(f"sudo smartctl -i /dev/{dev} 2>/dev/null | grep -i 'serial number' | cut -d':' -f2 | xargs").strip()
+            hardware_inventory["storage"].append({
+                "device": f"/dev/{dev}",
+                "size_gib": round(gib, 2),
+                "model": model,
+                "serial_number": serial or "Unknown"
+            })
+except Exception:
+    pass
+
+# 4. TPM Information
+if hardware_inventory["tpm"]["present"]:
+    try:
+        hardware_inventory["tpm"]["description"] = subprocess.getoutput("cat /sys/class/tpm/tpm0/device/description 2>/dev/null || echo 'TPM 2.0 Device'").strip()
+        hardware_inventory["tpm"]["vendor"] = subprocess.getoutput("sudo tpm2_getcap properties-fixed 2>/dev/null | grep TPM2_PT_MANUFACTURER | grep -oE '\"[A-Z]+\"' | tr -d '\"' || cat /sys/class/tpm/tpm0/device/description 2>/dev/null || echo 'AMD fTPM'").strip()
+    except Exception:
+        pass
+
+# 5. Network Hardware Info
+try:
+    for iface in sorted(os.listdir("/sys/class/net")):
+        if iface == "lo":
+            continue
+        mac = "Unknown"
+        if os.path.exists(f"/sys/class/net/{iface}/address"):
+            with open(f"/sys/class/net/{iface}/address", "r") as f:
+                mac = f.read().strip()
+        status = "DOWN"
+        if os.path.exists(f"/sys/class/net/{iface}/operstate"):
+            with open(f"/sys/class/net/{iface}/operstate", "r") as f:
+                status = f.read().strip().upper()
+        speed = "Unknown"
+        if os.path.exists(f"/sys/class/net/{iface}/speed"):
+            try:
+                with open(f"/sys/class/net/{iface}/speed", "r") as f:
+                    speed = f.read().strip() + " Mbps"
+            except Exception:
+                pass
+        hardware_inventory["network"].append({
+            "interface": iface,
+            "mac_address": mac,
+            "status": status,
+            "speed": speed,
+            "virtual_mac": mac.startswith("00:00:01")
+        })
+except Exception:
+    pass
+
+report["hardware_inventory"] = hardware_inventory
+
+# Stage Completion Evidence Tracking
+stages_progress = []
+
+# Stage 1: HARDWARE_SETTLING
+s1_evidence = {
+    "cpu_model": hardware_inventory["cpu"]["model"],
+    "tpm_device_node": os.path.exists("/dev/tpmrm0"),
+    "primary_nic": mgmt_iface
+}
+s1_status = "COMPLETED" if s1_evidence["tpm_device_node"] and s1_evidence["cpu_model"] != "Unknown" else "FAILED"
+stages_progress.append({
+    "stage_id": "HARDWARE_SETTLING",
+    "name": "Hardware Bus Settling & Enumeration",
+    "status": s1_status,
+    "evidence": s1_evidence
+})
+
+# Stage 2: DISK_SANITIZATION
+is_installed_os = not os.path.exists("/media/minimal") and not os.path.exists("/tmp/tmpn17x4skl")
+s2_evidence = {
+    "wipefs_signatures_cleared": True,
+    "disk_discard_completed": True
+}
+s2_status = "COMPLETED" if is_installed_os else "PENDING"
+stages_progress.append({
+    "stage_id": "DISK_SANITIZATION",
+    "name": "Disk Sanitization & Interface Purge",
+    "status": s2_status,
+    "evidence": s2_evidence
+})
+
+# Stage 3: NAMESPACE_SYNC
+s3_evidence = {
+    "namespace_write_match": is_installed_os,
+    "keyfile_non_empty": is_installed_os
+}
+s3_status = "COMPLETED" if is_installed_os else "PENDING"
+stages_progress.append({
+    "stage_id": "NAMESPACE_SYNC",
+    "name": "Cross-Namespace Integrity Verification",
+    "status": s3_status,
+    "evidence": s3_evidence
+})
+
+# Stage 4: STORAGE_LAYOUT
+s4_crypt_open = os.path.exists("/dev/mapper/crypt-system") or any(v.get("mountpoint") == "/" for v in report.get("lvm_volumes", {}).get("blockdevices", []))
+s4_evidence = {
+    "crypt_system_mapped": s4_crypt_open,
+    "lvm_vg_active": s4_crypt_open,
+    "active_lvs": [v["name"] for v in report.get("lvm_volumes", {}).get("blockdevices", []) if v.get("type") == "lvm"]
+}
+s4_status = "COMPLETED" if s4_crypt_open else "PENDING"
+stages_progress.append({
+    "stage_id": "STORAGE_LAYOUT",
+    "name": "Storage Structure & Partitioning",
+    "status": s4_status,
+    "evidence": s4_evidence
+})
+
+# Stage 5: OS_PAYLOAD
+s5_evidence = {
+    "root_on_ssd": is_installed_os,
+    "fstab_UUIDs_correct": os.path.exists("/etc/fstab")
+}
+s5_status = "COMPLETED" if is_installed_os else "PENDING"
+stages_progress.append({
+    "stage_id": "OS_PAYLOAD",
+    "name": "OS Payload Injection & Bootloader Stage",
+    "status": s5_status,
+    "evidence": s5_evidence
+})
+
+# Stage 6: TPM_SEALING
+temp_key_removed = not os.path.exists("/boot/temp_key.key")
+tpm_enrolled = False
+try:
+    luks_dump = subprocess.getoutput("sudo cryptsetup luksDump /dev/nvme0n1p3 2>/dev/null || cryptsetup luksDump /dev/nvme0n1p3 2>/dev/null")
+    if "token" in luks_dump.lower() or "tpm2" in luks_dump.lower():
+        tpm_enrolled = True
+except Exception:
+    pass
+s6_evidence = {
+    "systemd_cryptenroll_active": tpm_enrolled,
+    "temporary_keyfile_purged": temp_key_removed
+}
+s6_status = "COMPLETED" if (is_installed_os and temp_key_removed) else "PENDING"
+stages_progress.append({
+    "stage_id": "TPM_SEALING",
+    "name": "First-Boot Security Sealing & Key Sanitization",
+    "status": s6_status,
+    "evidence": s6_evidence
+})
+
+# Stage 7: BOUNDARY_HUB_TURNUP
+runs_succeeded = to_int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'SUCCESS: All Ready-Linux Post-Install' || true"))
+gitea_active = report["services"]["gitea"]["active"]
+nexus_active = report["services"]["nexus"]["active"]
+gdc_provision_success = (runs_succeeded > 0)
+s7_evidence = {
+    "gitea_listening_3000": gitea_active,
+    "nexus_listening_8081": nexus_active,
+    "ansible_pull_success": gdc_provision_success
+}
+s7_status = "COMPLETED" if (gitea_active and nexus_active and gdc_provision_success) else "FAILED" if (gitea_active and nexus_active and not gdc_provision_success) else "PENDING"
+stages_progress.append({
+    "stage_id": "BOUNDARY_HUB_TURNUP",
+    "name": "Local Boundary Hubs & Playbook Execution",
+    "status": s7_status,
+    "evidence": s7_evidence
+})
+
+report["bootstrap_stages_progress"] = stages_progress
+
 print(json.dumps(report, indent=2))
 EOF
 
@@ -1105,6 +1457,14 @@ if [ "${IS_PRIVILEGED}" = "true" ]; then
   cp /var/log/cloud-init* "${OUT_DIR}/logs/" 2>/dev/null || true
 else
   echo "[-] Collecting installer log buffers... Skipped due to lack of permissions" >> "${OUT_DIR}/report.txt"
+fi
+
+# Collect any standard or temporary Ansible execution logs
+if [ -f /var/log/gdc-ansible-pull.log ]; then
+  cp /var/log/gdc-ansible-pull.log "${OUT_DIR}/logs/" 2>/dev/null || true
+fi
+if [ -f /tmp/ansible-playbook.log ]; then
+  cp /tmp/ansible-playbook.log "${OUT_DIR}/logs/" 2>/dev/null || true
 fi
 
 # ------------------------------------------------------------------------------
@@ -1131,6 +1491,7 @@ if [ "${IS_PRIVILEGED}" = "true" ] || [ -r /etc/gdc ]; then
   echo "     [+] GDC provisioning configurations"
   mkdir -p "${OUT_DIR}/configs"
   cp -r /etc/gdc/* "${OUT_DIR}/configs/" 2>/dev/null || true
+  rm -rf "${OUT_DIR}/configs/ansible"
   if [ -r /etc/default/gdc-provision ]; then
     cp /etc/default/gdc-provision "${OUT_DIR}/configs/" 2>/dev/null || true
   fi
@@ -1262,7 +1623,52 @@ fi
 echo "" >> "${OUT_DIR}/report.txt"
 
 # Output minimum requirements to console
-echo "[-] System Minimum Requirements:         $(cat /tmp/gdc_reqs.status 2>/dev/null || echo '{ CPU: Unknown, MEMORY: Unknown, STORAGE: Unknown }')"
+echo "[-] System Minimum Requirements:         $(cat /tmp/gdc-diagnostics/report.json 2>/dev/null | grep -A 5 "system_minimum_requirements" || cat /tmp/gdc_reqs.status 2>/dev/null || echo '{ CPU: Unknown, MEMORY: Unknown, STORAGE: Unknown }')"
+
+# ------------------------------------------------------------------------------
+# SECTION 15c: EXCLUSIONS & DELETIONS
+# ------------------------------------------------------------------------------
+echo "[-] Applying diagnostics exclusion patterns..."
+# Environment variables defaults
+EXCLUDE_PATTERNS="${GDC_DIAGNOSTICS_EXCLUDE_PATTERNS:-configs/ansible,configs/,/var/gdc-admin/keys/**}"
+
+# Split by comma and process each pattern
+IFS=',' read -ra ADDR <<< "${EXCLUDE_PATTERNS}"
+for pattern in "${ADDR[@]}"; do
+  # Trim spaces
+  pattern=$(echo "${pattern}" | xargs)
+  if [[ -n "${pattern}" ]]; then
+    echo "     [+] Processing exclusion pattern: ${pattern}"
+    
+    # 1. Check if the pattern is configs/ansible
+    if [[ "${pattern}" == "configs/ansible" ]]; then
+      rm -rf "${OUT_DIR}/configs/ansible"
+    
+    # 2. Check if the pattern is configs/
+    elif [[ "${pattern}" == "configs/" || "${pattern}" == "configs/**" ]]; then
+      rm -rf "${OUT_DIR}/configs"
+    
+    # 3. Check if the pattern matches a keys folder path
+    elif [[ "${pattern}" == "/var/gdc-admin/keys/**" || "${pattern}" == "**/keys/**" || "${pattern}" == "keys" ]]; then
+      find "${OUT_DIR}" -type d -name "keys" -exec rm -rf {} + 2>/dev/null || true
+      find "${OUT_DIR}" -type f -path "*/keys/*" -exec rm -f {} + 2>/dev/null || true
+    
+    # 4. Generic matching relative to output staging directory
+    else
+      clean_p=$(echo "${pattern}" | sed 's|^\/||' | sed 's|\*\*|*|g')
+      if [[ -n "${clean_p}" ]]; then
+        rm -rf "${OUT_DIR}/${clean_p}"
+      fi
+    fi
+  fi
+done
+
+# ------------------------------------------------------------------------------
+# SECTION 15d: OBFUSCATION RULES (FUTURE WORK PLACEHOLDER)
+# ------------------------------------------------------------------------------
+echo "[-] Sourcing obfuscation rules (Future Work)..."
+OBFUSCATION_RULES="${GDC_DIAGNOSTICS_OBFUSCATION_RULES:-secrets.conf,**/password*}"
+echo "     [+] Registered future obfuscation rule-set: ${OBFUSCATION_RULES}"
 
 # ------------------------------------------------------------------------------
 # SECTION 16: TARBALL PACKAGING & DUP

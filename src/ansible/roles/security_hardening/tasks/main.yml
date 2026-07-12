@@ -95,6 +95,10 @@
       # gdc-provisioner execution environment configurations
       # Enforce signed commits toggle mapping
       ANSIBLE_PULL_FLAGS="{% if enforce_signed_commits %}--verify-commit{% else %}{% endif %}"
+
+      # Diagnostics exclusions & obfuscation rules
+      GDC_DIAGNOSTICS_EXCLUDE_PATTERNS="configs/ansible,configs/,/var/gdc-admin/keys/**"
+      GDC_DIAGNOSTICS_OBFUSCATION_RULES="secrets.conf,**/password*"
   register: env_config_result
 
 - name: "GDC-PROVISION-106 | Setup Local Gitea GPG Verification Keys"

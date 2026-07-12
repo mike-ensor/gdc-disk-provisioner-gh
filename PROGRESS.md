@@ -258,11 +258,15 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ## 3. Unplanned & Future Reference
 
+- [ ] **URGENT:** Investigate ISO creation report and tests (gcloud SDK was not installed on target OS, potentially due to missing binaries during ISO creation phase)
 - [ ] **Multi-LTS Target Compilation Architecture (Support for 22.04 Jammy & 26.06 Future LTS Options)**
   - [ ] **Docker Builder Generalization:** Parameterize `src/build/Dockerfile` compilation rules to build and cache isolated compile images for separate target LTS releases.
   - [ ] **GCS Packages Isolation:** Generalize Google Cloud Storage cache prefixes to include release target trees (e.g. `gs://.../packages/22.04/`, `gs://.../packages/24.04/`) to prevent library pollution across target node OS sets.
   - [ ] **Preseed Resolvers Verification:** Enhance `preseed_packages.sh` to dynamically query and map release repositories matching `_UBUNTU_VERSION`.
   - [ ] **Variables & Settings Audit:** Review LVM fstab patterns, Netplan DBus protocols, and systemd units for system-level differences across Jammy, Noble, and Plucky configurations.
+- [ ] **Hardware Diagnostics & Node Uniqueness Updates (Near Future)**
+  - [x] **Enforce MAC-based Node Uniqueness:** Migrated system identity/uniqueness mapping in `bin/collect-node-diagnostics.sh` to physical MAC addresses instead of the duplicate motherboard `System UUID` (which conflicts across Zen 4 bare-metal platforms).
+  - [x] **Hardware Inventory Auto-Discovery:** Integrated auto-discovery and telemetry for CPU cores, RAM DIMM serials, NVMe storage devices, AMD fTPM modules, and NIC MACs into both JSON and text reports.
 - [ ] **APT** configuration
   - [ ] https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#apt
   - [ ] https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#fallback

@@ -56,6 +56,7 @@ A set of centralized configuration representing the desired state of a configura
 #### 5. Docker Group Repository
 
 An OCI registry pattern in Sonatype Nexus that aggregates multiple repositories under a single unified endpoint URL to simplify container image retrieval:
+
 - **Hosted Repository:** A read-write repository (e.g., `docker-internal`) used for manually pushing or sideloading custom and pre-downloaded OCI container images.
 - **Proxy Repository:** A read-only cache repository (e.g., `docker-upstream`) that lazily fetches and caches images from public/upstream registries (like `gcr.io` or `docker.io`).
 - **Unified Workflow:** Container runtimes (CRI/Kubelet) pull exclusively from the single Group Repository URL. Nexus automatically resolves requests by checking the Hosted repository first for sideloaded images, falling back to the Proxy repository to fetch and cache from upstream when online.
@@ -130,8 +131,43 @@ Indicates a high-security machine that is exclusively off the internet. It does 
 
 #### 1. Crashed Provision
 
-A term used to identify that a remote system has tried to run the ISO self-installer, and there was a failure before a fully provisioned system. A system in this state will not have the default user (`gdc-installer`) or password. In this state, we need to use the "Crash Cart" scripts to be run on the system, enabling `ssh` and setting `root` password and enabling root as an SSH user.
+A term used to identify that a remote system has tried to run the ISO self-installer, and there was a failure before a fully provisioned system during **Baseline Phase**. A system in this state will not have the default user (`gdc-installer`) or password. **IF** the ISO is a `DEBUG` build, then the `root` user with `gdc-password-123` should be available to use. If the ISO is **NOT** `DEBUG`, then we need to use the "Crash Cart" `bin/bootloader-crash-cart.sh` script, which will be run on the target system.
 
 #### 2. Crash Cart
 
-A script that is run on a remote machine that is in "Crashed Provision" state. The script is intended to be run from within the crashed shell. The script enables SSH, temporarily sets up a root password, and enables root to use SSH. Scripts or Agent/LLM tools can then be used to extract the failure reason.
+```shell
+bin/bootloader-crash-cart.sh
+```
+
+A script that is run on a remote machine that is in "Crashed Provision" state. The script is intended to be run from within the crashed shell. The script enables SSH, temporarily sets up a root password, and enables root to use SSH. Scripts or Agent/LLM tools can then be used to extract the failure reason. This script will enable `ssh` and setting `root` password and enabling root as an SSH user.
+
+#### 3. Network Scan
+
+Finding a "Crashed Provision" system on the network requires Network Console or subnet scanning (L2). `bin/crash-cart-scan-subnet.sh` script can be used to run a scan to identify possible machines in the subnet. Since DHCP is used in **Baseline Phase**, the range is dependent on the networking configuration. A list of IPs can be provided to automatically skip (not record) to avoid unnecssary identification of successful or non-GDC nodes.
+
+---
+
+### GDC Bootstrap Stage-Gates
+
+The standardized sequence of stages executed during the automated GDC bare-metal installation and post-install bootstrap. Each stage acts as a blocking gate with specific entry/exit qualifications.
+
+#### 1. Stage 1: Hardware Bus Settling & Enumeration (`HARDWARE_SETTLING`)
+The stage that waits for physical system hardware buses (PCI, USB, storage controllers, TPM) and device nodes to fully initialize and register in `/dev/` and `/sys/`.
+
+#### 2. Stage 2: Disk Sanitization & Interface Purge (`DISK_SANITIZATION`)
+The stage where the primary installation block device is cleaned of all residual partitions, signatures, filesystems, logical volumes, and LUKS encryption mappings from any previous installations.
+
+#### 3. Stage 3: Cross-Namespace Integrity Verification (`NAMESPACE_SYNC`)
+The stage that performs file-system read/write synchronization loops between the container/snap mount namespace and the host overlayfs namespace to ensure no propagation latencies block keyfiles.
+
+#### 4. Stage 4: Storage Structure & Partitioning (`STORAGE_LAYOUT`)
+The stage where the physical partitions are created, the LUKS2 secure cryptographic container is formatted and mapped, and the LVM volume group and all 11 required logical volumes are allocated.
+
+#### 5. Stage 5: OS Payload Injection & Bootloader Stage (`OS_PAYLOAD`)
+The stage that writes the baseline operating system filesystem payload, mounts system paths under `/target`, and installs and configures the UEFI GRUB bootloader.
+
+#### 6. Stage 6: First-Boot Security Sealing & Key Sanitization (`TPM_SEALING`)
+The first-boot stage where the physical node's fTPM/dTPM chip is initialized and enrolled to seal the LUKS encryption key to PCR values 0+2+7, and any temporary bootstrap keyfiles are permanently wiped and deleted from disk.
+
+#### 7. Stage 7: Local Boundary Hubs & Playbook Execution (`BOUNDARY_HUB_TURNUP`)
+The final bootstrap stage where the local isolated Gitea and Sonatype Nexus services are verified as healthy, and `ansible-pull` is executed locally to apply system post-install configurations.
