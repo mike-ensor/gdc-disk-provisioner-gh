@@ -299,33 +299,52 @@ def main():
     time.sleep(2) # Allow scanner initialization
     
     # 4. Locate and Verify Image
-    print("[-] Searching for scanned image...")
+    print("[-] Searching for scanned image and waiting for download/loading to complete...")
     image_data = None
     retries = BOOTIMUS_SCAN_RETRIES
+    last_size = -1
+    stable_count = 0
     while retries > 0:
         images_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
         if images_res.get("success") and images_res.get("data"):
             # Manually filter returned images by exact filename to avoid defaulting to the first item (cascade1)
             matching_images = [img for img in images_res["data"] if img.get("filename") == filename]
             if matching_images:
-                image_data = matching_images[0]
-                print(f"[x] Located image: {image_data['name']} (Size: {image_data['size']} bytes)")
+                current_image = matching_images[0]
+                current_size = current_image.get("size", 0)
+                print(f"    [-] Found image: {current_image['name']} (Current Size: {current_size} bytes)")
                 
-                # Immediately disable to prevent premature booting of unconfigured/unextracted image
-                if image_data.get("enabled", True):
-                    print("[-] Temporarily disabling image during extraction and configuration to prevent premature PXE boots...")
-                    disable_data = {
-                        "boot_method": image_data.get("boot_method", "iso"),
-                        "distro": image_data.get("distro", ""),
-                        "boot_params": image_data.get("boot_params", ""),
-                        "enabled": False
-                    }
-                    try:
-                        api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", method="PUT", data=disable_data, token=token)
-                    except Exception as e:
-                        print(f"[!] Warning: Failed to temporarily disable image: {e}")
-                break
-        print(f"[-] Still searching... ({retries} retries left)")
+                if current_size > 0:
+                    if current_size == last_size:
+                        stable_count += 1
+                        print(f"    [-] Image size is stable ({stable_count}/2)...")
+                    else:
+                        stable_count = 0
+                        last_size = current_size
+                    
+                    if stable_count >= 2:
+                        image_data = current_image
+                        print(f"[x] Located fully loaded image: {image_data['name']} (Size: {image_data['size']} bytes)")
+                        
+                        # Immediately disable to prevent premature booting of unconfigured/unextracted image
+                        if image_data.get("enabled", True):
+                            print("[-] Temporarily disabling image during extraction and configuration to prevent premature PXE boots...")
+                            disable_data = {
+                                "boot_method": image_data.get("boot_method", "iso"),
+                                "distro": image_data.get("distro", ""),
+                                "boot_params": image_data.get("boot_params", ""),
+                                "enabled": False
+                            }
+                            try:
+                                api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", method="PUT", data=disable_data, token=token)
+                            except Exception as e:
+                                print(f"[!] Warning: Failed to temporarily disable image: {e}")
+                        break
+                else:
+                    print("    [-] Image size is 0 bytes (still registering/transferring)...")
+                    stable_count = 0
+                    last_size = 0
+        print(f"[-] Still searching/loading... ({retries} retries left)")
         time.sleep(BOOTIMUS_SCAN_DELAY)
         retries -= 1
         
@@ -359,8 +378,12 @@ def main():
                 status = ""
             
             print(f"    [-] Progress (Attempt {attempts}): {progress}% - Status: {status or 'Running'}")
-            if progress >= 100 or status in ["done", "completed", "idle"]:
-                break
+            # If the status is "idle" but we just started, ignore it to let the extraction daemon spin up
+            if status == "idle" and attempts <= 3 and progress < 100:
+                print("    [-] Ignoring initial 'idle' status to allow backend daemon to start...")
+            else:
+                if progress >= 100 or status in ["done", "completed", "idle"]:
+                    break
             time.sleep(4)
             attempts += 1
         print("[-] Extraction complete. Waiting 5 seconds for database transactions to settle...")

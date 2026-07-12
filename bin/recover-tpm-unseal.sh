@@ -3,7 +3,7 @@
 # GDC Bootloader - TPM 2.0 Boot Unseal Recovery Utility
 # ==============================================================================
 # Execute this script from a Live CD terminal on the bricked node to unlock the
-# system disk via TPM, chroot into the target OS, install systemd-initramfs,
+# system disk via TPM, chroot into the target OS, configure systemd-based initramfs,
 # and rebuild the boot ramdisks with proper systemd TPM 2.0 unsealing support.
 # ==============================================================================
 
@@ -115,9 +115,9 @@ chroot /mnt/recovery /usr/bin/env bash -c '
     mv /etc/resolv.conf /etc/resolv.conf.bak 2>/dev/null || true
     cat /run/systemd/resolve/resolv.conf > /etc/resolv.conf 2>/dev/null || echo "nameserver 8.8.8.8" > /etc/resolv.conf
     
-    # Install the systemd-initramfs package to enable systemd-based initrd boot path
+    # Install cryptsetup-initramfs package to enable systemd-based initrd boot path
     apt-get update || true
-    apt-get install -y systemd-initramfs cryptsetup-initramfs
+    apt-get install -y cryptsetup-initramfs
     
     # Double-check that CRYPTENROLL is active in conf-hook
     mkdir -p /etc/cryptsetup-initramfs

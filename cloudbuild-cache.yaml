@@ -38,7 +38,7 @@ steps:
       - '-c'
       - |
         echo "[-] [GCS Cache Fill] Checking and caching debian packages inside Ubuntu 24.04 Noble..."
-        apt-get update -qq && apt-get install -y -qq curl
+        apt-get update -qq && apt-get install -y -qq curl python3 python3-yaml sudo
         
         ./src/build/preseed_packages.sh
     env:
