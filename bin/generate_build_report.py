@@ -488,21 +488,21 @@ def main():
 
     # GCS Upload Phase (Stage 11 reports publication)
     if args.upload and report["deployment_verification"]["deployed_to_gcs"]:
-        print(f"[-] Uploading build reports to GCS reports/ directory...")
+        print(f"[-] Uploading build reports to GCS reports/build-reports/ directory...")
         try:
             # Upload JSON Report
             subprocess.run([
                 "gcloud", "storage", "cp", json_path,
-                f"gs://{gcs_bucket_name}/reports/build-report-v{iso_version}.json",
+                f"gs://{gcs_bucket_name}/reports/build-reports/build-report-v{iso_version}.json",
                 "--quiet"
             ], check=True)
             # Upload Markdown Report
             subprocess.run([
                 "gcloud", "storage", "cp", md_path,
-                f"gs://{gcs_bucket_name}/reports/build-report-v{iso_version}.md",
+                f"gs://{gcs_bucket_name}/reports/build-reports/build-report-v{iso_version}.md",
                 "--quiet"
             ], check=True)
-            print("  [x] Reports successfully published on GCS under /reports/ prefix.")
+            print("  [x] Reports successfully published on GCS under /reports/build-reports/ prefix.")
         except Exception as ue:
             print(f"  [!] Failed to upload reports: {ue}", file=sys.stderr)
 

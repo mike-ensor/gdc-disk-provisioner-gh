@@ -213,8 +213,8 @@ for i in {1..80}; do
     echo "[x] Cloud Build finished successfully."
     echo "[-] Downloading canonical build reports from GCS..."
     mkdir -p "${PROJECT_ROOT}/build-workspace/output"
-    gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-report-v${ISO_VERSION}.json" "${PROJECT_ROOT}/build-workspace/output/" || true
-    gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-report-v${ISO_VERSION}.md" "${PROJECT_ROOT}/build-workspace/output/" || true
+    gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/build-report-v${ISO_VERSION}.json" "${PROJECT_ROOT}/build-workspace/output/" || true
+    gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/build-report-v${ISO_VERSION}.md" "${PROJECT_ROOT}/build-workspace/output/" || true
     break
   elif [[ "${b_status}" == "FAILURE" || "${b_status}" == "TIMEOUT" || "${b_status}" == "CANCELLED" ]]; then
     echo "[!] Cloud Build failed with status: ${b_status}" >&2

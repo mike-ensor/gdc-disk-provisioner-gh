@@ -135,7 +135,7 @@ To enforce absolute reliability, the entire build-and-release pipeline is divide
 *   **Action:** Generates a cryptographically signed **Provenance Manifest** (`provenance.json`) and promotes atomic verified symlinks on release targets.
 
 ### Stage 11: Compile Build Reports (`make reports`)
-*   **Action:** Dynamically processes stage timing, unit test details, package seeding counts, and log artifacts to produce canonical JSON reports and derived human-readable Markdown reports. Publishes both files directly to GCS under `gs://${GCS_BUCKET}/reports/`.
+*   **Action:** Dynamically processes stage timing, unit test details, package seeding counts, and log artifacts to produce canonical JSON reports and derived human-readable Markdown reports. Publishes both files directly to GCS under `gs://${GCS_BUCKET}/reports/build-reports/`.
 
 ---
 
