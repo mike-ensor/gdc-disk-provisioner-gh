@@ -112,6 +112,7 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
             extra_configs.append(f"      dhcp4: true")
             extra_configs.append(f"      dhcp6: no")
             extra_configs.append(f"      link-local: []")
+            extra_configs.append(f"      optional: true")
             
         ethernets_line = "  ethernets:"
         if ethernets_line in content:

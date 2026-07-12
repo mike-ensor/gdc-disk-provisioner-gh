@@ -59,4 +59,5 @@ network:
     vrf-k8s:
       table: 20
       interfaces: [{{ phys_iface }}.{{ k8s_vlan }}]
+      optional: true
     {% endif %}

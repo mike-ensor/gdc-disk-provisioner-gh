@@ -1,4 +1,58 @@
 #cloud-config
+bootcmd:
+  - |
+    cat <<'EOF' > /tmp/inject_metadata.py
+    import os, time, urllib.parse, yaml
+    
+    # 1. Wait for autoinstall config files to appear
+    for i in range(100):
+        if os.path.exists('/run/installer/autoinstall-user-data') or os.path.exists('/autoinstall.yaml'):
+            break
+        time.sleep(0.1)
+        
+    # 2. Extract hardware parameters
+    try:
+        with open('/sys/class/dmi/id/product_uuid') as f:
+            uuid = f.read().strip().lower()
+    except Exception:
+        uuid = 'unknown'
+        
+    try:
+        ifaces = os.listdir('/sys/class/net')
+        eth_ifaces = [i for i in ifaces if i.startswith('e')]
+        iface = eth_ifaces[0] if eth_ifaces else 'eth0'
+        with open(f'/sys/class/net/{iface}/address') as f:
+            mac = f.read().strip().lower()
+    except Exception:
+        mac = 'unknown'
+        
+    # 3. Update the YAML files in-place
+    for path in ['/run/installer/autoinstall-user-data', '/autoinstall.yaml']:
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    data = yaml.safe_load(f)
+                if 'autoinstall' in data and 'reporting' in data['autoinstall']:
+                    reporting = data['autoinstall']['reporting']
+                    for key, config in reporting.items():
+                        if config.get('type') == 'webhook' and 'endpoint' in config:
+                            url = config['endpoint']
+                            parsed = urllib.parse.urlparse(url)
+                            params = urllib.parse.parse_qs(parsed.query)
+                            params['product_uuid'] = [uuid]
+                            params['mac'] = [mac]
+                            new_query = urllib.parse.urlencode(params, doseq=True)
+                            new_url = urllib.parse.urlunparse((
+                                parsed.scheme, parsed.netloc, parsed.path,
+                                parsed.params, new_query, parsed.fragment
+                            ))
+                            config['endpoint'] = new_url
+                with open(path, 'w') as f:
+                    yaml.safe_dump(data, f)
+            except Exception as e:
+                pass
+    EOF
+    python3 /tmp/inject_metadata.py &
 autoinstall:
   version: 1
   reboot: true
@@ -45,6 +99,10 @@ autoinstall:
       # Deactivate default public sources on the Live CD parent environment to prevent connection refused crashes
       echo "[-] [DEBUG-ISO] Purging Live CD parent public Ubuntu sources..."
       rm -f /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources
+      # Write a persistent GDC LUKS key file inside /run/installer (shared tmpfs visible to both snap and host)
+      mkdir -p /run/installer
+      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /run/installer/gdc-luks-key
+      chmod 600 /run/installer/gdc-luks-key
     - |
       # Live-stream Subiquity server logs to serial console for real-time diagnostics
       touch /var/log/installer/subiquity-server-debug.log
@@ -77,7 +135,7 @@ autoinstall:
         chmod +x /tmp/generate_storage_config.sh
         if /tmp/generate_storage_config.sh; then
           echo "[-] Storage configuration generated successfully."
-          if python3 -c "import os, yaml; bp = '/cdrom/nocloud/user-data' if os.path.exists('/cdrom/nocloud/user-data') else '/run/installer/autoinstall-user-data'; c = yaml.safe_load(open(bp)); s = yaml.safe_load(open('/run/autoinstall-storage.yaml')); c['autoinstall']['storage'] = s['storage']; yaml.safe_dump(c, open('/autoinstall.yaml', 'w')); os.makedirs('/run/installer', exist_ok=True); yaml.safe_dump(c, open('/run/installer/autoinstall-user-data', 'w'))"; then
+          if python3 -c "import os, yaml; bp = '/run/installer/autoinstall-user-data' if os.path.exists('/run/installer/autoinstall-user-data') else '/cdrom/nocloud/user-data'; c = yaml.safe_load(open(bp)); s = yaml.safe_load(open('/run/autoinstall-storage.yaml')); c['autoinstall']['storage'] = s['storage']; yaml.safe_dump({'autoinstall': c['autoinstall']}, open('/autoinstall.yaml', 'w')); os.makedirs('/run/installer', exist_ok=True); yaml.safe_dump(c, open('/run/installer/autoinstall-user-data', 'w'))"; then
             logger -t gdc-provisioner "[GOAL] LVM storage layout merged dynamically successfully."
           else
             echo "[GDC-INSTALL-FAIL] Critical Failure: Dynamic storage config merger failed!" >/dev/ttyS0
@@ -90,6 +148,95 @@ autoinstall:
       else
         echo "[!] Warning: Dynamic storage config generator not found on ISO! Falling back to static build config."
       fi
+    - |
+      # Defensive disk sanitization & kernel partition table cache flush (Prevents LUKS open/re-format cache clobbering)
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Performing defensive block device sanitization & cache flushes"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Performing defensive block device sanitization & cache flushes"
+      # A. Wipe all signatures on any existing partitions first before destroying partition table!
+      for p in /dev/nvme*p* /dev/sd*[0-9]; do
+        if [ -b "${p}" ]; then
+          echo "   -> Wiping existing signatures on partition: ${p}"
+          wipefs --all --force "${p}" 2>/dev/null || true
+        fi
+      done
+      # B. Now safely deactivate Volume Groups and destroy partition tables on physical disks
+      for d in $(lsblk -dno NAME | grep -vE 'loop|sr|ram'); do
+        echo "   -> Cleaning device: /dev/${d}"
+        # Deactivate any active Volume Groups on the device
+        vgchange -an --force 2>/dev/null || true
+        # Close any open dm mappings
+        dmsetup remove_all --force || true
+        # Attempt hardware-level blkdiscard to instantly reset the SSD/NVMe drive to baseline factory state
+        echo "   -> Attempting hardware-level blkdiscard on: /dev/${d}"
+        if blkdiscard --force "/dev/${d}" 2>/dev/null; then
+          echo "   -> [SUCCESS] Hardware-level blkdiscard reset completed successfully."
+        else
+          echo "   -> [FALLBACK] blkdiscard not supported. Running sector-level wiping..."
+          # Zero out the LUKS header area (first 16MB) defensively to prevent kernel block caching conflicts
+          dd if=/dev/zero of="/dev/${d}" bs=1M count=16 oflag=direct status=none || true
+          # Also zero out the last 16MB of the disk to destroy the backup GPT header!
+          disk_size=$(blockdev --getsize64 "/dev/${d}" 2>/dev/null || echo "0")
+          if [ "${disk_size}" -gt 16777216 ]; then
+            seek_pos=$(( (disk_size - 16777216) / 1048576 ))
+            dd if=/dev/zero of="/dev/${d}" bs=1M count=16 seek="${seek_pos}" oflag=direct status=none || true
+          fi
+        fi
+        
+        # --- SYNCHRONIZATION AND FLUSHING ---
+        echo "   -> Synchronizing block device caches for /dev/${d}..."
+        sync 2>/dev/null || true
+        
+        # 1. Flush dirty buffers with error-state check
+        if ! err_out=$(blockdev --flushbufs "/dev/${d}" 2>&1); then
+          echo "   -> [INFO] blockdev --flushbufs on /dev/${d} reported: ${err_out} (this is non-critical and normal when running under virtualized/emulated storage controller layers)."
+        else
+          echo "   -> [SUCCESS] blockdev --flushbufs completed successfully on /dev/${d}."
+        fi
+        
+        # 2. Tell kernel to re-read partition tables with fallback routing on failure
+        if ! err_out=$(blockdev --rereadpt "/dev/${d}" 2>&1); then
+          echo "   -> [WARN] blockdev --rereadpt failed on /dev/${d}: ${err_out}. Attempting partprobe fallback..."
+          if ! probe_err=$(partprobe "/dev/${d}" 2>&1); then
+            echo "   -> [ERROR] Both blockdev rereadpt and partprobe failed on /dev/${d}: ${probe_err}! Stale partitions may continue to persist."
+          else
+            echo "   -> [SUCCESS] partprobe successfully refreshed the partition table map for /dev/${d}."
+          fi
+        else
+          echo "   -> [SUCCESS] blockdev --rereadpt successfully refreshed the partition table map for /dev/${d}."
+        fi
+
+        # --- DETERMINISTIC POLLING VERIFICATION LOOP ---
+        # Since we cleared the partition tables, all /dev/nvme0n1p* block devices should disappear from the kernel.
+        # We poll the sysfs directory structure for nvme0n1 to verify they are gone.
+        max_retries=30
+        retry=0
+        partitions_lingering=true
+        
+        echo "   -> Verifying partition block device removal for /dev/${d}..."
+        while [ ${retry} -lt ${max_retries} ]; do
+          # Check if any sub-partition directories exist in sysfs (e.g. nvme0n1p1 or sda1)
+          if [ -d "/sys/class/block/${d}" ] && ! ls /sys/class/block/${d}/${d}* >/dev/null 2>&1; then
+            echo "   -> [SUCCESS] Verified: All partition block devices for /dev/${d} have successfully disappeared from sysfs."
+            partitions_lingering=false
+            break
+          fi
+          retry=$((retry + 1))
+          sleep 0.5
+        done
+
+        if [ "${partitions_lingering}" = "true" ]; then
+          echo "   -> [ERROR] Partition block devices for /dev/${d} are STILL lingering in sysfs after 15 seconds! Forcing final udev settle."
+          udevadm settle 2>/dev/null || true
+        fi
+      done
+      
+      # --- FINAL SYSTEM-WIDE SETTLEMENT ---
+      echo "   -> Performing final system-wide sync and dropping page/inode caches..."
+      sync && echo 3 > /proc/sys/vm/drop_caches
+      udevadm settle 2>/dev/null || true
+      echo "   -> Disk sanitization phase successfully finalized. Proceeding to partition."
     - |
       # Print GDC vintage parchment boot banner with version and build timestamp
       if [ -f /cdrom/custom-data/boot-banner.txt ]; then
@@ -236,6 +383,16 @@ autoinstall:
       fi
     - |
       echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Copying pre-seeded offline tools"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Copying pre-seeded offline tools"
+      if [ -d /cdrom/custom-data/tools ]; then
+        mkdir -p /target/tmp/
+        cp -r /cdrom/custom-data/tools/* /target/tmp/
+        logger -t gdc-provisioner "[GOAL] Pre-seeded offline tools staged successfully"
+      fi
+    - |
+      echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Syncing Gitea, Nexus, & Ansible collections"
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Syncing Gitea, Nexus, & Ansible collections"
@@ -344,12 +501,12 @@ autoinstall:
         echo "CRYPTENROLL=y" >> /target/etc/cryptsetup-initramfs/conf-hook
         logger -t gdc-provisioner "[GOAL] Created cryptsetup-initramfs conf-hook with KEYFILE_PATTERN and CRYPTENROLL"
       fi
-      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /tmp/pass.txt
+      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /target/tmp/pass.txt
       LUKS_DEVS=$(blkid -t TYPE=crypto_LUKS -o device)
       if [ -n "${LUKS_DEVS}" ]; then
         for crypt_dev in ${LUKS_DEVS}; do
           logger -t gdc-provisioner "[GOAL] Adding key to LUKS device ${crypt_dev}..."
-          if cryptsetup luksAddKey --key-file=/tmp/pass.txt "${crypt_dev}" /target/etc/keys/temp_key.key; then
+          if curtin in-target -- cryptsetup luksAddKey --key-file=/tmp/pass.txt "${crypt_dev}" /etc/keys/temp_key.key; then
             logger -t gdc-provisioner "[GOAL] Added key to LUKS device ${crypt_dev}"
           else
             echo "[GDC-INSTALL-FAIL] Critical Failure: Failed to add key to LUKS device ${crypt_dev}!"
@@ -361,7 +518,7 @@ autoinstall:
       else
         logger -t gdc-provisioner "[GOAL] No LUKS devices found, skipping key enrollment"
       fi
-      rm -f /tmp/pass.txt
+      rm -f /target/tmp/pass.txt
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC SSH configurations"

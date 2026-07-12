@@ -187,6 +187,17 @@ def main():
         if res.returncode == 0:
             sudo_prefix = ["sudo"]
             
+    # Programmatically register Docker CE repository for resolving docker-ce/containerd.io
+    try:
+        print("[-] Registering official Docker CE GPG keyring and repository sources...")
+        subprocess.run(sudo_prefix + ["mkdir", "-p", "/etc/apt/keyrings"], check=True)
+        subprocess.run(sudo_prefix + ["curl", "-fsSL", "https://download.docker.com/linux/ubuntu/gpg", "-o", "/etc/apt/keyrings/docker.asc"], check=True)
+        repo_line = "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable"
+        subprocess.run(["sh", "-c", f'echo "{repo_line}" | ' + " ".join(sudo_prefix + ["tee", "/etc/apt/sources.list.d/docker.list"])], check=True)
+        print("  [x] Docker CE repository successfully registered.")
+    except Exception as e:
+        print(f"[!] Warning: Failed to register Docker CE repository: {e}", file=sys.stderr)
+
     try:
         subprocess.run(sudo_prefix + ["apt-get", "update", "-qq"], check=True)
     except subprocess.SubprocessError as e:
