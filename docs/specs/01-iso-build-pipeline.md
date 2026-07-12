@@ -69,11 +69,20 @@ The feasibility of installing the full Google Cloud SDK (`gcloud`) inside the bo
 To enforce absolute reliability, the entire build-and-release pipeline is divided into distinct named stages and corresponding non-interactive `make` targets. Each target is idempotent, self-verifying, and guarantees a zero-interactive execution environment.
 
 ```text
-  [1. check-env] ──> [2. deps] ──> [3. extract] ──> [4. hydrate]
-                                                         │
-  ┌──────────────────────────────────────────────────────┘
+                     [ PREPARATION & ACQUISITION ]
+  [1. check-env] ──> [2a. core-deps] ──> [2b. pull-cust] ──> [2c. extract-cust] 
+                                                                    │
+  ┌─────────────────────────────────────────────────────────────────┘
   ▼
-[5. validate] ───> [6. assemble] ─── [7. test-static] ─── [8. test-dynamic] ───> [9. deploy] ───> [10. publish]
+  [2d. apply-cust] ──> [3. extract-iso] ──> [4. hydrate] ──> [5. validate]
+                                                                   │
+  ┌────────────────────────────────────────────────────────────────┘
+  ▼
+  [6. assemble] ──> [7. test-static] ──> [8. test-dynamic]
+                                               │
+  ┌────────────────────────────────────────────┘
+  ▼
+  [9. deploy-gate] (FATAL) ──> [10. publish-manifest] ──> [11. compile-reports]
 ```
 
 ### Stage 1: Check Environment (`make check-env`)
@@ -81,9 +90,18 @@ To enforce absolute reliability, the entire build-and-release pipeline is divide
 *   **Host Diagnostics:** Detects nested virtualization capabilities (`/dev/kvm`). If absent, writes a prominent non-blocking warning informing the host that Tier 2 QEMU tests will fallback to slow software emulation (TCG), preventing abrupt pipeline failure on restricted runners.
 *   **Interactivity Check:** Asserts that all downstream commands run in a non-blocking manner (injecting `--auto-approve` / `-y` flags automatically if running without a TTY).
 
-### Stage 2: Acquire Dependencies (`make deps`)
+### Stage 2a: Acquire Core Dependencies (`make deps`)
 *   **Action:** Checks `.cache/binaries/` for Gitea, Adoptium Java JRE 17, and Sonatype Nexus tarballs. If missing, downloads them and verifies their SHA-256 hashes against configured build variables.
 *   **Idempotency:** Already downloaded and verified assets are retained, bypassing network fetches on subsequent runs.
+
+### Stage 2b: Pull Customer Supplied Binaries (`make pull-customer-deps`)
+*   **Action:** Checks if a customer-supplied assets tarball URI (`_CUSTOMER_ASSETS_URI`) is specified. If defined, pulls the raw asset tarball down from the GCS bucket or local network path to `.cache/customer/customer-assets.tar.gz`.
+
+### Stage 2c: Extract Customer Supplied Binaries (`make extract-customer-deps`)
+*   **Action:** Unpacks the retrieved customer tarball to the local workspace staging folder `build-workspace/customer-staging/` using non-root layers.
+
+### Stage 2d: Apply Customer Supplied Binaries (`make apply-customer-deps`)
+*   **Action:** Processes the staging area, placing custom `.deb` packages in the offline preseed directories, updating playbooks inside Gitea's staging repository, or applying customer certificates to system files.
 
 ### Stage 3: Extract Source Media (`make extract`)
 *   **Action:** Performs non-root extraction of the official "blessed" Ubuntu 24.04 live-server ISO into the workspace (`build-workspace/custom-iso/`) using `xorriso`'s non-root extraction layer (`-osirrox on -indev ... -extract / ...`).
@@ -109,9 +127,15 @@ To enforce absolute reliability, the entire build-and-release pipeline is divide
 ### Stage 8: Dynamic End-to-End Boot (`make test-dynamic`)
 *   **Action:** Launches `test/run_qemu_e2e.sh` which provisions dual-disk sparse blocks, maps an isolated `swtpm` daemon, boots the ISO, and polls the serial logs for the completion token. Executes SSH-based assertion queries over localhost loopback forwardings.
 
-### Stage 9: Release and Publish (`make deploy` & `make publish`)
-*   **Deploy:** Pushes the finalized, tested ISO to regional GCS buckets or NFS storage.
-*   **Publish:** Automatically updates an atomic symbolic link (`gdc-bootstrap-latest-verified.iso`) on the deployment server and generates a signed cryptographic **Provenance Manifest**.
+### Stage 9: Release Deployment Gate (`make deploy`)
+*   **Action:** Pushes the finalized ISO to regional GCS buckets or NFS storage.
+*   **Upload Verification [FATAL]:** Retests the uploaded file directly on GCS using `gcloud storage objects describe` or MD5/CRC32C checksum audits to guarantee the uploaded file matches the compiled artifact exactly. If mismatch occurs, the gate is failed, aborting release.
+
+### Stage 10: Publish Provenance (`make publish`)
+*   **Action:** Generates a cryptographically signed **Provenance Manifest** (`provenance.json`) and promotes atomic verified symlinks on release targets.
+
+### Stage 11: Compile Build Reports (`make reports`)
+*   **Action:** Dynamically processes stage timing, unit test details, package seeding counts, and log artifacts to produce canonical JSON reports and derived human-readable Markdown reports. Publishes both files directly to GCS under `gs://${GCS_BUCKET}/reports/`.
 
 ---
 

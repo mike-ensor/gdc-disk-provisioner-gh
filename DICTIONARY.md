@@ -93,7 +93,11 @@ The GDC standalone static disk provisioner that allocates local host storage pat
 
 The process of transferring system patches, code changes, Docker images, or machine learning models into the air-gapped node entirely offline. This is accomplished either via API uploads from a tethered workstation or through a script-guided USB physical media sync.
 
-#### 2. TPM 2.0 (Trusted Platform Module)
+#### 2. Customer-added Packages
+
+Dependencies to be applied to the Operating System via the ISO on initial boot. Often packages are added from a Tarball during ISO creation or USB side-loading.
+
+#### 3. TPM 2.0 (Trusted Platform Module)
 
 A dedicated, physical cryptographic microchip on the target server. In our architecture, it is used via `systemd-cryptenroll` to bind LUKS disk encryption (meaning the disk will only decrypt automatically if the server's firmware and BIOS boot parameters have not been tampered with), secure SSH private keys, and generate verifiable device identity certificates.
 

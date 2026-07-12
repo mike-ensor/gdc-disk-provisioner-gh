@@ -98,6 +98,7 @@ show_help() {
     echo "Options:"
     echo "  -b, --bucket VALUE       GCS Bucket Name (default: ${GCS_BUCKET_DEFAULT:-None})"
     echo "  -f, --filename VALUE     Blessed Source ISO Filename (default: ${SOURCE_ISO_DEFAULT})"
+    echo "  -c, --customer-assets VAL Customer-supplied assets tarball URI (GCS or HTTPS)"
     echo "  -h, --help               Show this help menu"
     echo ""
     echo "Environment Variables (Enforced):"
@@ -123,6 +124,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -f|--filename)
             SOURCE_ISO_FILENAME="$2"
+            shift 2
+            ;;
+        -c|--customer-assets)
+            CUSTOMER_ASSETS_URI="$2"
             shift 2
             ;;
         -h|--help)
@@ -194,7 +199,7 @@ echo "[-] Initiating gcloud builds submit..."
 BUILD_ID=$(gcloud builds submit "${PROJECT_ROOT}" \
     --config="${PROJECT_ROOT}/cloudbuild.yaml" \
     --project="${PROJECT_ID}" \
-    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME},_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false}" \
+    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME},_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false},_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI:-}" \
     --async --format="value(id)")
 
 echo "[+] Cloud Build job created with ID: ${BUILD_ID}"
@@ -206,9 +211,25 @@ for i in {1..80}; do
   echo "[Cloud Build] Status: ${b_status} (Attempt ${i}/80)"
   if [[ "${b_status}" == "SUCCESS" ]]; then
     echo "[x] Cloud Build finished successfully."
+    echo "[-] Downloading canonical build reports from GCS..."
+    mkdir -p "${PROJECT_ROOT}/build-workspace/output"
+    gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-report-v${ISO_VERSION}.json" "${PROJECT_ROOT}/build-workspace/output/" || true
+    gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-report-v${ISO_VERSION}.md" "${PROJECT_ROOT}/build-workspace/output/" || true
     break
   elif [[ "${b_status}" == "FAILURE" || "${b_status}" == "TIMEOUT" || "${b_status}" == "CANCELLED" ]]; then
     echo "[!] Cloud Build failed with status: ${b_status}" >&2
+    echo "[-] Automatically streaming failure logs..." >&2
+    gcloud builds log "${BUILD_ID}" --project="${PROJECT_ID}" || true
+    echo "[-] Generating local failure build report..." >&2
+    python3 "${PROJECT_ROOT}/bin/generate_build_report.py" \
+      --build-id "${BUILD_ID}" \
+      --project-id "${PROJECT_ID}" \
+      --gcs-bucket "gs://${GCS_BUCKET_NAME}" \
+      --iso-version "${ISO_VERSION}" \
+      --status "FAILED" \
+      --output-dir "${PROJECT_ROOT}/build-workspace/output" || true
+    echo "" >&2
+    echo "[!] A localized failure report has been written to build-workspace/output/build-report-v${ISO_VERSION}.md" >&2
     exit 1
   fi
   sleep 15
