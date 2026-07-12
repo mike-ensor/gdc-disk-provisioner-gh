@@ -263,6 +263,9 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [ ] **GCS Packages Isolation:** Generalize Google Cloud Storage cache prefixes to include release target trees (e.g. `gs://.../packages/22.04/`, `gs://.../packages/24.04/`) to prevent library pollution across target node OS sets.
   - [ ] **Preseed Resolvers Verification:** Enhance `preseed_packages.sh` to dynamically query and map release repositories matching `_UBUNTU_VERSION`.
   - [ ] **Variables & Settings Audit:** Review LVM fstab patterns, Netplan DBus protocols, and systemd units for system-level differences across Jammy, Noble, and Plucky configurations.
+- [ ] **Hardware Diagnostics & Node Uniqueness Updates (Near Future)**
+  - [x] **Enforce MAC-based Node Uniqueness:** Migrated system identity/uniqueness mapping in `bin/collect-node-diagnostics.sh` to physical MAC addresses instead of the duplicate motherboard `System UUID` (which conflicts across Zen 4 bare-metal platforms).
+  - [x] **Hardware Inventory Auto-Discovery:** Integrated auto-discovery and telemetry for CPU cores, RAM DIMM serials, NVMe storage devices, AMD fTPM modules, and NIC MACs into both JSON and text reports.
 - [ ] **APT** configuration
   - [ ] https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#apt
   - [ ] https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#fallback
