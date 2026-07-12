@@ -135,7 +135,7 @@ autoinstall:
         chmod +x /tmp/generate_storage_config.sh
         if /tmp/generate_storage_config.sh; then
           echo "[-] Storage configuration generated successfully."
-          if python3 -c "import os, yaml; bp = '/run/installer/autoinstall-user-data' if os.path.exists('/run/installer/autoinstall-user-data') else '/cdrom/nocloud/user-data'; c = yaml.safe_load(open(bp)); s = yaml.safe_load(open('/run/autoinstall-storage.yaml')); c['autoinstall']['storage'] = s['storage']; yaml.safe_dump(c, open('/autoinstall.yaml', 'w')); os.makedirs('/run/installer', exist_ok=True); yaml.safe_dump(c, open('/run/installer/autoinstall-user-data', 'w'))"; then
+          if python3 -c "import os, yaml; bp = '/run/installer/autoinstall-user-data' if os.path.exists('/run/installer/autoinstall-user-data') else '/cdrom/nocloud/user-data'; c = yaml.safe_load(open(bp)); s = yaml.safe_load(open('/run/autoinstall-storage.yaml')); c['autoinstall']['storage'] = s['storage']; yaml.safe_dump({'autoinstall': c['autoinstall']}, open('/autoinstall.yaml', 'w')); os.makedirs('/run/installer', exist_ok=True); yaml.safe_dump(c, open('/run/installer/autoinstall-user-data', 'w'))"; then
             logger -t gdc-provisioner "[GOAL] LVM storage layout merged dynamically successfully."
           else
             echo "[GDC-INSTALL-FAIL] Critical Failure: Dynamic storage config merger failed!" >/dev/ttyS0

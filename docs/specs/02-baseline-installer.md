@@ -121,7 +121,7 @@ autoinstall:
           s = yaml.safe_load(f)
       c['autoinstall']['storage'] = s['storage']
       
-      yaml.safe_dump(c, open('/autoinstall.yaml', 'w'))
+      yaml.safe_dump({'autoinstall': c['autoinstall']}, open('/autoinstall.yaml', 'w'))
       os.makedirs('/run/installer', exist_ok=True)
       yaml.safe_dump(c, open('/run/installer/autoinstall-user-data', 'w'))
       "
