@@ -92,3 +92,26 @@ To guarantee cluster performance under heavy workloads:
 * **`commit=1`:** Forced on `/var/lib/etcd` and `/var/lib/etcd-events` to force metadata write barriers in under 1 second. This guarantees metadata consistency and keeps etcd database disk latency within bare metal consensus requirements.
 * **`noatime` / `nodiratime`:** Applied across all active datastores to completely bypass write overhead from updating inode access timestamps on read commands.
 * **`prjquota`:** Enforced on XFS filesystems (`/var/lib/containerd` and `/customer/local-disk`) to support strict container directory disk limits and directory project quotas.
+
+---
+
+## 6. Security & Cryptographic Lifecycle (LUKS & TPM 2.0)
+
+To achieve secure, unattended, and air-gapped provisioning, GDC Bare Metal nodes follow a **two-phase hybrid cryptographic lifecycle** to initialize, seal, and protect host storage volumes.
+
+### Phase 1: Unattended Partitioning (Installation Phase)
+* **The Challenge:** To format LUKS2 volumes non-interactively, the installer must supply a decryption key. Running Subiquity inside a strictly confined Snap container causes timing and write-propagation delays across the mount namespace boundary if keys are written to standard `/tmp/` paths.
+* **The Resolution (GDC-RCA-2026-07-11-01):** The installer writes a temporary bootstrap key (`temporary_bootstrap_key_to_be_enrolled_to_tpm`) directly to `/var/log/installer/gdc-luks-key`. Because `/var/log/installer` is a direct host-to-snap bind-mount, propagation is instantaneous, allowing `cryptsetup` to reliably partition and format target NVMe drives on first attempt.
+* **Storage Encryption State:** During this phase, all encrypted block devices (e.g., `nvme0n1p3`) use this static bootstrap passphrase.
+
+### Phase 2: Host Hardening (First-Boot Ansible Phase)
+Upon first boot, the system transitions from the generic installation state to a hardened, node-specific secure state via the post-install Ansible-pull pipeline (`src/ansible/roles/security_hardening/tasks/main.yml`):
+
+1. **Hardware Sealing (TPM 2.0):** Ansible queries the host for an active Trusted Platform Module (TPM 2.0) device (`/dev/tpmrm0`). It seals the LUKS Master Key to the node's physical TPM chip PCR registers (`0+2+7` in UEFI mode) using `systemd-cryptenroll`. This locks the decryption key specifically to the host's physical motherboard and system integrity state.
+2. **Password Revocation:** It purges the insecure, static bootstrap passphrase slot from the LUKS container keyslots using:
+   ```bash
+   systemd-cryptenroll --wipe-slot=password --unlock-key-file=/etc/keys/temp_key.key <device>
+   ```
+   After this command completes, the bootstrap key string is permanently revoked and can no longer decrypt the disk.
+3. **Plaintext Erasing:** The plaintext keyfile `/etc/keys/temp_key.key` is permanently deleted from the host filesystem.
+4. **Boot-Time Unlocking:** It reconfigures `/etc/crypttab` with the `tpm2-device=auto` option and rebuilds `initramfs` so that the local systemd-cryptsetup daemon can automatically and securely unseal the volumes during subsequent boots without manual password entry or plaintext keys on disk.
