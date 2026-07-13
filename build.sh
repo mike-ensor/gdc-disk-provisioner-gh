@@ -196,10 +196,13 @@ echo "  Source ISO Name: ${SOURCE_ISO_FILENAME}"
 echo "=============================================================================="
 echo "[-] Initiating gcloud builds submit..."
 
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "N/A")
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "N/A")
+
 BUILD_ID=$(gcloud builds submit "${PROJECT_ROOT}" \
     --config="${PROJECT_ROOT}/cloudbuild.yaml" \
     --project="${PROJECT_ID}" \
-    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME},_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false},_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI:-}" \
+    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME},_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false},_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI:-},_GIT_BRANCH=${GIT_BRANCH},_GIT_COMMIT=${GIT_COMMIT}" \
     --async --format="value(id)")
 
 echo "[+] Cloud Build job created with ID: ${BUILD_ID}"

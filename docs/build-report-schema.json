@@ -50,13 +50,24 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["stage_id", "name", "status", "duration_seconds"],
+        "required": ["stage_id", "name", "status", "duration_seconds", "tests"],
         "properties": {
           "stage_id": { "type": "string" },
           "name": { "type": "string" },
           "status": { "type": "string", "enum": ["PASSED", "FAILED", "SKIPPED", "WARNING"] },
           "duration_seconds": { "type": "integer" },
-          "error_logs": { "type": "string" }
+          "error_logs": { "type": "string" },
+          "tests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "status"],
+              "properties": {
+                "name": { "type": "string" },
+                "status": { "type": "string", "enum": ["PASSED", "FAILED", "SKIPPED"] }
+              }
+            }
+          }
         }
       }
     },
@@ -77,13 +88,27 @@
     },
     "packages_seeding": {
       "type": "object",
-      "required": ["total_requested", "total_cached", "failures"],
+      "required": ["total_requested", "total_cached", "failures", "packages"],
       "properties": {
         "total_requested": { "type": "integer" },
         "total_cached": { "type": "integer" },
         "failures": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["filename", "expected_sha", "actual_sha", "verified", "size_kb"],
+            "properties": {
+              "filename": { "type": "string" },
+              "expected_sha": { "type": "string" },
+              "actual_sha": { "type": "string" },
+              "verified": { "type": "boolean" },
+              "size_kb": { "type": "number" }
+            }
+          }
         }
       }
     },
