@@ -9,6 +9,7 @@
 
 import os
 import sys
+import json
 import re
 import subprocess
 import glob
@@ -60,6 +61,7 @@ def load_config(config_path):
     return {
         "ubuntu_version": ubuntu_version,
         "packages": packages,
+        "platform_packages": set(platform),
         "excludes": excludes
     }
 
@@ -120,6 +122,12 @@ def main():
     project_root = os.path.dirname(os.path.dirname(script_dir))
     cache_dir = os.path.join(project_root, ".cache/packages")
     config_path = os.path.join(script_dir, "packages_config.yaml")
+    failures_file = os.path.join(project_root, ".cache/preseed_failures.json")
+    if os.path.exists(failures_file):
+        try:
+            os.remove(failures_file)
+        except Exception:
+            pass
     
     # Load default build and local configuration files
     build_env = parse_env_file(os.path.join(script_dir, "build.env"))
@@ -206,13 +214,25 @@ def main():
     # Download primary packages
     print("[-] Downloading package binaries (.debs)...")
     downloaded_set = set()
+    preseed_failures = []
     for pkg in target_packages:
         print(f"  [-] Resolving and downloading: {pkg}...")
         try:
             subprocess.run(["apt-get", "download", pkg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
             downloaded_set.add(pkg)
         except subprocess.SubprocessError:
-            print(f"  [!] Warning: Failed to download '{pkg}' directly. Dependency simulation will fallback.", file=sys.stderr)
+            preseed_failures.append(pkg)
+            if pkg in cfg.get("platform_packages", set()):
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", file=sys.stderr)
+                print(f"[FATAL ERROR] Failed to download critical platform-required package '{pkg}'!", file=sys.stderr)
+                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", file=sys.stderr)
+                # Save failures JSON
+                os.makedirs(os.path.dirname(failures_file), exist_ok=True)
+                with open(failures_file, "w") as ff:
+                    json.dump(preseed_failures, ff, indent=2)
+                sys.exit(1)
+            else:
+                print(f"  [!] Warning: Failed to download optional package '{pkg}' directly. Dependency simulation will fallback.", file=sys.stderr)
             
     # Resolve and download dependencies
     print("[-] Resolving and downloading recursive dependencies...")
@@ -223,7 +243,13 @@ def main():
                 subprocess.run(["apt-get", "download", dep], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
                 downloaded_set.add(dep)
             except subprocess.SubprocessError:
-                pass
+                preseed_failures.append(dep)
+                
+    # Save failures list at the end of the script if there are any non-fatal failures
+    if preseed_failures:
+        os.makedirs(os.path.dirname(failures_file), exist_ok=True)
+        with open(failures_file, "w") as ff:
+            json.dump(preseed_failures, ff, indent=2)
                 
     # Synchronize downloaded debs back to GCS Bucket if enabled
     if enable_gcs.lower() == "true":
