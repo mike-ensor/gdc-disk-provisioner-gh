@@ -74,8 +74,8 @@ def main():
         local_env = parse_env_file(local_env_path)
         build_env.update(local_env)
 
-    iso_version = envrc.get("ISO_VERSION", "0.1.14")
-    project_id = envrc.get("PROJECT_ID", "anthos-bare-metal-lab-1")
+    iso_version = build_env.get("ISO_VERSION") or envrc.get("ISO_VERSION") or "0.1.14"
+    project_id = build_env.get("PROJECT_ID") or envrc.get("PROJECT_ID") or "anthos-bare-metal-lab-1"
 
     # Find the target ISO path
     target_iso_name = f"gdc-bootstrap-ubuntu-24.04-v{iso_version}-debug.iso"
