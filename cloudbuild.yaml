@@ -67,7 +67,7 @@ steps:
   # Step 2: ISO Template, Validate, and Assemble Gates
   # ==========================================
   # Uses the custom builder container containing xorriso, rsync, shellcheck, and pylint.
-  # Automatically triggers: check-env -> deps -> extract -> hydrate -> validate -> assemble -> test-static
+  # Automatically triggers: check-env -> deps -> pull-customer-deps -> extract-customer-deps -> apply-customer-deps -> extract -> hydrate -> validate -> assemble -> test-static
   - name: '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/gdc-build-images/iso-builder:${_BUILD_VERSION}'
     id: 'build-and-validate-iso'
     entrypoint: 'bash'
@@ -83,6 +83,7 @@ steps:
           GDC_DEBUG_MODE="${_GDC_DEBUG_MODE}" \
           ENABLE_GCS="true" \
           GCS_BUCKET="gs://${_GCS_BUCKET_NAME}" \
+          _CUSTOMER_ASSETS_URI="${_CUSTOMER_ASSETS_URI}" \
           AUTO_APPROVE="true"
 
   # ==========================================
@@ -102,16 +103,22 @@ steps:
           exit 1
         fi
         
+        # Write git branch and commit to local file for report generator
+        mkdir -p build-workspace
+        echo "GIT_BRANCH=${_GIT_BRANCH}" > build-workspace/git_info.env
+        echo "GIT_COMMIT=${_GIT_COMMIT}" >> build-workspace/git_info.env
+        
         # Import variables from the compilation metadata
         source "$${BUILD_META}"
         echo "[-] Found compiled ISO: $${ISO_OUTPUT_NAME} at $${ISO_OUTPUT_PATH}"
         
-        # Trigger deploy and publish gates via Make
-        make -C src/build deploy publish \
+        # Trigger deploy, publish, and reports gates via Make
+        make -C src/build deploy publish reports \
           ISO_VERSION="${_ISO_VERSION}" \
           GDC_DEBUG_MODE="${_GDC_DEBUG_MODE}" \
           ENABLE_GCS="true" \
-          GCS_BUCKET="gs://${_GCS_BUCKET_NAME}"
+          GCS_BUCKET="gs://${_GCS_BUCKET_NAME}" \
+          _CUSTOMER_ASSETS_URI="${_CUSTOMER_ASSETS_URI}"
         
         BUCKET_NAME=$(echo "${_GCS_BUCKET_NAME}" | sed 's/^gs:\/\///')
         
@@ -151,6 +158,9 @@ substitutions:
   _PROJECT_ID: 'my-gcp-project-id'
   _ISO_BLESSED_GCS_BUCKET: ''
   _GDC_DEBUG_MODE: 'false'
+  _CUSTOMER_ASSETS_URI: ''
+  _GIT_BRANCH: 'N/A'
+  _GIT_COMMIT: 'N/A'
 
 # Extend timeout to 30 minutes in case of larger asset synchronization
 timeout: '1800s'

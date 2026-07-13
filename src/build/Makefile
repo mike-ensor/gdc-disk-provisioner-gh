@@ -66,6 +66,11 @@ VENV_DIR := ../../.venv
 CACHE_DIR := ../../.cache
 BIN_CACHE_DIR := $(CACHE_DIR)/binaries
 
+# Timing and Stage Duration Logs
+TIME_LOG := $(WORKSPACE)/stage_times.env
+START_TIME = @mkdir -p $(WORKSPACE) && echo "START_$(1)=$$(date +%s)" >> $(TIME_LOG)
+END_TIME = @echo "END_$(1)=$$(date +%s)" >> $(TIME_LOG)
+
 # Versioning and Output Target Names
 ifeq ($(GDC_DEBUG_MODE),true)
 FINAL_ISO_NAME := $(ISO_NAME_PREFIX)-v$(ISO_VERSION)-debug.iso
@@ -75,9 +80,9 @@ endif
 FINAL_ISO_PATH := $(OUTPUT_DIR)/$(FINAL_ISO_NAME)
 PROVENANCE_MANIFEST := $(OUTPUT_DIR)/$(ISO_NAME_PREFIX)-v$(ISO_VERSION)-provenance.json
 
-.PHONY: all help check-env venv deps extract hydrate validate assemble test-unit test-static test-dynamic deploy publish clean
+.PHONY: all help check-env venv deps pull-customer-deps extract-customer-deps apply-customer-deps extract hydrate validate assemble test-unit test-static test-dynamic deploy publish reports clean
 
-all: check-env deps extract hydrate validate assemble test-static test-dynamic deploy publish
+all: check-env deps pull-customer-deps extract-customer-deps apply-customer-deps extract hydrate validate assemble test-static test-dynamic deploy publish reports
 
 help:
 	@echo "=============================================================================="
@@ -107,11 +112,13 @@ help:
 # 0. Check Environment
 # ==========================================
 check-env:
+	$(call START_TIME,check-env)
 	@echo "[-] [Stage: check-env] Verifying system dependencies and local adapters..."
 	@for cmd in xorriso curl rsync python3 yamllint pylint shellcheck; do \
 		if ! command -v $$cmd &>/dev/null; then \
 			echo "[!] Critical Error: Required tool '$$cmd' is not installed." >&2; \
 			exit 1; \
+			$(call END_TIME,check-env); \
 		fi; \
 	done
 	@echo "  [x] Core system and validation utilities found."
@@ -129,6 +136,7 @@ check-env:
 		echo "  [x] Hardware virtualization acceleration (KVM) active."; \
 	fi
 	@echo "[-] [Stage: check-env] Environment preflight checks passed cleanly."
+	$(call END_TIME,check-env)
 
 # ==========================================
 # venv Provisioning
@@ -146,6 +154,7 @@ venv: $(VENV_DIR)
 # 1. Pre-Artifact Stage: deps, extract, & hydrate
 # ==========================================
 deps:
+	$(call START_TIME,deps)
 	@echo "[-] [Stage: pre-artifact] Verifying GDC local service hub binaries cache..."
 	@mkdir -p $(BIN_CACHE_DIR)
 	@mkdir -p $(CACHE_DIR)/isos
@@ -167,6 +176,7 @@ deps:
 					if gcloud storage objects describe "$$gcs_path" &>/dev/null; then \
 						echo "    [x] Downloading $$file from GCS..."; \
 						gcloud storage cp "$$gcs_path" "$$local_path"; \
+						python3 -c "import json, os; f='$(CACHE_DIR)/binary_sources.json'; d=json.load(open(f)) if os.path.exists(f) else {}; d['$$file']='GCS Cache'; json.dump(d, open(f, 'w'))" 2>/dev/null; \
 					else \
 						echo "    [-] $$file not found in GCS. Will download from public mirror."; \
 					fi; \
@@ -178,11 +188,13 @@ deps:
 	@if [ ! -f "$(CACHE_DIR)/isos/$(SOURCE_ISO_FILENAME)" ]; then \
 		echo "  [-] Base operating system ISO cache missing. Downloading from: $(SOURCE_ISO_URL)..."; \
 		curl -L -o "$(CACHE_DIR)/isos/$(SOURCE_ISO_FILENAME)" "$(SOURCE_ISO_URL)"; \
+		python3 -c "import json, os; f='$(CACHE_DIR)/binary_sources.json'; d=json.load(open(f)) if os.path.exists(f) else {}; d['$(SOURCE_ISO_FILENAME)']='Upstream Network'; json.dump(d, open(f, 'w'))" 2>/dev/null; \
 	fi
 	@# 2. Gitea Binary
 	@if [ ! -f "$(BIN_CACHE_DIR)/$(GITEA_BINARY_FILENAME)" ]; then \
 		echo "  [-] Gitea cache missing. Downloading from: $(GITEA_BINARY_URL)..."; \
 		curl -L -o "$(BIN_CACHE_DIR)/$(GITEA_BINARY_FILENAME)" "$(GITEA_BINARY_URL)"; \
+		python3 -c "import json, os; f='$(CACHE_DIR)/binary_sources.json'; d=json.load(open(f)) if os.path.exists(f) else {}; d['$(GITEA_BINARY_FILENAME)']='Upstream Network'; json.dump(d, open(f, 'w'))" 2>/dev/null; \
 	fi
 	@echo "  [-] Verifying Gitea binary integrity..."
 	@echo "$(GITEA_BINARY_SHA256)  $(BIN_CACHE_DIR)/$(GITEA_BINARY_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Gitea binary hash mismatch!" >&2; exit 1)
@@ -191,6 +203,7 @@ deps:
 	@if [ ! -f "$(BIN_CACHE_DIR)/$(JRE_PACKAGE_FILENAME)" ]; then \
 		echo "  [-] Java JRE cache missing. Downloading from: $(JRE_PACKAGE_URL)..."; \
 		curl -L -o "$(BIN_CACHE_DIR)/$(JRE_PACKAGE_FILENAME)" "$(JRE_PACKAGE_URL)"; \
+		python3 -c "import json, os; f='$(CACHE_DIR)/binary_sources.json'; d=json.load(open(f)) if os.path.exists(f) else {}; d['$(JRE_PACKAGE_FILENAME)']='Upstream Network'; json.dump(d, open(f, 'w'))" 2>/dev/null; \
 	fi
 	@echo "  [-] Verifying Java JRE binary integrity..."
 	@echo "$(JRE_PACKAGE_SHA256)  $(BIN_CACHE_DIR)/$(JRE_PACKAGE_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Java JRE package hash mismatch!" >&2; exit 1)
@@ -199,6 +212,7 @@ deps:
 	@if [ ! -f "$(BIN_CACHE_DIR)/$(NEXUS_PACKAGE_FILENAME)" ]; then \
 		echo "  [-] Nexus cache missing. Downloading from: $(NEXUS_PACKAGE_URL)..."; \
 		curl -L -o "$(BIN_CACHE_DIR)/$(NEXUS_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_URL)"; \
+		python3 -c "import json, os; f='$(CACHE_DIR)/binary_sources.json'; d=json.load(open(f)) if os.path.exists(f) else {}; d['$(NEXUS_PACKAGE_FILENAME)']='Upstream Network'; json.dump(d, open(f, 'w'))" 2>/dev/null; \
 	fi
 	@echo "  [-] Verifying Sonatype Nexus integrity..."
 	@echo "$(NEXUS_PACKAGE_SHA256)  $(BIN_CACHE_DIR)/$(NEXUS_PACKAGE_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Sonatype Nexus package hash mismatch!" >&2; exit 1)
@@ -207,6 +221,7 @@ deps:
 	@if [ ! -f "$(BIN_CACHE_DIR)/$(GCLOUD_SDK_FILENAME)" ]; then \
 		echo "  [-] Google Cloud SDK cache missing. Downloading from: $(GCLOUD_SDK_URL)..."; \
 		curl -L -o "$(BIN_CACHE_DIR)/$(GCLOUD_SDK_FILENAME)" "$(GCLOUD_SDK_URL)"; \
+		python3 -c "import json, os; f='$(CACHE_DIR)/binary_sources.json'; d=json.load(open(f)) if os.path.exists(f) else {}; d['$(GCLOUD_SDK_FILENAME)']='Upstream Network'; json.dump(d, open(f, 'w'))" 2>/dev/null; \
 	fi
 	@echo "  [-] Verifying Google Cloud SDK integrity..."
 	@echo "$(GCLOUD_SDK_SHA256)  $(BIN_CACHE_DIR)/$(GCLOUD_SDK_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Google Cloud SDK package hash mismatch!" >&2; exit 1)
@@ -215,6 +230,7 @@ deps:
 	@if [ ! -f "$(BIN_CACHE_DIR)/$(STEP_CLI_FILENAME)" ]; then \
 		echo "  [-] Smallstep CLI cache missing. Downloading from: $(STEP_CLI_URL)..."; \
 		curl -L -o "$(BIN_CACHE_DIR)/$(STEP_CLI_FILENAME)" "$(STEP_CLI_URL)"; \
+		python3 -c "import json, os; f='$(CACHE_DIR)/binary_sources.json'; d=json.load(open(f)) if os.path.exists(f) else {}; d['$(STEP_CLI_FILENAME)']='Upstream Network'; json.dump(d, open(f, 'w'))" 2>/dev/null; \
 	fi
 	@echo "  [-] Verifying Smallstep CLI integrity..."
 	@echo "$(STEP_CLI_SHA256)  $(BIN_CACHE_DIR)/$(STEP_CLI_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Smallstep CLI package hash mismatch!" >&2; exit 1)
@@ -242,8 +258,63 @@ deps:
 			fi; \
 		fi; \
 	fi
+	$(call END_TIME,deps)
 
-extract: check-env deps
+CUSTOMER_STAGING := $(WORKSPACE)/customer-staging
+CUSTOMER_CACHE_DIR := $(CACHE_DIR)/customer
+CUSTOMER_ASSETS_TARBALL := $(CUSTOMER_CACHE_DIR)/customer-assets.tar.gz
+
+pull-customer-deps:
+	$(call START_TIME,pull-customer-deps)
+	@echo "[-] [Stage: pull-customer-deps] Checking for customer supplied assets..."
+	@mkdir -p $(CUSTOMER_CACHE_DIR)
+	@if [ -n "$(_CUSTOMER_ASSETS_URI)" ]; then \
+		echo "  [-] Found _CUSTOMER_ASSETS_URI: $(_CUSTOMER_ASSETS_URI)"; \
+		if [[ "$(_CUSTOMER_ASSETS_URI)" =~ ^gs:// ]]; then \
+			echo "  [-] Downloading customer assets from GCS..."; \
+			gcloud storage cp "$(_CUSTOMER_ASSETS_URI)" "$(CUSTOMER_ASSETS_TARBALL)"; \
+		elif [[ "$(_CUSTOMER_ASSETS_URI)" =~ ^https?:// ]]; then \
+			echo "  [-] Downloading customer assets from HTTPS..."; \
+			curl -f -L -o "$(CUSTOMER_ASSETS_TARBALL)" "$(_CUSTOMER_ASSETS_URI)"; \
+		else \
+			echo "  [-] Copying local customer assets..."; \
+			cp "$(_CUSTOMER_ASSETS_URI)" "$(CUSTOMER_ASSETS_TARBALL)"; \
+		fi; \
+		echo "  [x] Customer assets downloaded successfully."; \
+	else \
+		echo "  [-] No custom assets URI specified. Skipping customer pull."; \
+	fi
+	$(call END_TIME,pull-customer-deps)
+
+extract-customer-deps: pull-customer-deps
+	$(call START_TIME,extract-customer-deps)
+	@echo "[-] [Stage: extract-customer-deps] Extracting customer supplied binaries..."
+	@if [ -f "$(CUSTOMER_ASSETS_TARBALL)" ]; then \
+		rm -rf "$(CUSTOMER_STAGING)"; \
+		mkdir -p "$(CUSTOMER_STAGING)"; \
+		echo "  [-] Unpacking $(CUSTOMER_ASSETS_TARBALL) to staging..."; \
+		tar -xzf "$(CUSTOMER_ASSETS_TARBALL)" -C "$(CUSTOMER_STAGING)"; \
+		echo "  [x] Extraction complete."; \
+	else \
+		echo "  [-] No customer tarball found. Skipping extraction."; \
+	fi
+	$(call END_TIME,extract-customer-deps)
+
+apply-customer-deps: extract-customer-deps
+	$(call START_TIME,apply-customer-deps)
+	@echo "[-] [Stage: apply-customer-deps] Applying customer supplied assets to ISO cache..."
+	@if [ -d "$(CUSTOMER_STAGING)" ]; then \
+		echo "  [-] Scanning $(CUSTOMER_STAGING) for .deb packages..."; \
+		mkdir -p $(CACHE_DIR)/packages; \
+		find "$(CUSTOMER_STAGING)" -name "*.deb" -exec cp {} "$(CACHE_DIR)/packages/" \;; \
+		echo "  [x] Customer packages applied successfully."; \
+	else \
+		echo "  [-] No staging directory found. Skipping apply."; \
+	fi
+	$(call END_TIME,apply-customer-deps)
+
+extract: check-env deps apply-customer-deps
+	$(call START_TIME,extract)
 	@if [ ! -f "$(EXTRACT_DIR)/boot/grub/grub.cfg" ]; then \
 		echo "[-] [Stage: pre-artifact] Extracting blessed source ISO (non-root osirrox layer)..."; \
 		rm -rf "$(EXTRACT_DIR)"; \
@@ -254,8 +325,10 @@ extract: check-env deps
 	else \
 		echo "[-] [Stage: pre-artifact] Cached extracted ISO workspace is active. Skipping extraction."; \
 	fi
+	$(call END_TIME,extract)
 
 hydrate: $(VENV_DIR) extract
+	$(call START_TIME,hydrate)
 	@echo "[-] [Stage: pre-artifact] Hydrating configurations and templates..."
 	@# Export dynamic crypt pass hash and environment parameters
 	@export PASSWORD_HASH=$$(python3 -c "import crypt; print(crypt.crypt('$(TEMPORARY_INSTALLER_PASSWORD)', crypt.mksalt(crypt.METHOD_SHA512)))"); \
@@ -275,11 +348,13 @@ hydrate: $(VENV_DIR) extract
 		custom-data/systemd
 	@echo "  [x] Debug configurations tarball created successfully."
 	@echo "[-] [Stage: pre-artifact] Declarative configuration templates hydrated."
+	$(call END_TIME,hydrate)
 
 # ==========================================
 # 2. Validate Stage: validate
 # ==========================================
 validate: $(VENV_DIR) hydrate
+	$(call START_TIME,validate)
 	@echo "[-] [Stage: validate-artifact] Running pre-flight validations and schema checks..."
 	@# 1. Verification script call
 	@if [ -f "../../bin/validate-hydrated-files.sh" ]; then \
@@ -302,14 +377,17 @@ validate: $(VENV_DIR) hydrate
 		echo "  [!] Note: 'shellcheck' is not installed locally. Skipping bash script linting."; \
 	fi
 	@echo "[-] [Stage: validate-artifact] All validation gates passed cleanly."
+	$(call END_TIME,validate)
 
 # ==========================================
 # 3. Assemble Stage: assemble
 # ==========================================
 assemble: validate
+	$(call START_TIME,assemble)
 	@echo "[-] [Stage: assemble-artifact] Invoking remastering engine..."
 	./remaster.sh --auto-approve
 	@echo "[-] [Stage: assemble-artifact] Finished assembling custom bootloader ISO."
+	$(call END_TIME,assemble)
 
 # ==========================================
 # 4. Test Stage: test-unit, test-static & test-dynamic
@@ -321,17 +399,21 @@ test-unit: $(VENV_DIR)
 	@$(VENV_DIR)/bin/python3 ../../test/test_gdc_build_scripts.py
 
 test-static: assemble
-	@echo "[-] [Stage: test-artifact] Running static inspection checks..."
+	$(call START_TIME,test-static)
 	@$(VENV_DIR)/bin/python3 ../../test/validate_iso_static.py
+	$(call END_TIME,test-static)
 
 test-dynamic: test-static
+	$(call START_TIME,test-dynamic)
 	@echo "[-] [Stage: test-artifact] Launching dynamic headless QEMU E2E test VM..."
 	../../test/run_qemu_e2e.sh
+	$(call END_TIME,test-dynamic)
 
 # ==========================================
 # 5. Release Stage: deploy
 # ==========================================
 deploy:
+	$(call START_TIME,deploy)
 	@if [ ! -f "$(BUILD_META)" ]; then \
 		echo "[!] Error: No active compilation metadata found. Run 'make assemble' first." >&2; \
 		exit 1; \
@@ -353,6 +435,15 @@ deploy:
 			echo "  [-] Uploading debug configurations tarball to GCS under debug/..."; \
 			gcloud storage cp "$(OUTPUT_DIR)/debug-templates-v$(ISO_VERSION).tar.gz" "$(GCS_BUCKET)/debug/debug-templates-v$(ISO_VERSION).tar.gz"; \
 		fi; \
+		echo "  [-] Verifying GCS upload integrity..."; \
+		REMOTE_SIZE=$$(gcloud storage objects describe "$(GCS_BUCKET)/sync/$${ISO_OUTPUT_NAME}" --format="value(size)" 2>/dev/null || echo "0"); \
+		LOCAL_SIZE=$$(stat -c %s "$${ISO_OUTPUT_PATH}" 2>/dev/null || stat -f %z "$${ISO_OUTPUT_PATH}" 2>/dev/null || echo "-1"); \
+		if [ "$$REMOTE_SIZE" -eq 0 ] || [ "$$REMOTE_SIZE" -ne "$$LOCAL_SIZE" ]; then \
+			echo "[!] CRITICAL ERROR: GCS Upload Verification Failed!" >&2; \
+			echo "    Remote size ($$REMOTE_SIZE) does not match local size ($$LOCAL_SIZE)." >&2; \
+			exit 1; \
+		fi; \
+		echo "  [x] GCS upload integrity verified successfully."; \
 		echo "  [x] GCS publication complete."; \
 	else \
 		echo "  [-] GCS deployment skipped (ENABLE_GCS=false)."; \
@@ -375,11 +466,13 @@ deploy:
 		echo "  [-] NFS deployment skipped (ENABLE_NFS=false)."; \
 	fi; \
 	echo "[-] [Stage: release-artifact] Deployment processing complete."
+	$(call END_TIME,deploy)
 
 # ==========================================
 # 6. Publish Stage: publish
 # ==========================================
 publish:
+	$(call START_TIME,publish)
 	@echo "[-] [Stage: publish-artifact] Formulating sealed release receipts..."
 	@if [ ! -f "$(FINAL_ISO_PATH)" ]; then \
 		echo "[!] Error: Final compiled ISO not found. Run 'make assemble' first." >&2; \
@@ -452,6 +545,21 @@ publish:
 		echo "  [x] NFS link promotion updated successfully."; \
 	fi
 	@echo "[-] [Stage: publish-artifact] Publish processing complete."
+	$(call END_TIME,publish)
+
+# ==========================================
+# 7. Reports Stage: reports
+# ==========================================
+reports:
+	$(call START_TIME,reports)
+	@echo "[-] [Stage: compile-reports] Compiling canonical reports..."
+	@python3 ../../bin/generate_build_report.py \
+		--local \
+		--iso-version "$(ISO_VERSION)" \
+		--status "SUCCESS" \
+		--gcs-bucket "$(GCS_BUCKET)" \
+		--upload
+	$(call END_TIME,reports)
 
 # ==========================================
 # Cleanup

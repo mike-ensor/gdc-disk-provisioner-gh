@@ -118,6 +118,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [ ] Research/Design a secure, lightweight deployment companion app
   - [ ] Translate/forward Subiquity webhook logs to GCP Cloud Logging
   - [ ] Explore other potential installer helper hooks (e.g. dynamic state verification, network checks)
+  - [ ] **FUTURE TASK:** Investigate authorization and other methods of identification for webhook logging later
   - [ ] **FUTURE FEATURE:** Reach out to the "companion" API during build-time inside `remaster.sh` to dynamically retrieve target VLAN tags, subnets, and gateways
 
 ---

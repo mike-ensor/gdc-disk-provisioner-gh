@@ -1,0 +1,126 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GDC ISO Build Report Schema",
+  "description": "JSON schema for GDC custom bootloader ISO build outcomes and audit receipts.",
+  "type": "object",
+  "required": [
+    "timestamp",
+    "build_id",
+    "iso_version",
+    "status",
+    "stages",
+    "metadata",
+    "binaries_audit",
+    "packages_seeding",
+    "deployment_verification"
+  ],
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp indicating when the report was compiled."
+    },
+    "build_id": {
+      "type": "string",
+      "description": "Unique identifier of the build."
+    },
+    "iso_version": {
+      "type": "string",
+      "description": "Version of the GDC custom ISO compiled."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["SUCCESS", "FAILED"],
+      "description": "Final compilation and validation result."
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["git_branch", "git_commit", "host_os", "duration_seconds", "kvm_available", "local_iso_size_bytes", "local_iso_sha256"],
+      "properties": {
+        "git_branch": { "type": "string" },
+        "git_commit": { "type": "string" },
+        "host_os": { "type": "string" },
+        "duration_seconds": { "type": "integer" },
+        "kvm_available": { "type": "boolean" },
+        "local_iso_size_bytes": { "type": "integer" },
+        "local_iso_sha256": { "type": "string" }
+      }
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stage_id", "name", "status", "duration_seconds", "tests"],
+        "properties": {
+          "stage_id": { "type": "string" },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["PASSED", "FAILED", "SKIPPED", "WARNING"] },
+          "duration_seconds": { "type": "integer" },
+          "error_logs": { "type": "string" },
+          "tests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "status"],
+              "properties": {
+                "name": { "type": "string" },
+                "status": { "type": "string", "enum": ["PASSED", "FAILED", "SKIPPED"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    "binaries_audit": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["filename", "expected_sha", "actual_sha", "verified", "source", "size_mb"],
+        "properties": {
+          "filename": { "type": "string" },
+          "expected_sha": { "type": "string" },
+          "actual_sha": { "type": "string" },
+          "verified": { "type": "boolean" },
+          "source": { "type": "string" },
+          "size_mb": { "type": "number" }
+        }
+      }
+    },
+    "packages_seeding": {
+      "type": "object",
+      "required": ["total_requested", "total_cached", "failures", "packages"],
+      "properties": {
+        "total_requested": { "type": "integer" },
+        "total_cached": { "type": "integer" },
+        "failures": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["filename", "expected_sha", "actual_sha", "verified", "size_kb"],
+            "properties": {
+              "filename": { "type": "string" },
+              "expected_sha": { "type": "string" },
+              "actual_sha": { "type": "string" },
+              "verified": { "type": "boolean" },
+              "size_kb": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "deployment_verification": {
+      "type": "object",
+      "required": ["deployed_to_gcs", "verified_on_gcs", "gcs_path"],
+      "properties": {
+        "deployed_to_gcs": { "type": "boolean" },
+        "verified_on_gcs": { "type": "boolean" },
+        "gcs_path": { "type": "string" },
+        "sha256_matches": { "type": "boolean" }
+      }
+    }
+  }
+}
