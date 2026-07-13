@@ -93,7 +93,7 @@ gdc_nodeagent_binary_source_url: "http://nexus.gdc.local:8081/repository/gdc-raw
 
 # Google Cloud SDK Configuration (Non-apt setup)
 # (Ref: https://docs.cloud.google.com/sdk/docs/install-sdk#latest-version)
-gdc_gcloud_tarball_path: "/cdrom/custom-data/tools/google-cloud-cli-linux-x86_64.tar.gz"
+gdc_gcloud_tarball_path: "/var/gdc-install/tools/google-cloud-cli-linux-x86_64.tar.gz"
 gdc_gcloud_install_dir: "/var/gdc-install/tools/google-cloud-sdk"
 
 # Google Cloud SDK components to install natively

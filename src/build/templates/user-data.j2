@@ -333,8 +333,8 @@ autoinstall:
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Copying pre-seeded offline tools"
       if [ -d /cdrom/custom-data/tools ]; then
-        mkdir -p /target/tmp/
-        cp -r /cdrom/custom-data/tools/* /target/tmp/
+        mkdir -p /target/var/gdc-install/tools/
+        cp -r /cdrom/custom-data/tools/* /target/var/gdc-install/tools/
         logger -t gdc-provisioner "[GOAL] Pre-seeded offline tools staged successfully"
       fi
     - |
