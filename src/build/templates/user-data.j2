@@ -277,6 +277,7 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] Writing local bootstrap environment to /etc/gdc/provision.yml"
       mkdir -p /target/etc/gdc
       cat <<'EOF' > /target/etc/gdc/provision.yml
+      iso_version: "{{ ISO_VERSION }}"
       nexus_admin_password: "{{ TEMPORARY_INSTALLER_PASSWORD }}"
       ssh_pub_key: "{{ ssh_pub_key }}"
       EOF

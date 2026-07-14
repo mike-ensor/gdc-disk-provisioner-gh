@@ -43,6 +43,11 @@ echo "[-] Initializing diagnostic outputs directory: ${OUT_DIR}"
 # ------------------------------------------------------------------------------
 echo "=== GDC BARE-METAL DIAGNOSTICS REPORT ===" > "${OUT_DIR}/report.txt"
 echo "Generated on: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "${OUT_DIR}/report.txt"
+GDC_ISO_VER="Unknown"
+if [ -f /etc/gdc/provision.yml ]; then
+  GDC_ISO_VER=$(grep "iso_version:" /etc/gdc/provision.yml | awk '{print $2}' | tr -d '"' | tr -d "'")
+fi
+echo "GDC ISO Version: ${GDC_ISO_VER:-Unknown}" >> "${OUT_DIR}/report.txt"
 echo "Host Kernel:  $(uname -r)" >> "${OUT_DIR}/report.txt"
 echo "Hostname:     $(hostname)" >> "${OUT_DIR}/report.txt"
 PRIMARY_IFACE=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -n 1 || echo "enp1s0")
@@ -436,6 +441,16 @@ def to_int(val, default=0):
     except Exception:
         return default
 
+iso_ver = "Unknown"
+try:
+    if os.path.exists("/etc/gdc/provision.yml"):
+        with open("/etc/gdc/provision.yml", "r") as pf:
+            for line in pf:
+                if "iso_version:" in line:
+                    iso_ver = line.split(":", 1)[1].strip().strip('"\'')
+except Exception:
+    pass
+
 report = {
     "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
     "host_metadata": {
@@ -443,6 +458,7 @@ report = {
         "kernel": subprocess.getoutput("uname -r").strip(),
         "uefi_boot": os.path.exists("/sys/firmware/efi"),
         "privileged": os.getuid() == 0,
+        "iso_version": iso_ver,
         "inotify_max_user_instances": to_int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null || echo '0'")),
         "inotify_max_user_watches": to_int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo '0'")),
         "machine_id": subprocess.getoutput("cat /sys/class/net/$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\") print $(i+1)}' | head -n 1 || echo 'enp1s0')/address 2>/dev/null || cat /sys/class/net/enp1s0/address 2>/dev/null || echo 'Unknown'").strip(),

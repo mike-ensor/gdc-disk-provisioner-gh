@@ -69,7 +69,7 @@ Provides a structured workflow for identifying, connecting, extracting, and deep
 
 ### State 6: RCA Documentation & Actionable Remedies
 - [ ] Compile and display a formal **Root Cause Analysis (RCA)** in Markdown format containing:
-  - **Header:** Node Hostname, IP, MAC ID, and boot-state status.
+  - **Header:** Node Hostname, IP, MAC ID, GDC ISO version found (from report.json `host_metadata.iso_version` key), and boot-state status.
   - **Issue Summary:** Concise statement of the primary cause of failure.
   - **Telemetry Timeline:** Step-by-step chronology leading to the error.
   - **Log Extracts:** Verbatim error messages or stderr logs.
