@@ -357,6 +357,7 @@ fi
 echo "" >> "${OUT_DIR}/report.txt"
 
 # ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # SECTION 8: GDC LOCAL SERVICE HUB HEALTH CHECKS
 # ------------------------------------------------------------------------------
 echo "--- GDC SERVICE HTTP HEALTH CHECKS ---" >> "${OUT_DIR}/report.txt"
@@ -379,6 +380,19 @@ if command -v curl &>/dev/null; then
 else
   echo "curl utility is not available." >> "${OUT_DIR}/report.txt"
 fi
+
+# Check Ansible Pull Success status
+echo -n "Ansible Pull Success:      " >> "${OUT_DIR}/report.txt"
+runs_started=$(journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c "Starting Ansible Pull" || true)
+runs_succeeded=$(journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c "SUCCESS: All Ready-Linux Post-Install" || true)
+if [ "${runs_succeeded}" -gt 0 ]; then
+  echo "true" >> "${OUT_DIR}/report.txt"
+elif [ "${runs_started}" -gt 0 ]; then
+  echo "false" >> "${OUT_DIR}/report.txt"
+else
+  echo "Not-Run" >> "${OUT_DIR}/report.txt"
+fi
+
 echo "" >> "${OUT_DIR}/report.txt"
 
 # ------------------------------------------------------------------------------
@@ -478,6 +492,19 @@ try:
     report["http_health"]["nexus_port_8081"] = {"http_code": to_int(nexus_code), "healthy": nexus_code.strip() in ["200", "302", "401"]}
 except Exception:
     report["http_health"]["nexus_port_8081"] = {"http_code": 0, "healthy": False}
+
+try:
+    runs_started = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'Starting Ansible Pull' || true").strip() or 0)
+    runs_succeeded = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'SUCCESS: All Ready-Linux Post-Install' || true").strip() or 0)
+    if runs_succeeded > 0:
+        ans_status = "true"
+    elif runs_started > 0:
+        ans_status = "false"
+    else:
+        ans_status = "Not-Run"
+    report["http_health"]["ansible_pull_success"] = ans_status
+except Exception:
+    report["http_health"]["ansible_pull_success"] = "Not-Run"
 
 # Storage status auditing (parse lsblk json)
 try:
@@ -964,6 +991,28 @@ gdc_checks["ss_tool"] = {
     "details": f"Found at {ss_path}" if ss_path else "Not found on PATH"
 }
 
+# 15b. Ansible Pull Success check
+try:
+    runs_started = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'Starting Ansible Pull' || true").strip() or 0)
+    runs_succeeded = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'SUCCESS: All Ready-Linux Post-Install' || true").strip() or 0)
+    if runs_succeeded > 0:
+        ans_status = "PASS"
+        ans_details = "true"
+    elif runs_started > 0:
+        ans_status = "FAIL"
+        ans_details = "false"
+    else:
+        ans_status = "FAIL"
+        ans_details = "Not-Run"
+except Exception:
+    ans_status = "FAIL"
+    ans_details = "Not-Run"
+
+gdc_checks["ansible_pull_success"] = {
+    "status": ans_status,
+    "details": ans_details
+}
+
 # 16. Services Check - Gitea
 gitea_active = report["services"]["gitea"]["active"]
 gdc_checks["gitea_service"] = {
@@ -1112,6 +1161,7 @@ try:
         rf.write(f"{'Gitea Git Server':35} {'Active & Running':24} {gdc_checks['gitea_service']['details']:34} [ {gdc_checks['gitea_service']['status']} ]\n")
         rf.write(f"{'Nexus Package Hub':35} {'Active & Running':24} {gdc_checks['nexus_service']['details']:34} [ {gdc_checks['nexus_service']['status']} ]\n")
         rf.write(f"{'GDC Provision Service':35} {'Active & Running':24} {gdc_checks['gdc_provision_service']['details']:34} [ {gdc_checks['gdc_provision_service']['status']} ]\n")
+        rf.write(f"{'Ansible Pull Success':35} {'Succeeded (true)':24} {gdc_checks['ansible_pull_success']['details']:34} [ {gdc_checks['ansible_pull_success']['status']} ]\n")
         rf.write(f"{'SSH Terminal Server':35} {'Active & Running':24} {gdc_checks['ssh_service']['details']:34} [ {gdc_checks['ssh_service']['status']} ]\n")
         rf.write(f"{'Systemd Networkd':35} {'Active & Running':24} {gdc_checks['networkd_service']['details']:34} [ {gdc_checks['networkd_service']['status']} ]\n")
         
@@ -1459,9 +1509,9 @@ else
   echo "[-] Collecting installer log buffers... Skipped due to lack of permissions" >> "${OUT_DIR}/report.txt"
 fi
 
-# Collect any standard or temporary Ansible execution logs
-if [ -f /var/log/gdc-ansible-pull.log ]; then
-  cp /var/log/gdc-ansible-pull.log "${OUT_DIR}/logs/" 2>/dev/null || true
+# Collect any GDC consolidated operational and activity logs
+if [ -d /var/gdc-install/logs ]; then
+  cp -r /var/gdc-install/logs/* "${OUT_DIR}/logs/" 2>/dev/null || true
 fi
 if [ -f /tmp/ansible-playbook.log ]; then
   cp /tmp/ansible-playbook.log "${OUT_DIR}/logs/" 2>/dev/null || true

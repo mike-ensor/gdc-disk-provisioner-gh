@@ -319,11 +319,10 @@ autoinstall:
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Installing pre-seeded offline Debian packages"
       if [ -d /cdrom/custom-data/packages ] && [ "$(ls -A /cdrom/custom-data/packages/ 2>/dev/null)" ]; then
-        mkdir -p /target/tmp/packages
-        cp /cdrom/custom-data/packages/*.deb /target/tmp/packages/
-        curtin in-target -- sh -c "dpkg -i /tmp/packages/*.deb || apt-get install -f -y"
-        rm -rf /target/tmp/packages
-        logger -t gdc-provisioner "[GOAL] Pre-seeded offline Debian packages installed successfully"
+        mkdir -p /target/var/gdc-install/packages/
+        cp /cdrom/custom-data/packages/*.deb /target/var/gdc-install/packages/
+        curtin in-target -- sh -c "dpkg -i /var/gdc-install/packages/*.deb || apt-get install -f -y"
+        logger -t gdc-provisioner "[GOAL] Pre-seeded offline Debian packages installed and staged successfully"
       else
         logger -t gdc-provisioner "[GOAL] No pre-seeded Debian packages found, skipping"
       fi
@@ -481,12 +480,13 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] Deploying GDC Production VRF Netplan configuration"
       
       # Invoke the safe structured Python network compiler
-      mkdir -p /target/var/log
-      if python3 /cdrom/custom-data/configure_netplan.py >/target/var/log/netplan-hydration.log 2>&1; then
+      mkdir -p /target/var/gdc-install/logs /target/var/log
+      ln -sf /var/gdc-install/logs/netplan-hydration.log /target/var/log/netplan-hydration.log
+      if python3 /cdrom/custom-data/configure_netplan.py >/target/var/gdc-install/logs/netplan-hydration.log 2>&1; then
         logger -t gdc-provisioner "[GOAL] GDC Production VRF Netplan compiled and validated successfully."
       else
-        echo "[GDC-INSTALL-FAIL] Critical Failure: Programmatic Netplan compilation failed! Diagnostics written to /target/var/log/netplan-hydration.log" >/dev/ttyS0
-        cat /target/var/log/netplan-hydration.log >/dev/ttyS0 || true
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Programmatic Netplan compilation failed! Diagnostics written to /target/var/gdc-install/logs/netplan-hydration.log" >/dev/ttyS0
+        cat /target/var/gdc-install/logs/netplan-hydration.log >/dev/ttyS0 || true
         exit 1
       fi
       

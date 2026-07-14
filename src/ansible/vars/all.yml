@@ -72,6 +72,8 @@ gdc_admin_additional_groups:
 # GDC Installation Artifact Directory Structure (under /var)
 gdc_install_root: "/var/gdc-install"
 gdc_install_directories:
+  - "logs"
+  - "packages"
   - "config-sync-configs"
   - "bmctl-workspace"
   - "external-secrets"
