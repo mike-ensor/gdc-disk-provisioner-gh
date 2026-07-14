@@ -1,6 +1,6 @@
 # GDC Post-Install Provisioning Root Cause Analysis (RCA)
 
-* **RCA ID:** `RCA-064d774c`
+* **RCA ID:** `RCA-v0.1.72`
 * **Target Node IP:** `192.168.9.247`
 * **Target Hostname:** `gdc-standalone-node-0261`
 * **Target MAC ID (Unique):** `00:00:01:04:02:61`
