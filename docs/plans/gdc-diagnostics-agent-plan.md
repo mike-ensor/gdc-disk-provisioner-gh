@@ -57,11 +57,17 @@ Instead, the agent team dynamically loads configurations at runtime through a ca
 
 These configurations are loaded into the ADK `Runner` or `Session` short-term memory (`state`) during initialization, and are injected securely into the sub-agents and tool calls at execution time, guaranteeing zero leakage to version control systems or trace logs.
 
+### 1.3 Agent Self-Adaptation & Self-Healing Framework
+
+The agent utilizes standard ReAct loops and dynamic prompt formatting inside the ADK to respond cleanly to environment changes:
+1. **Dynamic State-Morphing:** Upon discovering target OS details (such as `noble` vs `jammy` or `iso_version`), the agent automatically rewrites its own running instructions placeholder fields in real-time inside the `Session` `state`.
+2. **Sequential Refinement:** If a log file format or JSON key changes, the `RefinerAgent` has access to python file-writing tools to modify `tools.py` rules on the fly and verify correctness against local unit tests before proceeding.
+
 ---
 
 ## 2. Log Correlation & Diagnostics Rules
 
-The `AnalysisAgent` applies specific regex rules to target critical GDC failure vectors:
+The `AnalysisAgent` applies specific regex and verification rules to target critical GDC failure vectors:
 
 ### 2.1 TPM 2.0 PCR Sealing Failure (Second Boot Lock)
 * **Logs to scan:** `dmesg.txt`, `report.json`, `/etc/crypttab` (if present)
@@ -83,6 +89,17 @@ The `AnalysisAgent` applies specific regex rules to target critical GDC failure 
   * `curl: \(7\) Failed to connect to`
   * `nexus.service: Main process exited, code=dumped, status=6/ABRT`
 * **Correlation:** If the package upload loop fails with code 7, check if the Sonatype Nexus JVM process crashed under back-to-back metadata rebuild contention.
+
+### 2.4 Access & Authentication Telemetry Audit
+* **Logs to scan:** `report.json`, `report.txt`, `/etc/ssh/sshd_config`, `/etc/sudoers.d/*`
+* **Audit Rules:**
+  1. Parse `.ssh/authorized_keys` for all active accounts, extracting key comments and types (with zero exposure of raw cryptographic signatures) to list exactly who has access.
+  2. Parse `PasswordAuthentication`, `PermitRootLogin`, and `PubkeyAuthentication` parameters to audit active terminal ingress policies.
+  3. Validate `NOPASSWD` rules in sudoers files to verify privilege isolation limits on administrative accounts (such as `gdc-admin`).
+
+### 2.5 Booted ISO Version Telemetry
+* **Logs to scan:** `report.json`, `report.txt`, `/proc/cmdline` (via dmesg)
+* **Verification:** Identify the booted ISO version (from `host_metadata.iso_version` key) to track the exact release branch the node was provisioned from. This allows the RCA to trace issues back to their origin and prevent regressions.
 
 ---
 
@@ -118,7 +135,7 @@ We will run real E2E functional checks using our local virtualization sandbox:
 - [ ] Task 2.1: Implement `discovery_tool` executing `scan_ips.py` and scanning Port 22.
 - [ ] Task 2.2: Implement `connection_tool` executing SSH credential rotation.
 - [ ] Task 2.3: Implement `collection_tool` capable of downloading diagnostics via SCP or requesting GDC Companion URL payloads.
-- [ ] Task 2.4: Implement `analysis_tool` executing regex scans on extracted logs (TPM, VRF, Nexus).
+- [ ] Task 2.4: Implement `analysis_tool` executing regex scans on extracted logs (TPM, VRF, Nexus, and Security/Auth Access).
 
 ### Stage 3: ADK Multi-Agent Definition
 - [ ] Task 3.1: Define individual agents (`DiscoveryAgent`, `CollectionAgent`, `AnalysisAgent`, `RcaWriterAgent`).
