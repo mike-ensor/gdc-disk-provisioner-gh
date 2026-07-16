@@ -240,7 +240,7 @@
     for deb in /var/gdc-install/packages/*.deb; do
       if [ -f "$deb" ]; then
         curl -s -u admin:{{ nexus_admin_pass }} -X POST "http://127.0.0.1:8081/service/rest/v1/components?repository=gdc-apt-hosted" -F "apt.asset=@$deb"
-        sleep 2
+        sleep 0.2
       fi
     done
   when:
