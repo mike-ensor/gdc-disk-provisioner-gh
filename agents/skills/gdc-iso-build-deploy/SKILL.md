@@ -62,7 +62,7 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
 - [ ] Poll serial/console outputs to verify:
   - First-boot Ansible-pull triggers and completes without error.
   - Logical volume sizes are auto-sized.
-  - TPM 2.0 PCR `0+2+7` LUKS registration and step-ca certificates are fully verified.
+  - TPM 2.0 PCR `0+7` LUKS registration and step-ca certificates are fully verified.
 
 ### State 6: After Action Report (AAR)
 - [ ] Compile and save an After Action Report (AAR) in `docs/reports/aar-v${ISO_VERSION}.md` containing:

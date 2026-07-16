@@ -29,7 +29,7 @@ The bootstrapping timeline spans approximately **16 minutes** from cold boot to 
             ├── 2. Installs core package loops (git, python3-pip, wireguard, etc.)
             ├── 3. Creates 'gdc-admin' with passwordless sudo permissions
             ├── 4. Executes CIS Level 2 hardening & purges snapd/bloat
-            ├── 5. Seals LUKS storage keys to TPM 2.0 PCR registers 0+2+7
+            ├── 5. Seals LUKS storage keys to TPM 2.0 PCR registers 0+7
             ├── 6. Wipes temporary key file and erases insecure passcode slots
             ├── 7. Generates TPM-bound Device TLS identities & ssh keys
             └── 8. Pre-seeds mTLS trust credentials for GDC NodeAgent (Zero-SSH)

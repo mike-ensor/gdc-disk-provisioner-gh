@@ -128,7 +128,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [x] **First-Boot State Transition & Mitigating Gaps**
   - [x] Subiquity `late-commands` rsync script for Gitea/Nexus partition migrations
   - [x] Deploy target systemd service units for persistent Gitea and Nexus
-  - [x] **Transition Gap 3.1: The Boot-Unlock Chicken-and-Egg Transition** (LVM encrypted with temp passcode -> late-commands writes one-time `/boot/temp_key.key` -> reboot unlocks automatically -> Ansible seals to TPM 2.0 PCR 0+2+7 -> deletes key and wipes temporary passcode slot)
+  - [x] **Transition Gap 3.1: The Boot-Unlock Chicken-and-Egg Transition** (LVM encrypted with temp passcode -> late-commands writes one-time `/boot/temp_key.key` -> reboot unlocks automatically -> Ansible seals to TPM 2.0 PCR 0+7 -> deletes key and wipes temporary passcode slot)
   - [x] **Transition Gap 3.2: Race Conditions wait-for-port handshakes** (Ansible playbooks block via `wait_for` until Gitea Port 3000 and Nexus Port 8081 are healthy)
   - [x] **Transition Gap 3.3: Serial Console Logger Deadlocks** (Wrap success signaling to `/dev/ttyS0` in non-blocking loop with a 3-second timeout fallback)
 - [x] **Ansible-Pull Bootstrap Automation**
@@ -143,7 +143,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Deploy passwordless sudo config
   - [x] Inject passwordless SSH key pair
 - [ ] **Hardware Security (TPM 2.0) & Zero-SSH Bootstrapping**
-  - [x] LUKS decryption enrollment using `systemd-cryptenroll` for PCR `0+2+7`
+  - [x] LUKS decryption enrollment using `systemd-cryptenroll` for PCR `0+7`
   - [x] Configure target `/etc/crypttab` with `tpm2-device=auto` and rebuild initramfs
   - [x] Establish secure randomized Recovery Key and wipe insecure temporary passcode slot
   - [ ] SSH host key TPM-secure binding using `ssh-tpm-agent`

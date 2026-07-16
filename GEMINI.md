@@ -18,7 +18,7 @@ All implementations in this repository must align with the following core archit
 
 ### Rule 1.3: Hardware-Backed Cryptographic Bound
 * **Directive:** All target machines must tie root encryption and device certificates to physical hardware.
-* **Enforcement:** Remanded LUKS partitions must enroll PCR indices `0+2+7` on the TPM 2.0 chip using `systemd-cryptenroll`. SSH host keys and device administrative identities must be backed by the local TPM, with soft fallbacks only permitted for development test builds.
+* **Enforcement:** Remanded LUKS partitions must enroll PCR indices `0+7` on the TPM 2.0 chip using `systemd-cryptenroll`. SSH host keys and device administrative identities must be backed by the local TPM, with soft fallbacks only permitted for development test builds.
 
 ### Rule 1.4: Binary Integrity & Supply Chain Mitigation
 * **Directive:** Standalone third-party binaries (such as Gitea, OpenJDK, and Nexus) baked into the ISO must have their supply chain integrity cryptographically verified.

@@ -202,7 +202,7 @@ The installation and bootstrapping process is divided into **7 Discrete Stages**
 *   **Description:** Bind the LUKS volume encryption to the physical TPM 2.0 PCR registers and wipe transient keys.
 *   **Entry Qualifications:** First boot of the target OS initiated; Stage 5 completed.
 *   **Exit Qualifications:**
-    *   `systemd-cryptenroll` binds the key to PCRs `0+2+7` on `/dev/tpmrm0`.
+    *   `systemd-cryptenroll` binds the key to PCRs `0+7` on `/dev/tpmrm0`.
     *   The temporary boot keyfile `/boot/temp_key.key` is cryptographically shredded (via `shred -u`) and its keyslot is cleared.
 *   **Error / Failure Handling:** If TPM enrollment fails, keep the fallback recovery key and register a critical warning with the diagnostics subsystem to block standalone cluster enrollment.
 

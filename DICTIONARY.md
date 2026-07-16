@@ -171,7 +171,7 @@ The stage where the physical partitions are created, the LUKS2 secure cryptograp
 The stage that writes the baseline operating system filesystem payload, mounts system paths under `/target`, and installs and configures the UEFI GRUB bootloader.
 
 #### 6. Stage 6: First-Boot Security Sealing & Key Sanitization (`TPM_SEALING`)
-The first-boot stage where the physical node's fTPM/dTPM chip is initialized and enrolled to seal the LUKS encryption key to PCR values 0+2+7, and any temporary bootstrap keyfiles are permanently wiped and deleted from disk.
+The first-boot stage where the physical node's fTPM/dTPM chip is initialized and enrolled to seal the LUKS encryption key to PCR values 0+7, and any temporary bootstrap keyfiles are permanently wiped and deleted from disk.
 
 #### 7. Stage 7: Local Boundary Hubs & Playbook Execution (`BOUNDARY_HUB_TURNUP`)
 The final bootstrap stage where the local isolated Gitea and Sonatype Nexus services are verified as healthy, and `ansible-pull` is executed locally to apply system post-install configurations.
