@@ -305,12 +305,14 @@ fi
 
 echo "--- GDC SYSTEMD SERVICES STATUS ---" >> "${OUT_DIR}/report.txt"
 for svc in gitea nexus gdc-provision ssh systemd-networkd; do
+  active_state=$(systemctl show "${svc}" --property=ActiveState 2>/dev/null | cut -d'=' -f2 || echo "Unknown")
   if systemctl is-active --quiet "${svc}" 2>/dev/null; then
+    status="ACTIVE"
+  elif [ "${svc}" = "gdc-provision" ] && [ "${active_state}" = "activating" ]; then
     status="ACTIVE"
   else
     status="INACTIVE"
   fi
-  active_state=$(systemctl show "${svc}" --property=ActiveState 2>/dev/null | cut -d'=' -f2 || echo "Unknown")
   load_state=$(systemctl show "${svc}" --property=LoadState 2>/dev/null | cut -d'=' -f2 || echo "Unknown")
   unit_state=$(systemctl show "${svc}" --property=UnitFileState 2>/dev/null | cut -d'=' -f2 || echo "Unknown")
   echo "Service: ${svc} | Status: ${status} | LoadState: ${load_state} | ActiveState: ${active_state} | UnitState: ${unit_state}" >> "${OUT_DIR}/report.txt"
@@ -484,6 +486,8 @@ for svc in ["gitea", "nexus", "gdc-provision", "ssh", "systemd-networkd"]:
     load_state = subprocess.getoutput(f"systemctl show {svc} --property=LoadState").split("=")[-1].strip()
     active_state = subprocess.getoutput(f"systemctl show {svc} --property=ActiveState").split("=")[-1].strip()
     unit_state = subprocess.getoutput(f"systemctl show {svc} --property=UnitFileState").split("=")[-1].strip()
+    if svc == "gdc-provision" and active_state == "activating":
+        is_active = True
     report["services"][svc] = {
         "active": is_active,
         "load_state": load_state,
