@@ -52,19 +52,19 @@ def probe_node_state(ip: str) -> dict:
         pass
 
     # Verify if SSH responds to temporary-installer credentials (Stage: First Boot / Post-CD)
-    ssh_cmd = ["sshpass", "-p", password, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=3", f"temporary-installer@{ip}", "echo 'OK'"]
+    ssh_cmd = ["sshpass", "-p", password, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=3", f"temporary-installer@{ip}", "echo 'OK'"]
     ssh_res = subprocess.run(ssh_cmd, capture_output=True, text=True)
     if ssh_res.returncode == 0:
         return {"status": "BOOTED_FIRST_BOOT", "ip": ip, "password": password, "user": "temporary-installer"}
     
     # Verify if SSH responds to gdc-admin credentials (Stage: Fully Provisioned)
-    admin_ssh_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=3", "-o", "BatchMode=yes", f"gdc-admin@{ip}", "echo 'OK'"]
+    admin_ssh_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=3", "-o", "BatchMode=yes", f"gdc-admin@{ip}", "echo 'OK'"]
     admin_res = subprocess.run(admin_ssh_cmd, capture_output=True, text=True)
     if admin_res.returncode == 0:
         return {"status": "FULLY_PROVISIONED_READY_LINUX", "ip": ip, "user": "gdc-admin", "auth_method": "SSH Public Key"}
 
     # Check for unsealed root/recovery credentials (Stage: Installing / Crashed recovery)
-    root_ssh_cmd = ["sshpass", "-p", "gdc-password-123", "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=3", f"root@{ip}", "echo 'OK'"]
+    root_ssh_cmd = ["sshpass", "-p", "gdc-password-123", "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=3", f"root@{ip}", "echo 'OK'"]
     root_res = subprocess.run(root_ssh_cmd, capture_output=True, text=True)
     if root_res.returncode == 0:
         return {"status": "CRASHED_POST_EXTRACT_RECOVERY", "ip": ip, "password": "gdc-password-123", "user": "root"}
@@ -117,7 +117,7 @@ def fetch_diagnostics_tarball(ip: str, download_url: str | None = None) -> str:
         print(f"[-] SSH into target node {ip} as {user} to run diagnostics...")
         
         # Execute collect-node-diagnostics.sh and get output tarball filename
-        diag_exec_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}", "sudo /usr/local/bin/collect-node-diagnostics.sh"]
+        diag_exec_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", f"{user}@{ip}", "sudo /usr/local/bin/collect-node-diagnostics.sh"]
         if password:
             diag_exec_cmd = ["sshpass", "-p", password] + diag_exec_cmd
         
@@ -125,7 +125,7 @@ def fetch_diagnostics_tarball(ip: str, download_url: str | None = None) -> str:
             subprocess.run(diag_exec_cmd, check=True, capture_output=True)
             
             # Find the latest tarball in root or user home
-            find_tar_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}", "ls -t ~/gdc-node-diagnostics-*.tar.gz /tmp/gdc-node-diagnostics-*.tar.gz 2>/dev/null | head -n 1"]
+            find_tar_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", f"{user}@{ip}", "ls -t ~/gdc-node-diagnostics-*.tar.gz /tmp/gdc-node-diagnostics-*.tar.gz 2>/dev/null | head -n 1"]
             if password:
                 find_tar_cmd = ["sshpass", "-p", password] + find_tar_cmd
                 
@@ -134,7 +134,7 @@ def fetch_diagnostics_tarball(ip: str, download_url: str | None = None) -> str:
             
             if remote_tar_path:
                 print(f"  [x] Diagnostics compiled successfully on node at: {remote_tar_path}")
-                scp_cmd = ["scp", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}:{remote_tar_path}", local_tar_path]
+                scp_cmd = ["scp", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", f"{user}@{ip}:{remote_tar_path}", local_tar_path]
                 if password:
                     scp_cmd = ["sshpass", "-p", password] + scp_cmd
                 subprocess.run(scp_cmd, check=True, capture_output=True)
