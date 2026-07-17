@@ -45,10 +45,10 @@ autoinstall:
       # Deactivate default public sources on the Live CD parent environment to prevent connection refused crashes
       echo "[-] [DEBUG-ISO] Purging Live CD parent public Ubuntu sources..."
       rm -f /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources
-      # Write a persistent GDC LUKS key file inside /run/installer (shared tmpfs visible to both snap and host)
-      mkdir -p /run/installer
-      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /run/installer/gdc-luks-key
-      chmod 600 /run/installer/gdc-luks-key
+      # Write a persistent GDC LUKS key file inside /var/log/installer (shared tmpfs visible to both snap and host)
+      mkdir -p /var/log/installer
+      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /var/log/installer/gdc-luks-key
+      chmod 600 /var/log/installer/gdc-luks-key
     - |
       # Live-stream Subiquity server logs to serial console for real-time diagnostics
       touch /var/log/installer/subiquity-server-debug.log

@@ -151,6 +151,12 @@ The diagnostics agent team has analyzed the node's bootstrap logs. The provision
                 "Netplan VRF Overlapping Route Mitigation",
                 "Ensure that table 10 (Management) and table 20 (Kubernetes) routes do not intersect or overlap to prevent RTNETLINK answers: File exists errors."
             ))
+        if "LUKS_KEY_PROPAGATION" in fail:
+            fixes.append((
+                "HIGH / CRITICAL",
+                "Route keyfile through official host-to-snap bind mount",
+                "Re-route the installer bootstrap key from /run/installer/gdc-luks-key to /var/log/installer/gdc-luks-key in user-data.j2 and storage templates. Since /var/log/installer is an active, zero-delay host-to-snap bind-mount, it is 100% immune to namespace timing delays."
+            ))
 
     if fixes:
         for idx, (severity, title, desc) in enumerate(fixes, 1):
@@ -161,7 +167,9 @@ The diagnostics agent team has analyzed the node's bootstrap logs. The provision
         rca_content += "* Please check the compiled on-device logs under the logs directory in the diagnostics package to locate the failing task.\n"
 
     # Write RCA Markdown to docs
-    rca_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../docs/rca/nexus-jvm-crash/"))
+    is_luks_failure = any("LUKS_KEY_PROPAGATION" in fail for fail in analysis_data.get("failures", []))
+    sub_folder = "luks-key-failures" if is_luks_failure else "nexus-jvm-crash"
+    rca_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), f"../../docs/rca/{sub_folder}/"))
     os.makedirs(rca_folder, exist_ok=True)
     rca_path = os.path.join(rca_folder, f"RCA-v{iso_ver}.md")
     

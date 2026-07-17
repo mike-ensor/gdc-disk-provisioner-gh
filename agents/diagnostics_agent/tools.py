@@ -237,6 +237,15 @@ def extract_and_analyze_tarball(tarball_path: str) -> dict:
                     analysis["failures"].append("NETPLAN_ROUTING_CONFLICT: RTNETLINK route overlap or VRF loop detected.")
                     analysis["log_evidence"]["routing"] = "RTNETLINK answers: File exists / Overlapping subnet assignments"
 
+        # 3. Curtin installer / LUKS key failures
+        curtin_log = os.path.join(logs_dir, "curtin-install.log")
+        if os.path.exists(curtin_log):
+            with open(curtin_log, "r") as f:
+                curtin_content = f.read()
+                if "No key available with this passphrase" in curtin_content and "/run/installer/gdc-luks-key" in curtin_content:
+                    analysis["failures"].append("LUKS_KEY_PROPAGATION_ERROR: Snap-to-host mount namespace propagation delay caused gdc-luks-key to be empty or unreadable during LUKS format.")
+                    analysis["log_evidence"]["luks_failure"] = "Command: ['cryptsetup', 'open', '--type', 'luks', '/dev/nvme0n1p3', 'crypt-system', '--key-file', '/run/installer/gdc-luks-key']\nExit code: 2\nReason: -\nNo key available with this passphrase."
+
     # Auditing Security Access Profiles
     configs_dir = os.path.join(extract_dir, "gdc-diagnostics/configs")
     if os.path.exists(configs_dir):
