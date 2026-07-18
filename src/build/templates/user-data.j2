@@ -49,6 +49,7 @@ autoinstall:
       mkdir -p /var/log/installer
       echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /var/log/installer/gdc-luks-key
       chmod 600 /var/log/installer/gdc-luks-key
+      sync /var/log/installer/gdc-luks-key || sync
     - |
       # Live-stream Subiquity server logs to serial console for real-time diagnostics
       touch /var/log/installer/subiquity-server-debug.log
