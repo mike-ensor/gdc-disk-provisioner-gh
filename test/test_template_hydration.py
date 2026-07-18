@@ -511,25 +511,25 @@ class TestGgdTemplateHydration(unittest.TestCase):
 
     def test_luks_keyfile_path_validation(self):
         """Statically asserts that GDC LUKS bootstrap keyfiles are routed strictly via /var/log/installer/."""
-        # 1. Assert user-data template writes to /dev/gdc-luks-key
+        # 1. Assert user-data template writes to /var/log/installer/gdc-luks-key
         userdata_path = os.path.join(PROJECT_ROOT, "src/build/templates/user-data.j2")
         with open(userdata_path, "r") as f:
             userdata_content = f.read()
-            self.assertIn("/dev/gdc-luks-key", userdata_content,
-                          "user-data.j2 must write the bootstrap key directly to /dev/gdc-luks-key")
+            self.assertIn("/var/log/installer/gdc-luks-key", userdata_content,
+                          "user-data.j2 must write the bootstrap key directly to /var/log/installer/gdc-luks-key")
             self.assertNotIn("/run/installer/gdc-luks-key", userdata_content,
                              "user-data.j2 must NOT use insecure or delayed /run/installer/gdc-luks-key path")
 
-        # 2. Assert storage_config.j2 template reads from /dev/gdc-luks-key
+        # 2. Assert storage_config.j2 template reads from /var/log/installer/gdc-luks-key
         storage_j2_path = os.path.join(PROJECT_ROOT, "src/build/templates/storage_config.j2")
         with open(storage_j2_path, "r") as f:
             storage_j2_content = f.read()
-            self.assertIn("/dev/gdc-luks-key", storage_j2_content,
-                          "storage_config.j2 must read the bootstrap key from /dev/gdc-luks-key")
+            self.assertIn("/var/log/installer/gdc-luks-key", storage_j2_content,
+                          "storage_config.j2 must read the bootstrap key from /var/log/installer/gdc-luks-key")
             self.assertNotIn("/run/installer/gdc-luks-key", storage_j2_content,
                              "storage_config.j2 must NOT use /run/installer/gdc-luks-key path")
 
-        # 3. Assert all static storage templates read from /dev/gdc-luks-key
+        # 3. Assert all static storage templates read from /var/log/installer/gdc-luks-key
         storage_templates_dir = os.path.join(PROJECT_ROOT, "src/build/templates/storage")
         for filename in os.listdir(storage_templates_dir):
             if filename.endswith(".yaml"):
@@ -537,8 +537,8 @@ class TestGgdTemplateHydration(unittest.TestCase):
                 with open(fpath, "r") as f:
                     content = f.read()
                     if "dm_crypt" in content:
-                        self.assertIn("/dev/gdc-luks-key", content,
-                                      f"{filename} must read the bootstrap key from /dev/gdc-luks-key")
+                        self.assertIn("/var/log/installer/gdc-luks-key", content,
+                                      f"{filename} must read the bootstrap key from /var/log/installer/gdc-luks-key")
                         self.assertNotIn("/run/installer/gdc-luks-key", content,
                                          f"{filename} must NOT use /run/installer/gdc-luks-key path")
 
