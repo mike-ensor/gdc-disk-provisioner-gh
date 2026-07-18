@@ -142,6 +142,7 @@ def auto_heal_boot_params(token):
                         f"boot=casper initrd=initrd ip=dhcp netboot=url "
                         f"url={iso_url} "
                         f"root=/dev/ram0 ramdisk_size=4500000 autoinstall "
+                        f"apparmor=0 console=tty1 console=ttyS0 "
                         f"ds=nocloud-net;s={seed_url}"
                     )
                     
@@ -403,6 +404,7 @@ def main():
         f"boot=casper initrd=initrd ip=dhcp netboot=url "
         f"url={iso_url} "
         f"root=/dev/ram0 ramdisk_size=4500000 autoinstall "
+        f"apparmor=0 console=tty1 console=ttyS0 "
         f"ds=nocloud-net;s={seed_url}"
     )
     

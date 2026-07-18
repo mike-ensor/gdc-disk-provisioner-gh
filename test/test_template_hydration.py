@@ -542,5 +542,15 @@ class TestGgdTemplateHydration(unittest.TestCase):
                         self.assertNotIn("/run/installer/gdc-luks-key", content,
                                          f"{filename} must NOT use /run/installer/gdc-luks-key path")
 
+    def test_bootimus_pxe_parameter_alignment(self):
+        """Asserts that src/build/bootimus.py defines the mandatory apparmor=0 and console redirection PXE options."""
+        bootimus_path = os.path.join(PROJECT_ROOT, "src/build/bootimus.py")
+        with open(bootimus_path, "r") as f:
+            bootimus_content = f.read()
+            self.assertIn("apparmor=0", bootimus_content,
+                          "bootimus.py must include apparmor=0 in boot_params to prevent cryptsetup sandboxing blocks")
+            self.assertIn("console=tty1 console=ttyS0", bootimus_content,
+                          "bootimus.py must specify console=tty1 console=ttyS0 to keep serial console active past switch_root")
+
 if __name__ == "__main__":
     unittest.main()
