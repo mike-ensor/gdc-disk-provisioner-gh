@@ -302,19 +302,19 @@ echo "[-] Generating dynamic Message of the Day (MOTD) banner..."
 # Unpack, patch, and repack initrd to inject GDC early-boot progress logs
 INITRD_PATH="${EXTRACT_DIR}/casper/initrd"
 if [[ -f "${INITRD_PATH}" ]]; then
-    # Ensure cpio is present in the builder environment
-    if ! command -v cpio &>/dev/null; then
-        echo "[-] 'cpio' is missing in builder environment. Bootstrapping on the fly..."
-        apt-get update &>/dev/null && apt-get install -y cpio &>/dev/null || true
+    # Ensure cpio and unmkinitramfs are present in the builder environment
+    if ! command -v cpio &>/dev/null || ! command -v unmkinitramfs &>/dev/null; then
+        echo "[-] Required initramfs tools are missing in builder environment. Bootstrapping on the fly..."
+        apt-get update &>/dev/null && apt-get install -y cpio initramfs-tools-core &>/dev/null || true
     fi
     
     echo "[-] Unpacking and patching initrd to inject GDC early-boot progress logs..."
     INITRD_TMP=$(mktemp -d)
     
-    # Decompress initrd using zstd and extract with cpio
-    zstd -d -c "${INITRD_PATH}" 2>/dev/null | (cd "${INITRD_TMP}" && cpio -id --quiet)
+    # Extract using the official multi-segment unmkinitramfs tool
+    unmkinitramfs "${INITRD_PATH}" "${INITRD_TMP}"
     
-    CASPER_HELPER="${INITRD_TMP}/scripts/casper"
+    CASPER_HELPER="${INITRD_TMP}/main/scripts/casper"
     if [[ -f "${CASPER_HELPER}" ]]; then
         echo "  [-] Found scripts/casper inside initrd. Patching with progress messages..."
         # Create a python helper script on the fly to patch scripts/casper safely without shell quoting issues
@@ -350,9 +350,18 @@ EOF
         rm -f /tmp/patch_initrd.py
     fi
     
-    # Repack initrd using cpio and compress with zstd
-    echo "  [-] Repacking initrd..."
-    (cd "${INITRD_TMP}" && find . | cpio -o -H newc --quiet | zstd -c -8) > "${INITRD_PATH}"
+    # Repack concatenated multi-segment initrd
+    echo "  [-] Repacking multi-segment initrd..."
+    (cd "${INITRD_TMP}/early" && find . | cpio -o -H newc --quiet) > "${INITRD_PATH}"
+    
+    # Process subsequent early segments if they exist
+    for early_seg in "${INITRD_TMP}/early"*; do
+        if [[ "${early_seg}" != "${INITRD_TMP}/early" && -d "${early_seg}" ]]; then
+            (cd "${early_seg}" && find . | cpio -o -H newc --quiet) >> "${INITRD_PATH}"
+        fi
+    done
+    
+    (cd "${INITRD_TMP}/main" && find . | cpio -o -H newc --quiet | zstd -c -8) >> "${INITRD_PATH}"
     rm -rf "${INITRD_TMP}"
     echo "  [x] initrd successfully repacked and optimized."
 fi
