@@ -224,11 +224,23 @@
     - tpm_device_stat.stat.exists
     - (cryptenroll_uefi_result is succeeded and not cryptenroll_uefi_result.skipped | default(false)) or (cryptenroll_bios_result is succeeded and not cryptenroll_bios_result.skipped | default(false))
 
+- name: "GDC-TPM-SEAL | Explicitly register TPM 2.0 drivers in initramfs-tools"
+  ansible.builtin.lineinfile:
+    path: /etc/initramfs-tools/modules
+    line: "{{ item }}"
+    create: yes
+  loop:
+    - "tpm"
+    - "tpm_tis"
+    - "tpm_crb"
+  register: tpm_modules_configured
+  when: tpm_device_stat.stat.exists
+
 - name: "GDC-TPM-SEAL | Rebuild initramfs to pack active TPM unlock hooks"
   ansible.builtin.command: update-initramfs -u -k all
   when:
     - tpm_device_stat.stat.exists
-    - (crypttab_reconfigured is defined and crypttab_reconfigured.changed) or (cryptenroll_hook_configured is defined and cryptenroll_hook_configured.changed)
+    - (crypttab_reconfigured is defined and crypttab_reconfigured.changed) or (cryptenroll_hook_configured is defined and cryptenroll_hook_configured.changed) or (tpm_modules_configured is defined and tpm_modules_configured.changed)
 
 - name: "GDC-TPM-SEAL | Purge insecure temporary passcode slot from LUKS keyslots"
   ansible.builtin.shell: |

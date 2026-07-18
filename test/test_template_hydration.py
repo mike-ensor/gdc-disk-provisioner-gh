@@ -552,5 +552,13 @@ class TestGgdTemplateHydration(unittest.TestCase):
             self.assertIn("console=tty1 console=ttyS0", bootimus_content,
                           "bootimus.py must specify console=tty1 console=ttyS0 to keep serial console active past switch_root")
 
+    def test_ansible_tpm_initramfs_drivers(self):
+        """Asserts that the security_hardening role registers the necessary TPM modules for early boot."""
+        playbook_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/security_hardening/tasks/main.yml")
+        with open(playbook_path, "r") as f:
+            content = f.read()
+            self.assertIn("tpm_tis", content, "Ansible security_hardening tasks must include tpm_tis module in initramfs")
+            self.assertIn("tpm_crb", content, "Ansible security_hardening tasks must include tpm_crb module in initramfs")
+
 if __name__ == "__main__":
     unittest.main()
