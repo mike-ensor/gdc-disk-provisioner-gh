@@ -42,7 +42,7 @@ autoinstall:
       level: info
   early-commands:
     - |
-      # Deactivate default public sources on the Live CD parent environment to prevent connection refused crashes
+      # [GDC-INSTALL-STEP 1/12] Deactivating default public sources & preparing bootstrap keys...
       echo "[-] [DEBUG-ISO] Purging Live CD parent public Ubuntu sources..."
       rm -f /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources
       # Write a persistent GDC LUKS key file inside /var/log/installer (shared tmpfs visible to both snap and host)
@@ -55,7 +55,7 @@ autoinstall:
       touch /var/log/installer/subiquity-server-debug.log
       tail -f /var/log/installer/subiquity-server-debug.log > /dev/ttyS0 2>/dev/null &
     - |
-      # If GDC Debug Mode is active, enable Live CD SSH Password logins (GDC-DEBUG-ONLY)
+      # [GDC-INSTALL-STEP 2/12] Configuring Live CD root password & registering diagnostics...
       {% if gdc_debug_mode %}
       echo "[-] [DEBUG-ISO] Configuring Live CD Root passworded SSH entry..."
       echo "root:gdc-password-123" | chpasswd
@@ -72,7 +72,7 @@ autoinstall:
         echo "[-] Diagnostics tool registered as globally executable: 'collect-node-diagnostics.sh'"
       fi
     - |
-      # Dynamic storage configuration generation and merging (GDC-SPEC-002-SEQ)
+      # [GDC-INSTALL-STEP 3/12] Dynamically compiling local LVM layout...
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Dynamically configuring LVM storage layout"
       echo "=============================================================================="
@@ -96,7 +96,7 @@ autoinstall:
         echo "[!] Warning: Dynamic storage config generator not found on ISO! Falling back to static build config."
       fi
     - |
-      # Defensive disk sanitization & kernel partition table cache flush (Prevents LUKS open/re-format cache clobbering)
+      # [GDC-INSTALL-STEP 4/12] Performing defensive disk sanitization and memory cache flushes...
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Performing defensive block device sanitization & cache flushes"
       echo "=============================================================================="
@@ -202,7 +202,7 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] Activating Live ISO network segment"
       PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
       
-      # Configure Live ISO network interface based on VLAN ID using DHCP
+      # [GDC-INSTALL-STEP 5/12] Activating Live ISO network segment...
       VLAN_ID="{{ machine_vlan }}"
       if [ -z "${VLAN_ID}" ] || [ "${VLAN_ID}" = "0" ]; then
         # Untagged native configuration (directly on physical interface!)
@@ -217,7 +217,7 @@ autoinstall:
         dhclient "${PHYS_IFACE}.${VLAN_ID}" 2>/dev/null || systemctl restart systemd-networkd || true
       fi
       
-      # Add static DNS host mapping for GDC Companion resolving and block security upgrades
+      # [GDC-INSTALL-STEP 6/12] Mapping GDC Companion static IP DNS overrides...
       echo "{{ companion_ip }} {{ companion_host }}" >> /etc/hosts
       echo "127.0.0.1 security.ubuntu.com" >> /etc/hosts
       echo "127.0.0.1 geoip.ubuntu.com" >> /etc/hosts
@@ -261,7 +261,7 @@ autoinstall:
       echo "=============================================================================="
       PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
       
-      # Ensure arp-scan and net-tools are dynamically bootstrapped in live environment (connected mode)
+      # [GDC-INSTALL-STEP 7/12] Scanning network segment for free management & Kubernetes IPs...
       if ! command -v arp-scan &>/dev/null; then
         echo "[-] Sideloading net-tools & arp-scan packages in live environment..."
         apt-get update &>/dev/null && apt-get install -y arp-scan net-tools &>/dev/null || true
@@ -270,7 +270,7 @@ autoinstall:
       # Invoke the robust splay python IP scanner
       python3 /cdrom/custom-data/scan_ips.py --cidr "192.168.9.8/29" --interface "${PHYS_IFACE}" --fallback "192.168.9.14" --output "/tmp/allocated_ips.env" --machine-cidr "{{ machine_ip_cidr }}" --k8s-cidr "{{ k8s_ip_cidr }}"
   late-commands:
-    # Sync pre-seeded assets cleanly and set up service persistent storage
+    # [GDC-INSTALL-STEP 8/12] Writing target local bootstrap properties to target drive...
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Writing local bootstrap environment"
@@ -310,7 +310,7 @@ autoinstall:
       EOF
       chmod 644 /target/etc/apt/sources.list.d/gdc-nexus.sources
       
-      # Rename default public Ubuntu sources to enforce air-gapped security and prevent hangs on boot
+      # [GDC-INSTALL-STEP 9/12] Registering loopback GDC local repository sources...
       if [ -f /target/etc/apt/sources.list.d/ubuntu.sources ]; then
         mv /target/etc/apt/sources.list.d/ubuntu.sources /target/etc/apt/sources.list.d/ubuntu.sources.bak
         logger -t gdc-provisioner "[GOAL] Default public Ubuntu sources deactivated."
@@ -345,7 +345,7 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] Syncing Gitea, Nexus, & Ansible collections"
       mkdir -p /target/var/lib/gitea /target/var/lib/nexus /target/usr/share/ansible/collections
       
-      # Execute rsync while capturing standard error to temporary logs for diagnostics
+      # [GDC-INSTALL-STEP 10/12] Synchronizing Gitea, Sonatype Nexus, and Ansible collection assets...
       rsync_success=true
       rsync -a --sparse /cdrom/custom-data/gitea/ /target/var/lib/gitea/ 2>/tmp/rsync_gitea_err.log || rsync_success=false
       rsync -a --sparse /cdrom/custom-data/nexus/ /target/var/lib/nexus/ 2>/tmp/rsync_nexus_err.log || rsync_success=false

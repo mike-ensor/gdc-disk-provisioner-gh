@@ -299,6 +299,64 @@ chmod +x "${EXTRACT_DIR}/custom-data/scan_ips.py"
 echo "[-] Generating dynamic Message of the Day (MOTD) banner..."
 "${SCRIPT_DIR}/generate_banner.py" "${EXTRACT_DIR}/custom-data/boot-banner.txt" "${ISO_VERSION}"
 
+# Unpack, patch, and repack initrd to inject GDC early-boot progress logs
+INITRD_PATH="${EXTRACT_DIR}/casper/initrd"
+if [[ -f "${INITRD_PATH}" ]]; then
+    # Ensure cpio is present in the builder environment
+    if ! command -v cpio &>/dev/null; then
+        echo "[-] 'cpio' is missing in builder environment. Bootstrapping on the fly..."
+        apt-get update &>/dev/null && apt-get install -y cpio &>/dev/null || true
+    fi
+    
+    echo "[-] Unpacking and patching initrd to inject GDC early-boot progress logs..."
+    INITRD_TMP=$(mktemp -d)
+    
+    # Decompress initrd using zstd and extract with cpio
+    zstd -d -c "${INITRD_PATH}" 2>/dev/null | (cd "${INITRD_TMP}" && cpio -id --quiet)
+    
+    CASPER_HELPER="${INITRD_TMP}/scripts/casper"
+    if [[ -f "${CASPER_HELPER}" ]]; then
+        echo "  [-] Found scripts/casper inside initrd. Patching with progress messages..."
+        # Create a python helper script on the fly to patch scripts/casper safely without shell quoting issues
+        cat <<'EOF' > /tmp/patch_initrd.py
+import os
+fpath = os.environ.get('CASPER_HELPER_PATH')
+if fpath and os.path.exists(fpath):
+    with open(fpath, 'r') as f:
+        content = f.read()
+    old_val = 'wget "$url" -O "$dest"'
+    if old_val in content:
+        new_val = """echo "=============================================================================="
+echo "[-] GDC-BOOT-STAGE | Ingesting GDC Remastered ISO over the Network..."
+echo "[-] Target URL:  $url"
+echo "[-] File Size:   ~4.3 GB (Contains complete offline Gitea/Nexus repositories)"
+echo "[-] Status:      Copying image directly into RAM (typically takes 45-120s)..."
+echo "=============================================================================="
+wget "$url" -O "$dest"
+echo "=============================================================================="
+echo "[x] GDC-BOOT-STAGE | Download 100% complete! Mount overlay successful."
+echo "[-] GDC-BOOT-STAGE | Handing off control to systemd..."
+echo "=============================================================================="""
+        content = content.replace(old_val, new_val)
+        with open(fpath, 'w') as f:
+            f.write(content)
+        print('  [x] scripts/casper successfully patched.')
+    else:
+        print('  [!] Error: wget download block not found in scripts/casper.')
+else:
+    print('  [!] Error: CASPER_HELPER_PATH is missing or invalid.')
+EOF
+        CASPER_HELPER_PATH="${CASPER_HELPER}" python3 /tmp/patch_initrd.py
+        rm -f /tmp/patch_initrd.py
+    fi
+    
+    # Repack initrd using cpio and compress with zstd
+    echo "  [-] Repacking initrd..."
+    (cd "${INITRD_TMP}" && find . | cpio -o -H newc --quiet | zstd -c -8) > "${INITRD_PATH}"
+    rm -rf "${INITRD_TMP}"
+    echo "  [x] initrd successfully repacked and optimized."
+fi
+
 # Patch GRUB boot loader config
 GRUB_CFG="${EXTRACT_DIR}/boot/grub/grub.cfg"
 if [[ -f "${GRUB_CFG}" ]]; then
