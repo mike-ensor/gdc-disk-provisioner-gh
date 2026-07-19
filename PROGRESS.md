@@ -259,6 +259,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ## 3. Unplanned & Future Reference
 
+- [ ] **GDC-SPEC-008: Non-LUKS Storage Provisioning Feature** (Enables compiling unencrypted target OS installations with a 'GDC_ENABLE_LUKS=false' build parameter to bypass specialized UEFI/TPM hardware blocks; Ref: `docs/specs/08-no-luks-feature-plan.md`)
 - [ ] **URGENT:** Investigate ISO creation report and tests (gcloud SDK was not installed on target OS, potentially due to missing binaries during ISO creation phase)
 - [ ] **Multi-LTS Target Compilation Architecture (Support for 22.04 Jammy & 26.06 Future LTS Options)**
   - [ ] **Docker Builder Generalization:** Parameterize `src/build/Dockerfile` compilation rules to build and cache isolated compile images for separate target LTS releases.
