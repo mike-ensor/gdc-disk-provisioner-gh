@@ -224,11 +224,11 @@
     - tpm_device_stat.stat.exists
     - (cryptenroll_uefi_result is succeeded and not cryptenroll_uefi_result.skipped | default(false)) or (cryptenroll_bios_result is succeeded and not cryptenroll_bios_result.skipped | default(false))
 
-- name: "GDC-TPM-SEAL | Explicitly register TPM 2.0 drivers in initramfs-tools"
+- name: "GDC-TPM-SEAL | Ensure TPM 2.0 drivers are not explicitly loaded in modules to prevent AMD PSP lockups"
   ansible.builtin.lineinfile:
     path: /etc/initramfs-tools/modules
     line: "{{ item }}"
-    create: yes
+    state: absent
   loop:
     - "tpm"
     - "tpm_tis"

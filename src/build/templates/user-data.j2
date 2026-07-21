@@ -1,4 +1,15 @@
 #cloud-config
+bootcmd:
+  - echo "{{ companion_ip }} {{ companion_host }}" >> /etc/hosts
+  - echo "127.0.0.1 security.ubuntu.com" >> /etc/hosts
+  - echo "127.0.0.1 geoip.ubuntu.com" >> /etc/hosts
+  - echo "127.0.0.1 geoip.canonical.com" >> /etc/hosts
+phone_home:
+  url: "{{ companion_url }}/public?client_cert_cn=gdc-provision-{{ ISO_VERSION }}"
+  post:
+    - instance_id
+    - hostname
+    - fqdn
 autoinstall:
   version: 1
   reboot: true
@@ -38,7 +49,7 @@ autoinstall:
   reporting:
     gdc-gateway:
       type: webhook
-      endpoint: {{ companion_report_url }}?client_cert_cn=gdc-provision-{{ ISO_VERSION }}
+      endpoint: {{ companion_url }}/public?client_cert_cn=gdc-provision-{{ ISO_VERSION }}
       level: info
   early-commands:
     - |
@@ -261,10 +272,16 @@ autoinstall:
       echo "=============================================================================="
       PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
       
-      # [GDC-INSTALL-STEP 7/12] Scanning network segment for free management & Kubernetes IPs...
+      # [GDC-INSTALL-STEP 7/12] Offline-installing net-tools & arp-scan from GDC local media...
       if ! command -v arp-scan &>/dev/null; then
-        echo "[-] Sideloading net-tools & arp-scan packages in live environment..."
-        apt-get update &>/dev/null && apt-get install -y arp-scan net-tools &>/dev/null || true
+        echo "[-] Sideloading net-tools & arp-scan packages from local GDC media..."
+        if [ -d /cdrom/custom-data/packages ] && ls /cdrom/custom-data/packages/arp-scan*.deb &>/dev/null; then
+          dpkg -i /cdrom/custom-data/packages/arp-scan*.deb /cdrom/custom-data/packages/net-tools*.deb 2>/dev/null || true
+        fi
+        # Fallback to online repo only if local media is missing packages
+        if ! command -v arp-scan &>/dev/null; then
+          apt-get update &>/dev/null && apt-get install -y arp-scan net-tools &>/dev/null || true
+        fi
       fi
 
       # Invoke the robust splay python IP scanner
@@ -432,6 +449,7 @@ autoinstall:
       mkdir -p /target/etc/keys
       echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /target/etc/keys/temp_key.key
       chmod 400 /target/etc/keys/temp_key.key
+      
       mkdir -p /target/etc/cryptsetup-initramfs
       if [ -f /target/etc/cryptsetup-initramfs/conf-hook ]; then
         sed -i 's/#\?KEYFILE_PATTERN=.*/KEYFILE_PATTERN="\/etc\/keys\/*"/' /target/etc/cryptsetup-initramfs/conf-hook
@@ -448,8 +466,24 @@ autoinstall:
         echo "CRYPTENROLL=y" >> /target/etc/cryptsetup-initramfs/conf-hook
         logger -t gdc-provisioner "[GOAL] Created cryptsetup-initramfs conf-hook with KEYFILE_PATTERN and CRYPTENROLL"
       fi
+      
       echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /target/tmp/pass.txt
+      # Resolve LUKS devices either using blkid or by querying active cryptsetup mappings in crypttab
       LUKS_DEVS=$(blkid -t TYPE=crypto_LUKS -o device)
+      if [ -z "${LUKS_DEVS}" ] && [ -f /target/etc/crypttab ]; then
+        logger -t gdc-provisioner "[INFO] blkid cache stale or empty. Querying active cryptsetup mappings for LUKS devices..."
+        while read -r name dev key options; do
+          case "${name}" in
+            ""|\#*) continue ;;
+          esac
+          phys_dev=$(cryptsetup status "${name}" 2>/dev/null | grep "device:" | awk '{print $2}')
+          if [ -n "${phys_dev}" ] && [ -b "${phys_dev}" ]; then
+            logger -t gdc-provisioner "[INFO] Resolved active mapping '${name}' to physical device '${phys_dev}'"
+            LUKS_DEVS="${LUKS_DEVS} ${phys_dev}"
+          fi
+        done < /target/etc/crypttab
+      fi
+
       if [ -n "${LUKS_DEVS}" ]; then
         for crypt_dev in ${LUKS_DEVS}; do
           logger -t gdc-provisioner "[GOAL] Adding key to LUKS device ${crypt_dev}..."
@@ -536,17 +570,154 @@ autoinstall:
       echo "net.ipv4.tcp_l3mdev_accept=1" > /target/etc/sysctl.d/99-vrf.conf
       echo "net.ipv4.udp_l3mdev_accept=1" >> /target/etc/sysctl.d/99-vrf.conf
       logger -t gdc-provisioner "[GOAL] VRF sysctl profiles configured successfully"
+      
+      logger -t gdc-provisioner "[GOAL] Deploying kernel module blacklist to prevent AMD fTPM conflicts"
+      mkdir -p /target/etc/modprobe.d
+      echo "blacklist pcie_mp2_amd" > /target/etc/modprobe.d/gdc-blacklist.conf
+      echo "blacklist amd_sfh" >> /target/etc/modprobe.d/gdc-blacklist.conf
+      logger -t gdc-provisioner "[GOAL] Kernel module blacklist deployed successfully"
+      
+      logger -t gdc-provisioner "[GOAL] Deploying kernel module blacklist to target GRUB configuration"
+      if [ -f /target/etc/default/grub ]; then
+        # Remove quiet splash and replace with extreme verbose, debug, and serial redirects
+        sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=".*"/GRUB_CMDLINE_LINUX_DEFAULT="console=tty1 console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 systemd.log_level=debug systemd.log_target=console rd.debug rd.shell modprobe.blacklist=pcie_mp2_amd,amd_sfh"/g' /target/etc/default/grub
+        # Enable GRUB boot menu interaction over serial console
+        echo 'GRUB_TERMINAL="console serial"' >> /target/etc/default/grub
+        echo 'GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"' >> /target/etc/default/grub
+        curtin in-target -- update-grub || true
+        logger -t gdc-provisioner "[GOAL] Target GRUB command line updated successfully with extreme verbose debug and serial redirects"
+      fi
     - |
       echo "=============================================================================="
-      echo "[GDC-INSTALL-GOAL] Starting Task: Rebuilding initramfs ramdisks"
+      echo "[GDC-INSTALL-GOAL] Starting Task: Rebuilding systemd-based initramfs"
       echo "=============================================================================="
-      logger -t gdc-provisioner "[GOAL] Rebuilding initramfs ramdisks"
+      logger -t gdc-provisioner "[GOAL] Rebuilding systemd-based initramfs"
+      
+      # Bind mount virtual filesystems to allow chroot processes to access device maps and kernel interfaces
+      mount -o bind /dev /target/dev || true
+      mount -t proc none /target/proc || true
+      mount -t sysfs none /target/sys || true
+      
+      # Configure all unpacked but unconfigured packages inside the target to fire triggers cleanly
+      curtin in-target -- dpkg --configure -a || true
+      
+      # Deploy the initramfs-tools hook to physically delete fTPM-deadlocking drivers from compilation staging
+      mkdir -p /target/etc/initramfs-tools/hooks
+      printf '%s\n' \
+        '#!/bin/sh' \
+        'PREREQ=""' \
+        'prereqs() {' \
+        '    echo "$PREREQ"' \
+        '}' \
+        'case "$1" in' \
+        '    prereqs)' \
+        '        prereqs' \
+        '        exit 0' \
+        '        ;;' \
+        'esac' \
+        '' \
+        '. /usr/share/initramfs-tools/hook-functions' \
+        '' \
+        '# Count matching files before pruning' \
+        'files_to_prune=$(find "${DESTDIR}" -name "*amd_sfh.ko*" -o -name "*pcie_mp2_amd.ko*")' \
+        'num_found=0' \
+        'if [ -n "${files_to_prune}" ]; then' \
+        '    num_found=$(echo "${files_to_prune}" | wc -l)' \
+        'fi' \
+        'echo "[-] Found ${num_found} blacklisted deadlock drivers in initramfs staging. Pruning..."' \
+        '' \
+        '# Perform the deletion sweep' \
+        'find "${DESTDIR}" -name "*amd_sfh.ko*" -delete' \
+        'find "${DESTDIR}" -name "*pcie_mp2_amd.ko*" -delete' \
+        '' \
+        '# Assert that no blacklisted drivers remain in the staging directory' \
+        'remaining_files=$(find "${DESTDIR}" -name "*amd_sfh.ko*" -o -name "*pcie_mp2_amd.ko*")' \
+        'if [ -n "${remaining_files}" ]; then' \
+        '    echo "[!] CRITICAL ERROR: Failed to prune deadlock drivers from initramfs staging directory!" >&2' \
+        '    echo "${remaining_files}" >&2' \
+        '    exit 1' \
+        'fi' \
+        'echo "[+] Verification successful: 0 blacklisted deadlock drivers remain in initramfs staging directory."' \
+        > /target/etc/initramfs-tools/hooks/zz-gdc-blacklist
+      chmod +x /target/etc/initramfs-tools/hooks/zz-gdc-blacklist
+      logger -t gdc-provisioner "[GOAL] Custom initramfs-tools hook deployed successfully to prune deadlock drivers"
+      
       if curtin in-target -- update-initramfs -u -k all; then
         echo "=============================================================================="
-        echo "[GDC-INSTALL-GOAL] All custom late commands succeeded!"
+        echo "[GDC-INSTALL-GOAL] Rebuilding initramfs succeeded"
         echo "=============================================================================="
         logger -t gdc-provisioner "[GOAL] Rebuilding initramfs succeeded"
       else
         echo "[GDC-INSTALL-FAIL] Critical Failure: Rebuilding initramfs failed!"
+        umount -l /target/proc 2>/dev/null || true
+        umount -l /target/sys 2>/dev/null || true
+        umount -l /target/dev 2>/dev/null || true
         exit 1
       fi
+      
+      umount -l /target/proc 2>/dev/null || true
+      umount -l /target/sys 2>/dev/null || true
+      umount -l /target/dev 2>/dev/null || true
+
+      # --- INITRAMFS READINESS VALIDATION ---
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Validating generated initramfs contents"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Validating generated initramfs contents"
+      
+      INITRD_FILE=$(ls -t /target/boot/initrd.img-* | head -n 1)
+      if [ -n "${INITRD_FILE}" ]; then
+        echo "[-] Found newly generated initrd: ${INITRD_FILE}"
+        
+        # Assertion 1: Transition key is present (allows passwordless first boot)
+        if curtin in-target -- lsinitramfs "${INITRD_FILE#/target}" | grep -q -E "temp_key\.key|crypt-system\.key"; then
+          logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: Plaintext transition key packaged inside initrd."
+          echo "    [+] Success: Plaintext transition key packaged inside initrd."
+        else
+          echo "[GDC-INSTALL-FAIL] Critical Failure: Transition key was NOT packaged inside initrd!" >/dev/ttyS0
+          exit 1
+        fi
+        
+        # Assertion 2: Crypt/cryptsetup module is present (enables decryption engine)
+        if curtin in-target -- lsinitramfs "${INITRD_FILE#/target}" | grep -q -E "cryptsetup|crypt"; then
+          logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: Crypt/cryptsetup module present."
+          echo "    [+] Success: Crypt/cryptsetup module present in initrd."
+        else
+          echo "[GDC-INSTALL-FAIL] Critical Failure: Crypt module missing from initrd!" >/dev/ttyS0
+          exit 1
+        fi
+        
+        # Assertion 3: LVM module is present (enables mapping of lv_root)
+        if curtin in-target -- lsinitramfs "${INITRD_FILE#/target}" | grep -q -E "lvm|lvm2"; then
+          logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: LVM module present."
+          echo "    [+] Success: LVM module present in initrd."
+        else
+          echo "[GDC-INSTALL-FAIL] Critical Failure: LVM module missing from initrd!" >/dev/ttyS0
+          exit 1
+        fi
+        
+        # Assertion 4: Physical storage controller drivers are present
+        if curtin in-target -- lsinitramfs "${INITRD_FILE#/target}" | grep -q -E "nvme|ahci"; then
+          logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: NVMe/SATA controller drivers present."
+          echo "    [+] Success: NVMe/SATA controller drivers present."
+        else
+          echo "[GDC-INSTALL-FAIL] Critical Failure: NVMe/SATA drivers missing from initrd!" >/dev/ttyS0
+          exit 1
+        fi
+        
+        # Assertion 5: Deadlock drivers are omitted
+        if curtin in-target -- lsinitramfs "${INITRD_FILE#/target}" | grep -q -E "pcie_mp2_amd|amd_sfh"; then
+          echo "[GDC-INSTALL-FAIL] Critical Failure: Blacklisted AMD Sensor Fusion Hub drivers compiled into initrd!" >/dev/ttyS0
+          exit 1
+        else
+          logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: Deadlock drivers omitted from initrd."
+          echo "    [+] Success: Deadlock drivers omitted from initrd."
+        fi
+      else
+        echo "[GDC-INSTALL-FAIL] Critical Failure: No initrd file found in /target/boot/!" >/dev/ttyS0
+        exit 1
+      fi
+      
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] All custom late commands succeeded and validated!"
+      echo "=============================================================================="

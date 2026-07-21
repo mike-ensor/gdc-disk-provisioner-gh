@@ -115,18 +115,11 @@ chroot /mnt/recovery /usr/bin/env bash -c '
     mv /etc/resolv.conf /etc/resolv.conf.bak 2>/dev/null || true
     cat /run/systemd/resolve/resolv.conf > /etc/resolv.conf 2>/dev/null || echo "nameserver 8.8.8.8" > /etc/resolv.conf
     
-    # Install cryptsetup-initramfs package to enable systemd-based initrd boot path
+    # Install cryptsetup and initramfs-tools packages
     apt-get update || true
-    apt-get install -y cryptsetup-initramfs
+    apt-get install -y cryptsetup cryptsetup-initramfs
     
-    # Double-check that CRYPTENROLL is active in conf-hook
-    mkdir -p /etc/cryptsetup-initramfs
-    sed -i "s/#\?CRYPTENROLL=.*/CRYPTENROLL=y/" /etc/cryptsetup-initramfs/conf-hook
-    if ! grep -q "CRYPTENROLL" /etc/cryptsetup-initramfs/conf-hook; then
-        echo "CRYPTENROLL=y" >> /etc/cryptsetup-initramfs/conf-hook
-    fi
-    
-    # Rebuild initramfs with systemd and cryptenroll TPM drivers included
+    # Rebuild initramfs via update-initramfs
     update-initramfs -u -k all
     
     # Restore dns settings

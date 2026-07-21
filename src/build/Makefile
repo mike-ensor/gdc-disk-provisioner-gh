@@ -400,7 +400,7 @@ test-unit: $(VENV_DIR)
 
 test-static: assemble
 	$(call START_TIME,test-static)
-	@$(VENV_DIR)/bin/python3 ../../test/validate_iso_static.py
+	@$(VENV_DIR)/bin/python3 ../../bin/run_all_tests.py
 	$(call END_TIME,test-static)
 
 test-dynamic: test-static

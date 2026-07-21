@@ -53,8 +53,8 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
 
 ### State 4: Bootimus PXE Deployment
 - [ ] Execute `./src/build/bootimus.py --list` to check current groups and images.
-- [ ] Deploy the compiled image: `./src/build/bootimus.py gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}.iso`.
-- [ ] Verify the self-healing DB audit completes (verifying custom autoinstall parameters are written and locked).
+- [ ] Deploy the compiled image: `./src/build/bootimus.py gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}.iso` (which enforces a 30s settling window right after trigger-scan).
+- [ ] Verify the stability-verification feedback loop successfully locks and holds parameters for 4 consecutive successful checks (20s duration) without being clobbered by Bootimus's background scanner threads.
 
 ### State 5: E2E Integration Testing
 - [ ] Validate autoinstall schemas: `./test/validate_iso_static.sh`.

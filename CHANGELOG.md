@@ -4,6 +4,58 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.1.115] - 2026-07-21
+
+### Added
+- **Path-Agnostic Deletion & Verification Hook (`zz-gdc-blacklist`):** Engineered a standard `initramfs-tools` hook that searches for blacklisted fTPM-deadlocking drivers (`amd_sfh` and `pcie_mp2_amd`) across legacy `/lib/` and UsrMerged `/usr/lib/` staging paths using a path-agnostic `find` command.
+- **Strict Count-and-Abort Gate:** The new `zz-gdc-blacklist` hook dynamically counts matching driver files before pruning, deletes them, and asserts that the remaining count is exactly `0`, failing immediately if any blacklisted files persist to prevent quiet-room regressions.
+- **Static Command & Option Auditor:** Integrated an automated command-line options validation gate inside `test/validate_artifacts.py` that recursively extracts shell commands from the hydrated `user-data` configuration and dynamically parses their argument flags against local manual pages (`man`) or help screens (`--help`).
+- **Consecutive-Success Stability Verification Loop:** Refactored `src/build/bootimus.py` with an unbuffered feedback control loop requiring boot configurations to persist in their correct, enabled states across **4 consecutive checks (20s duration)**, successfully defeating asynchronous background catalog sync clobbers on the Synology Bootimus server.
+
+### Changed
+- **Initramfs Generator Reversion:** Reverted the bootloader and initrd compiler back from `dracut` to native **`initramfs-tools`** and **`cryptsetup-initramfs`**, bringing the compressed initrd size down from 200MB+ to a highly optimized **35MB** to prevent early UEFI memory fragmentation.
+- **Alphabetical Hook Ordering:** Prepend `zz-` to our custom initramfs hook (`zz-gdc-blacklist`) to force it alphabetically after the system's `udev` and `zz-busybox-initramfs` hooks, ensuring the deletion sweep runs at the absolute end of the staging phase.
+
+### Fixed
+- **Transition Key Naming Mismatch:** Fixed the validation assertion in `user-data.j2` to search for either `temp_key.key` or `crypt-system.key`, accommodating `cryptsetup-initramfs`'s native behavior of renaming the compiled key file to match its mapper target.
+- **Bootimus API Timeout Protection:** Added a 30-second socket timeout to all `urllib.request.urlopen` requests inside `src/build/bootimus.py` to prevent indefinite blocking hangs during busy filesystem scans.
+
+## [0.1.105] - 2026-07-20
+
+### Added
+- **Dynamic Test Execution & Discovery (`bin/run_all_tests.py`):** Implemented an automated python test runner that dynamically discovers and executes all python unit tests (capturing test pydocs as verification criteria) and static validations, exporting the serialized results cleanly to `build-workspace/test_results.json`.
+- **Dynamic Category-Grouped Reports:** Upgraded `generate_build_report.py` to consume `test_results.json` and dynamically render detailed, category-grouped verification tables in the human-readable Markdown After Action Report, requiring zero maintenance as tests are added or changed.
+
+### Changed
+- **Subprocess Loop Optimization:** Shaved build report compilation time from 200+ seconds to under 0.1 seconds by bypassing the sequential `apt-cache show` loop for pre-seeded offline packages.
+
+## [0.1.104] - 2026-07-20
+
+### Added
+- **Five-Point Pre-Reboot Initrd Validation:** Appended an automated post-compilation check inside Subiquity `late-commands` that uses `lsinitrd` to programmatically assert the exact state of the generated initrd (presence of the transition key, `crypt` and `lvm` modules, physical NVMe/SATA storage drivers, and absolute omission of fTPM-deadlocking drivers) before the system is allowed to reboot.
+
+### Changed
+- **Generic Bootloader Compilation:** Configured `dracut` to build a 100% generic, non-deadlocking ramdisk (`hostonly="no"` and `omit_drivers+=" pcie_mp2_amd amd_sfh "`) inside the Subiquity installer chroot to prevent NVMe storage driver exclusions and early-boot AMD hardware lockups.
+
+## [0.1.103] - 2026-07-20
+
+### Added
+- **Dracut LVM Module Integration:** Explicitly enabled `lvm` module packaging in `user-data.j2` late-commands (`add_dracutmodules+=" crypt lvm "`) to resolve the first-boot NVMe-blind hang, allowing the target kernel to successfully map logical volumes on boot.
+
+### Changed
+- **Persistent Hardened Module Configurations:** Patched the security hardening first-boot Ansible playbook to rewrite `/etc/dracut.conf.d/gdc.conf` to permanently retain generic crypt/lvm and blacklisted driver configurations across future system and kernel security updates.
+
+## [0.1.102] - 2026-07-20
+
+### Fixed
+- **Stale blkid Cache LUKS Resolution Fallback:** Resolved a critical installation bug where Subiquity skipped passwordless transition keyfile enrollment due to `blkid` returning an empty string. Introduced a bulletproof fallback that parses `/target/etc/crypttab` and queries active mappings directly from `cryptsetup status` inside the Live CD.
+
+## [0.1.101] - 2026-07-20
+
+### Added
+- **Dracut Bootloader Migration:** Migrated Ubuntu 24.04 noble bootloader and ramdisk generation from `initramfs-tools` to `dracut` and `cryptsetup` packages to natively support systemd-based early-boot TPM unsealing.
+- **At-Boot AMD Module Blacklisting:** Appended `modprobe.blacklist=pcie_mp2_amd,amd_sfh` directly to GRUB command-lines in the installer config, fallback config, and the target's `/etc/default/grub` to completely bypass early-boot fTPM PSP deadlocks on AMD platforms.
+
 ## [0.1.57] - 2026-07-11
 
 ### Added

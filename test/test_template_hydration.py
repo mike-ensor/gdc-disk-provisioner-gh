@@ -560,5 +560,34 @@ class TestGgdTemplateHydration(unittest.TestCase):
             self.assertIn("tpm_tis", content, "Ansible security_hardening tasks must include tpm_tis module in initramfs")
             self.assertIn("tpm_crb", content, "Ansible security_hardening tasks must include tpm_crb module in initramfs")
 
+    @mock.patch('shutil.which')
+    @mock.patch('subprocess.run')
+    def test_static_command_option_auditor(self, mock_run, mock_which):
+        """Asserts that the static command auditor detects invalid command options and accepts valid ones."""
+        import sys
+        sys.path.insert(0, os.path.join(PROJECT_ROOT, "test"))
+        import validate_artifacts
+        
+        # Configure which mock
+        mock_which.return_value = "/usr/bin/unmkinitramfs"
+        
+        # Configure subprocess.run mock to return help output of unmkinitramfs (only -v supported)
+        mock_res = mock.Mock()
+        mock_res.returncode = 0
+        mock_res.stdout = "Usage: unmkinitramfs [-v] initramfs-file directory\nOptions: -v"
+        mock_res.stderr = ""
+        mock_run.return_value = mock_res
+        
+        # 1. Valid command options (unmkinitramfs -v is valid)
+        try:
+            validate_artifacts.validate_commands_in_script("unmkinitramfs -v file.img dir")
+        except ValueError as e:
+            self.fail(f"validate_commands_in_script failed on valid inputs: {e}")
+            
+        # 2. Invalid command options (unmkinitramfs -t is invalid)
+        with self.assertRaises(ValueError) as ctx:
+            validate_artifacts.validate_commands_in_script("unmkinitramfs -t file.img dir")
+        self.assertIn("does not support the option '-t'", str(ctx.exception))
+
 if __name__ == "__main__":
     unittest.main()
