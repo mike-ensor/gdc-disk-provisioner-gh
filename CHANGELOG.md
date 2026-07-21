@@ -4,9 +4,10 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
-## [0.1.115] - 2026-07-21
+## [0.1.116] - 2026-07-21
 
 ### Added
+- **Target-Side TPM 2.0 Unsealing Integration:** Programmed a native Ansible task in our `security_hardening` playbook role that deploys a custom `gdc-tpm2` initramfs-tools hook, copying systemd-tpm2 tokens and exact 24.04-native TSS2 dynamic libraries into the target OS boot ramdisk to support secure, automatic unlocking on reboot.
 - **Path-Agnostic Deletion & Verification Hook (`zz-gdc-blacklist`):** Engineered a standard `initramfs-tools` hook that searches for blacklisted fTPM-deadlocking drivers (`amd_sfh` and `pcie_mp2_amd`) across legacy `/lib/` and UsrMerged `/usr/lib/` staging paths using a path-agnostic `find` command.
 - **Strict Count-and-Abort Gate:** The new `zz-gdc-blacklist` hook dynamically counts matching driver files before pruning, deletes them, and asserts that the remaining count is exactly `0`, failing immediately if any blacklisted files persist to prevent quiet-room regressions.
 - **Static Command & Option Auditor:** Integrated an automated command-line options validation gate inside `test/validate_artifacts.py` that recursively extracts shell commands from the hydrated `user-data` configuration and dynamically parses their argument flags against local manual pages (`man`) or help screens (`--help`).
