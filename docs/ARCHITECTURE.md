@@ -195,7 +195,7 @@ The installation and bootstrapping process is divided into **7 Discrete Stages**
 *   **Entry Qualifications:** Stage 4 (`STORAGE_LAYOUT`) successfully completed.
 *   **Exit Qualifications:**
     *   System structures mounted under `/target` match target specifications.
-    *   UEFI GRUB bootloader successfully written to partition 1 with the module blacklist `modprobe.blacklist=pcie_mp2_amd,amd_sfh` appended to the kernel cmdline to prevent early fTPM deadlocks on AMD platforms.
+    *   UEFI GRUB bootloader successfully written to partition 1 with the module blacklist `modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp` and `tpm_tis.interrupts=0` appended to the kernel cmdline to prevent early fTPM deadlocks on AMD platforms.
     *   `initramfs-tools` and `cryptsetup-initramfs` successfully compile a highly optimized (35MB) boot ramdisk containing `crypt` and `lvm` modules, and packages `/etc/keys/temp_key.key` (represented inside initrd as `/cryptroot/keyfiles/crypt-system.key`) to allow passwordless first-boot decryption. A custom, alphabetically late compile hook (`zz-gdc-blacklist`) executes at the very end of the staging phase to surgically prune blacklisted deadlock modules (`amd_sfh.ko.zst`).
     *   **Pre-Reboot Initramfs Validation Checks:** The Subiquity `late-commands` automatically execute `lsinitramfs` to run five programmatic assertions verifying:
         1. Transition keyfile presence.

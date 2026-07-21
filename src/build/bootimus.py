@@ -139,7 +139,8 @@ def auto_heal_boot_params(token):
                 has_correct_params = (
                     "autoinstall" in boot_params and 
                     "ds=nocloud-net" in boot_params and
-                    "modprobe.blacklist=pcie_mp2_amd,amd_sfh" in boot_params and
+                    "modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp" in boot_params and
+                    "tpm_tis.interrupts=0" in boot_params and
                     "apparmor=0" in boot_params and
                     "console=tty1 console=ttyS0" in boot_params
                 )
@@ -156,7 +157,7 @@ def auto_heal_boot_params(token):
                         f"url={iso_url} "
                         f"root=/dev/ram0 ramdisk_size=4500000 autoinstall "
                         f"apparmor=0 console=tty1 console=ttyS0 "
-                        f"modprobe.blacklist=pcie_mp2_amd,amd_sfh "
+                        f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp "
                         f"ds=nocloud-net;s={seed_url}"
                     )
                     
@@ -168,21 +169,43 @@ def auto_heal_boot_params(token):
                     }
                     update_url = f"{API_BASE}/images?filename={urllib.parse.quote(filename)}"
                     
-                    # Robust check-and-reapply loop to defeat delayed Bootimus database clobbering
-                    for i in range(1, 5):
-                        api_request(update_url, method="PUT", data=update_data, token=token)
-                        time.sleep(3)
+                    # Robust consecutive-success loop to defeat delayed Bootimus database clobbering
+                    consecutive_verifications = 0
+                    required_consecutive = 6  # Require 6 consecutive successful checks (30 seconds of stability)
+                    max_attempts = 20
+                    verified = False
+                    
+                    # Force write initially
+                    api_request(update_url, method="PUT", data=update_data, token=token)
+                    
+                    for verify_attempt in range(1, max_attempts + 1):
+                        time.sleep(5)
                         verify_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
                         if verify_res.get("success") and verify_res.get("data"):
                             matching = [m for m in verify_res["data"] if m.get("filename") == filename]
-                            if (matching and 
-                                    matching[0].get("boot_params", "") == fixed_params and 
-                                    matching[0].get("boot_method") == "kernel" and 
-                                    matching[0].get("enabled") is True):
-                                print(f"    [+] Successfully healed and verified '{img.get('name')}' configuration (Attempt {i})!")
-                                break
-                    else:
-                        print(f"    [!] Warning: Failed to permanently verify healed '{img.get('name')}' configuration. Forcing one final write...")
+                            if matching:
+                                current_img = matching[0]
+                                current_params = current_img.get("boot_params", "")
+                                current_method = current_img.get("boot_method", "")
+                                current_enabled = current_img.get("enabled", False)
+                                
+                                is_correct = (
+                                    current_params == fixed_params and 
+                                    current_method == "kernel" and 
+                                    current_enabled is True
+                                )
+                                
+                                if is_correct:
+                                    consecutive_verifications += 1
+                                    if consecutive_verifications >= required_consecutive:
+                                        print(f"    [+] Successfully healed and locked '{img.get('name')}' (Attempt {verify_attempt}, stable)!")
+                                        verified = True
+                                        break
+                                else:
+                                    consecutive_verifications = 0
+                                    api_request(update_url, method="PUT", data=update_data, token=token)
+                    if not verified:
+                        print(f"    [!] Warning: Failed to permanently lock healed '{img.get('name')}' configuration. Forcing final write...")
                         api_request(update_url, method="PUT", data=update_data, token=token)
     except Exception as e:
         print(f"[!] Warning: Self-healing audit encountered an error: {e}")
@@ -433,7 +456,7 @@ def main():
         f"url={iso_url} "
         f"root=/dev/ram0 ramdisk_size=4500000 autoinstall "
         f"apparmor=0 console=tty1 console=ttyS0 "
-        f"modprobe.blacklist=pcie_mp2_amd,amd_sfh "
+        f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp "
         f"ds=nocloud-net;s={seed_url}"
     )
     
@@ -451,8 +474,8 @@ def main():
     
     print("[-] Running database stability verification (verifying parameters persist consecutively)...")
     consecutive_verifications = 0
-    required_consecutive = 4  # Require 4 consecutive successful checks (20 seconds of stability)
-    max_attempts = 15
+    required_consecutive = 6  # Require 6 consecutive successful checks (30 seconds of stability)
+    max_attempts = 20
     verified = False
     
     for verify_attempt in range(1, max_attempts + 1):

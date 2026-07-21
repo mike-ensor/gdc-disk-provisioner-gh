@@ -178,8 +178,8 @@ def main():
             log_info("Asserting AMD blacklist is present in extracted autoinstall user-data...")
             with open(user_data_path, "r") as f:
                 user_data_content = f.read()
-            if "blacklist pcie_mp2_amd" not in user_data_content or "blacklist amd_sfh" not in user_data_content:
-                log_error("AMD Sensor Fusion Hub kernel blacklist is MISSING from user-data!")
+            if "blacklist pcie_mp2_amd" not in user_data_content or "blacklist amd_sfh" not in user_data_content or "blacklist ccp" not in user_data_content:
+                log_error("AMD Sensor Fusion Hub / CCP kernel blacklist is MISSING from user-data!")
                 sys.exit(1)
             print("[x] Verified AMD Sensor Fusion Hub kernel blacklist is active in user-data.")
             

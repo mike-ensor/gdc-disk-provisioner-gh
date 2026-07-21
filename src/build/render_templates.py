@@ -121,7 +121,7 @@ set default=0
 
 menuentry "Google Distributed Cloud (GDC) Automated Bootstrap" {
     set gfxpayload=keep
-    linux /casper/vmlinuz console=tty1 console=ttyS0 autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=none apparmor=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh ---
+    linux /casper/vmlinuz console=tty1 console=ttyS0 autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=none apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp ---
     initrd /casper/initrd
 }
 

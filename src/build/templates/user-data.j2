@@ -575,12 +575,13 @@ autoinstall:
       mkdir -p /target/etc/modprobe.d
       echo "blacklist pcie_mp2_amd" > /target/etc/modprobe.d/gdc-blacklist.conf
       echo "blacklist amd_sfh" >> /target/etc/modprobe.d/gdc-blacklist.conf
+      echo "blacklist ccp" >> /target/etc/modprobe.d/gdc-blacklist.conf
       logger -t gdc-provisioner "[GOAL] Kernel module blacklist deployed successfully"
       
       logger -t gdc-provisioner "[GOAL] Deploying kernel module blacklist to target GRUB configuration"
       if [ -f /target/etc/default/grub ]; then
         # Remove quiet splash and replace with extreme verbose, debug, and serial redirects
-        sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=".*"/GRUB_CMDLINE_LINUX_DEFAULT="console=tty1 console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 systemd.log_level=debug systemd.log_target=console rd.debug rd.shell modprobe.blacklist=pcie_mp2_amd,amd_sfh"/g' /target/etc/default/grub
+        sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=".*"/GRUB_CMDLINE_LINUX_DEFAULT="console=tty1 console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 systemd.log_level=debug systemd.log_target=console rd.debug rd.shell tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp"/g' /target/etc/default/grub
         # Enable GRUB boot menu interaction over serial console
         echo 'GRUB_TERMINAL="console serial"' >> /target/etc/default/grub
         echo 'GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"' >> /target/etc/default/grub

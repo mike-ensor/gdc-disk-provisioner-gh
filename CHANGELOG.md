@@ -4,9 +4,11 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
-## [0.1.116] - 2026-07-21
+## [0.1.117] - 2026-07-21
 
 ### Added
+- **Polling-Mode fTPM & CCP Blacklist:** Appended `tpm_tis.interrupts=0` to GRUB to force safe polling mode and bypass buggy fTPM hardware ACPI interrupts on Zen 4 platforms, and blacklisted the AMD Cryptographic Coprocessor (`ccp`) driver to prevent concurrent write collisions on the PSP bus.
+- **Extended Stability Checks (30s):** Extended Bootimus's stability-verification loop to 6 consecutive successful checks (30 seconds duration) to guarantee configurations are secured from Synology background sync clobbering.
 - **Target-Side TPM 2.0 Unsealing Integration:** Programmed a native Ansible task in our `security_hardening` playbook role that deploys a custom `gdc-tpm2` initramfs-tools hook, copying systemd-tpm2 tokens and exact 24.04-native TSS2 dynamic libraries into the target OS boot ramdisk to support secure, automatic unlocking on reboot.
 - **Path-Agnostic Deletion & Verification Hook (`zz-gdc-blacklist`):** Engineered a standard `initramfs-tools` hook that searches for blacklisted fTPM-deadlocking drivers (`amd_sfh` and `pcie_mp2_amd`) across legacy `/lib/` and UsrMerged `/usr/lib/` staging paths using a path-agnostic `find` command.
 - **Strict Count-and-Abort Gate:** The new `zz-gdc-blacklist` hook dynamically counts matching driver files before pruning, deletes them, and asserts that the remaining count is exactly `0`, failing immediately if any blacklisted files persist to prevent quiet-room regressions.

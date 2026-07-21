@@ -117,3 +117,20 @@ timeout 3 sh -c 'echo "GDC_BOOTSTRAP_COMPLETE_SUCCESSFULLY" > /dev/ttyS0' || tru
 ```
 
 Operators can monitor `/var/log/gdc-ansible-pull.log` and `journalctl -u gdc-provision` to trace detailed step-by-step progress post-boot.
+
+---
+
+## 6. AMD fTPM / PSP Interrupt Deadlock Mitigation
+
+AMD Ryzen Zen 4 (AM5) platforms suffer from a critical, low-level motherboard firmware bug where the ACPI tables incorrectly advertise hardware interrupt support for the Firmware TPM (fTPM / Platform Security Processor). 
+
+### The Deadlock Mechanism
+1. During early boot, the kernel loads the `tpm_tis` driver, which attempts to bind to the ACPI-declared fTPM interrupt lines.
+2. Because the fTPM/PSP chipset fails to route these interrupts correctly, the CPU cores are instantly flooded with an unhandled, infinite interrupt storm, deadlocking the PCIe bus and freezing the system right as it transitions to the High-Resolution Time Stamp Counter (`tsc`) clocksource.
+3. This is exacerbated during the **Second Reboot** when the temporary keyfile `/etc/keys/temp_key.key` is erased, forcing `initramfs-tools` to initialize the physical TPM in early kernel-space to unseal the LUKS keys.
+
+### The Resolution
+To permanently prevent early-boot deadlocks on AMD hardware, we enforce polling-only TPM access and disable secure coprocessor driver competition:
+* **`tpm_tis.interrupts=0`:** Appended to the GRUB kernel command-line. This forces the TPM driver to bypass hardware interrupt lines and operate in safe, high-performance polling mode.
+* **`blacklist ccp`:** The AMD Cryptographic Coprocessor (`ccp`) driver is blacklisted in both GRUB and `/etc/modprobe.d/gdc-blacklist.conf`. This prevents driver conflicts on the PSP cryptographic bus.
+* **`blacklist pcie_mp2_amd` and `blacklist amd_sfh`:** Blacklisted to prevent AMD Sensor Fusion Hub bus crashes.
