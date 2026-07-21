@@ -224,60 +224,34 @@
     - tpm_device_stat.stat.exists
     - (cryptenroll_uefi_result is succeeded and not cryptenroll_uefi_result.skipped | default(false)) or (cryptenroll_bios_result is succeeded and not cryptenroll_bios_result.skipped | default(false))
 
-- name: "GDC-TPM-SEAL | Ensure TPM 2.0 drivers are not explicitly loaded in modules to prevent AMD PSP lockups"
-  ansible.builtin.lineinfile:
-    path: /etc/initramfs-tools/modules
-    line: "{{ item }}"
-    state: absent
-  loop:
-    - "tpm"
-    - "tpm_tis"
-    - "tpm_crb"
-  register: tpm_modules_configured
+- name: "GDC-TPM-SEAL | Deploy persistent dracut config to omit deadlock drivers"
+  ansible.builtin.copy:
+    dest: /etc/dracut.conf.d/gdc.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Persistent GDC Dracut configuration
+      # Surgically prune blacklisted AMD deadlock drivers from target OS initramfs
+      omit_drivers+=" pcie_mp2_amd amd_sfh "
+  register: dracut_gdc_configured
   when: tpm_device_stat.stat.exists
 
-- name: "GDC-TPM-SEAL | Deploy custom initramfs-tools hook to copy TPM 2.0 and TSS2 libraries"
-  ansible.builtin.copy:
-    dest: /etc/initramfs-tools/hooks/gdc-tpm2
-    mode: '0755'
-    content: |
-      #!/bin/sh
-      PREREQ=""
-      prereqs() {
-          echo "$PREREQ"
-      }
-      case "$1" in
-          prereqs)
-              prereqs
-              exit 0
-              ;;
-      esac
+- name: "GDC-TPM-SEAL | Purge conflicting or legacy initramfs-tools hooks on target OS"
+  ansible.builtin.file:
+    path: "/etc/initramfs-tools/hooks/{{ item }}"
+    state: absent
+  loop:
+    - "gdc-tpm2"
+    - "zz-gdc-blacklist"
+  when: tpm_device_stat.stat.exists
 
-      . /usr/share/initramfs-tools/hook-functions
-
-      # Copy systemd-tpm2 cryptsetup token plugin
-      copy_exec /usr/lib/x86_64-linux-gnu/cryptsetup/libcryptsetup-token-systemd-tpm2.so
-
-      # Copy systemd shared library
-      copy_exec /usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so
-
-      # Copy TSS2 software stack libraries
-      copy_exec /usr/lib/x86_64-linux-gnu/libtss2-esys.so.0
-      copy_exec /usr/lib/x86_64-linux-gnu/libtss2-mu.so.0
-      copy_exec /usr/lib/x86_64-linux-gnu/libtss2-rc.so.0
-      copy_exec /usr/lib/x86_64-linux-gnu/libtss2-sys.so.1
-      copy_exec /usr/lib/x86_64-linux-gnu/libtss2-tctildr.so.0
-      copy_exec /usr/lib/x86_64-linux-gnu/libtss2-tcti-device.so.0
-  register: gdc_tpm2_hook_configured
+- name: "GDC-TPM-SEAL | Rebuild initramfs using dracut to pack active TPM unlock hooks"
+  ansible.builtin.command: dracut -f /boot/initrd.img-{{ ansible_kernel }} {{ ansible_kernel }}
+  register: dracut_rebuild_result
   when:
     - tpm_device_stat.stat.exists
-    - (cryptenroll_uefi_result is succeeded and not cryptenroll_uefi_result.skipped | default(false)) or (cryptenroll_bios_result is succeeded and not cryptenroll_bios_result.skipped | default(false))
-
-- name: "GDC-TPM-SEAL | Rebuild initramfs to pack active TPM unlock hooks"
-  ansible.builtin.command: update-initramfs -u -k all
-  when:
-    - tpm_device_stat.stat.exists
-    - (crypttab_reconfigured is defined and crypttab_reconfigured.changed) or (cryptenroll_hook_configured is defined and cryptenroll_hook_configured.changed) or (tpm_modules_configured is defined and tpm_modules_configured.changed) or (gdc_tpm2_hook_configured is defined and gdc_tpm2_hook_configured.changed)
+    - (crypttab_reconfigured is defined and crypttab_reconfigured.changed) or (cryptenroll_hook_configured is defined and cryptenroll_hook_configured.changed) or (dracut_gdc_configured is defined and dracut_gdc_configured.changed)
 
 - name: "GDC-TPM-SEAL | Purge insecure temporary passcode slot from LUKS keyslots"
   ansible.builtin.shell: |

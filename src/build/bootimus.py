@@ -139,7 +139,7 @@ def auto_heal_boot_params(token):
                 has_correct_params = (
                     "autoinstall" in boot_params and 
                     "ds=nocloud-net" in boot_params and
-                    "modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp" in boot_params and
+                    "modprobe.blacklist=pcie_mp2_amd,amd_sfh" in boot_params and
                     "tpm_tis.interrupts=0" in boot_params and
                     "apparmor=0" in boot_params and
                     "console=tty1 console=ttyS0" in boot_params
@@ -157,7 +157,7 @@ def auto_heal_boot_params(token):
                         f"url={iso_url} "
                         f"root=/dev/ram0 ramdisk_size=4500000 autoinstall "
                         f"apparmor=0 console=tty1 console=ttyS0 "
-                        f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp "
+                        f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh "
                         f"ds=nocloud-net;s={seed_url}"
                     )
                     
@@ -456,7 +456,7 @@ def main():
         f"url={iso_url} "
         f"root=/dev/ram0 ramdisk_size=4500000 autoinstall "
         f"apparmor=0 console=tty1 console=ttyS0 "
-        f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp "
+        f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh "
         f"ds=nocloud-net;s={seed_url}"
     )
     

@@ -30,10 +30,9 @@
     group: root
     mode: '0644'
     content: |
-      # Blacklist AMD Sensor Fusion Hub and CCP cryptographic coprocessor drivers to prevent firmware/TPM conflicts and system freezes on AMD platforms
+      # Blacklist AMD Sensor Fusion Hub drivers to prevent firmware/TPM conflicts and system freezes on AMD platforms
       blacklist pcie_mp2_amd
       blacklist amd_sfh
-      blacklist ccp
   register: blacklist_deploy
   tags: ["strictly-local"]
 

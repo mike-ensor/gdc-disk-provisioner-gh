@@ -557,8 +557,8 @@ class TestGgdTemplateHydration(unittest.TestCase):
         playbook_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/security_hardening/tasks/main.yml")
         with open(playbook_path, "r") as f:
             content = f.read()
-            self.assertIn("tpm_tis", content, "Ansible security_hardening tasks must include tpm_tis module in initramfs")
-            self.assertIn("tpm_crb", content, "Ansible security_hardening tasks must include tpm_crb module in initramfs")
+            self.assertIn("dracut", content, "Ansible security_hardening tasks must include dracut rebuilding")
+            self.assertIn("dracut.conf.d/gdc.conf", content, "Ansible security_hardening tasks must deploy gdc.conf dracut file")
 
     @mock.patch('shutil.which')
     @mock.patch('subprocess.run')
