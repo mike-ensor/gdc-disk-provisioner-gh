@@ -130,7 +130,8 @@ AMD Ryzen Zen 4 (AM5) platforms suffer from a critical, low-level motherboard fi
 3. This is exacerbated during the **Second Reboot** when the temporary keyfile `/etc/keys/temp_key.key` is erased, forcing `initramfs-tools` to initialize the physical TPM in early kernel-space to unseal the LUKS keys.
 
 ### The Resolution
-To permanently prevent early-boot deadlocks on AMD hardware, we enforce polling-only TPM access and disable secure coprocessor driver competition:
-* **`tpm_tis.interrupts=0`:** Appended to the GRUB kernel command-line. This forces the TPM driver to bypass hardware interrupt lines and operate in safe, high-performance polling mode.
-* **`blacklist ccp`:** The AMD Cryptographic Coprocessor (`ccp`) driver is blacklisted in both GRUB and `/etc/modprobe.d/gdc-blacklist.conf`. This prevents driver conflicts on the PSP cryptographic bus.
+To permanently prevent early-boot deadlocks on AMD hardware, we enforce polling-only TPM access and maintain core CPU driver dependencies:
+* **`tpm_tis.interrupts=0`:** Appended to the GRUB kernel command-line. This forces the built-in TPM driver to bypass hardware interrupt lines and operate in safe, high-performance polling mode.
+* **Keep `ccp` Enabled:** The AMD Cryptographic Coprocessor (`ccp`) driver is critical for CPU power management and clock transitions on Zen 4. It **must not** be blacklisted, as doing so freezes the CPU at `1.6s`.
+* **Standard Console Routing:** We use standard `console=ttyS0,115200` and avoid `earlycon` or legacy `earlyprintk` which trigger silent console handover hangs right after `hid_generic_init`.
 * **`blacklist pcie_mp2_amd` and `blacklist amd_sfh`:** Blacklisted to prevent AMD Sensor Fusion Hub bus crashes.
