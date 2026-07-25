@@ -108,10 +108,8 @@ gdc_gcloud_components:
 # Enforce system-wide UTC Timezone
 gdc_system_timezone: "Etc/UTC"
 
-# PCR registers to seal LUKS decryption keys to.
-# Defaults to empty "" (sealing strictly to physical motherboard TPM chip) for 100% boot stability.
-# For high-security environments where Secure Boot is active, override with "0+7".
-gdc_tpm_pcrs: ""
+# PCR registers to seal LUKS decryption keys to (PCR 0 = BIOS firmware, PCR 7 = Secure Boot state).
+gdc_tpm_pcrs: "0+7"
 
 # Service Update Scripts to deploy to /var/gdc-install/scripts/
 gdc_service_update_scripts:

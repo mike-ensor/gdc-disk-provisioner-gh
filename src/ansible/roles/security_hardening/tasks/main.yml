@@ -179,9 +179,9 @@
     path: /sys/firmware/efi
   register: efi_sys_stat
 
-- name: "GDC-TPM-SEAL | Seal LUKS Master Key to TPM 2.0 PCR registers ({{ gdc_tpm_pcrs | default('0+7') }}) in UEFI mode"
+- name: "GDC-TPM-SEAL | Seal LUKS Master Key to TPM 2.0 PCR registers ({{ gdc_tpm_pcrs | default('0+7', true) }}) in UEFI mode"
   ansible.builtin.shell: |
-    systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs={{ gdc_tpm_pcrs | default('') }} --unlock-key-file=/etc/keys/temp_key.key {{ item }}
+    systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs={{ gdc_tpm_pcrs | default('0+7', true) }} --unlock-key-file=/etc/keys/temp_key.key {{ item }}
   environment:
     TCTI: "device:/dev/tpmrm0"
   loop: "{{ luks_partition_devices.stdout_lines }}"

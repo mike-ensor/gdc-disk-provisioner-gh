@@ -374,15 +374,28 @@ if [[ -f "${GRUB_CFG}" ]]; then
 set timeout=5
 set default=0
 
-menuentry "Google Distributed Cloud (GDC) Automated Bootstrap" {
+serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1
+terminal_input console serial
+terminal_output console serial
+
+menuentry "Google Distributed Cloud (GDC) Automated Installer [Default]" {
     set gfxpayload=keep
-    linux /casper/vmlinuz console=tty1 console=ttyS0 autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=dhcp apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp ---
+    echo "Booting GDC Unattended Installer..."
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=dhcp apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh ---
     initrd /casper/initrd
 }
 
-menuentry "Ubuntu Server Standard Install" {
+menuentry "GDC Interactive Subiquity Installer (Manual Step-by-Step)" {
     set gfxpayload=keep
-    linux /casper/vmlinuz console=tty1 console=ttyS0 ---
+    echo "Booting GDC Interactive Installer..."
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh ---
+    initrd /casper/initrd
+}
+
+menuentry "GDC Manual Rescue Shell (Interactive Terminal)" {
+    set gfxpayload=keep
+    echo "Booting GDC Manual Rescue Shell..."
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh init=/bin/sh ---
     initrd /casper/initrd
 }
 EOF

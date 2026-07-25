@@ -47,26 +47,38 @@ def get_bootimus_credentials():
         print("[!] Please export BOOTIMUS_USER and BOOTIMUS_PASS in your environment.")
         sys.exit(1)
 
-def api_request(url, method="GET", data=None, token=None):
-    """Utility wrapper to perform HTTP API requests using urllib standard library."""
-    req = urllib.request.Request(url, method=method)
-    if token:
-        req.add_header("Authorization", f"Bearer {token}")
-        
+def api_request(url, method="GET", data=None, token=None, retries=5, retry_delay=5):
+    """Utility wrapper to perform HTTP API requests with automatic network retry for intermittent connectivity."""
     encoded_data = None
     if data is not None:
-        req.add_header("Content-Type", "application/json")
         encoded_data = json.dumps(data).encode("utf-8")
         
-    try:
-        with urllib.request.urlopen(req, data=encoded_data, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        print(f"[!] HTTP Error: {e.code} - {e.read().decode('utf-8')}")
-        raise
-    except Exception as e:
-        print(f"[!] Request Error: {e}")
-        raise
+    for attempt in range(1, retries + 1):
+        req = urllib.request.Request(url, method=method)
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        if data is not None:
+            req.add_header("Content-Type", "application/json")
+            
+        try:
+            with urllib.request.urlopen(req, data=encoded_data, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            # 4xx client errors (except 429) usually shouldn't be blindly retried unless it's a 408/429/5xx
+            if e.code in (408, 429) or e.code >= 500:
+                print(f"[!] HTTP Error {e.code} on attempt {attempt}/{retries}. Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+            else:
+                print(f"[!] HTTP Error: {e.code} - {e.read().decode('utf-8')}")
+                raise
+        except Exception as e:
+            if attempt < retries:
+                print(f"[!] Request Error on attempt {attempt}/{retries} ({e}). Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+            else:
+                print(f"[!] Request Error: {e} (all {retries} attempts failed)")
+                raise
+    raise RuntimeError(f"[!] Request to {url} failed after all {retries} retry attempts.")
 
 def print_tree(grouped_images, group_filter=None):
     """Renders grouped images in a beautiful Unicode tree format."""
