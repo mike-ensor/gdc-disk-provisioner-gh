@@ -4,6 +4,12 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.1.123] - 2026-07-24
+
+### Fixed
+- **Live CD `Filesystem/_probe` Probing Deadlock:** Restored `ccp` to `modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp` on the Live CD boot parameters (`bootimus.py`, `render_templates.py`, `remaster.sh`). Bypasses AMD PSP hardware bus lockups when Subiquity scans existing encrypted LUKS sectors during filesystem probing.
+- **In-Flight Network Resiliency:** Upgraded `src/build/bootimus.py`'s `api_request` method with a 5-attempt retry loop and exponential backoff to handle intermittent network connection drops.
+
 ## [0.1.119] - 2026-07-21
 
 ### Added

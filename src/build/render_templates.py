@@ -126,21 +126,21 @@ terminal_output console serial
 menuentry "Google Distributed Cloud (GDC) Automated Installer [Default]" {
     set gfxpayload=keep
     echo "Booting GDC Unattended Installer..."
-    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=dhcp apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh ---
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=dhcp apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp ---
     initrd /casper/initrd
 }
 
 menuentry "GDC Interactive Subiquity Installer (Manual Step-by-Step)" {
     set gfxpayload=keep
     echo "Booting GDC Interactive Installer..."
-    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh ---
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp ---
     initrd /casper/initrd
 }
 
 menuentry "GDC Manual Rescue Shell (Interactive Terminal)" {
     set gfxpayload=keep
     echo "Booting GDC Manual Rescue Shell..."
-    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh init=/bin/sh ---
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp init=/bin/sh ---
     initrd /casper/initrd
 }
 """
