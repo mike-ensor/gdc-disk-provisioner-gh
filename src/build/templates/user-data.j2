@@ -15,6 +15,7 @@ autoinstall:
   reboot: true
   apt:
     fallback: offline-install
+    disable_suites: [noble-updates, noble-backports, noble-security]
     unattended-upgrades:
       enabled: false
     preserve_sources_list: false
@@ -46,11 +47,6 @@ autoinstall:
     authorized-keys:
       - "{{ ssh_pub_key }}"
     {% endif %}
-  reporting:
-    gdc-gateway:
-      type: webhook
-      endpoint: {{ companion_url }}/public?client_cert_cn=gdc-provision-{{ ISO_VERSION }}
-      level: info
   early-commands:
     - |
       # [GDC-INSTALL-STEP 1/12] Deactivating default public sources & preparing bootstrap keys...

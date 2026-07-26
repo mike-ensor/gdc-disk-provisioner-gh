@@ -4,6 +4,12 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.1.124] - 2026-07-25
+
+### Fixed
+- **Subiquity Webhook Reporting Lockup:** Removed the blocking native `reporting:` webhook configuration from `user-data.j2`. Bypasses Subiquity's synchronous socket wait on HTTP keep-alive connections that previously froze Subiquity after `Filesystem/_probe`.
+- **APT `file:///cdrom/` Missing Suites Fix:** Configured `disable_suites: [noble-updates, noble-backports, noble-security]` under `apt:` in `user-data.j2` to prevent APT 404 retry loops when fetching package lists from offline ISO media.
+
 ## [0.1.123] - 2026-07-24
 
 ### Fixed
