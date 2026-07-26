@@ -235,6 +235,9 @@
       # Surgically prune blacklisted AMD deadlock drivers from target OS initramfs
       # (ccp is omitted to prevent AMD PSP hardware deadlocks during early-boot LUKS unlocking)
       omit_drivers+=" pcie_mp2_amd amd_sfh ccp "
+      
+      # Forcefully pack logical volume and crypt hooks (fixes NVMe-blind boot loops)
+      add_dracutmodules+=" crypt lvm "
   register: dracut_gdc_configured
   when: tpm_device_stat.stat.exists
 
