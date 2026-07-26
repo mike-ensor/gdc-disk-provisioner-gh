@@ -41,6 +41,8 @@ packages_to_include:
     - "libtss2-tcti-device0t64"
     - "cryptsetup"
     - "cryptsetup-initramfs"
+    - "dracut"
+    - "dracut-core"
     - "unattended-upgrades"
 
   # Optional packages specified by the customer/operator for target environments
