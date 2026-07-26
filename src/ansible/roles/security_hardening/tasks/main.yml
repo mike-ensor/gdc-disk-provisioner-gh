@@ -233,7 +233,8 @@
     content: |
       # Persistent GDC Dracut configuration
       # Surgically prune blacklisted AMD deadlock drivers from target OS initramfs
-      omit_drivers+=" pcie_mp2_amd amd_sfh "
+      # (ccp is omitted to prevent AMD PSP hardware deadlocks during early-boot LUKS unlocking)
+      omit_drivers+=" pcie_mp2_amd amd_sfh ccp "
   register: dracut_gdc_configured
   when: tpm_device_stat.stat.exists
 
