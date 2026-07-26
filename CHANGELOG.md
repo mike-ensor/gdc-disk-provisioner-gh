@@ -4,6 +4,12 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.1.125] - 2026-07-26
+
+### Fixed
+- **Subiquity APT CD-ROM Mirror Verification (`suites: [noble]`):** Fixed an `apt-get update` exit status 100 crash during `configure_apt` by explicitly defining `suites: [noble]` under `primary:` and `security:` in `user-data.j2`. Prevents APT from searching for non-existent `noble-updates` and `noble-backports` Release files on single-release CD-ROM media.
+- **QEMU E2E Test Suite Versioning:** Updated `test/run_qemu_e2e.sh` to dynamically read `VERSION` and pass active release parameters when invoking local test ISO compilations.
+
 ## [0.1.124] - 2026-07-25
 
 ### Fixed

@@ -15,16 +15,17 @@ autoinstall:
   reboot: true
   apt:
     fallback: offline-install
-    disable_suites: [noble-updates, noble-backports, noble-security]
     unattended-upgrades:
       enabled: false
     preserve_sources_list: false
     primary:
       - arches: [default]
         uri: "file:///cdrom/"
+        suites: [noble]
     security:
       - arches: [default]
         uri: "file:///cdrom/"
+        suites: [noble]
   storage:
 {{ storage_config }}
   identity:

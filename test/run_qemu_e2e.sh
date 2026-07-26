@@ -60,10 +60,13 @@ echo "==========================================================================
 echo "GDC Bootloader ISO Headless E2E Boot Tester & Validator"
 echo "=============================================================================="
 
+# Read ISO_VERSION from VERSION file if present
+ISO_VER=$(cat "${PROJECT_ROOT}/VERSION" 2>/dev/null || echo "0.1.124")
+
 # Force hydration and assembly with non-zero VLAN and dual-VRF configuration for the E2E test
 if [[ "${REUSE_DISKS}" = "false" ]]; then
-    echo "[-] Compiling test ISO with Dual-VRF parameters (VLAN 109)..."
-    ADMIN_SSH_PUB_KEYS="${TEST_PUB_KEY}" COMPANION_IP=192.168.120.2 COMPANION_HOST=gdc-companion.ensor-labs.com INSTALL_COMPANION_URL=http://gdc-companion.ensor-labs.com:8080/v1/install-logs MACHINE_VLAN_ID=0 K8S_VLAN_ID=109 K8S_IP_CIDR=192.168.109.10/24 K8S_GATEWAY=192.168.109.1 SINGLE_DISK=false DISK1=vda DISK2=vdb BOOT_MODE=bios DISABLE_SSH_DNS="${DISABLE_SSH_DNS}" make -C "${PROJECT_ROOT}/src/build" hydrate assemble
+    echo "[-] Compiling test ISO with Dual-VRF parameters (VLAN 109, ISO Version: ${ISO_VER})..."
+    ISO_VERSION="${ISO_VER}" ADMIN_SSH_PUB_KEYS="${TEST_PUB_KEY}" COMPANION_IP=192.168.120.2 COMPANION_HOST=gdc-companion.ensor-labs.com INSTALL_COMPANION_URL=http://gdc-companion.ensor-labs.com:8080/v1/install-logs MACHINE_VLAN_ID=0 K8S_VLAN_ID=109 K8S_IP_CIDR=192.168.109.10/24 K8S_GATEWAY=192.168.109.1 SINGLE_DISK=false DISK1=vda DISK2=vdb BOOT_MODE=bios DISABLE_SSH_DNS="${DISABLE_SSH_DNS}" make -C "${PROJECT_ROOT}/src/build" hydrate assemble
 fi
 
 # 1. Locate generated ISO
@@ -443,7 +446,50 @@ else
     exit 1
 fi
 
+# ==============================================================================
+# 6. Second Reboot & Passwordless TPM Unseal Verification
+# ==============================================================================
 echo "=============================================================================="
-echo "[+] SUCCESS: Headless E2E Boot and SSH validation suite passed completely!"
+echo "[-] Initiating Step 6: Second Reboot & Passwordless TPM Unsealing Test..."
+echo "=============================================================================="
+
+# Issue reboot command over SSH
+echo "[-] Triggering 'sudo reboot' on guest OS..."
+ssh ${SSH_OPTS} -i "${SSH_KEY_PATH}" temporary-installer@127.0.0.1 "echo troubled-marble-150 | sudo -S reboot" &>/dev/null || true
+
+# Wait for SSH socket to close
+echo "[-] Waiting for SSH socket to close on reboot..."
+sleep 5
+
+# Poll SSH port 2222 for guest OS to return online after passwordless TPM unseal
+echo "[-] Polling for guest OS to auto-unseal via TPM 2.0 and return online..."
+REBOOT_SUCCESS=false
+for i in {1..24}; do
+    sleep 5
+    if ssh ${SSH_OPTS} -i "${SSH_KEY_PATH}" temporary-installer@127.0.0.1 "echo '[x] Second boot online!'" &>/dev/null; then
+        echo "  [x] SUCCESS: Guest OS auto-unsealed via TPM 2.0 and returned online after $((i * 5))s!"
+        REBOOT_SUCCESS=true
+        break
+    fi
+    echo "  [-] Waiting for second boot unseal... ($((i * 5))s elapsed)"
+done
+
+if [[ "${REBOOT_SUCCESS}" = "false" ]]; then
+    echo "  [!] CRITICAL ERROR: Guest OS failed to auto-unseal via TPM 2.0 on second reboot!" >&2
+    exit 1
+fi
+
+# Verify LUKS volume state on second boot
+echo "[-] Auditing second boot cryptsetup state..."
+CRYPT_STATUS=$(ssh ${SSH_OPTS} -i "${SSH_KEY_PATH}" temporary-installer@127.0.0.1 "echo troubled-marble-150 | sudo -S cryptsetup status crypt-system" 2>/dev/null || echo "")
+if echo "${CRYPT_STATUS}" | grep -q "is active"; then
+    echo "  [x] Verified: Volume 'crypt-system' is active and unlocked via TPM 2.0!"
+else
+    echo "  [!] CRITICAL ERROR: LUKS volume 'crypt-system' is not active on second boot!" >&2
+    exit 1
+fi
+
+echo "=============================================================================="
+echo "[+] SUCCESS: Complete End-to-End Test (LiveCD -> First Boot -> Ansible -> Second Boot -> TPM Unseal) PASSED 100%!"
 echo "=============================================================================="
 exit 0
