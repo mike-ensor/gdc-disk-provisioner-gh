@@ -248,7 +248,7 @@
   when: tpm_device_stat.stat.exists
 
 - name: "GDC-TPM-SEAL | Rebuild initramfs using dracut to pack active TPM unlock hooks"
-  ansible.builtin.command: dracut -f /boot/initrd.img-{{ ansible_kernel }} {{ ansible_kernel }}
+  ansible.builtin.command: dracut -f --add "tpm2-tss" --add-drivers "tpm tpm_tis tpm_crb tpm_tis_core" /boot/initrd.img-{{ ansible_kernel }} {{ ansible_kernel }}
   register: dracut_rebuild_result
   when:
     - tpm_device_stat.stat.exists
