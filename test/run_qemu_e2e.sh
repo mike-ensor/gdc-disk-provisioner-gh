@@ -155,12 +155,6 @@ if [[ "${REUSE_DISKS}" = "false" ]]; then
 fi
 rm -f "${SERIAL_LOG}"
 
-# Start local GDC Installation Companion on host in background
-echo "[-] Starting local GDC Installation Companion on host (port 8080)..."
-python3 "${PROJECT_ROOT}/src/build/install_companion.py" &
-COMPANION_PID=$!
-sleep 2
-
 # Define dynamic unique TPM directory path to prevent parallel run collisions
 TPM_TEMP_DIR=""
 SWTPM_PID=""
@@ -230,10 +224,6 @@ cleanup() {
     # Kill swtpm
     if [[ -n "${SWTPM_PID:-}" ]]; then
         kill "${SWTPM_PID}" &>/dev/null || true
-    fi
-    # Kill background installation companion
-    if [[ -n "${COMPANION_PID:-}" ]]; then
-        kill "${COMPANION_PID}" &>/dev/null || true
     fi
     # Only delete virtual disks on success to preserve them for diagnostics on failure
     if [[ "${SUCCESS:-false}" = "true" ]]; then

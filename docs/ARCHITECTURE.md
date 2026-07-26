@@ -35,7 +35,7 @@ sequenceDiagram
 
     box rgb(64, 43, 11) Stage 4: Bare-Metal Provision (Node Boot)
         participant Node as Physical Node
-        participant Comp as install_companion.py
+        participant Comp as External Telemetry
     end
 
     %% --- STAGE 1 ---
