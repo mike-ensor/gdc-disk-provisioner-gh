@@ -24,19 +24,45 @@ To ensure 100% syntactical correctness and prevent indentation drift, all raw co
 
 The template engine handles variables safely using native Python yaml serialization rather than raw text matching.
 
-### 2.1. GRUB Boot Configuration (`/boot/grub/grub.cfg`)
-To boot and install in fully automated, headless environments, the ISO GRUB configuration forces an autoinstall target pointing to the local NoCloud datasource `/cdrom/nocloud/`. Network checks are ignored by using a DHCP default fallback.
+### 2.1. GRUB Bootloader & Kernel Command-Line Syntax Matrix (`/boot/grub/grub.cfg`)
+To boot and install in fully automated or interactive environments, the Live CD GRUB bootloader presents three options with a 5-second timeout on both VGA and Serial (`ttyS0`) consoles:
 
-```text
+```grub
 set timeout=5
 set default=0
 
-menuentry "Google Distributed Cloud (GDC) Automated Unattended Bootstrap" {
+serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1
+terminal_input console serial
+terminal_output console serial
+
+menuentry "Google Distributed Cloud (GDC) Automated Installer [Default]" {
     set gfxpayload=keep
-    linux /casper/vmlinuz quiet autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=none ---
+    echo "Booting GDC Unattended Installer..."
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=dhcp apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp ---
+    initrd /casper/initrd
+}
+
+menuentry "GDC Interactive Subiquity Installer (Manual Step-by-Step)" {
+    set gfxpayload=keep
+    echo "Booting GDC Interactive Installer..."
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp ---
+    initrd /casper/initrd
+}
+
+menuentry "GDC Manual Rescue Shell (Interactive Terminal)" {
+    set gfxpayload=keep
+    echo "Booting GDC Manual Rescue Shell..."
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp init=/bin/sh ---
     initrd /casper/initrd
 }
 ```
+
+#### **GRUB Kernel Parameter Syntax Matrix**
+
+| Environment | Primary Purpose | Mandatory Parameters | Module Blacklist (`modprobe.blacklist=...`) | Hardware Rationale |
+| :--- | :--- | :--- | :--- | :--- |
+| **Live CD (Installer / PXE)** | Unattended installation & disk partitioning | `console=tty1 console=ttyS0,115200 autoinstall apparmor=0 tpm_tis.interrupts=0` | `pcie_mp2_amd,amd_sfh,ccp` | Blacklists `ccp` during `Filesystem/_probe` to prevent PSP bus deadlocks when Subiquity scans existing encrypted LUKS drives. |
+| **Installed Target OS** | Production Ready-Linux & TPM unsealing | `console=tty1 console=ttyS0,115200 systemd.log_level=debug rd.debug rd.shell tpm_tis.interrupts=0` | `pcie_mp2_amd,amd_sfh` *(Note: `ccp` ENABLED)* | Re-enables `ccp` so the AMD Secure Processor can manage CPU power/clock transitions without hanging at `1.6s`. |
 
 ---
 

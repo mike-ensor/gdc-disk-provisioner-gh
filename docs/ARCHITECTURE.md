@@ -103,6 +103,13 @@ The GDC deployment enforces a clean separation between two states:
 ### Automated Drift Management
 To prevent runtime configuration skew, the installer registers and starts a standard `gdc-provision.timer` systemd unit. Daily at the specified schedule (configured via `ANSIBLE_PULL_SCHEDULE`), this timer triggers `ansible-pull` to query the local Gitea instance and align the physical server with the declared git-state.
 
+### AMD Zen 4 Bare-Metal Silicon & Firmware Compatibility Specification
+Physical bare-metal deployments on AMD Ryzen Zen 4 (AM5) chipsets mandate dual-context kernel parameter separation to bypass low-level firmware deadlocks:
+1. **Live CD Environment (Installation Phase):** `modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp` is enforced. Blacklisting the AMD Cryptographic Coprocessor (`ccp`) on the Live CD prevents Subiquity's `Filesystem/_probe` task from deadlocking the Platform Security Processor (PSP) bus when scanning raw NVMe sectors for pre-existing LUKS containers.
+2. **Installed Target OS Environment (Production Phase):** `/target/etc/default/grub` is configured without `ccp` in the blacklist, allowing the AMD Secure Processor to initialize CPU power and clock scaling states cleanly without hanging at `1.6s`.
+3. **fTPM Hardware Interrupt Bypassing:** Both environments append `tpm_tis.interrupts=0` to the kernel command-line, forcing the built-in TPM driver to run in polling-only mode and bypassing the ACPI hardware interrupt storm bug present on AMD AM5 motherboards.
+4. **Target-Side Systemd Ramdisk (`dracut`):** Because Ubuntu 24.04 noble removed `systemd-initramfs`, the installed target OS uses `dracut` to compile a 65MB hostonly systemd initrd, natively packaging `systemd-cryptsetup` and `systemd-cryptenroll` for passwordless TPM 2.0 PCR `0+7` volume unsealing.
+
 ### CI/CD Pipeline & Base ISO Caching
 * **Cloud Build Integration:** The entire ISO remastering and compilation process is fully automated and runs within a **Google Cloud Build** CI/CD pipeline.
 * **Base ISO GCS Caching:** To prevent unnecessary external network requests and guarantee high-speed, deterministic compilation, the "blessed" official Ubuntu 24.04 LTS Base ISO is cached inside a secure Google Cloud Storage (GCS) bucket. The Cloud Build pipeline fetches this cached base ISO directly from GCS into the workspace prior to starting the `remaster.sh` execution.
