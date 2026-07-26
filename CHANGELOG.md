@@ -10,13 +10,13 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 - **Subiquity APT CD-ROM Mirror Verification (`suites: [noble]`):** Fixed an `apt-get update` exit status 100 crash during `configure_apt` by explicitly defining `suites: [noble]` under `primary:` and `security:` in `user-data.j2`. Prevents APT from searching for non-existent `noble-updates` and `noble-backports` Release files on single-release CD-ROM media.
 - **QEMU E2E Test Suite Versioning:** Updated `test/run_qemu_e2e.sh` to dynamically read `VERSION` and pass active release parameters when invoking local test ISO compilations.
 
-## [0.1.124] - 2026-07-25
+## [0.1.124] - 2026-07-25 [FAILED]
 
 ### Fixed
 - **Subiquity Webhook Reporting Lockup:** Removed the blocking native `reporting:` webhook configuration from `user-data.j2`. Bypasses Subiquity's synchronous socket wait on HTTP keep-alive connections that previously froze Subiquity after `Filesystem/_probe`.
 - **APT `file:///cdrom/` Missing Suites Fix:** Configured `disable_suites: [noble-updates, noble-backports, noble-security]` under `apt:` in `user-data.j2` to prevent APT 404 retry loops when fetching package lists from offline ISO media.
 
-## [0.1.123] - 2026-07-24
+## [0.1.123] - 2026-07-24 [FAILED]
 
 ### Fixed
 - **Live CD `Filesystem/_probe` Probing Deadlock:** Restored `ccp` to `modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp` on the Live CD boot parameters (`bootimus.py`, `render_templates.py`, `remaster.sh`). Bypasses AMD PSP hardware bus lockups when Subiquity scans existing encrypted LUKS sectors during filesystem probing.
