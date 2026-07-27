@@ -43,6 +43,27 @@
   when: blacklist_deploy.changed
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-07 | Deploy persistent networking kernel modules for Kubernetes (nf_tables, br_netfilter)"
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/gdc-networking.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Required by Google Distributed Cloud Node Requirements
+      nf_tables
+      br_netfilter
+  register: kmod_deploy
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-07 | Load networking kernel modules immediately"
+  ansible.builtin.command: modprobe {{ item }}
+  loop:
+    - nf_tables
+    - br_netfilter
+  when: kmod_deploy.changed
+  tags: ["strictly-local"]
+
 # --------------------------------------------------------------------------
 # Task 08: NTP Alignment & Timezone
 # --------------------------------------------------------------------------

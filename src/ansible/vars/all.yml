@@ -35,6 +35,7 @@ gdc_core_packages:
   - "unattended-upgrades" # Ensured for no-reboot security patching
   - "net-tools"
   - "arp-scan"
+  - "linux-generic-hwe-24.04"
 
 # Packages to purge for OS slimming & security reduction
 gdc_purge_packages:

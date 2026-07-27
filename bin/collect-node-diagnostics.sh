@@ -1011,7 +1011,52 @@ gdc_checks["ss_tool"] = {
     "details": f"Found at {ss_path}" if ss_path else "Not found on PATH"
 }
 
-# 15b. Ansible Pull Success check
+# 16. Swap is disabled
+swap_disabled = True
+try:
+    swap_out = subprocess.getoutput("swapon --show 2>/dev/null").strip()
+    if swap_out:
+        swap_disabled = False
+except Exception:
+    pass
+gdc_checks["swap_disabled"] = {
+    "status": "PASS" if swap_disabled else "FAIL",
+    "details": "Swap memory is disabled" if swap_disabled else "Swap is active!"
+}
+
+# 17. Networking Kernel Modules (nf_tables, br_netfilter)
+nf_tables_ok = False
+br_netfilter_ok = False
+try:
+    lsmod_out = subprocess.getoutput("lsmod 2>/dev/null").strip()
+    if "nf_tables" in lsmod_out:
+        nf_tables_ok = True
+    if "br_netfilter" in lsmod_out:
+        br_netfilter_ok = True
+except Exception:
+    pass
+kmod_ok = nf_tables_ok and br_netfilter_ok
+gdc_checks["network_kmods"] = {
+    "status": "PASS" if kmod_ok else "FAIL",
+    "details": "nf_tables & br_netfilter loaded" if kmod_ok else f"Missing mods (nf={nf_tables_ok}, br={br_netfilter_ok})"
+}
+
+# 18. Hardware Enablement (HWE) Kernel
+hwe_kernel_ok = False
+try:
+    kernel_ver = subprocess.getoutput("uname -r 2>/dev/null").strip()
+    # Check if generic kernel version or installed packages indicate HWE
+    dpkg_out = subprocess.getoutput("dpkg -l | grep linux-generic-hwe 2>/dev/null").strip()
+    if "linux-generic-hwe" in dpkg_out:
+        hwe_kernel_ok = True
+except Exception:
+    pass
+gdc_checks["hwe_kernel"] = {
+    "status": "PASS" if hwe_kernel_ok else "FAIL",
+    "details": "linux-generic-hwe is installed" if hwe_kernel_ok else "HWE Kernel package not detected"
+}
+
+# 19. Ansible Pull Success check
 try:
     runs_started = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'Starting Ansible Pull' || true").strip() or 0)
     runs_succeeded = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'SUCCESS: All Ready-Linux Post-Install' || true").strip() or 0)
@@ -1172,6 +1217,12 @@ try:
         rf.write(f"{'ss Socket Tool':35} {'Installed':24} {gdc_checks['ss_tool']['details'][:34]:34} [ {gdc_checks['ss_tool']['status']} ]\n")
         # 15. TPM 2.0 Security Module
         rf.write(f"{'TPM 2.0 Security Device':35} {'/dev/tpmrm0 exists':24} {gdc_checks['tpm_security']['details'][:34]:34} [ {gdc_checks['tpm_security']['status']} ]\n")
+        # 16. Swap is Disabled
+        rf.write(f"{'Swap Memory Status':35} {'Disabled':24} {gdc_checks['swap_disabled']['details'][:34]:34} [ {gdc_checks['swap_disabled']['status']} ]\n")
+        # 17. Networking Kernel Modules
+        rf.write(f"{'Network Kernel Modules':35} {'nf_tables/br_netfilter':24} {gdc_checks['network_kmods']['details'][:34]:34} [ {gdc_checks['network_kmods']['status']} ]\n")
+        # 18. HWE Kernel
+        rf.write(f"{'HWE Linux Kernel':35} {'Installed':24} {gdc_checks['hwe_kernel']['details'][:34]:34} [ {gdc_checks['hwe_kernel']['status']} ]\n")
         
         # Services Section
         rf.write("-" * 101 + "\n")

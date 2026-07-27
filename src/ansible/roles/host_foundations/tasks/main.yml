@@ -212,6 +212,11 @@
 # --------------------------------------------------------------------------
 # Task 06: Package Upgrade & Dependency Installation
 # --------------------------------------------------------------------------
+- name: "GDC-TASK-06 | Validate package manager integrity before proceeding"
+  ansible.builtin.command: apt-get check
+  changed_when: false
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
 - name: "GDC-TASK-06 | Perform Complete Offline System Package Upgrade"
   ansible.builtin.apt:
     upgrade: safe
