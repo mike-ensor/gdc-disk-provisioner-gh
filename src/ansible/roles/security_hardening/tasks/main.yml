@@ -179,9 +179,9 @@
     path: /sys/firmware/efi
   register: efi_sys_stat
 
-- name: "GDC-TPM-SEAL | Seal LUKS Master Key to TPM 2.0 PCR registers (0+2+7) in UEFI mode"
+- name: "GDC-TPM-SEAL | Seal LUKS Master Key to TPM 2.0 PCR registers ({{ gdc_tpm_pcrs | default('0+7', true) }}) in UEFI mode"
   ansible.builtin.shell: |
-    systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+7 --unlock-key-file=/etc/keys/temp_key.key {{ item }}
+    systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs={{ gdc_tpm_pcrs | default('0+7', true) }} --unlock-key-file=/etc/keys/temp_key.key {{ item }}
   environment:
     TCTI: "device:/dev/tpmrm0"
   loop: "{{ luks_partition_devices.stdout_lines }}"
@@ -224,11 +224,38 @@
     - tpm_device_stat.stat.exists
     - (cryptenroll_uefi_result is succeeded and not cryptenroll_uefi_result.skipped | default(false)) or (cryptenroll_bios_result is succeeded and not cryptenroll_bios_result.skipped | default(false))
 
-- name: "GDC-TPM-SEAL | Rebuild initramfs to pack active TPM unlock hooks"
-  ansible.builtin.command: update-initramfs -u -k all
+- name: "GDC-TPM-SEAL | Deploy persistent dracut config to omit deadlock drivers"
+  ansible.builtin.copy:
+    dest: /etc/dracut.conf.d/gdc.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Persistent GDC Dracut configuration
+      # Surgically prune blacklisted AMD deadlock drivers from target OS initramfs
+      # (ccp is omitted to prevent AMD PSP hardware deadlocks during early-boot LUKS unlocking)
+      omit_drivers+=" pcie_mp2_amd amd_sfh ccp "
+      
+      # Forcefully pack logical volume and crypt hooks (fixes NVMe-blind boot loops)
+      add_dracutmodules+=" crypt lvm "
+  register: dracut_gdc_configured
+  when: tpm_device_stat.stat.exists
+
+- name: "GDC-TPM-SEAL | Purge conflicting or legacy initramfs-tools hooks on target OS"
+  ansible.builtin.file:
+    path: "/etc/initramfs-tools/hooks/{{ item }}"
+    state: absent
+  loop:
+    - "gdc-tpm2"
+    - "zz-gdc-blacklist"
+  when: tpm_device_stat.stat.exists
+
+- name: "GDC-TPM-SEAL | Rebuild initramfs using dracut to pack active TPM unlock hooks"
+  ansible.builtin.command: dracut -f --add "tpm2-tss" --add-drivers "tpm tpm_tis tpm_crb tpm_tis_core" /boot/initrd.img-{{ ansible_kernel }} {{ ansible_kernel }}
+  register: dracut_rebuild_result
   when:
     - tpm_device_stat.stat.exists
-    - (crypttab_reconfigured is defined and crypttab_reconfigured.changed) or (cryptenroll_hook_configured is defined and cryptenroll_hook_configured.changed)
+    - (crypttab_reconfigured is defined and crypttab_reconfigured.changed) or (cryptenroll_hook_configured is defined and cryptenroll_hook_configured.changed) or (dracut_gdc_configured is defined and dracut_gdc_configured.changed)
 
 - name: "GDC-TPM-SEAL | Purge insecure temporary passcode slot from LUKS keyslots"
   ansible.builtin.shell: |

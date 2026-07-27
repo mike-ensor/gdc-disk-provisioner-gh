@@ -18,7 +18,7 @@ All implementations in this repository must align with the following core archit
 
 ### Rule 1.3: Hardware-Backed Cryptographic Bound
 * **Directive:** All target machines must tie root encryption and device certificates to physical hardware.
-* **Enforcement:** Remanded LUKS partitions must enroll PCR indices `0+2+7` on the TPM 2.0 chip using `systemd-cryptenroll`. SSH host keys and device administrative identities must be backed by the local TPM, with soft fallbacks only permitted for development test builds.
+* **Enforcement:** Remanded LUKS partitions must enroll PCR indices `0+7` on the TPM 2.0 chip using `systemd-cryptenroll`. SSH host keys and device administrative identities must be backed by the local TPM, with soft fallbacks only permitted for development test builds.
 
 ### Rule 1.4: Binary Integrity & Supply Chain Mitigation
 * **Directive:** Standalone third-party binaries (such as Gitea, OpenJDK, and Nexus) baked into the ISO must have their supply chain integrity cryptographically verified.
@@ -117,9 +117,31 @@ This section captures hard-earned architectural and operational lessons learned 
 * **The Mitigation:** All automation scripts (such as `bootimus.py`) and database audits must poll `/images/extract-progress` and wait for the extraction progress to reach `100%` or `"completed"`. Introduce a **5-second settling window** before pushing custom `boot_params` or self-healing configurations. Additionally, the self-healing audit must skip images whose extraction state is still incomplete (`extracted: false`). Furthermore, **both the main ingestion loop and the `auto_heal_boot_params` routine inside `bootimus.py` implement a robust post-write verification loop** that queries the database after sending the parameters, asserts that they match our custom parameters, and automatically re-applies them if any background write clobbers them.
 
 ### Rule 5.3: Preventing Webhook Blockage & Autoinstall TUI Fallback
-* **The Trap:** In Subiquity autoinstalls, if any script inside the `early-commands` block exits with a non-zero code, the automated installation halts immediately and falls back to the manual Installer TUI. Our `early-commands` run a mandatory network health handshake to verify connection to the host workstation's `install_companion.py` port `8080/tcp`. If the host's firewall (`ufw`) is active and blocking port 8080, this handshake fails and breaks the automated install.
+* **The Trap:** In Subiquity autoinstalls, if any script inside the `early-commands` block exits with a non-zero code, the automated installation halts immediately and falls back to the manual Installer TUI. Our `early-commands` run a mandatory network health handshake to verify connection to the external telemetry endpoint. If this handshake fails, it breaks the automated install.
 * **The Mitigation:** Ensure that port `8080` is allowed in the host's firewall (`sudo ufw allow 8080/tcp`) during development, and document this prerequisite in the setup/network guide.
 
 ### Rule 5.4: Enforcing Dynamic Build-Time Hashing for User Credentials
 * **The Trap:** Committing plain-text passwords or static pre-calculated SHA-512 crypt hashes to Git poses severe security and rotation risks.
 * **The Mitigation:** Define administrative plain-text credentials dynamically (`TEMPORARY_INSTALLER_PASSWORD` inside `build.env` and overridable via the git-ignored `local.env`). The remastering engine must dynamically compute a secure SHA-512 crypt hash using a randomized salt at compilation-time and inject it into the cloud-init `/nocloud/user-data` file.
+
+### Rule 5.5: AMD Bare-Metal Silicon & fTPM Hardware Governance Mandates
+* **The Trap:** 
+  1. AMD Zen 4 (AM5) physical platforms suffer from an ACPI firmware bug where fTPM hardware interrupts trigger an infinite interrupt storm that deadlocks CPU cores at `1.6s` during the `tsc` clocksource transition.
+  2. Running Subiquity's `Filesystem/_probe` on the Live CD while the AMD Cryptographic Coprocessor (`ccp`) driver is active deadlocks the PSP bus when scanning existing encrypted partitions.
+  3. Blacklisting `ccp` on the *installed target OS* freezes the CPU at `1.6s` because core CPU power/clock management requires an active PSP.
+  4. Legacy `earlyprintk=serial...` writes to x86 I/O port `0x3f8`, causing General Protection Faults on modern MMIO-based UEFI motherboards.
+* **The Non-Negotiable Directives:**
+  * **Both Environments (Live CD & Installed OS):** Kernel command line **MUST** include `tpm_tis.interrupts=0` to force safe, high-performance TPM polling mode.
+  * **Both Environments:** Kernel command line **MUST** include `modprobe.blacklist=pcie_mp2_amd,amd_sfh` to prevent Sensor Fusion Hub bus crashes.
+  * **Live CD Environment ONLY:** **MUST** include `ccp` in the blacklist (`modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp`) to prevent PSP bus lockups during `Filesystem/_probe`.
+  * **Installed Target OS ONLY:** **MUST NOT** blacklist `ccp` (`modprobe.blacklist=pcie_mp2_amd,amd_sfh`).
+  * **Prohibition:** NEVER pass `earlyprintk=serial...` or `earlycon` on UEFI production builds. Use standard `console=tty1 console=ttyS0,115200`.
+
+### Rule 5.6: Target-Side Ramdisk Engine (`dracut` vs `initramfs-tools` on Ubuntu 24.04 Noble)
+* **The Trap:** 
+  1. Ubuntu 24.04 noble removed the `systemd-initramfs` package. POSIX `initramfs-tools` bootscripts ignore `tpm2-device=auto` in `/etc/crypttab` and fail to load TPM 2.0 unsealing tokens during boot.
+  2. Setting `gdc_tpm_pcrs: ""` (empty string) causes `systemd-cryptenroll` to generate an un-evaluatable zero policy hash in LUKS metadata that `systemd-cryptsetup` fails to unseal on subsequent boots.
+* **The Non-Negotiable Directives:**
+  * **Installed Target OS Compiler:** **MUST** use `dracut` to compile a systemd-based 65MB hostonly initrd carrying `systemd-cryptsetup` and `systemd-cryptenroll`.
+  * **Target-Side Dracut Config:** **MUST** deploy `/etc/dracut.conf.d/gdc.conf` with `omit_drivers+=" pcie_mp2_amd amd_sfh "`.
+  * **PCR Policy Variable:** `gdc_tpm_pcrs` in `src/ansible/vars/all.yml` **MUST** be explicitly set to `"0+7"`.

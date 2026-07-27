@@ -47,26 +47,38 @@ def get_bootimus_credentials():
         print("[!] Please export BOOTIMUS_USER and BOOTIMUS_PASS in your environment.")
         sys.exit(1)
 
-def api_request(url, method="GET", data=None, token=None):
-    """Utility wrapper to perform HTTP API requests using urllib standard library."""
-    req = urllib.request.Request(url, method=method)
-    if token:
-        req.add_header("Authorization", f"Bearer {token}")
-        
+def api_request(url, method="GET", data=None, token=None, retries=5, retry_delay=5):
+    """Utility wrapper to perform HTTP API requests with automatic network retry for intermittent connectivity."""
     encoded_data = None
     if data is not None:
-        req.add_header("Content-Type", "application/json")
         encoded_data = json.dumps(data).encode("utf-8")
         
-    try:
-        with urllib.request.urlopen(req, data=encoded_data) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        print(f"[!] HTTP Error: {e.code} - {e.read().decode('utf-8')}")
-        raise
-    except Exception as e:
-        print(f"[!] Request Error: {e}")
-        raise
+    for attempt in range(1, retries + 1):
+        req = urllib.request.Request(url, method=method)
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        if data is not None:
+            req.add_header("Content-Type", "application/json")
+            
+        try:
+            with urllib.request.urlopen(req, data=encoded_data, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            # 4xx client errors (except 429) usually shouldn't be blindly retried unless it's a 408/429/5xx
+            if e.code in (408, 429) or e.code >= 500:
+                print(f"[!] HTTP Error {e.code} on attempt {attempt}/{retries}. Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+            else:
+                print(f"[!] HTTP Error: {e.code} - {e.read().decode('utf-8')}")
+                raise
+        except Exception as e:
+            if attempt < retries:
+                print(f"[!] Request Error on attempt {attempt}/{retries} ({e}). Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+            else:
+                print(f"[!] Request Error: {e} (all {retries} attempts failed)")
+                raise
+    raise RuntimeError(f"[!] Request to {url} failed after all {retries} retry attempts.")
 
 def print_tree(grouped_images, group_filter=None):
     """Renders grouped images in a beautiful Unicode tree format."""
@@ -127,12 +139,26 @@ def auto_heal_boot_params(token):
             distro = img.get("distro", "")
             boot_method = img.get("boot_method", "")
             boot_params = img.get("boot_params", "")
+            enabled = img.get("enabled", False)
+            extracted = img.get("extracted", False)
             
-            # We only heal Ubuntu images that are fully extracted and use kernel boot method
-            if distro == "ubuntu" and boot_method == "kernel" and filename and img.get("extracted", False):
-                # Check if it is missing autoinstall or ds=nocloud-net
-                if "autoinstall" not in boot_params or "ds=nocloud-net" not in boot_params:
-                    print(f"[!] Alert: Image '{img.get('name')}' is missing correct autoinstall boot parameters! Healing...")
+            # Any GDC bootstrap image should use kernel boot method and correct autoinstall params
+            is_gdc_image = filename and ("gdc-bootstrap" in filename or filename.startswith("sync/gdc-bootstrap"))
+            
+            # We only heal fully extracted images
+            if is_gdc_image and extracted:
+                # Check if it is missing any of the required parameters or is in the wrong boot mode / disabled
+                has_correct_params = (
+                    "autoinstall" in boot_params and 
+                    "ds=nocloud-net" in boot_params and
+                    "modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp" in boot_params and
+                    "tpm_tis.interrupts=0" in boot_params and
+                    "apparmor=0" in boot_params and
+                    "console=tty1 console=ttyS0" in boot_params
+                )
+                
+                if boot_method != "kernel" or distro != "ubuntu" or not enabled or not has_correct_params:
+                    print(f"[!] Alert: GDC Image '{img.get('name')}' configuration is missing or clobbered! Healing...")
                     
                     iso_name_no_ext = filename[:-4]
                     iso_url = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_HTTP_PORT}/isos/{filename}"
@@ -142,6 +168,8 @@ def auto_heal_boot_params(token):
                         f"boot=casper initrd=initrd ip=dhcp netboot=url "
                         f"url={iso_url} "
                         f"root=/dev/ram0 ramdisk_size=4500000 autoinstall "
+                        f"apparmor=0 console=tty1 console=ttyS0 "
+                        f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp "
                         f"ds=nocloud-net;s={seed_url}"
                     )
                     
@@ -153,18 +181,43 @@ def auto_heal_boot_params(token):
                     }
                     update_url = f"{API_BASE}/images?filename={urllib.parse.quote(filename)}"
                     
-                    # Robust check-and-reapply loop to defeat delayed Bootimus database clobbering
-                    for i in range(1, 4):
-                        api_request(update_url, method="PUT", data=update_data, token=token)
-                        time.sleep(3)
+                    # Robust consecutive-success loop to defeat delayed Bootimus database clobbering
+                    consecutive_verifications = 0
+                    required_consecutive = 6  # Require 6 consecutive successful checks (30 seconds of stability)
+                    max_attempts = 20
+                    verified = False
+                    
+                    # Force write initially
+                    api_request(update_url, method="PUT", data=update_data, token=token)
+                    
+                    for verify_attempt in range(1, max_attempts + 1):
+                        time.sleep(5)
                         verify_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
                         if verify_res.get("success") and verify_res.get("data"):
                             matching = [m for m in verify_res["data"] if m.get("filename") == filename]
-                            if matching and matching[0].get("boot_params", "") == fixed_params:
-                                print(f"    [+] Successfully healed and verified '{img.get('name')}' configuration (Attempt {i})!")
-                                break
-                    else:
-                        print(f"    [!] Warning: Failed to permanently verify healed '{img.get('name')}' configuration. Forcing one final write...")
+                            if matching:
+                                current_img = matching[0]
+                                current_params = current_img.get("boot_params", "")
+                                current_method = current_img.get("boot_method", "")
+                                current_enabled = current_img.get("enabled", False)
+                                
+                                is_correct = (
+                                    current_params == fixed_params and 
+                                    current_method == "kernel" and 
+                                    current_enabled is True
+                                )
+                                
+                                if is_correct:
+                                    consecutive_verifications += 1
+                                    if consecutive_verifications >= required_consecutive:
+                                        print(f"    [+] Successfully healed and locked '{img.get('name')}' (Attempt {verify_attempt}, stable)!")
+                                        verified = True
+                                        break
+                                else:
+                                    consecutive_verifications = 0
+                                    api_request(update_url, method="PUT", data=update_data, token=token)
+                    if not verified:
+                        print(f"    [!] Warning: Failed to permanently lock healed '{img.get('name')}' configuration. Forcing final write...")
                         api_request(update_url, method="PUT", data=update_data, token=token)
     except Exception as e:
         print(f"[!] Warning: Self-healing audit encountered an error: {e}")
@@ -292,11 +345,22 @@ def main():
             print(f"[!] Error listing images: {e}")
             sys.exit(1)
         
-    # 3. Trigger Filesystem Scan
+    # 3. Check if image is already registered to bypass heavy filesystem scan
     assert filename is not None, "filename cannot be None"
-    print("[-] Triggering Bootimus file scanner for newly synchronized GCS ISOs...")
-    api_request(f"{API_BASE}/scan", method="POST", token=token)
-    time.sleep(2) # Allow scanner initialization
+    print("[-] Querying Bootimus to see if the image is already registered...")
+    images_res = api_request(f"{API_BASE}/images", token=token)
+    image_already_registered = False
+    if images_res.get("success") and images_res.get("data"):
+        matching = [img for img in images_res["data"] if img.get("filename") == filename]
+        if matching:
+            image_already_registered = True
+            print(f"[x] Image is already registered in Bootimus database. Bypassing heavy filesystem scan.")
+            
+    if not image_already_registered:
+        print("[-] Ingesting new image. Triggering Bootimus file scanner for newly synchronized GCS ISOs...")
+        api_request(f"{API_BASE}/scan", method="POST", token=token)
+        print("[-] Waiting 30 seconds for scanner initialization and directory discovery to settle...")
+        time.sleep(30)
     
     # 4. Locate and Verify Image
     print("[-] Searching for scanned image and waiting for download/loading to complete...")
@@ -403,6 +467,8 @@ def main():
         f"boot=casper initrd=initrd ip=dhcp netboot=url "
         f"url={iso_url} "
         f"root=/dev/ram0 ramdisk_size=4500000 autoinstall "
+        f"apparmor=0 console=tty1 console=ttyS0 "
+        f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp "
         f"ds=nocloud-net;s={seed_url}"
     )
     
@@ -418,51 +484,44 @@ def main():
     update_url = f"{API_BASE}/images?filename={urllib.parse.quote(filename)}"
     api_request(update_url, method="PUT", data=update_data, token=token)
     
-    print("[-] Verifying database state for custom boot parameters (Stage 1)...")
+    print("[-] Running database stability verification (verifying parameters persist consecutively)...")
+    consecutive_verifications = 0
+    required_consecutive = 6  # Require 6 consecutive successful checks (30 seconds of stability)
+    max_attempts = 20
     verified = False
-    for verify_attempt in range(1, 8):
+    
+    for verify_attempt in range(1, max_attempts + 1):
         time.sleep(5)
         verify_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
         if verify_res.get("success") and verify_res.get("data"):
             matching_images = [img for img in verify_res["data"] if img.get("filename") == filename]
             if matching_images:
-                current_params = matching_images[0].get("boot_params", "")
-                if current_params == boot_params:
-                    print(f"    [+] Success: Custom boot parameters verified correctly in database on attempt {verify_attempt}!")
-                    verified = True
-                    break
+                current_image = matching_images[0]
+                current_params = current_image.get("boot_params", "")
+                current_method = current_image.get("boot_method", "")
+                current_enabled = current_image.get("enabled", False)
+                
+                is_correct = (
+                    current_params == boot_params and 
+                    current_method == "kernel" and 
+                    current_enabled is True
+                )
+                
+                if is_correct:
+                    consecutive_verifications += 1
+                    print(f"    [-] Attempt {verify_attempt}/{max_attempts}: Custom parameters verified ({consecutive_verifications}/{required_consecutive} stable)...")
+                    if consecutive_verifications >= required_consecutive:
+                        print(f"    [+] Success: Custom parameters verified and locked stable in database after {verify_attempt} attempts!")
+                        verified = True
+                        break
                 else:
-                    print(f"    [!] Warning: Detected parameter clobbering! Re-applying custom parameters (Attempt {verify_attempt})...")
+                    print(f"    [!] Warning: Attempt {verify_attempt}/{max_attempts}: Detected parameter clobbering or mismatch! Re-applying custom configurations...")
+                    consecutive_verifications = 0
                     api_request(update_url, method="PUT", data=update_data, token=token)
                     
     if not verified:
-        print("[!] CRITICAL ERROR: Failed to verify custom boot parameters in Bootimus database after Stage 1!")
+        print("[!] CRITICAL ERROR: Failed to establish a stable, un-clobbered boot configuration in Bootimus!")
         sys.exit(1)
-        
-    print("[-] Performing Stage 2 delayed consolidation check (15s sleep) to defeat backend background transaction clobbering...")
-    time.sleep(15)
-    
-    verify_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
-    if verify_res.get("success") and verify_res.get("data"):
-        matching_images = [img for img in verify_res["data"] if img.get("filename") == filename]
-        if matching_images:
-            current_params = matching_images[0].get("boot_params", "")
-            if current_params != boot_params:
-                print("[!] ALERT: Detected delayed backend background parameter clobbering! Re-applying and locking parameters...")
-                api_request(update_url, method="PUT", data=update_data, token=token)
-                # Quick re-verify loop to ensure lock
-                for lock_attempt in range(1, 4):
-                    time.sleep(3)
-                    check_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
-                    matching = [m for m in check_res.get("data", []) if m.get("filename") == filename]
-                    if matching and matching[0].get("boot_params", "") == boot_params:
-                        print(f"    [+] Successfully locked custom parameters after clobber (Attempt {lock_attempt})!")
-                        break
-                else:
-                    print("[!] Warning: Could not confirm absolute lock, forcing final write...")
-                    api_request(update_url, method="PUT", data=update_data, token=token)
-            else:
-                print("[x] Success: Custom boot parameters have consolidated perfectly in the backend database!")
     
     print("==============================================================================")
     print(" [x] SUCCESS: ISO INGEST & BOOTIMUS PROVISIONING COMPLETED!")

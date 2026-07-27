@@ -122,8 +122,8 @@
       Enabled: yes
       Types: deb
       URIs: http://nexus.gdc.local:8081/repository/gdc-apt-hosted/
-      Suites: noble noble-updates noble-backports noble-security
-      Components: main restricted universe multiverse
+      Suites: noble
+      Components: main
       Signed-By: /etc/apt/keyrings/gdc-nexus.gpg
       Trusted: yes
 
@@ -283,6 +283,12 @@
   ignore_errors: true
   when: not (deactivate_public_sources | default(true) | bool)
   tags: ["machine:connected", "external-dependency"]
+
+- name: "GDC-TASK-06 | Redefine core packages list for Ubuntu 24.04 (noble)"
+  ansible.builtin.set_fact:
+    gdc_core_packages: "{{ gdc_core_packages | reject('equalto', 'systemd-initramfs') | list }}"
+  when: ansible_distribution_release == 'noble'
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
 - name: "GDC-TASK-06 | Check if core packages are already installed"
   ansible.builtin.shell: dpkg-query -W -f='${Status}' {{ item }} 2>/dev/null | grep -q 'ok installed'

@@ -25,8 +25,10 @@ gdc_core_packages:
   - "containerd.io"
   - "tpm2-tools"
   - "libtss2-tcti-device0t64"
-  - "systemd-initramfs"
+  - "cryptsetup"
   - "cryptsetup-initramfs"
+  - "dracut"
+  - "dracut-core"
   - "step-cli"
   - "auditd"
   - "audispd-plugins"
@@ -72,6 +74,8 @@ gdc_admin_additional_groups:
 # GDC Installation Artifact Directory Structure (under /var)
 gdc_install_root: "/var/gdc-install"
 gdc_install_directories:
+  - "logs"
+  - "packages"
   - "config-sync-configs"
   - "bmctl-workspace"
   - "external-secrets"
@@ -93,7 +97,7 @@ gdc_nodeagent_binary_source_url: "http://nexus.gdc.local:8081/repository/gdc-raw
 
 # Google Cloud SDK Configuration (Non-apt setup)
 # (Ref: https://docs.cloud.google.com/sdk/docs/install-sdk#latest-version)
-gdc_gcloud_tarball_path: "/cdrom/custom-data/tools/google-cloud-cli-linux-x86_64.tar.gz"
+gdc_gcloud_tarball_path: "/var/gdc-install/tools/google-cloud-cli-linux-x86_64.tar.gz"
 gdc_gcloud_install_dir: "/var/gdc-install/tools/google-cloud-sdk"
 
 # Google Cloud SDK components to install natively
@@ -105,6 +109,9 @@ gdc_gcloud_components:
 
 # Enforce system-wide UTC Timezone
 gdc_system_timezone: "Etc/UTC"
+
+# PCR registers to seal LUKS decryption keys to (PCR 0 = BIOS firmware, PCR 7 = Secure Boot state).
+gdc_tpm_pcrs: "0+7"
 
 # Service Update Scripts to deploy to /var/gdc-install/scripts/
 gdc_service_update_scripts:

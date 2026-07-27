@@ -235,6 +235,18 @@
     - "'gdc-apt-hosted' not in existing_repos"
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-02 | Upload pre-seeded packages to local Nexus Hosted APT repository"
+  ansible.builtin.shell: |
+    for deb in /var/gdc-install/packages/*.deb; do
+      if [ -f "$deb" ]; then
+        curl -s -u admin:{{ nexus_admin_pass }} -X POST "http://127.0.0.1:8081/service/rest/v1/components?repository=gdc-apt-hosted" -F "apt.asset=@$deb"
+        sleep 0.2
+      fi
+    done
+  when:
+    - nexus_binary_installed.stat.exists
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-02 | Create gdc-apt-proxy repository"
   ansible.builtin.uri:
     url: "http://127.0.0.1:8081/service/rest/v1/repositories/apt/proxy"

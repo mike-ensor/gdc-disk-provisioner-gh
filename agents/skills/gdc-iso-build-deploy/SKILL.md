@@ -53,8 +53,8 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
 
 ### State 4: Bootimus PXE Deployment
 - [ ] Execute `./src/build/bootimus.py --list` to check current groups and images.
-- [ ] Deploy the compiled image: `./src/build/bootimus.py gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}.iso`.
-- [ ] Verify the self-healing DB audit completes (verifying custom autoinstall parameters are written and locked).
+- [ ] Deploy the compiled image: `./src/build/bootimus.py gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}.iso` (which enforces a 30s settling window right after trigger-scan).
+- [ ] Verify the stability-verification feedback loop successfully locks and holds parameters for 4 consecutive successful checks (20s duration) without being clobbered by Bootimus's background scanner threads.
 
 ### State 5: E2E Integration Testing
 - [ ] Validate autoinstall schemas: `./test/validate_iso_static.sh`.
@@ -62,7 +62,7 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
 - [ ] Poll serial/console outputs to verify:
   - First-boot Ansible-pull triggers and completes without error.
   - Logical volume sizes are auto-sized.
-  - TPM 2.0 PCR `0+2+7` LUKS registration and step-ca certificates are fully verified.
+  - TPM 2.0 PCR `0+7` LUKS registration and step-ca certificates are fully verified.
 
 ### State 6: After Action Report (AAR)
 - [ ] Compile and save an After Action Report (AAR) in `docs/reports/aar-v${ISO_VERSION}.md` containing:
