@@ -8,7 +8,7 @@
     - {type: format, id: format-boot, volume: partition-boot, fstype: ext4}
     - {type: mount, id: mount-efi, device: format-efi, path: /boot/efi}
     - {type: mount, id: mount-boot, device: format-boot, path: /boot}
-    - {type: dm_crypt, id: crypt-system, volume: partition-lvm, keyfile: /run/installer/gdc-luks-key}
+    - {type: dm_crypt, id: crypt-system, volume: partition-lvm, keyfile: /var/log/installer/gdc-luks-key}
     - {type: lvm_volgroup, id: vg-system, name: vg_system, devices: [crypt-system]}
     
     # Scaled Logical Volumes for Single Disk (Total requested: ~210 G out of 232 G actual)

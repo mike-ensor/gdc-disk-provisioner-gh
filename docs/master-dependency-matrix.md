@@ -76,7 +76,7 @@ Executed locally on the target server's first boot, orchestrated by the Ansible 
 *   **TPM 2.0 Security & Cryptography Packages:**
     *   `tpm2-tools` (v5.6+): Command line utilities to interface with the physical TPM 2.0 chip (`tpm2_quote`, `tpm2_getekcertificate`).
     *   `libtss2-tcti-device` (v4.0.1+): Low-level TPM driver communication libraries.
-    *   `systemd-cryptenroll` (v255+): Native systemd utility used to seal LUKS keys to TPM PCR `0+2+7`.
+    *   `systemd-cryptenroll` (v255+): Native systemd utility used to seal LUKS keys to TPM PCR `0+7`.
     *   `ssh-tpm-agent` (v0.5.1+): Hardware-backed TPM SSH host-key agent.
     *   `step-cli` (v0.24.4+): Step CA utility to enroll device identity certs via TPM CSRs.
 *   **Hardening & Slimming Packages:**

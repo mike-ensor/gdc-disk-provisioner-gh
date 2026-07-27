@@ -43,6 +43,11 @@ echo "[-] Initializing diagnostic outputs directory: ${OUT_DIR}"
 # ------------------------------------------------------------------------------
 echo "=== GDC BARE-METAL DIAGNOSTICS REPORT ===" > "${OUT_DIR}/report.txt"
 echo "Generated on: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "${OUT_DIR}/report.txt"
+GDC_ISO_VER="Unknown"
+if [ -f /etc/gdc/provision.yml ]; then
+  GDC_ISO_VER=$(grep "iso_version:" /etc/gdc/provision.yml | awk '{print $2}' | tr -d '"' | tr -d "'")
+fi
+echo "GDC ISO Version: ${GDC_ISO_VER:-Unknown}" >> "${OUT_DIR}/report.txt"
 echo "Host Kernel:  $(uname -r)" >> "${OUT_DIR}/report.txt"
 echo "Hostname:     $(hostname)" >> "${OUT_DIR}/report.txt"
 PRIMARY_IFACE=$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -n 1 || echo "enp1s0")
@@ -300,12 +305,14 @@ fi
 
 echo "--- GDC SYSTEMD SERVICES STATUS ---" >> "${OUT_DIR}/report.txt"
 for svc in gitea nexus gdc-provision ssh systemd-networkd; do
+  active_state=$(systemctl show "${svc}" --property=ActiveState 2>/dev/null | cut -d'=' -f2 || echo "Unknown")
   if systemctl is-active --quiet "${svc}" 2>/dev/null; then
+    status="ACTIVE"
+  elif [ "${svc}" = "gdc-provision" ] && [ "${active_state}" = "activating" ]; then
     status="ACTIVE"
   else
     status="INACTIVE"
   fi
-  active_state=$(systemctl show "${svc}" --property=ActiveState 2>/dev/null | cut -d'=' -f2 || echo "Unknown")
   load_state=$(systemctl show "${svc}" --property=LoadState 2>/dev/null | cut -d'=' -f2 || echo "Unknown")
   unit_state=$(systemctl show "${svc}" --property=UnitFileState 2>/dev/null | cut -d'=' -f2 || echo "Unknown")
   echo "Service: ${svc} | Status: ${status} | LoadState: ${load_state} | ActiveState: ${active_state} | UnitState: ${unit_state}" >> "${OUT_DIR}/report.txt"
@@ -357,6 +364,7 @@ fi
 echo "" >> "${OUT_DIR}/report.txt"
 
 # ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # SECTION 8: GDC LOCAL SERVICE HUB HEALTH CHECKS
 # ------------------------------------------------------------------------------
 echo "--- GDC SERVICE HTTP HEALTH CHECKS ---" >> "${OUT_DIR}/report.txt"
@@ -379,6 +387,19 @@ if command -v curl &>/dev/null; then
 else
   echo "curl utility is not available." >> "${OUT_DIR}/report.txt"
 fi
+
+# Check Ansible Pull Success status
+echo -n "Ansible Pull Success:      " >> "${OUT_DIR}/report.txt"
+runs_started=$(journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c "Starting Ansible Pull" || true)
+runs_succeeded=$(journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c "SUCCESS: All Ready-Linux Post-Install" || true)
+if [ "${runs_succeeded}" -gt 0 ]; then
+  echo "true" >> "${OUT_DIR}/report.txt"
+elif [ "${runs_started}" -gt 0 ]; then
+  echo "false" >> "${OUT_DIR}/report.txt"
+else
+  echo "Not-Run" >> "${OUT_DIR}/report.txt"
+fi
+
 echo "" >> "${OUT_DIR}/report.txt"
 
 # ------------------------------------------------------------------------------
@@ -422,6 +443,16 @@ def to_int(val, default=0):
     except Exception:
         return default
 
+iso_ver = "Unknown"
+try:
+    if os.path.exists("/etc/gdc/provision.yml"):
+        with open("/etc/gdc/provision.yml", "r") as pf:
+            for line in pf:
+                if "iso_version:" in line:
+                    iso_ver = line.split(":", 1)[1].strip().strip('"\'')
+except Exception:
+    pass
+
 report = {
     "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
     "host_metadata": {
@@ -429,6 +460,7 @@ report = {
         "kernel": subprocess.getoutput("uname -r").strip(),
         "uefi_boot": os.path.exists("/sys/firmware/efi"),
         "privileged": os.getuid() == 0,
+        "iso_version": iso_ver,
         "inotify_max_user_instances": to_int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null || echo '0'")),
         "inotify_max_user_watches": to_int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo '0'")),
         "machine_id": subprocess.getoutput("cat /sys/class/net/$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\") print $(i+1)}' | head -n 1 || echo 'enp1s0')/address 2>/dev/null || cat /sys/class/net/enp1s0/address 2>/dev/null || echo 'Unknown'").strip(),
@@ -454,6 +486,8 @@ for svc in ["gitea", "nexus", "gdc-provision", "ssh", "systemd-networkd"]:
     load_state = subprocess.getoutput(f"systemctl show {svc} --property=LoadState").split("=")[-1].strip()
     active_state = subprocess.getoutput(f"systemctl show {svc} --property=ActiveState").split("=")[-1].strip()
     unit_state = subprocess.getoutput(f"systemctl show {svc} --property=UnitFileState").split("=")[-1].strip()
+    if svc == "gdc-provision" and active_state == "activating":
+        is_active = True
     report["services"][svc] = {
         "active": is_active,
         "load_state": load_state,
@@ -478,6 +512,19 @@ try:
     report["http_health"]["nexus_port_8081"] = {"http_code": to_int(nexus_code), "healthy": nexus_code.strip() in ["200", "302", "401"]}
 except Exception:
     report["http_health"]["nexus_port_8081"] = {"http_code": 0, "healthy": False}
+
+try:
+    runs_started = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'Starting Ansible Pull' || true").strip() or 0)
+    runs_succeeded = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'SUCCESS: All Ready-Linux Post-Install' || true").strip() or 0)
+    if runs_succeeded > 0:
+        ans_status = "true"
+    elif runs_started > 0:
+        ans_status = "false"
+    else:
+        ans_status = "Not-Run"
+    report["http_health"]["ansible_pull_success"] = ans_status
+except Exception:
+    report["http_health"]["ansible_pull_success"] = "Not-Run"
 
 # Storage status auditing (parse lsblk json)
 try:
@@ -964,6 +1011,28 @@ gdc_checks["ss_tool"] = {
     "details": f"Found at {ss_path}" if ss_path else "Not found on PATH"
 }
 
+# 15b. Ansible Pull Success check
+try:
+    runs_started = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'Starting Ansible Pull' || true").strip() or 0)
+    runs_succeeded = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'SUCCESS: All Ready-Linux Post-Install' || true").strip() or 0)
+    if runs_succeeded > 0:
+        ans_status = "PASS"
+        ans_details = "true"
+    elif runs_started > 0:
+        ans_status = "FAIL"
+        ans_details = "false"
+    else:
+        ans_status = "FAIL"
+        ans_details = "Not-Run"
+except Exception:
+    ans_status = "FAIL"
+    ans_details = "Not-Run"
+
+gdc_checks["ansible_pull_success"] = {
+    "status": ans_status,
+    "details": ans_details
+}
+
 # 16. Services Check - Gitea
 gitea_active = report["services"]["gitea"]["active"]
 gdc_checks["gitea_service"] = {
@@ -1112,6 +1181,7 @@ try:
         rf.write(f"{'Gitea Git Server':35} {'Active & Running':24} {gdc_checks['gitea_service']['details']:34} [ {gdc_checks['gitea_service']['status']} ]\n")
         rf.write(f"{'Nexus Package Hub':35} {'Active & Running':24} {gdc_checks['nexus_service']['details']:34} [ {gdc_checks['nexus_service']['status']} ]\n")
         rf.write(f"{'GDC Provision Service':35} {'Active & Running':24} {gdc_checks['gdc_provision_service']['details']:34} [ {gdc_checks['gdc_provision_service']['status']} ]\n")
+        rf.write(f"{'Ansible Pull Success':35} {'Succeeded (true)':24} {gdc_checks['ansible_pull_success']['details']:34} [ {gdc_checks['ansible_pull_success']['status']} ]\n")
         rf.write(f"{'SSH Terminal Server':35} {'Active & Running':24} {gdc_checks['ssh_service']['details']:34} [ {gdc_checks['ssh_service']['status']} ]\n")
         rf.write(f"{'Systemd Networkd':35} {'Active & Running':24} {gdc_checks['networkd_service']['details']:34} [ {gdc_checks['networkd_service']['status']} ]\n")
         
@@ -1459,9 +1529,9 @@ else
   echo "[-] Collecting installer log buffers... Skipped due to lack of permissions" >> "${OUT_DIR}/report.txt"
 fi
 
-# Collect any standard or temporary Ansible execution logs
-if [ -f /var/log/gdc-ansible-pull.log ]; then
-  cp /var/log/gdc-ansible-pull.log "${OUT_DIR}/logs/" 2>/dev/null || true
+# Collect any GDC consolidated operational and activity logs
+if [ -d /var/gdc-install/logs ]; then
+  cp -r /var/gdc-install/logs/* "${OUT_DIR}/logs/" 2>/dev/null || true
 fi
 if [ -f /tmp/ansible-playbook.log ]; then
   cp /tmp/ansible-playbook.log "${OUT_DIR}/logs/" 2>/dev/null || true

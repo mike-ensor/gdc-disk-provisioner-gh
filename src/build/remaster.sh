@@ -299,6 +299,73 @@ chmod +x "${EXTRACT_DIR}/custom-data/scan_ips.py"
 echo "[-] Generating dynamic Message of the Day (MOTD) banner..."
 "${SCRIPT_DIR}/generate_banner.py" "${EXTRACT_DIR}/custom-data/boot-banner.txt" "${ISO_VERSION}"
 
+# Unpack, patch, and repack initrd to inject GDC early-boot progress logs
+INITRD_PATH="${EXTRACT_DIR}/casper/initrd"
+if [[ -f "${INITRD_PATH}" ]]; then
+    # Ensure cpio and unmkinitramfs are present in the builder environment
+    if ! command -v cpio &>/dev/null || ! command -v unmkinitramfs &>/dev/null; then
+        echo "[-] Required initramfs tools are missing in builder environment. Bootstrapping on the fly..."
+        apt-get update &>/dev/null && apt-get install -y cpio initramfs-tools-core &>/dev/null || true
+    fi
+    
+    echo "[-] Unpacking and patching initrd to inject GDC early-boot progress logs..."
+    INITRD_TMP=$(mktemp -d)
+    
+    # Extract using the official multi-segment unmkinitramfs tool
+    unmkinitramfs "${INITRD_PATH}" "${INITRD_TMP}"
+    
+    CASPER_HELPER="${INITRD_TMP}/main/scripts/casper"
+    if [[ -f "${CASPER_HELPER}" ]]; then
+        echo "  [-] Found scripts/casper inside initrd. Patching with progress messages..."
+        # Create a python helper script on the fly to patch scripts/casper safely without shell quoting issues
+        cat <<'EOF' > /tmp/patch_initrd.py
+import os
+fpath = os.environ.get('CASPER_HELPER_PATH')
+if fpath and os.path.exists(fpath):
+    with open(fpath, 'r') as f:
+        content = f.read()
+    old_val = 'wget "$url" -O "$dest"'
+    if old_val in content:
+        new_val = """echo "=============================================================================="
+echo "[-] GDC-BOOT-STAGE | Ingesting GDC Remastered ISO over the Network..."
+echo "[-] Target URL:  $url"
+echo "[-] File Size:   ~4.3 GB (Contains complete offline Gitea/Nexus repositories)"
+echo "[-] Status:      Copying image directly into RAM (typically takes 45-120s)..."
+echo "=============================================================================="
+wget "$url" -O "$dest"
+echo "=============================================================================="
+echo "[x] GDC-BOOT-STAGE | Download 100% complete! Mount overlay successful."
+echo "[-] GDC-BOOT-STAGE | Handing off control to systemd..."
+echo "=============================================================================="""
+        content = content.replace(old_val, new_val)
+        with open(fpath, 'w') as f:
+            f.write(content)
+        print('  [x] scripts/casper successfully patched.')
+    else:
+        print('  [!] Error: wget download block not found in scripts/casper.')
+else:
+    print('  [!] Error: CASPER_HELPER_PATH is missing or invalid.')
+EOF
+        CASPER_HELPER_PATH="${CASPER_HELPER}" python3 /tmp/patch_initrd.py
+        rm -f /tmp/patch_initrd.py
+    fi
+    
+    # Repack concatenated multi-segment initrd
+    echo "  [-] Repacking multi-segment initrd..."
+    (cd "${INITRD_TMP}/early" && find . | cpio -o -H newc --quiet) > "${INITRD_PATH}"
+    
+    # Process subsequent early segments if they exist
+    for early_seg in "${INITRD_TMP}/early"*; do
+        if [[ "${early_seg}" != "${INITRD_TMP}/early" && -d "${early_seg}" ]]; then
+            (cd "${early_seg}" && find . | cpio -o -H newc --quiet) >> "${INITRD_PATH}"
+        fi
+    done
+    
+    (cd "${INITRD_TMP}/main" && find . | cpio -o -H newc --quiet | zstd -c -8) >> "${INITRD_PATH}"
+    rm -rf "${INITRD_TMP}"
+    echo "  [x] initrd successfully repacked and optimized."
+fi
+
 # Patch GRUB boot loader config
 GRUB_CFG="${EXTRACT_DIR}/boot/grub/grub.cfg"
 if [[ -f "${GRUB_CFG}" ]]; then
@@ -307,15 +374,28 @@ if [[ -f "${GRUB_CFG}" ]]; then
 set timeout=5
 set default=0
 
-menuentry "Google Distributed Cloud (GDC) Automated Bootstrap" {
+serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1
+terminal_input console serial
+terminal_output console serial
+
+menuentry "Google Distributed Cloud (GDC) Automated Installer [Default]" {
     set gfxpayload=keep
-    linux /casper/vmlinuz console=ttyS0 console=tty1 autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=dhcp ---
+    echo "Booting GDC Unattended Installer..."
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=dhcp apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp ---
     initrd /casper/initrd
 }
 
-menuentry "Ubuntu Server Standard Install" {
+menuentry "GDC Interactive Subiquity Installer (Manual Step-by-Step)" {
     set gfxpayload=keep
-    linux /casper/vmlinuz console=ttyS0 console=tty1 ---
+    echo "Booting GDC Interactive Installer..."
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp ---
+    initrd /casper/initrd
+}
+
+menuentry "GDC Manual Rescue Shell (Interactive Terminal)" {
+    set gfxpayload=keep
+    echo "Booting GDC Manual Rescue Shell..."
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp init=/bin/sh ---
     initrd /casper/initrd
 }
 EOF

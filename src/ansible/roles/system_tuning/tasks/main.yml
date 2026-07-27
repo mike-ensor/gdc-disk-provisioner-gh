@@ -23,6 +23,24 @@
   when: sysctl_deploy.changed
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-07 | Deploy persistent kernel module blacklist to prevent AMD fTPM conflicts"
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/gdc-blacklist.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Blacklist AMD Sensor Fusion Hub drivers to prevent firmware/TPM conflicts and system freezes on AMD platforms
+      blacklist pcie_mp2_amd
+      blacklist amd_sfh
+  register: blacklist_deploy
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-07 | Rebuild initramfs on blacklist change to ensure early-boot enforcement"
+  ansible.builtin.command: dracut -f /boot/initrd.img-{{ ansible_kernel }} {{ ansible_kernel }}
+  when: blacklist_deploy.changed
+  tags: ["strictly-local"]
+
 # --------------------------------------------------------------------------
 # Task 08: NTP Alignment & Timezone
 # --------------------------------------------------------------------------

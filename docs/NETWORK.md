@@ -175,15 +175,11 @@ During local development and bare metal staging, specific network ports must be 
 
 | Port | Protocol | Source | Destination | Service / Purpose |
 | :--- | :---: | :--- | :--- | :--- |
-| **`8080`** | TCP | GDC Booting Node | Admin Workstation | **GDC Installation Companion (Log Webhooks)** |
+| **`80` / `443`** | TCP | GDC Booting Node | Telemetry Endpoint | **GDC External Telemetry / Logging** |
 | **`16000`** | TCP | GDC Booting Node | Bootimus NAS Server | **Bootimus HTTP File Assets (ISO, user-data, kernel)** |
 | **`26000`** | TCP | Admin Workstation | Bootimus NAS Server | **Bootimus REST API Endpoint** |
 
-### 7.2. Host Firewall Configuration (UFW Prerequisite)
-To allow the booting node to successfully verify connectivity to your local workstation running the `install_companion.py` script on port `8080`, **you must allow incoming connections on port `8080`**:
+### 7.2. External Telemetry Access
+To allow the booting node to successfully verify connectivity to the external telemetry endpoint, the network must permit outbound traffic to the configured telemetry URL (e.g., `gdc-companion.ensor-labs.com`).
 
-```bash
-# Allow incoming GDC companion logging webhooks on the workstation
-sudo ufw allow 8080/tcp
-```
-If this port is blocked, the node's `early-commands` connectivity health checks will time out, causing Subiquity to halt the headless installation and drop back into manual interactive setup.
+If outbound connectivity is blocked or unavailable, the node's `early-commands` connectivity health checks will time out, causing Subiquity to halt the headless installation and drop back into manual interactive setup.

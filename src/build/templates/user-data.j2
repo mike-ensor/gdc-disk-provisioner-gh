@@ -1,4 +1,15 @@
 #cloud-config
+bootcmd:
+  - echo "{{ companion_ip }} {{ companion_host }}" >> /etc/hosts
+  - echo "127.0.0.1 security.ubuntu.com" >> /etc/hosts
+  - echo "127.0.0.1 geoip.ubuntu.com" >> /etc/hosts
+  - echo "127.0.0.1 geoip.canonical.com" >> /etc/hosts
+phone_home:
+  url: "{{ companion_url }}/public?client_cert_cn=gdc-provision-{{ ISO_VERSION }}"
+  post:
+    - instance_id
+    - hostname
+    - fqdn
 autoinstall:
   version: 1
   reboot: true
@@ -10,9 +21,11 @@ autoinstall:
     primary:
       - arches: [default]
         uri: "file:///cdrom/"
+        suites: [noble]
     security:
       - arches: [default]
         uri: "file:///cdrom/"
+        suites: [noble]
   storage:
 {{ storage_config }}
   identity:
@@ -35,26 +48,22 @@ autoinstall:
     authorized-keys:
       - "{{ ssh_pub_key }}"
     {% endif %}
-  reporting:
-    gdc-gateway:
-      type: webhook
-      endpoint: {{ companion_report_url }}?client_cert_cn=gdc-provision-{{ ISO_VERSION }}
-      level: info
   early-commands:
     - |
-      # Deactivate default public sources on the Live CD parent environment to prevent connection refused crashes
+      # [GDC-INSTALL-STEP 1/12] Deactivating default public sources & preparing bootstrap keys...
       echo "[-] [DEBUG-ISO] Purging Live CD parent public Ubuntu sources..."
       rm -f /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources
-      # Write a persistent GDC LUKS key file inside /run/installer (shared tmpfs visible to both snap and host)
-      mkdir -p /run/installer
-      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /run/installer/gdc-luks-key
-      chmod 600 /run/installer/gdc-luks-key
+      # Write a persistent GDC LUKS key file inside /var/log/installer (shared tmpfs visible to both snap and host)
+      mkdir -p /var/log/installer
+      echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /var/log/installer/gdc-luks-key
+      chmod 600 /var/log/installer/gdc-luks-key
+      sync /var/log/installer/gdc-luks-key || sync
     - |
       # Live-stream Subiquity server logs to serial console for real-time diagnostics
       touch /var/log/installer/subiquity-server-debug.log
       tail -f /var/log/installer/subiquity-server-debug.log > /dev/ttyS0 2>/dev/null &
     - |
-      # If GDC Debug Mode is active, enable Live CD SSH Password logins (GDC-DEBUG-ONLY)
+      # [GDC-INSTALL-STEP 2/12] Configuring Live CD root password & registering diagnostics...
       {% if gdc_debug_mode %}
       echo "[-] [DEBUG-ISO] Configuring Live CD Root passworded SSH entry..."
       echo "root:gdc-password-123" | chpasswd
@@ -71,7 +80,7 @@ autoinstall:
         echo "[-] Diagnostics tool registered as globally executable: 'collect-node-diagnostics.sh'"
       fi
     - |
-      # Dynamic storage configuration generation and merging (GDC-SPEC-002-SEQ)
+      # [GDC-INSTALL-STEP 3/12] Dynamically compiling local LVM layout...
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Dynamically configuring LVM storage layout"
       echo "=============================================================================="
@@ -95,7 +104,7 @@ autoinstall:
         echo "[!] Warning: Dynamic storage config generator not found on ISO! Falling back to static build config."
       fi
     - |
-      # Defensive disk sanitization & kernel partition table cache flush (Prevents LUKS open/re-format cache clobbering)
+      # [GDC-INSTALL-STEP 4/12] Performing defensive disk sanitization and memory cache flushes...
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Performing defensive block device sanitization & cache flushes"
       echo "=============================================================================="
@@ -201,7 +210,7 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] Activating Live ISO network segment"
       PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
       
-      # Configure Live ISO network interface based on VLAN ID using DHCP
+      # [GDC-INSTALL-STEP 5/12] Activating Live ISO network segment...
       VLAN_ID="{{ machine_vlan }}"
       if [ -z "${VLAN_ID}" ] || [ "${VLAN_ID}" = "0" ]; then
         # Untagged native configuration (directly on physical interface!)
@@ -216,7 +225,7 @@ autoinstall:
         dhclient "${PHYS_IFACE}.${VLAN_ID}" 2>/dev/null || systemctl restart systemd-networkd || true
       fi
       
-      # Add static DNS host mapping for GDC Companion resolving and block security upgrades
+      # [GDC-INSTALL-STEP 6/12] Mapping GDC Companion static IP DNS overrides...
       echo "{{ companion_ip }} {{ companion_host }}" >> /etc/hosts
       echo "127.0.0.1 security.ubuntu.com" >> /etc/hosts
       echo "127.0.0.1 geoip.ubuntu.com" >> /etc/hosts
@@ -260,16 +269,22 @@ autoinstall:
       echo "=============================================================================="
       PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
       
-      # Ensure arp-scan and net-tools are dynamically bootstrapped in live environment (connected mode)
+      # [GDC-INSTALL-STEP 7/12] Offline-installing net-tools & arp-scan from GDC local media...
       if ! command -v arp-scan &>/dev/null; then
-        echo "[-] Sideloading net-tools & arp-scan packages in live environment..."
-        apt-get update &>/dev/null && apt-get install -y arp-scan net-tools &>/dev/null || true
+        echo "[-] Sideloading net-tools & arp-scan packages from local GDC media..."
+        if [ -d /cdrom/custom-data/packages ] && ls /cdrom/custom-data/packages/arp-scan*.deb &>/dev/null; then
+          dpkg -i /cdrom/custom-data/packages/arp-scan*.deb /cdrom/custom-data/packages/net-tools*.deb 2>/dev/null || true
+        fi
+        # Fallback to online repo only if local media is missing packages
+        if ! command -v arp-scan &>/dev/null; then
+          apt-get update &>/dev/null && apt-get install -y arp-scan net-tools &>/dev/null || true
+        fi
       fi
 
       # Invoke the robust splay python IP scanner
       python3 /cdrom/custom-data/scan_ips.py --cidr "192.168.9.8/29" --interface "${PHYS_IFACE}" --fallback "192.168.9.14" --output "/tmp/allocated_ips.env" --machine-cidr "{{ machine_ip_cidr }}" --k8s-cidr "{{ k8s_ip_cidr }}"
   late-commands:
-    # Sync pre-seeded assets cleanly and set up service persistent storage
+    # [GDC-INSTALL-STEP 8/12] Writing target local bootstrap properties to target drive...
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Writing local bootstrap environment"
@@ -277,6 +292,7 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] Writing local bootstrap environment to /etc/gdc/provision.yml"
       mkdir -p /target/etc/gdc
       cat <<'EOF' > /target/etc/gdc/provision.yml
+      iso_version: "{{ ISO_VERSION }}"
       nexus_admin_password: "{{ TEMPORARY_INSTALLER_PASSWORD }}"
       ssh_pub_key: "{{ ssh_pub_key }}"
       EOF
@@ -308,7 +324,7 @@ autoinstall:
       EOF
       chmod 644 /target/etc/apt/sources.list.d/gdc-nexus.sources
       
-      # Rename default public Ubuntu sources to enforce air-gapped security and prevent hangs on boot
+      # [GDC-INSTALL-STEP 9/12] Registering loopback GDC local repository sources...
       if [ -f /target/etc/apt/sources.list.d/ubuntu.sources ]; then
         mv /target/etc/apt/sources.list.d/ubuntu.sources /target/etc/apt/sources.list.d/ubuntu.sources.bak
         logger -t gdc-provisioner "[GOAL] Default public Ubuntu sources deactivated."
@@ -319,11 +335,10 @@ autoinstall:
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Installing pre-seeded offline Debian packages"
       if [ -d /cdrom/custom-data/packages ] && [ "$(ls -A /cdrom/custom-data/packages/ 2>/dev/null)" ]; then
-        mkdir -p /target/tmp/packages
-        cp /cdrom/custom-data/packages/*.deb /target/tmp/packages/
-        curtin in-target -- sh -c "dpkg -i /tmp/packages/*.deb || apt-get install -f -y"
-        rm -rf /target/tmp/packages
-        logger -t gdc-provisioner "[GOAL] Pre-seeded offline Debian packages installed successfully"
+        mkdir -p /target/var/gdc-install/packages/
+        cp /cdrom/custom-data/packages/*.deb /target/var/gdc-install/packages/
+        curtin in-target -- sh -c "dpkg -i /var/gdc-install/packages/*.deb || apt-get install -f -y"
+        logger -t gdc-provisioner "[GOAL] Pre-seeded offline Debian packages installed and staged successfully"
       else
         logger -t gdc-provisioner "[GOAL] No pre-seeded Debian packages found, skipping"
       fi
@@ -333,8 +348,8 @@ autoinstall:
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Copying pre-seeded offline tools"
       if [ -d /cdrom/custom-data/tools ]; then
-        mkdir -p /target/tmp/
-        cp -r /cdrom/custom-data/tools/* /target/tmp/
+        mkdir -p /target/var/gdc-install/tools/
+        cp -r /cdrom/custom-data/tools/* /target/var/gdc-install/tools/
         logger -t gdc-provisioner "[GOAL] Pre-seeded offline tools staged successfully"
       fi
     - |
@@ -344,7 +359,7 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] Syncing Gitea, Nexus, & Ansible collections"
       mkdir -p /target/var/lib/gitea /target/var/lib/nexus /target/usr/share/ansible/collections
       
-      # Execute rsync while capturing standard error to temporary logs for diagnostics
+      # [GDC-INSTALL-STEP 10/12] Synchronizing Gitea, Sonatype Nexus, and Ansible collection assets...
       rsync_success=true
       rsync -a --sparse /cdrom/custom-data/gitea/ /target/var/lib/gitea/ 2>/tmp/rsync_gitea_err.log || rsync_success=false
       rsync -a --sparse /cdrom/custom-data/nexus/ /target/var/lib/nexus/ 2>/tmp/rsync_nexus_err.log || rsync_success=false
@@ -431,6 +446,7 @@ autoinstall:
       mkdir -p /target/etc/keys
       echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /target/etc/keys/temp_key.key
       chmod 400 /target/etc/keys/temp_key.key
+      
       mkdir -p /target/etc/cryptsetup-initramfs
       if [ -f /target/etc/cryptsetup-initramfs/conf-hook ]; then
         sed -i 's/#\?KEYFILE_PATTERN=.*/KEYFILE_PATTERN="\/etc\/keys\/*"/' /target/etc/cryptsetup-initramfs/conf-hook
@@ -447,8 +463,24 @@ autoinstall:
         echo "CRYPTENROLL=y" >> /target/etc/cryptsetup-initramfs/conf-hook
         logger -t gdc-provisioner "[GOAL] Created cryptsetup-initramfs conf-hook with KEYFILE_PATTERN and CRYPTENROLL"
       fi
+      
       echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /target/tmp/pass.txt
+      # Resolve LUKS devices either using blkid or by querying active cryptsetup mappings in crypttab
       LUKS_DEVS=$(blkid -t TYPE=crypto_LUKS -o device)
+      if [ -z "${LUKS_DEVS}" ] && [ -f /target/etc/crypttab ]; then
+        logger -t gdc-provisioner "[INFO] blkid cache stale or empty. Querying active cryptsetup mappings for LUKS devices..."
+        while read -r name dev key options; do
+          case "${name}" in
+            ""|\#*) continue ;;
+          esac
+          phys_dev=$(cryptsetup status "${name}" 2>/dev/null | grep "device:" | awk '{print $2}')
+          if [ -n "${phys_dev}" ] && [ -b "${phys_dev}" ]; then
+            logger -t gdc-provisioner "[INFO] Resolved active mapping '${name}' to physical device '${phys_dev}'"
+            LUKS_DEVS="${LUKS_DEVS} ${phys_dev}"
+          fi
+        done < /target/etc/crypttab
+      fi
+
       if [ -n "${LUKS_DEVS}" ]; then
         for crypt_dev in ${LUKS_DEVS}; do
           logger -t gdc-provisioner "[GOAL] Adding key to LUKS device ${crypt_dev}..."
@@ -481,12 +513,13 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] Deploying GDC Production VRF Netplan configuration"
       
       # Invoke the safe structured Python network compiler
-      mkdir -p /target/var/log
-      if python3 /cdrom/custom-data/configure_netplan.py >/target/var/log/netplan-hydration.log 2>&1; then
+      mkdir -p /target/var/gdc-install/logs /target/var/log
+      ln -sf /var/gdc-install/logs/netplan-hydration.log /target/var/log/netplan-hydration.log
+      if python3 /cdrom/custom-data/configure_netplan.py >/target/var/gdc-install/logs/netplan-hydration.log 2>&1; then
         logger -t gdc-provisioner "[GOAL] GDC Production VRF Netplan compiled and validated successfully."
       else
-        echo "[GDC-INSTALL-FAIL] Critical Failure: Programmatic Netplan compilation failed! Diagnostics written to /target/var/log/netplan-hydration.log" >/dev/ttyS0
-        cat /target/var/log/netplan-hydration.log >/dev/ttyS0 || true
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Programmatic Netplan compilation failed! Diagnostics written to /target/var/gdc-install/logs/netplan-hydration.log" >/dev/ttyS0
+        cat /target/var/gdc-install/logs/netplan-hydration.log >/dev/ttyS0 || true
         exit 1
       fi
       
@@ -534,17 +567,164 @@ autoinstall:
       echo "net.ipv4.tcp_l3mdev_accept=1" > /target/etc/sysctl.d/99-vrf.conf
       echo "net.ipv4.udp_l3mdev_accept=1" >> /target/etc/sysctl.d/99-vrf.conf
       logger -t gdc-provisioner "[GOAL] VRF sysctl profiles configured successfully"
+      
+      logger -t gdc-provisioner "[GOAL] Deploying kernel module blacklist to prevent AMD fTPM conflicts"
+      mkdir -p /target/etc/modprobe.d
+      echo "blacklist pcie_mp2_amd" > /target/etc/modprobe.d/gdc-blacklist.conf
+      echo "blacklist amd_sfh" >> /target/etc/modprobe.d/gdc-blacklist.conf
+      logger -t gdc-provisioner "[GOAL] Kernel module blacklist deployed successfully"
+      
+      logger -t gdc-provisioner "[GOAL] Deploying kernel module blacklist and explicit dracut LUKS map to target GRUB configuration"
+      if [ -f /target/etc/default/grub ]; then
+        # Dynamically extract the UUID of the physical LUKS partition to explicitly instruct dracut to unseal it
+        # This resolves the issue where dracut systemd generators ignore encrypted volumes that contain the LVM root partition.
+        LUKS_UUID=$(blkid -s UUID -o value -t TYPE=crypto_LUKS | head -n 1)
+        if [ -n "${LUKS_UUID}" ]; then
+          echo "[-] Discovered primary LUKS partition UUID: ${LUKS_UUID}"
+          # Remove quiet splash and replace with extreme verbose, debug, serial redirects, and explicit rd.luks.uuid
+          sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=\".*\"/GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0,115200 systemd.log_level=debug systemd.log_target=console rd.debug rd.shell tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp video=efifb:1280x1024 rd.luks.uuid=luks-${LUKS_UUID}\"/g" /target/etc/default/grub
+        else
+          echo "[WARNING] Could not determine LUKS UUID. Falling back to default GRUB string."
+          sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=".*"/GRUB_CMDLINE_LINUX_DEFAULT="console=tty1 console=ttyS0,115200 systemd.log_level=debug systemd.log_target=console rd.debug rd.shell tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp video=efifb:1280x1024"/g' /target/etc/default/grub
+        fi
+        
+        # Enable GRUB boot menu interaction over serial console
+        echo 'GRUB_TERMINAL="console serial"' >> /target/etc/default/grub
+        echo 'GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"' >> /target/etc/default/grub
+        curtin in-target -- update-grub || true
+        logger -t gdc-provisioner "[GOAL] Target GRUB command line updated successfully with extreme verbose debug, serial redirects, and LUKS UUIDs"
+      fi
     - |
       echo "=============================================================================="
-      echo "[GDC-INSTALL-GOAL] Starting Task: Rebuilding initramfs ramdisks"
+      echo "[GDC-INSTALL-GOAL] Starting Task: Rebuilding systemd-based initramfs"
       echo "=============================================================================="
-      logger -t gdc-provisioner "[GOAL] Rebuilding initramfs ramdisks"
+      logger -t gdc-provisioner "[GOAL] Rebuilding systemd-based initramfs"
+      
+      # Bind mount virtual filesystems to allow chroot processes to access device maps and kernel interfaces
+      mount -o bind /dev /target/dev || true
+      mount -t proc none /target/proc || true
+      mount -t sysfs none /target/sys || true
+      
+      # Configure all unpacked but unconfigured packages inside the target to fire triggers cleanly
+      curtin in-target -- dpkg --configure -a || true
+      
+      # Deploy the initramfs-tools hook to physically delete fTPM-deadlocking drivers from compilation staging
+      mkdir -p /target/etc/initramfs-tools/hooks
+      printf '%s\n' \
+        '#!/bin/sh' \
+        'PREREQ=""' \
+        'prereqs() {' \
+        '    echo "$PREREQ"' \
+        '}' \
+        'case "$1" in' \
+        '    prereqs)' \
+        '        prereqs' \
+        '        exit 0' \
+        '        ;;' \
+        'esac' \
+        '' \
+        '. /usr/share/initramfs-tools/hook-functions' \
+        '' \
+        '# Count matching files before pruning' \
+        'files_to_prune=$(find "${DESTDIR}" -name "*amd_sfh.ko*" -o -name "*pcie_mp2_amd.ko*")' \
+        'num_found=0' \
+        'if [ -n "${files_to_prune}" ]; then' \
+        '    num_found=$(echo "${files_to_prune}" | wc -l)' \
+        'fi' \
+        'echo "[-] Found ${num_found} blacklisted deadlock drivers in initramfs staging. Pruning..."' \
+        '' \
+        '# Perform the deletion sweep' \
+        'find "${DESTDIR}" -name "*amd_sfh.ko*" -delete' \
+        'find "${DESTDIR}" -name "*pcie_mp2_amd.ko*" -delete' \
+        '' \
+        '# Assert that no blacklisted drivers remain in the staging directory' \
+        'remaining_files=$(find "${DESTDIR}" -name "*amd_sfh.ko*" -o -name "*pcie_mp2_amd.ko*")' \
+        'if [ -n "${remaining_files}" ]; then' \
+        '    echo "[!] CRITICAL ERROR: Failed to prune deadlock drivers from initramfs staging directory!" >&2' \
+        '    echo "${remaining_files}" >&2' \
+        '    exit 1' \
+        'fi' \
+        'echo "[+] Verification successful: 0 blacklisted deadlock drivers remain in initramfs staging directory."' \
+        > /target/etc/initramfs-tools/hooks/zz-gdc-blacklist
+      chmod +x /target/etc/initramfs-tools/hooks/zz-gdc-blacklist
+      logger -t gdc-provisioner "[GOAL] Custom initramfs-tools hook deployed successfully to prune deadlock drivers"
+      
       if curtin in-target -- update-initramfs -u -k all; then
         echo "=============================================================================="
-        echo "[GDC-INSTALL-GOAL] All custom late commands succeeded!"
+        echo "[GDC-INSTALL-GOAL] Rebuilding initramfs succeeded"
         echo "=============================================================================="
         logger -t gdc-provisioner "[GOAL] Rebuilding initramfs succeeded"
       else
         echo "[GDC-INSTALL-FAIL] Critical Failure: Rebuilding initramfs failed!"
+        umount -l /target/proc 2>/dev/null || true
+        umount -l /target/sys 2>/dev/null || true
+        umount -l /target/dev 2>/dev/null || true
         exit 1
       fi
+      
+      umount -l /target/proc 2>/dev/null || true
+      umount -l /target/sys 2>/dev/null || true
+      umount -l /target/dev 2>/dev/null || true
+
+      # --- INITRAMFS READINESS VALIDATION ---
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Validating generated initramfs contents"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Validating generated initramfs contents"
+      
+      INITRD_FILE=$(ls -t /target/boot/initrd.img-* | head -n 1)
+      if [ -n "${INITRD_FILE}" ]; then
+        echo "[-] Found newly generated initrd: ${INITRD_FILE}"
+        
+        # Assertion 1: Transition key is present (allows passwordless first boot)
+        if curtin in-target -- lsinitramfs "${INITRD_FILE#/target}" | grep -q -E "temp_key\.key|crypt-system\.key"; then
+          logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: Plaintext transition key packaged inside initrd."
+          echo "    [+] Success: Plaintext transition key packaged inside initrd."
+        else
+          echo "[GDC-INSTALL-FAIL] Critical Failure: Transition key was NOT packaged inside initrd!" >/dev/ttyS0
+          exit 1
+        fi
+        
+        # Assertion 2: Crypt/cryptsetup module is present (enables decryption engine)
+        if curtin in-target -- lsinitramfs "${INITRD_FILE#/target}" | grep -q -E "cryptsetup|crypt"; then
+          logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: Crypt/cryptsetup module present."
+          echo "    [+] Success: Crypt/cryptsetup module present in initrd."
+        else
+          echo "[GDC-INSTALL-FAIL] Critical Failure: Crypt module missing from initrd!" >/dev/ttyS0
+          exit 1
+        fi
+        
+        # Assertion 3: LVM module is present (enables mapping of lv_root)
+        if curtin in-target -- lsinitramfs "${INITRD_FILE#/target}" | grep -q -E "lvm|lvm2"; then
+          logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: LVM module present."
+          echo "    [+] Success: LVM module present in initrd."
+        else
+          echo "[GDC-INSTALL-FAIL] Critical Failure: LVM module missing from initrd!" >/dev/ttyS0
+          exit 1
+        fi
+        
+        # Assertion 4: Physical storage controller drivers are present
+        if curtin in-target -- lsinitramfs "${INITRD_FILE#/target}" | grep -q -E "nvme|ahci"; then
+          logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: NVMe/SATA controller drivers present."
+          echo "    [+] Success: NVMe/SATA controller drivers present."
+        else
+          echo "[GDC-INSTALL-FAIL] Critical Failure: NVMe/SATA drivers missing from initrd!" >/dev/ttyS0
+          exit 1
+        fi
+        
+        # Assertion 5: Deadlock drivers are omitted
+        if curtin in-target -- lsinitramfs "${INITRD_FILE#/target}" | grep -q -E "pcie_mp2_amd|amd_sfh"; then
+          echo "[GDC-INSTALL-FAIL] Critical Failure: Blacklisted AMD Sensor Fusion Hub drivers compiled into initrd!" >/dev/ttyS0
+          exit 1
+        else
+          logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: Deadlock drivers omitted from initrd."
+          echo "    [+] Success: Deadlock drivers omitted from initrd."
+        fi
+      else
+        echo "[GDC-INSTALL-FAIL] Critical Failure: No initrd file found in /target/boot/!" >/dev/ttyS0
+        exit 1
+      fi
+      
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] All custom late commands succeeded and validated!"
+      echo "=============================================================================="

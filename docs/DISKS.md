@@ -107,7 +107,7 @@ To achieve secure, unattended, and air-gapped provisioning, GDC Bare Metal nodes
 ### Phase 2: Host Hardening (First-Boot Ansible Phase)
 Upon first boot, the system transitions from the generic installation state to a hardened, node-specific secure state via the post-install Ansible-pull pipeline (`src/ansible/roles/security_hardening/tasks/main.yml`):
 
-1. **Hardware Sealing (TPM 2.0):** Ansible queries the host for an active Trusted Platform Module (TPM 2.0) device (`/dev/tpmrm0`). It seals the LUKS Master Key to the node's physical TPM chip PCR registers (`0+2+7` in UEFI mode) using `systemd-cryptenroll`. This locks the decryption key specifically to the host's physical motherboard and system integrity state.
+1. **Hardware Sealing (TPM 2.0):** Ansible queries the host for an active Trusted Platform Module (TPM 2.0) device (`/dev/tpmrm0`). It seals the LUKS Master Key to the node's physical TPM chip PCR registers (`0+7` in UEFI mode) using `systemd-cryptenroll`. This locks the decryption key specifically to the host's physical motherboard and system integrity state, while preventing Option ROM device shifts (PCR 2) from locking the boot on subsequent reboots.
 2. **Password Revocation:** It purges the insecure, static bootstrap passphrase slot from the LUKS container keyslots using:
    ```bash
    systemd-cryptenroll --wipe-slot=password --unlock-key-file=/etc/keys/temp_key.key <device>

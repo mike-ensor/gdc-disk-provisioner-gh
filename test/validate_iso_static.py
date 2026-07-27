@@ -74,8 +74,13 @@ def main():
         local_env = parse_env_file(local_env_path)
         build_env.update(local_env)
 
-    iso_version = build_env.get("ISO_VERSION") or envrc.get("ISO_VERSION") or "0.1.14"
-    project_id = build_env.get("PROJECT_ID") or envrc.get("PROJECT_ID") or "anthos-bare-metal-lab-1"
+    iso_version = os.environ.get("ISO_VERSION")
+    if not iso_version and os.path.exists(os.path.join(project_root, "VERSION")):
+        with open(os.path.join(project_root, "VERSION"), "r") as f:
+            iso_version = f.read().strip()
+    if not iso_version:
+        iso_version = build_env.get("ISO_VERSION") or envrc.get("ISO_VERSION") or "0.1.14"
+    project_id = os.environ.get("PROJECT_ID") or build_env.get("PROJECT_ID") or envrc.get("PROJECT_ID") or "anthos-bare-metal-lab-1"
 
     # Find the target ISO path
     target_iso_name = f"gdc-bootstrap-ubuntu-24.04-v{iso_version}-debug.iso"
@@ -166,6 +171,25 @@ def main():
 
         for src, dest in extract_files:
             subprocess.run(["xorriso", "-osirrox", "on", "-indev", target_iso_path, "-extract", src, os.path.join(temp_dir, dest)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # Assert AMD blacklist is present in extracted autoinstall user-data
+        user_data_path = os.path.join(temp_dir, "nocloud/user-data")
+        if os.path.exists(user_data_path):
+            log_info("Asserting AMD blacklist is present in extracted autoinstall user-data...")
+            with open(user_data_path, "r") as f:
+                user_data_content = f.read()
+            if "blacklist pcie_mp2_amd" not in user_data_content or "blacklist amd_sfh" not in user_data_content or "blacklist ccp" not in user_data_content:
+                log_error("AMD Sensor Fusion Hub / CCP kernel blacklist is MISSING from user-data!")
+                sys.exit(1)
+            print("[x] Verified AMD Sensor Fusion Hub kernel blacklist is active in user-data.")
+            
+            if "bootcmd:" not in user_data_content or "phone_home:" not in user_data_content:
+                log_error("bootcmd or phone_home sections are MISSING from user-data!")
+                sys.exit(1)
+            if "headers:" in user_data_content:
+                log_error("Detected invalid 'headers:' block inside user-data! This will trigger a Subiquity crash.")
+                sys.exit(1)
+            print("[x] Verified early-boot hosts mapping and phone_home are present and clean in user-data.")
 
         print("[-] Running comprehensive artifacts static validation suite on extracted ISO components...")
         
