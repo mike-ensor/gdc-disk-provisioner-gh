@@ -9,6 +9,7 @@ Thumbs.db
 #
 .git-workspace
 .review/
+.github/
 
 # Project-specific / generic outputs
 dist/
