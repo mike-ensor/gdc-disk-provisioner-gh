@@ -4,6 +4,31 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.1.129] - 2026-07-26
+
+### Fixed
+- **Dracut Dynamic LUKS UUID Bootloader Mapping:** Resolved the final `dracut` rescue shell timeout (`vg_system-lv_root does not exist`) by aggressively pushing the LUKS partition UUID straight into the OS kernel line (`rd.luks.uuid=`). Integrated an active `blkid` query into Subiquity `late-commands` so the ISO natively learns its own partition structure during install and permanently maps it for the TPM 2.0 driver.
+- **Ansible Playbook First-Boot Execution Crash:** Resolved a fatal playbook crash by swapping legacy `update-initramfs -u` logic in `system_tuning` directly to `dracut -f`, allowing the installation playbook to safely reach the `security_hardening` role and seal the system perfectly.
+
+## [0.1.128] - 2026-07-26
+
+### Added
+- **Target OS Framebuffer Scaling:** Hardcoded `video=efifb:1280x1024` into the target GRUB command line in `user-data.j2` to force a 16:9 1280p VGA geometry, preventing early-boot systemd interactive prompts from rendering off-screen.
+
+### Fixed
+- **Dracut Core Binaries Pre-Seeding Fix:** Resolved the critical post-install `dracut-emergency` crash loop. Added `dracut` and `dracut-core` to `packages_config.yaml` and `vars/all.yml` to guarantee the target OS uses the official Ubuntu package suite to safely package its own bootloader.
+- **Explicit Target GRUB `ccp` Fix:** Appended `,ccp` to the persistent `modprobe.blacklist` block to permanently defeat AMD Hardware PSP lockups after the kernel jumps out of the `dracut` execution path and attempts dynamic module loading.
+
+## [0.1.127] - 2026-07-26
+
+### Fixed
+- **Dracut LVM & Crypt Blindness Fix:** Resolved a catastrophic post-install `dracut-emergency` NVMe-blind crash loop. We forcefully injected `add_dracutmodules+=" crypt lvm "` into `/etc/dracut.conf.d/gdc.conf` so the target OS possesses the architectural ability to parse LUKS and logical volume headers upon the second reboot.
+
+## [0.1.126] - 2026-07-26
+
+### Fixed
+- **Dracut Target Initrd TPM & AMD Fix:** Surgically added `ccp` to `omit_drivers` and explicitly injected the `tpm2-tss` dracut hooks alongside the core kernel drivers via `--add "tpm2-tss" --add-drivers "tpm tpm_tis tpm_crb tpm_tis_core"` to guarantee the target machine will successfully unseal TPM 2.0 PCR registers on second-boot.
+
 ## [0.1.125] - 2026-07-26
 
 ### Fixed
