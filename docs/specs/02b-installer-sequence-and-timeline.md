@@ -56,7 +56,7 @@ TIME (MIN)   PHASE                         ACTIONS EXECUTED
 57:                                           • Pulls GDC deployment playbooks.
 58: 
 59: T = 16.0m    TPM-Sealing & Finalization   • Ansible executes `systemd-cryptenroll --tpm2-device=auto`
-60:                                             to seal LUKS to hardware registers PCR 0+2+7 (Secure Boot).
+60:                                             to seal LUKS to hardware registers PCR 0+7 (Secure Boot).
 61:                                           • Rewrites /etc/crypttab to "tpm2-device=auto,discard" and
 62:                                             erases temporary key /boot/temp_key.key and password slots.
 63:                                           • Generates TPM-bound SSH host keys and requests Device Identity CA Certs.
@@ -110,7 +110,7 @@ The GDC bootstrapping process is divided into two major architectural and physic
     1. During installation, Subiquity encrypts the drive using a baseline temporary passcode.
     2. In `late-commands`, the installer creates a one-time keyfile `/target/boot/temp_key.key` and configures `/target/etc/crypttab` to read this keyfile during early boot.
     3. The node reboots, automatically decrypting via the local file, and launches the first-boot `ansible-pull` service.
-    4. The Ansible playbook executes `systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+7`, sealing the LUKS slot to the hardware TPM chip.
+    4. The Ansible playbook executes `systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+7`, sealing the LUKS slot to the hardware TPM chip.
     5. The playbook rewrites `/etc/crypttab` with the `tpm2-device=auto` flag, **deletes `/boot/temp_key.key`**, and runs `systemd-cryptenroll --wipe-slot=password` to erase the temporary password.
     6. *Vulnerability Closed:* The node can now only boot on the physical motherboard with an un-tampered Secure Boot configuration.
 

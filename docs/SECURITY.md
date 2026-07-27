@@ -32,9 +32,9 @@ Baking static credentials, admin passwords, or private key pairs onto a bootload
 
 ### B. Hardware TPM 2.0 Sealing (Secure Boot)
 Once booted, the Ansible playbook executes `systemd-cryptenroll` to permanently seal the storage decryption keys directly to the host's physical motherboard TPM 2.0 chip:
-1. **PCR Register Sealing:** The LUKS keyslot is sealed to PCR registers `0` (Firmware), `2` (PCI Configurations), and `7` (Secure Boot State):
+1. **PCR Register Sealing:** The LUKS keyslot is sealed to PCR registers `0` (Firmware) and `7` (Secure Boot State) to ensure boot stability while retaining robust cryptographic verification:
    ```bash
-   systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+2+7 /dev/nvme0n1p3
+   systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+7 /dev/nvme0n1p3
    ```
 2. **Insecure Slot Purge:** The playbook updates `/etc/crypttab` with the flag `tpm2-device=auto,discard`, **permanently deletes the temporary key `/etc/keys/temp_key.key`**, and runs `systemd-cryptenroll --wipe-slot=password` to wipe the baseline installation password.
 3. **Security Outcome:** The system can now only boot on the original motherboard with an unmodified, untampered Secure Boot configuration. If the drive is stolen or Secure Boot is bypassed, the disk remains cryptographically locked.

@@ -14,6 +14,10 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, "src/build"))
 import generate_banner
 import bootimus
 
+# Test file paths are modified; append test/ to sys.path to find the mock companion
+sys.path.insert(0, os.path.join(PROJECT_ROOT, "test"))
+import install_companion_mock
+
 class TestGgdBuildScripts(unittest.TestCase):
 
     def setUp(self):
@@ -51,7 +55,62 @@ class TestGgdBuildScripts(unittest.TestCase):
                             f"Line {idx} frame boundary violation: '{line}'")
 
     # ==========================================================================
-    # TEST SUITE 3: bootimus.py (PXE Tree printing and exclusions)
+    # TEST SUITE 2: install_companion_mock.py (Webhook Status mapping)
+    # ==========================================================================
+    def test_companion_log_status_colors(self):
+        """Verifies install_companion_mock.py accurately maps status codes, color-prefixes and writes logs."""
+        payload_success = {
+            "name": "subiquity/test-success",
+            "description": "Task completed successfully",
+            "status": "SUCCESS"
+        }
+        
+        # Override the log file path dynamically for tests
+        mock_log = os.path.join(self.test_dir, "gdc-installer-receiver.log")
+        
+        # Suppress prints and capture standard output
+        captured_stdout = io.StringIO()
+        sys.stdout = captured_stdout
+        try:
+            # Create a class instance bypassing the constructor to avoid HTTPServer requirements
+            mock_handler = install_companion_mock.SubiquityLogHandler.__new__(install_companion_mock.SubiquityLogHandler)
+            install_companion_mock.SubiquityLogHandler.log_file_path = mock_log
+            mock_handler.process_webhook_payload(payload_success)
+        finally:
+            sys.stdout = sys.__stdout__
+            
+        success_out = captured_stdout.getvalue()
+        
+        # Verify Success string colors and prefixes
+        self.assertIn("[GDC-INSTALL-SUCCESS]", success_out)
+        self.assertIn("\033[92m", success_out) # OKGREEN color
+        self.assertIn("Task completed successfully", success_out)
+        
+        # Test 2: Verify Log File writes correctly
+        self.assertTrue(os.path.exists(mock_log))
+        with open(mock_log, "r") as f:
+            log_content = f.read()
+        self.assertIn("[SUCCESS] subiquity/test-success - Task completed successfully", log_content)
+
+        # Test 3: Failure scenario (Testing Warning vs Error thresholds)
+        payload_fail = {
+            "name": "subiquity/critical-failure",
+            "description": "Network timeout threshold exceeded",
+            "status": "FAIL",
+            "level": "ERROR"
+        }
+        
+        captured_stdout = io.StringIO()
+        sys.stdout = captured_stdout
+        try:
+            mock_handler.process_webhook_payload(payload_fail)
+        finally:
+            sys.stdout = sys.__stdout__
+            
+        fail_out = captured_stdout.getvalue()
+        self.assertIn("[GDC-INSTALL-FAIL]", fail_out)
+        self.assertIn("\033[91m", fail_out) # FAIL color
+
     # ==========================================================================
     def test_bootimus_pxe_unicode_tree_list(self):
         """Verifies bootimus.py renders, sorts, and filters the image tree cleanly."""

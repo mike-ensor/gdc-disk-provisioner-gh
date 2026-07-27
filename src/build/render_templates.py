@@ -119,15 +119,28 @@ def render_templates(template_dir, output_dir, env):
     grub_content = """set timeout=5
 set default=0
 
-menuentry "Google Distributed Cloud (GDC) Automated Bootstrap" {
+serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1
+terminal_input console serial
+terminal_output console serial
+
+menuentry "Google Distributed Cloud (GDC) Automated Installer [Default]" {
     set gfxpayload=keep
-    linux /casper/vmlinuz console=ttyS0 console=tty1 autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=none ---
+    echo "Booting GDC Unattended Installer..."
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 autoinstall "ds=nocloud;s=/cdrom/nocloud/" ip=dhcp apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp ---
     initrd /casper/initrd
 }
 
-menuentry "Ubuntu Server Standard Install" {
+menuentry "GDC Interactive Subiquity Installer (Manual Step-by-Step)" {
     set gfxpayload=keep
-    linux /casper/vmlinuz console=ttyS0 console=tty1 ---
+    echo "Booting GDC Interactive Installer..."
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp ---
+    initrd /casper/initrd
+}
+
+menuentry "GDC Manual Rescue Shell (Interactive Terminal)" {
+    set gfxpayload=keep
+    echo "Booting GDC Manual Rescue Shell..."
+    linux /casper/vmlinuz console=tty1 console=ttyS0,115200 apparmor=0 tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp init=/bin/sh ---
     initrd /casper/initrd
 }
 """
@@ -182,26 +195,6 @@ if __name__ == "__main__":
     except Exception:
         git_branch = 'main'
     env['git_branch'] = git_branch
-    env['companion_url'] = env.get('INSTALL_COMPANION_URL', 'http://127.0.0.1:8080/v1/install-logs')
-    from urllib.parse import urlparse
-    u = urlparse(env['companion_url'])
-    env['companion_host'] = env.get('COMPANION_HOST', u.netloc)
-    env['companion_ip'] = env.get('COMPANION_IP', u.hostname or '127.0.0.1')
-    # Generate IP-based report URL to bypass early boot-time DNS resolutions
-    env['companion_report_url'] = env['companion_url'].replace(env['companion_host'], env['companion_ip'])
-    env['machine_vlan'] = env.get('MACHINE_VLAN_ID', '0')
-    env['k8s_vlan'] = env.get('K8S_VLAN_ID', '0')
-    env['machine_dhcp4'] = env.get('MACHINE_DHCP4', 'true').lower()
-    env['machine_dhcp6'] = env.get('MACHINE_DHCP6', 'false').lower()
-    env['machine_ip_cidr'] = env.get('MACHINE_IP_CIDR', '192.168.9.5/29')
-    env['machine_gateway'] = env.get('MACHINE_GATEWAY', '192.168.9.1')
-    env['machine_dns'] = env.get('MACHINE_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')
-    env['k8s_ip_cidr'] = env.get('K8S_IP_CIDR', '192.168.9.10/29')
-    env['k8s_gateway'] = env.get('K8S_GATEWAY', '192.168.9.9')
-    env['k8s_dns'] = env.get('K8S_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')
-    env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
-    env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
-    
     env['persist_add_hosts'] = env.get('PERSIST_ADD_HOSTS', 'false').lower() == 'true'
     
     # Parse git-ignored add-hosts file for custom DNS mappings
@@ -220,6 +213,37 @@ if __name__ == "__main__":
                     add_hosts_lines.append(stripped)
                     
     env['add_hosts_lines'] = add_hosts_lines
+
+    env['companion_url'] = env.get('INSTALL_COMPANION_URL', 'http://127.0.0.1:8080/v1/install-logs')
+    from urllib.parse import urlparse
+    u = urlparse(env['companion_url'])
+    env['companion_host'] = env.get('COMPANION_HOST', u.netloc)
+    
+    # Extract companion IP from add-hosts if available, to bypass early DNS lookups
+    companion_ip = '127.0.0.1'
+    if u.hostname:
+        companion_ip = u.hostname
+        for line in add_hosts_lines:
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] == u.hostname:
+                companion_ip = parts[0]
+                break
+    env['companion_ip'] = env.get('COMPANION_IP', companion_ip)
+    
+    # Generate IP-based report URL to bypass early boot-time DNS resolutions
+    env['companion_report_url'] = env['companion_url'].replace(env['companion_host'], env['companion_ip'])
+    env['machine_vlan'] = env.get('MACHINE_VLAN_ID', '0')
+    env['k8s_vlan'] = env.get('K8S_VLAN_ID', '0')
+    env['machine_dhcp4'] = env.get('MACHINE_DHCP4', 'true').lower()
+    env['machine_dhcp6'] = env.get('MACHINE_DHCP6', 'false').lower()
+    env['machine_ip_cidr'] = env.get('MACHINE_IP_CIDR', '192.168.9.5/29')
+    env['machine_gateway'] = env.get('MACHINE_GATEWAY', '192.168.9.1')
+    env['machine_dns'] = env.get('MACHINE_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')
+    env['k8s_ip_cidr'] = env.get('K8S_IP_CIDR', '192.168.9.10/29')
+    env['k8s_gateway'] = env.get('K8S_GATEWAY', '192.168.9.9')
+    env['k8s_dns'] = env.get('K8S_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')
+    env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
+    env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
     
     # Map and self-heal the temporary installer credential password hash
     env['password_hash'] = env.get('PASSWORD_HASH', '')

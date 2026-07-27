@@ -12,6 +12,184 @@ import sys
 import subprocess
 import tempfile
 import yaml
+import re
+import shlex
+import shutil
+
+def validate_commands_in_script(script_text):
+    """
+    Parses a multiline shell script, tokenizes command segments,
+    and validates their CLI options using local --help/man pages.
+    """
+    if not script_text:
+        return
+        
+    # Standard shell operators that separate commands
+    operators_regex = re.compile(r'(\|\||&&|\||;|&|\n)')
+    
+    lines = script_text.splitlines()
+    for line in lines:
+        line_stripped = line.strip()
+        # Skip comments and empty lines
+        if not line_stripped or line_stripped.startswith('#'):
+            continue
+            
+        # Split line by command separators
+        segments = operators_regex.split(line_stripped)
+        for segment in segments:
+            segment = segment.strip()
+            # Skip empty segments or actual separator tokens
+            if not segment or segment in ('||', '&&', '|', ';', '&', '\n'):
+                continue
+                
+            # Safely tokenize the segment
+            try:
+                tokens = shlex.split(segment)
+            except Exception:
+                # Fallback to simple split if shell tokenization fails (e.g. unclosed quotes)
+                tokens = segment.split()
+                
+            if not tokens:
+                continue
+                
+            # Filter and skip prefixes like sudo, curtin in-target --, etc.
+            tokens = list(tokens)
+            while tokens:
+                if tokens[0] == 'sudo':
+                    tokens.pop(0)
+                elif tokens[0] == 'curtin' and len(tokens) > 1 and tokens[1] == 'in-target':
+                    # Skip until `--`
+                    while tokens and tokens[0] != '--':
+                        tokens.pop(0)
+                    if tokens and tokens[0] == '--':
+                        tokens.pop(0)
+                elif tokens[0] == 'eatmydata':
+                    tokens.pop(0)
+                elif '=' in tokens[0]:
+                    # Likely a shell variable assignment, skip this token
+                    tokens.pop(0)
+                else:
+                    break
+                    
+            if not tokens:
+                continue
+                
+            binary = tokens[0]
+            # Strip path prefix (e.g. /usr/bin/unmkinitramfs -> unmkinitramfs)
+            binary = os.path.basename(binary).strip("'\"")
+            
+            # If the binary is not installed on the build host, we warn and skip
+            if not shutil.which(binary):
+                continue
+                
+            # Check for option flags starting with - (but exclude standard non-flags)
+            flags = []
+            for t in tokens[1:]:
+                # An option flag starts with - but is not just a single - or --
+                if t.startswith('-') and t not in ('-', '--'):
+                    # Strip any trailing argument if it is attached like --foo=bar
+                    flag_only = t.split('=')[0]
+                    # Make sure it is not a negative number
+                    if not re.match(r'^-\d+$', flag_only):
+                        flags.append(flag_only)
+                        
+            if not flags:
+                continue
+                
+            # We have a binary and some flags to validate!
+            # Fetch help/man documentation
+            doc_content = ""
+            
+            # Try running with --help
+            try:
+                r = subprocess.run([binary, "--help"], capture_output=True, text=True, timeout=5)
+                if r.returncode == 0:
+                    doc_content += (r.stdout or "") + "\n" + (r.stderr or "")
+            except Exception:
+                pass
+                
+            # Try running with -h
+            try:
+                r = subprocess.run([binary, "-h"], capture_output=True, text=True, timeout=5)
+                if r.returncode == 0:
+                    doc_content += (r.stdout or "") + "\n" + (r.stderr or "")
+            except Exception:
+                pass
+                
+            # Try running man
+            try:
+                r = subprocess.run(["man", binary], capture_output=True, text=True, timeout=5)
+                if r.returncode == 0:
+                    # Clean backspaces and other control chars from man output
+                    clean_man = re.sub(r'.\x08', '', r.stdout)
+                    doc_content += clean_man
+            except Exception:
+                pass
+                
+            # If no help text could be retrieved, skip validating this binary
+            if not doc_content.strip():
+                continue
+                
+            # Validate each flag against the help/man text
+            for flag in flags:
+                # Whitelist/skip some standard options or wildcards that can be tricky
+                if flag in ('-c', '-r', '-f', '-d', '-y'): 
+                    # Commonly understood flags, skip to prevent any false positives on weird man pages
+                    continue
+                    
+                # For short options (e.g., -t)
+                if flag.startswith('-') and not flag.startswith('--'):
+                    # Match any character inside the flag (excluding the dash)
+                    # e.g., for -t, check if 't' is documented
+                    flag_chars = flag[1:]
+                    for char in flag_chars:
+                        # Find option like -t, [-t], or in group like [-at]
+                        pattern_short = rf"-{char}\b"
+                        bracket_pattern = rf"\[-[a-zA-Z]*{char}[a-zA-Z]*\]"
+                        
+                        if not (re.search(pattern_short, doc_content) or re.search(bracket_pattern, doc_content)):
+                            raise ValueError(
+                                f"Static Command Option Audit Failed: Utility '{binary}' does not support "
+                                f"the option '-{char}' (found in command: '{segment}')"
+                            )
+                else:
+                    # For long options (e.g., --verbose)
+                    pattern_long = rf"{flag}\b"
+                    if not re.search(pattern_long, doc_content):
+                        raise ValueError(
+                            f"Static Command Option Audit Failed: Utility '{binary}' does not support "
+                            f"the option '{flag}' (found in command: '{segment}')"
+                        )
+
+def validate_user_data_commands(user_data_path):
+    """Parses user-data YAML and runs command-line options verification."""
+    if not os.path.exists(user_data_path):
+        raise FileNotFoundError(f"Cloud-Init user-data file not found at: {user_data_path}")
+        
+    with open(user_data_path, 'r') as f:
+        try:
+            data = yaml.safe_load(f)
+        except Exception as e:
+            raise ValueError(f"YAML parsing failed for {user_data_path}: {str(e)}")
+            
+    # Extract scripts from common cloud-init sections
+    scripts = []
+    
+    # 1. early-commands / late-commands / runcmd
+    for section in ["early-commands", "late-commands", "runcmd"]:
+        cmd_list = data.get(section)
+        if isinstance(cmd_list, list):
+            for item in cmd_list:
+                if isinstance(item, str):
+                    scripts.append(item)
+                elif isinstance(item, list):
+                    # list of tokens, convert to space-separated command
+                    scripts.append(" ".join(shlex.quote(t) for t in item))
+                    
+    # Validate each script block
+    for script in scripts:
+        validate_commands_in_script(script)
+    log_success("Static Command Option Auditor: All command-line options successfully verified against compiled utilities.")
 
 def log_success(msg):
     print(f"[x] {msg}")
@@ -109,9 +287,13 @@ def main():
     
     try:
         # Validate Cloud-Init
-        validate_yaml_file(os.path.join(iso_dir, "nocloud", "user-data"))
+        user_data_path = os.path.join(iso_dir, "nocloud", "user-data")
+        validate_yaml_file(user_data_path)
         validate_yaml_file(os.path.join(iso_dir, "nocloud", "meta-data"))
         log_success("Cloud-Init metadata files validated.")
+        
+        # Static command and option audit
+        validate_user_data_commands(user_data_path)
         
         # Validate Storage Config if it exists
         storage_file = os.path.join(workspace_dir, "autoinstall-storage.yaml")

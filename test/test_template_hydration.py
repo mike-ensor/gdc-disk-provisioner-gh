@@ -509,5 +509,85 @@ class TestGgdTemplateHydration(unittest.TestCase):
             args = call[0][0]
             self.assertNotIn("chroot", args, "Dangerous chroot netplan generate must not be executed.")
 
+    def test_luks_keyfile_path_validation(self):
+        """Statically asserts that GDC LUKS bootstrap keyfiles are routed strictly via /var/log/installer/."""
+        # 1. Assert user-data template writes to /var/log/installer/gdc-luks-key
+        userdata_path = os.path.join(PROJECT_ROOT, "src/build/templates/user-data.j2")
+        with open(userdata_path, "r") as f:
+            userdata_content = f.read()
+            self.assertIn("/var/log/installer/gdc-luks-key", userdata_content,
+                          "user-data.j2 must write the bootstrap key directly to /var/log/installer/gdc-luks-key")
+            self.assertNotIn("/run/installer/gdc-luks-key", userdata_content,
+                             "user-data.j2 must NOT use insecure or delayed /run/installer/gdc-luks-key path")
+
+        # 2. Assert storage_config.j2 template reads from /var/log/installer/gdc-luks-key
+        storage_j2_path = os.path.join(PROJECT_ROOT, "src/build/templates/storage_config.j2")
+        with open(storage_j2_path, "r") as f:
+            storage_j2_content = f.read()
+            self.assertIn("/var/log/installer/gdc-luks-key", storage_j2_content,
+                          "storage_config.j2 must read the bootstrap key from /var/log/installer/gdc-luks-key")
+            self.assertNotIn("/run/installer/gdc-luks-key", storage_j2_content,
+                             "storage_config.j2 must NOT use /run/installer/gdc-luks-key path")
+
+        # 3. Assert all static storage templates read from /var/log/installer/gdc-luks-key
+        storage_templates_dir = os.path.join(PROJECT_ROOT, "src/build/templates/storage")
+        for filename in os.listdir(storage_templates_dir):
+            if filename.endswith(".yaml"):
+                fpath = os.path.join(storage_templates_dir, filename)
+                with open(fpath, "r") as f:
+                    content = f.read()
+                    if "dm_crypt" in content:
+                        self.assertIn("/var/log/installer/gdc-luks-key", content,
+                                      f"{filename} must read the bootstrap key from /var/log/installer/gdc-luks-key")
+                        self.assertNotIn("/run/installer/gdc-luks-key", content,
+                                         f"{filename} must NOT use /run/installer/gdc-luks-key path")
+
+    def test_bootimus_pxe_parameter_alignment(self):
+        """Asserts that src/build/bootimus.py defines the mandatory apparmor=0 and console redirection PXE options."""
+        bootimus_path = os.path.join(PROJECT_ROOT, "src/build/bootimus.py")
+        with open(bootimus_path, "r") as f:
+            bootimus_content = f.read()
+            self.assertIn("apparmor=0", bootimus_content,
+                          "bootimus.py must include apparmor=0 in boot_params to prevent cryptsetup sandboxing blocks")
+            self.assertIn("console=tty1 console=ttyS0", bootimus_content,
+                          "bootimus.py must specify console=tty1 console=ttyS0 to keep serial console active past switch_root")
+
+    def test_ansible_tpm_initramfs_drivers(self):
+        """Asserts that the security_hardening role registers the necessary TPM modules for early boot."""
+        playbook_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/security_hardening/tasks/main.yml")
+        with open(playbook_path, "r") as f:
+            content = f.read()
+            self.assertIn("dracut", content, "Ansible security_hardening tasks must include dracut rebuilding")
+            self.assertIn("dracut.conf.d/gdc.conf", content, "Ansible security_hardening tasks must deploy gdc.conf dracut file")
+
+    @mock.patch('shutil.which')
+    @mock.patch('subprocess.run')
+    def test_static_command_option_auditor(self, mock_run, mock_which):
+        """Asserts that the static command auditor detects invalid command options and accepts valid ones."""
+        import sys
+        sys.path.insert(0, os.path.join(PROJECT_ROOT, "test"))
+        import validate_artifacts
+        
+        # Configure which mock
+        mock_which.return_value = "/usr/bin/unmkinitramfs"
+        
+        # Configure subprocess.run mock to return help output of unmkinitramfs (only -v supported)
+        mock_res = mock.Mock()
+        mock_res.returncode = 0
+        mock_res.stdout = "Usage: unmkinitramfs [-v] initramfs-file directory\nOptions: -v"
+        mock_res.stderr = ""
+        mock_run.return_value = mock_res
+        
+        # 1. Valid command options (unmkinitramfs -v is valid)
+        try:
+            validate_artifacts.validate_commands_in_script("unmkinitramfs -v file.img dir")
+        except ValueError as e:
+            self.fail(f"validate_commands_in_script failed on valid inputs: {e}")
+            
+        # 2. Invalid command options (unmkinitramfs -t is invalid)
+        with self.assertRaises(ValueError) as ctx:
+            validate_artifacts.validate_commands_in_script("unmkinitramfs -t file.img dir")
+        self.assertIn("does not support the option '-t'", str(ctx.exception))
+
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,11 @@
 # Local build workspaces (can be multi-gigabyte)
 build-workspace/
 
+# Local opencode and agent workspaces
+.opencode/
+.review/
+.git-workspace/
+
 # Local cache directory (contains raw ISOs, heavy binaries, blobs)
 .cache/
 

@@ -35,7 +35,7 @@ sequenceDiagram
 
     box rgb(64, 43, 11) Stage 4: Bare-Metal Provision (Node Boot)
         participant Node as Physical Node
-        participant Comp as install_companion.py
+        participant Comp as External Telemetry
     end
 
     %% --- STAGE 1 ---
@@ -102,6 +102,13 @@ The GDC deployment enforces a clean separation between two states:
 
 ### Automated Drift Management
 To prevent runtime configuration skew, the installer registers and starts a standard `gdc-provision.timer` systemd unit. Daily at the specified schedule (configured via `ANSIBLE_PULL_SCHEDULE`), this timer triggers `ansible-pull` to query the local Gitea instance and align the physical server with the declared git-state.
+
+### AMD Zen 4 Bare-Metal Silicon & Firmware Compatibility Specification
+Physical bare-metal deployments on AMD Ryzen Zen 4 (AM5) chipsets mandate dual-context kernel parameter separation to bypass low-level firmware deadlocks:
+1. **Live CD Environment (Installation Phase):** `modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp` is enforced. Blacklisting the AMD Cryptographic Coprocessor (`ccp`) on the Live CD prevents Subiquity's `Filesystem/_probe` task from deadlocking the Platform Security Processor (PSP) bus when scanning raw NVMe sectors for pre-existing LUKS containers.
+2. **Installed Target OS Environment (Production Phase):** `/target/etc/default/grub` is aggressively configured with `modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp` appended. This prevents the kernel from attempting to asynchronously load the module from the raw disk after `switch_root`, keeping the CPU perfectly stable.
+3. **fTPM Hardware Interrupt Bypassing:** Both environments append `tpm_tis.interrupts=0` to the kernel command-line, forcing the built-in TPM driver to run in polling-only mode and bypassing the ACPI hardware interrupt storm bug present on AMD AM5 motherboards.
+4. **Target-Side Systemd Ramdisk (`dracut`):** Because Ubuntu 24.04 noble removed `systemd-initramfs`, the installed target OS uses `dracut` to compile a 65MB hostonly systemd initrd, natively packaging `systemd-cryptsetup` and `systemd-cryptenroll` for passwordless TPM 2.0 PCR `0+7` volume unsealing.
 
 ### CI/CD Pipeline & Base ISO Caching
 * **Cloud Build Integration:** The entire ISO remastering and compilation process is fully automated and runs within a **Google Cloud Build** CI/CD pipeline.
@@ -191,18 +198,25 @@ The installation and bootstrapping process is divided into **7 Discrete Stages**
 *   **Error / Failure Handling:** If `cryptsetup` formats using a fallback or empty key, or if partition offsets fail to align, abort and write a core installer crash dump.
 
 #### Stage 5: OS Payload Injection & Bootloader Stage (`OS_PAYLOAD`)
-*   **Description:** Write base OS filesystem payload, mount essential paths, and configure EFI bootloader settings.
+*   **Description:** Write base OS filesystem payload, mount essential paths, configure EFI bootloader settings, and compile the systemd-based initramfs using native initramfs-tools.
 *   **Entry Qualifications:** Stage 4 (`STORAGE_LAYOUT`) successfully completed.
 *   **Exit Qualifications:**
     *   System structures mounted under `/target` match target specifications.
-    *   UEFI GRUB bootloader successfully written to partition 1, and `/target/etc/fstab` contains the correct UUID references.
-*   **Error / Failure Handling:** If GRUB fails to write to the EFI partition, mark boot configuration as failed, and preserve logs to prevent automatic reboot loop.
+    *   UEFI GRUB bootloader successfully written to partition 1 with the module blacklist `modprobe.blacklist=pcie_mp2_amd,amd_sfh` and `tpm_tis.interrupts=0` appended to the kernel cmdline to prevent early fTPM deadlocks on AMD platforms.
+    *   `initramfs-tools` and `cryptsetup-initramfs` successfully compile a highly optimized (35MB) boot ramdisk containing `crypt` and `lvm` modules, and packages `/etc/keys/temp_key.key` (represented inside initrd as `/cryptroot/keyfiles/crypt-system.key`) to allow passwordless first-boot decryption. A custom, alphabetically late compile hook (`zz-gdc-blacklist`) executes at the very end of the staging phase to surgically prune blacklisted deadlock modules (`amd_sfh.ko.zst`).
+    *   **Pre-Reboot Initramfs Validation Checks:** The Subiquity `late-commands` automatically execute `lsinitramfs` to run five programmatic assertions verifying:
+        1. Transition keyfile presence.
+        2. `crypt` decryption module inclusion.
+        3. `lvm` logical volume module inclusion.
+        4. Physical storage controller (NVMe/SATA) drivers inclusion.
+        5. Absolute exclusion of fTPM-deadlocking drivers (`pcie_mp2_amd` and `amd_sfh`).
+*   **Error / Failure Handling:** If GRUB fails to write, or if any of the five pre-reboot initramfs assertions fail, the installer halts execution immediately, writes the exit status to `/dev/ttyS0`, and reports the error to GDC Companion, blocking reboot to prevent silent black-screen hangs.
 
 #### Stage 6: First-Boot Security Sealing & Key Sanitization (`TPM_SEALING`)
 *   **Description:** Bind the LUKS volume encryption to the physical TPM 2.0 PCR registers and wipe transient keys.
 *   **Entry Qualifications:** First boot of the target OS initiated; Stage 5 completed.
 *   **Exit Qualifications:**
-    *   `systemd-cryptenroll` binds the key to PCRs `0+2+7` on `/dev/tpmrm0`.
+    *   `systemd-cryptenroll` binds the key to PCRs `0+7` on `/dev/tpmrm0`.
     *   The temporary boot keyfile `/boot/temp_key.key` is cryptographically shredded (via `shred -u`) and its keyslot is cleared.
 *   **Error / Failure Handling:** If TPM enrollment fails, keep the fallback recovery key and register a critical warning with the diagnostics subsystem to block standalone cluster enrollment.
 

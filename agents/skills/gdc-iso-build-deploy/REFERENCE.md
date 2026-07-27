@@ -77,5 +77,5 @@ When bare-metal target nodes boot the custom ISO, the automated installer initia
 ## 5. Hardware Hardening (TPM 2.0 & Cryptenroll)
 
 * Custom ISO automates **LUKS disk decryption binding** to target system hardware.
-* Decryption keys are bound using `systemd-cryptenroll` to Platform Configuration Registers (PCR) `0+2+7` (Firmware + Option ROM + Secure Boot state).
+* Decryption keys are bound using `systemd-cryptenroll` to Platform Configuration Registers (PCR) `0+7` (Firmware + Secure Boot state).
 * Target `/etc/crypttab` is updated with `tpm2-device=auto` to bypass passcodes on authorized boot paths.

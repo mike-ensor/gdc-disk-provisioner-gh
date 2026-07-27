@@ -119,6 +119,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [ ] Translate/forward Subiquity webhook logs to GCP Cloud Logging
   - [ ] Explore other potential installer helper hooks (e.g. dynamic state verification, network checks)
   - [ ] **FUTURE TASK:** Investigate authorization and other methods of identification for webhook logging later
+  - [ ] **FUTURE FEATURE:** Integrate cloud-init phone-home module (https://docs.cloud-init.io/en/latest/reference/modules.html#phone-home) to report post-boot completion status to GDC Companion
   - [ ] **FUTURE FEATURE:** Reach out to the "companion" API during build-time inside `remaster.sh` to dynamically retrieve target VLAN tags, subnets, and gateways
 
 ---
@@ -128,7 +129,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [x] **First-Boot State Transition & Mitigating Gaps**
   - [x] Subiquity `late-commands` rsync script for Gitea/Nexus partition migrations
   - [x] Deploy target systemd service units for persistent Gitea and Nexus
-  - [x] **Transition Gap 3.1: The Boot-Unlock Chicken-and-Egg Transition** (LVM encrypted with temp passcode -> late-commands writes one-time `/boot/temp_key.key` -> reboot unlocks automatically -> Ansible seals to TPM 2.0 PCR 0+2+7 -> deletes key and wipes temporary passcode slot)
+  - [x] **Transition Gap 3.1: The Boot-Unlock Chicken-and-Egg Transition** (LVM encrypted with temp passcode -> late-commands writes one-time `/boot/temp_key.key` -> reboot unlocks automatically -> Ansible seals to TPM 2.0 PCR 0+7 -> deletes key and wipes temporary passcode slot)
   - [x] **Transition Gap 3.2: Race Conditions wait-for-port handshakes** (Ansible playbooks block via `wait_for` until Gitea Port 3000 and Nexus Port 8081 are healthy)
   - [x] **Transition Gap 3.3: Serial Console Logger Deadlocks** (Wrap success signaling to `/dev/ttyS0` in non-blocking loop with a 3-second timeout fallback)
 - [x] **Ansible-Pull Bootstrap Automation**
@@ -143,8 +144,8 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Deploy passwordless sudo config
   - [x] Inject passwordless SSH key pair
 - [ ] **Hardware Security (TPM 2.0) & Zero-SSH Bootstrapping**
-  - [x] LUKS decryption enrollment using `systemd-cryptenroll` for PCR `0+2+7`
-  - [x] Configure target `/etc/crypttab` with `tpm2-device=auto` and rebuild initramfs
+  - [x] LUKS decryption enrollment using `systemd-cryptenroll` for PCR `0+7`
+  - [x] Configure target `/etc/crypttab` with `tpm2-device=auto` and rebuild systemd-based initramfs natively via `initramfs-tools` and `cryptsetup-initramfs` (`crypt` and `lvm` modules) with blacklisted fTPM-deadlocking drivers
   - [x] Establish secure randomized Recovery Key and wipe insecure temporary passcode slot
   - [ ] SSH host key TPM-secure binding using `ssh-tpm-agent`
   - [x] Generate TPM-backed device identity certs via Step-CA (Remote Attestation, Quote & Cloud CSR verification)
@@ -222,6 +223,10 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Generate dynamic short-lived ephemeral SSH key pairs wiped upon test cleanup
   - [x] Global signal trap cleanups (`trap EXIT`) killing background QEMU and `swtpm` subprocesses
   - [x] Dual-Track verification: Support virtual cloud emulator vs physical bare-metal lab PXE boots (via Bootimus & Synology sync)
+  - [x] **Pre-Reboot Initramfs Verification Checks:** Programmed automated tests in Subiquity `late-commands` using `lsinitramfs` to verify transition keyfile packaging, crypt/lvm modules inclusion, storage driver presence, and absolute exclusion of deadlocking drivers prior to first reboot.
+  - [x] **Static Command & Option Auditor:** Built a static CLI option auditor inside `test/validate_artifacts.py` parsing and testing hydrated cloud-init user-data scripts against compiled host manual pages (`man`) and help menus (`--help`).
+  - [x] **Consecutive-Success Stability Verification:** Implemented feedback control loops in `src/build/bootimus.py` to ensure custom PXE boot parameters and kernel redirections persist consecutively over 20-second database settling windows.
+  - [x] **Dynamic Test Discovery & Reporting Pipeline:** Engineered a dynamic unittest discovery engine (`bin/run_all_tests.py`) that executes, gathers, and groups all 40+ unit/static tests natively and outputs fully automated, Category-grouped verification tables in the human-readable build reports, removing hardcoded test registries completely.
 
 ---
 
@@ -259,6 +264,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ## 3. Unplanned & Future Reference
 
+- [ ] **GDC-SPEC-008: Non-LUKS Storage Provisioning Feature** (Enables compiling unencrypted target OS installations with a 'GDC_ENABLE_LUKS=false' build parameter to bypass specialized UEFI/TPM hardware blocks; Ref: `docs/specs/08-no-luks-feature-plan.md`)
 - [ ] **URGENT:** Investigate ISO creation report and tests (gcloud SDK was not installed on target OS, potentially due to missing binaries during ISO creation phase)
 - [ ] **Multi-LTS Target Compilation Architecture (Support for 22.04 Jammy & 26.06 Future LTS Options)**
   - [ ] **Docker Builder Generalization:** Parameterize `src/build/Dockerfile` compilation rules to build and cache isolated compile images for separate target LTS releases.
@@ -268,6 +274,8 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [ ] **Hardware Diagnostics & Node Uniqueness Updates (Near Future)**
   - [x] **Enforce MAC-based Node Uniqueness:** Migrated system identity/uniqueness mapping in `bin/collect-node-diagnostics.sh` to physical MAC addresses instead of the duplicate motherboard `System UUID` (which conflicts across Zen 4 bare-metal platforms).
   - [x] **Hardware Inventory Auto-Discovery:** Integrated auto-discovery and telemetry for CPU cores, RAM DIMM serials, NVMe storage devices, AMD fTPM modules, and NIC MACs into both JSON and text reports.
+- [ ] **FUTURE INVESTIGATION:** Investigate the use of a custom webserver to serve dynamic metadata for ISO boot (https://docs.cloud-init.io/en/23.3.2/reference/datasources/nocloud.html#method-3-custom-webserver-kernel-commandline-or-smbios and https://docs.cloud-init.io/en/23.3.2/reference/datasources/nocloud.html#example-meta-data). This would be served up dynamically by `gdc-companion` using kernel commandline parameters or SMBIOS string values, completely eliminating the need for static metadata files embedded inside the ISO.
+- [ ] **FUTURE TASK:** Clean up older compiled ISOs in the GCS bucket (`gs://gdc-disk-provisioner-isos/sync/` and `gs://gdc-disk-provisioner-isos/archived/`) to reduce cloud storage retention costs over time (Low Priority).
 - [ ] **APT** configuration
   - [ ] https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#apt
   - [ ] https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#fallback

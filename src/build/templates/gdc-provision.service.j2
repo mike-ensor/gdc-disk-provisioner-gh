@@ -11,6 +11,8 @@ EnvironmentFile=-/etc/default/gdc-provision
 StandardOutput=journal
 StandardError=journal
 ExecStart=/bin/bash -c " \
+mkdir -p /var/gdc-install/logs; \
+ln -sf /var/gdc-install/logs/gdc-ansible-pull.log /var/log/gdc-ansible-pull.log; \
 if ! command -v ansible-pull &>/dev/null; then \
   echo '[-] GDC Provisioner: Waiting for local Nexus repository...'; \
   until curl -s -I --connect-timeout 1 http://127.0.0.1:8081/ &>/dev/null; do sleep 3; done; \
@@ -24,7 +26,7 @@ git config --system --add safe.directory '*' || true; \
   -C {{ git_branch | default('main') }} \
   -i localhost, \
   $ANSIBLE_PULL_FLAGS \
-  local.yml"
+  local.yml 2>&1 | tee /var/gdc-install/logs/gdc-ansible-pull.log"
 RemainAfterExit=true
 
 [Install]
