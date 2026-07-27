@@ -276,6 +276,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] **Hardware Inventory Auto-Discovery:** Integrated auto-discovery and telemetry for CPU cores, RAM DIMM serials, NVMe storage devices, AMD fTPM modules, and NIC MACs into both JSON and text reports.
 - [ ] **FUTURE INVESTIGATION:** Investigate the use of a custom webserver to serve dynamic metadata for ISO boot (https://docs.cloud-init.io/en/23.3.2/reference/datasources/nocloud.html#method-3-custom-webserver-kernel-commandline-or-smbios and https://docs.cloud-init.io/en/23.3.2/reference/datasources/nocloud.html#example-meta-data). This would be served up dynamically by `gdc-companion` using kernel commandline parameters or SMBIOS string values, completely eliminating the need for static metadata files embedded inside the ISO.
 - [ ] **FUTURE TASK:** Clean up older compiled ISOs in the GCS bucket (`gs://gdc-disk-provisioner-isos/sync/` and `gs://gdc-disk-provisioner-isos/archived/`) to reduce cloud storage retention costs over time (Low Priority).
+- [ ] **FUTURE TASK:** Rip out the dynamic python execution of `generate_banner.py` from the ISO build pipeline and replace it with a single, static `boot-banner.txt` template inside `src/build/templates/` to decouple Python execution from the baseline ISO assembly.
 - [ ] **APT** configuration
   - [ ] https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#apt
   - [ ] https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html#fallback
