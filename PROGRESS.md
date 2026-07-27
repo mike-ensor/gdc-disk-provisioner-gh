@@ -267,7 +267,11 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 ## 3. Unplanned & Future Reference
 
 - [ ] **GDC-SPEC-008: Non-LUKS Storage Provisioning Feature** (Enables compiling unencrypted target OS installations with a 'GDC_ENABLE_LUKS=false' build parameter to bypass specialized UEFI/TPM hardware blocks; Ref: `docs/specs/08-no-luks-feature-plan.md`)
-- [ ] **FUTURE TASK:** Implement the removal of the `temporary-installer` user via Ansible-Pull (Ref: `docs/specs/09-temporary-installer-removal.md`).
+- [ ] **FUTURE TASK: Configure for Clustered State & CMDB Integration**
+  - [ ] **Change Host Name** to match upstream by pulling data from the Machine Database (CMDB).
+  - [ ] **Remove Temp User** (`temporary-installer`) from the machine after transitioning to a healthy state (Ref: `docs/specs/09-temporary-installer-removal.md`).
+  - [ ] **BMCTL Alignment:** Ensure the installed version matches the correct pulled `bmctl` binary.
+  - [ ] **Node Agent Alignment:** Deploy the Node Agent version that strictly matches the target `bmctl` version.
 - [ ] **URGENT:** Investigate ISO creation report and tests (gcloud SDK was not installed on target OS, potentially due to missing binaries during ISO creation phase)
 - [ ] **Multi-LTS Target Compilation Architecture (Support for 22.04 Jammy & 26.06 Future LTS Options)**
   - [ ] **Docker Builder Generalization:** Parameterize `src/build/Dockerfile` compilation rules to build and cache isolated compile images for separate target LTS releases.
