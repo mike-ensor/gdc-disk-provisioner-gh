@@ -37,7 +37,7 @@
   tags: ["strictly-local"]
 
 - name: "GDC-TASK-07 | Rebuild initramfs on blacklist change to ensure early-boot enforcement"
-  ansible.builtin.command: update-initramfs -u -k all
+  ansible.builtin.command: dracut -f /boot/initrd.img-{{ ansible_kernel }} {{ ansible_kernel }}
   when: blacklist_deploy.changed
   tags: ["strictly-local"]
 
