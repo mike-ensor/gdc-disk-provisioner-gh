@@ -574,15 +574,25 @@ autoinstall:
       echo "blacklist amd_sfh" >> /target/etc/modprobe.d/gdc-blacklist.conf
       logger -t gdc-provisioner "[GOAL] Kernel module blacklist deployed successfully"
       
-      logger -t gdc-provisioner "[GOAL] Deploying kernel module blacklist to target GRUB configuration"
+      logger -t gdc-provisioner "[GOAL] Deploying kernel module blacklist and explicit dracut LUKS map to target GRUB configuration"
       if [ -f /target/etc/default/grub ]; then
-        # Remove quiet splash and replace with extreme verbose, debug, and serial redirects
-        sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=".*"/GRUB_CMDLINE_LINUX_DEFAULT="console=tty1 console=ttyS0,115200 systemd.log_level=debug systemd.log_target=console rd.debug rd.shell tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp video=efifb:1280x1024"/g' /target/etc/default/grub
+        # Dynamically extract the UUID of the physical LUKS partition to explicitly instruct dracut to unseal it
+        # This resolves the issue where dracut systemd generators ignore encrypted volumes that contain the LVM root partition.
+        LUKS_UUID=$(blkid -s UUID -o value -t TYPE=crypto_LUKS | head -n 1)
+        if [ -n "${LUKS_UUID}" ]; then
+          echo "[-] Discovered primary LUKS partition UUID: ${LUKS_UUID}"
+          # Remove quiet splash and replace with extreme verbose, debug, serial redirects, and explicit rd.luks.uuid
+          sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=\".*\"/GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0,115200 systemd.log_level=debug systemd.log_target=console rd.debug rd.shell tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp video=efifb:1280x1024 rd.luks.uuid=luks-${LUKS_UUID}\"/g" /target/etc/default/grub
+        else
+          echo "[WARNING] Could not determine LUKS UUID. Falling back to default GRUB string."
+          sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=".*"/GRUB_CMDLINE_LINUX_DEFAULT="console=tty1 console=ttyS0,115200 systemd.log_level=debug systemd.log_target=console rd.debug rd.shell tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp video=efifb:1280x1024"/g' /target/etc/default/grub
+        fi
+        
         # Enable GRUB boot menu interaction over serial console
         echo 'GRUB_TERMINAL="console serial"' >> /target/etc/default/grub
         echo 'GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"' >> /target/etc/default/grub
         curtin in-target -- update-grub || true
-        logger -t gdc-provisioner "[GOAL] Target GRUB command line updated successfully with extreme verbose debug and serial redirects"
+        logger -t gdc-provisioner "[GOAL] Target GRUB command line updated successfully with extreme verbose debug, serial redirects, and LUKS UUIDs"
       fi
     - |
       echo "=============================================================================="
