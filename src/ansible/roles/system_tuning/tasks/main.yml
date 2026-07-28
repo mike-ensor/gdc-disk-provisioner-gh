@@ -6,9 +6,25 @@
 # ==============================================================================
 
 # --------------------------------------------------------------------------
-# Task 07: Kernel Tuning (Sysctl & BPF JIT)
+# Task 07: Kernel Tuning (Sysctl, BPF JIT, Swap, & Kernel Modules)
 # --------------------------------------------------------------------------
+- name: "GDC-TASK-07 | Disable swap partition and swap file immediately"
+  ansible.builtin.shell: |
+    swapoff -a
+  changed_when: false
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-07 | Remove swap file from fstab persistently"
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*swap.*)$'
+    replace: '# \1'
+  ignore_errors: true
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-07 | Deploy persistent kernel sysctl tuning parameters"
+  ansible.builtin.template:
   ansible.builtin.template:
     src: 99-gdc.conf.j2
     dest: /etc/sysctl.d/99-gdc.conf
