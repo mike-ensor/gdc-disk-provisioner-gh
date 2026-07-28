@@ -126,6 +126,13 @@ The diagnostics agent team has analyzed the node's bootstrap logs. The provision
 """
     # Dynamic remediation generator
     fixes = []
+    for rem in analysis_data.get("remediations", []):
+        fixes.append((
+            "HIGH",
+            f"Preflight Check: {rem['check_name']}",
+            rem["instruction"]
+        ))
+        
     for fail in analysis_data.get("failures", []):
         if "NEXUS" in fail:
             fixes.append((
