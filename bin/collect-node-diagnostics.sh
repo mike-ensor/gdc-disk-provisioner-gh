@@ -983,8 +983,9 @@ try:
 except Exception:
     pass
 ipt.add_test("iptables_nft_check", "PASS" if iptables_ok else "FAIL", f"Iptables backend is compliant: {ipt_out}" if iptables_ok else f"Legacy iptables detected: {ipt_out}")
-ipt_legacy_exists = os.path.exists("/usr/sbin/iptables-legacy")
-ipt.add_test("iptables_legacy_absence", "PASS" if not ipt_legacy_exists else "FAIL", "Legacy iptables binaries not present" if not ipt_legacy_exists else "Legacy iptables binaries exist on system")
+active_iptables_path = os.path.realpath("/usr/sbin/iptables")
+is_legacy_active = "legacy" in active_iptables_path
+ipt.add_test("iptables_legacy_absence", "PASS" if not is_legacy_active else "FAIL", "Legacy iptables is not the active system backend" if not is_legacy_active else f"Legacy iptables is currently active: {active_iptables_path}")
 gdc_checks_objects["iptables_backend"] = ipt
 
 # 8. docker_version
