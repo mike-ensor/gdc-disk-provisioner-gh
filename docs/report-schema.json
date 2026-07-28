@@ -359,6 +359,10 @@
               },
               "details": {
                 "type": "string"
+              },
+              "remediation": {
+                "type": "string",
+                "description": "Optional remediation instructions provided when a check fails."
               }
             }
           }
