@@ -351,11 +351,18 @@
             "type": "object",
             "required": [
               "status",
-              "details"
+              "details",
+              "test_results"
             ],
             "properties": {
               "status": {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "PENDING",
+                  "NOT RUN"
+                ]
               },
               "details": {
                 "type": "string"
@@ -363,6 +370,33 @@
               "remediation": {
                 "type": "string",
                 "description": "Optional remediation instructions provided when a check fails."
+              },
+              "test_results": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "test_name",
+                    "status"
+                  ],
+                  "properties": {
+                    "test_name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "PASS",
+                        "FAIL",
+                        "PENDING",
+                        "NOT RUN"
+                      ]
+                    },
+                    "output": {
+                      "type": "string"
+                    }
+                  }
+                }
               }
             }
           }
