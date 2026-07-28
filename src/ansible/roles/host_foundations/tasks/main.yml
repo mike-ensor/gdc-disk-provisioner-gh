@@ -212,6 +212,14 @@
 # --------------------------------------------------------------------------
 # Task 06: Package Upgrade & Dependency Installation
 # --------------------------------------------------------------------------
+- name: "GDC-TASK-06 | Update APT package cache"
+  ansible.builtin.apt:
+    update_cache: true
+  ignore_errors: true
+  environment:
+    NEEDRESTART_MODE: l
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
 - name: "GDC-TASK-06 | Repair broken package dependencies"
   ansible.builtin.command: apt-get --fix-broken install -y
   changed_when: true
@@ -241,22 +249,6 @@
     timeout 3 sh -c 'echo "--- GDC SYSTEM PACKAGES INSTALLATION STARTED ---" > /dev/ttyS0' || true
   changed_when: false
   ignore_errors: true
-
-- name: "GDC-TASK-06 | Update APT package cache"
-  ansible.builtin.apt:
-    update_cache: true
-  ignore_errors: true
-  environment:
-    NEEDRESTART_MODE: l
-  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
-
-- name: "GDC-TASK-06 | Repair broken package dependencies"
-  ansible.builtin.command: apt-get --fix-broken install -y
-  changed_when: true
-  ignore_errors: true
-  environment:
-    NEEDRESTART_MODE: l
-  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
 - name: "GDC-TASK-06 | Add upstream Docker GPG key for connected testing"
   ansible.builtin.get_url:
