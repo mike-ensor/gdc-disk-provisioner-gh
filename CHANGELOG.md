@@ -4,6 +4,22 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+## [0.2.5] - 2026-07-28
+
+### Added
+- **Multi-Dimensional Diagnostics Audit Engine:** Refactored `collect-node-diagnostics.sh` into an OOP-based test-runner executing multiple independent sub-tests per prerequisite to prevent "false PASS" states in GDC Companion.
+- **JSON Schema Validation Gate:** Updated `report-schema.json` to require and validate nested `test_results` arrays, ensuring full compliance of exported diagnostic logs.
+- **First-Boot / Provisioning State Detection:** Added `system_state` metadata reporting `"First Boot"` vs `"Baseline Ready"` based on successful Ansible logs, enabling custom frontend visual paths.
+- **Diagnostics `--no-upload` Parameter:** Added command-line parameter parsing to the collector to allow operators to run local, isolated pre-flight dry-runs without remote companion reporting.
+- **Subiquity Webhook Reporting Unit Test:** Created a dedicated unittest suite in `test/test_subiquity_reporting.py` to statically assert the presence of `reporting` webhook endpoints inside `user-data.j2`.
+
+### Fixed
+- **APT Dependency Deadlocks:** Automatically purge `ubuntu-server`, `ubuntu-server-minimal`, and `cloud-init` in `late-commands` and foundations playbooks, preventing circular package locks.
+- **Nexus Outbound Auto-Block:** Set `autoBlock: false` on `gdc-apt-proxy`, `gdc-docker-proxy`, and `gdc-raw-proxy` repositories to prevent permanent offline lockouts during early boot transient network drops.
+- **Bootimus Client Timeout Protection:** Patched `src/build/bootimus.py` with configurable API timeouts (increased to 180s for POST `/images/extract`), preventing client-side crashes on slow disks.
+- **Persistent Swap Disablement:** Injected `swap: {size: 0}` into the autoinstaller, and implemented immediate `swapoff -a` alongside persistent fstab commenting tasks inside Ansible to guarantee zero-swap state on reboot.
+- **Iptables Legacy False-Negatives:** Modified `iptables_legacy_absence` diagnostics sub-test to query alternatives realpaths rather than plain disk presence, preventing false-negative report failures when the `nf_tables` backend is correctly selected.
+
 ## [0.1.129] - 2026-07-26
 
 ### Fixed

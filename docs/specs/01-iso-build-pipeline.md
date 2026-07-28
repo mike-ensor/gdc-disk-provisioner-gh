@@ -306,3 +306,15 @@ To establish 100% auditable traceability, every successful build publishes a sig
   }
 }
 ```
+
+## 6. Bootimus PXE Bootloader Integration Constraints
+
+To guarantee the reliability of automated E2E and lab deployment testing, the build pipeline strictly governs the integration with the **Bootimus PXE Infrastructure**. 
+
+At **NO TIME** should there be a built ISO deployed that does not fully complete inside Bootimus. Specifically, the pipeline enforces the following mandatory constraints:
+
+1. **Extraction Completeness:** The ISO must finish background extraction on the PXE server. A status of `PENDING` or `EXTRACTING` is unacceptable; the final state must be explicitly `COMPLETE`.
+2. **Distribution Classification:** Bootimus must correctly recognize the ISO as an `ubuntu` distribution family.
+3. **Autoinstall Boot Parameters:** The kernel boot parameters must be explicitly locked and injected with the non-interactive unattended installation string (`ds=nocloud;s=/cdrom/nocloud/`).
+
+These constraints are automatically enforced via the programmatic auditor script `bin/check-bootimus-settings.py`. Builds must not be declared successful until this script returns a clean `SUCCESS` exit code.

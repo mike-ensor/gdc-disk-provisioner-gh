@@ -149,8 +149,9 @@ if [[ -n "${ISO_OUTPUT_BUCKET:-}" ]]; then
 fi
 
 # Strip gs:// prefix from bucket name for clean Cloud Build substitution
-GCS_BUCKET_NAME=$(echo "${GCS_BUCKET}" | sed 's/^gs:\/\///')
-ISO_BLESSED_GCS_BUCKET_NAME=$(echo "${ISO_BLESSED_GCS_BUCKET:-}" | sed 's/^gs:\/\///')
+GCS_BUCKET_NAME="${GCS_BUCKET#gs://}"
+ISO_BLESSED_GCS_BUCKET_NAME="${ISO_BLESSED_GCS_BUCKET:-}"
+ISO_BLESSED_GCS_BUCKET_NAME="${ISO_BLESSED_GCS_BUCKET_NAME#gs://}"
 
 # ==========================================
 # 7. Input Validations

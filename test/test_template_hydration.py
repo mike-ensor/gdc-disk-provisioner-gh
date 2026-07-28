@@ -311,7 +311,7 @@ class TestGgdTemplateHydration(unittest.TestCase):
         self.assertEqual(parsed.get("local-hostname"), "gdc-standalone-node")
 
     def test_user_data_rendering(self):
-        """Exercises and validates templates/user-data.j2 rendering."""
+        """Exercises and validates templates/user-data.j2 rendering and swap sizes."""
         ctx = self.get_context()
         template = self.jinja_env.get_template('user-data.j2')
         rendered = template.render(ctx)
@@ -320,6 +320,17 @@ class TestGgdTemplateHydration(unittest.TestCase):
         parsed = yaml.safe_load(rendered)
         self.assertEqual(parsed.get("autoinstall", {}).get("version"), 1)
         self.assertIn("python3 /cdrom/custom-data/configure_netplan.py", rendered)
+
+        # MANDATORY SWAP INTEGRITY GDC CHECK
+        autoinstall = parsed.get("autoinstall", {})
+        self.assertIn("reporting", autoinstall, "The autoinstall config MUST have reporting defined")
+        self.assertIn("storage", autoinstall, "The autoinstall config MUST have storage defined")
+        
+        storage = autoinstall.get("storage", {})
+        self.assertIn("swap", storage, "The autoinstall storage configuration MUST explicitly define swap settings")
+        
+        swap = storage.get("swap", {})
+        self.assertEqual(swap.get("size"), 0, "GDC Bare Metal requirements MANDATE that swap size MUST be strictly 0")
 
     def test_user_data_with_add_hosts(self):
         """Validates that add-hosts mappings are correctly rendered and injected conditionally."""
