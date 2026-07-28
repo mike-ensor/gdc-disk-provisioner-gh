@@ -42,6 +42,8 @@ gdc_purge_packages:
   - "snapd"
   - "lxd"
   - "x11-common"
+  - "ubuntu-server"
+  - "ubuntu-server-minimal"
 
 # Upstream Google NTP Server Sources
 ntp_upstream_servers:

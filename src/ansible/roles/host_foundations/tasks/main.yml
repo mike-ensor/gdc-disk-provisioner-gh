@@ -314,3 +314,13 @@
   environment:
     NEEDRESTART_MODE: l
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-06 | Purge unneeded or conflicting packages for security and stability"
+  ansible.builtin.apt:
+    name: "{{ gdc_purge_packages }}"
+    state: absent
+    purge: true
+  ignore_errors: true
+  environment:
+    NEEDRESTART_MODE: l
+  tags: ["strictly-local"]

@@ -553,11 +553,11 @@ autoinstall:
       {% endfor %}
       {% endif %}
       
-      # Purge cloud-init and write the official disabled trigger file to prevent first-boot stalls
-      logger -t gdc-provisioner "[GOAL] Disabling cloud-init on target OS"
+      # Purge cloud-init and its dependent meta-packages (ubuntu-server, ubuntu-server-minimal) to prevent unmet dependency deadlocks on boot
+      logger -t gdc-provisioner "[GOAL] Purging cloud-init and server meta-packages on target OS"
       mkdir -p /target/etc/cloud
       touch /target/etc/cloud/cloud-init.disabled
-      curtin in-target -- apt-get purge -y cloud-init || true
+      curtin in-target -- apt-get purge -y cloud-init ubuntu-server ubuntu-server-minimal || true
       rm -f /target/etc/issue.d/*cloud-init* || true
       rm -f /target/etc/issue.d/* || true
       
