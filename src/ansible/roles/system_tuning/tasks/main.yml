@@ -25,7 +25,6 @@
 
 - name: "GDC-TASK-07 | Deploy persistent kernel sysctl tuning parameters"
   ansible.builtin.template:
-  ansible.builtin.template:
     src: 99-gdc.conf.j2
     dest: /etc/sysctl.d/99-gdc.conf
     owner: root
