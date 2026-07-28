@@ -467,6 +467,13 @@ try:
 except Exception:
     pass
 
+ans_runs_succeeded = 0
+try:
+    ans_runs_succeeded = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'SUCCESS: All Ready-Linux Post-Install' || true").strip() or 0)
+except Exception:
+    pass
+sys_state = "First Boot" if ans_runs_succeeded == 0 else "Baseline Ready"
+
 report = {
     "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
     "host_metadata": {
@@ -475,6 +482,7 @@ report = {
         "uefi_boot": os.path.exists("/sys/firmware/efi"),
         "privileged": os.getuid() == 0,
         "iso_version": iso_ver,
+        "system_state": sys_state,
         "inotify_max_user_instances": to_int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null || echo '0'")),
         "inotify_max_user_watches": to_int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo '0'")),
         "machine_id": subprocess.getoutput("cat /sys/class/net/$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\") print $(i+1)}' | head -n 1 || echo 'enp1s0')/address 2>/dev/null || cat /sys/class/net/enp1s0/address 2>/dev/null || echo 'Unknown'").strip(),
