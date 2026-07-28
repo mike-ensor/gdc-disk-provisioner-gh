@@ -212,6 +212,14 @@
 # --------------------------------------------------------------------------
 # Task 06: Package Upgrade & Dependency Installation
 # --------------------------------------------------------------------------
+- name: "GDC-TASK-06 | Repair broken package dependencies"
+  ansible.builtin.command: apt-get --fix-broken install -y
+  changed_when: true
+  ignore_errors: true
+  environment:
+    NEEDRESTART_MODE: l
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
 - name: "GDC-TASK-06 | Validate package manager integrity before proceeding"
   ansible.builtin.command: apt-get check
   changed_when: false
