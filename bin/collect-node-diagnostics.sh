@@ -11,6 +11,20 @@
 # ==============================================================================
 set -euo pipefail
 
+# Argument Parsing
+UPLOAD_TO_COMPANION="yes"
+for arg in "$@"; do
+  case $arg in
+    --no-upload|--upload=no|--upload=false)
+      UPLOAD_TO_COMPANION="no"
+      ;;
+    --upload=yes|--upload=true)
+      UPLOAD_TO_COMPANION="yes"
+      ;;
+  esac
+done
+export UPLOAD_TO_COMPANION
+
 # Source environment configurations if present
 if [ -r /etc/default/gdc-provision ]; then
   # Sourcing safely in case of undefined vars or flags
@@ -453,6 +467,13 @@ try:
 except Exception:
     pass
 
+ans_runs_succeeded = 0
+try:
+    ans_runs_succeeded = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'SUCCESS: All Ready-Linux Post-Install' || true").strip() or 0)
+except Exception:
+    pass
+sys_state = "First Boot" if ans_runs_succeeded == 0 else "Baseline Ready"
+
 report = {
     "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
     "host_metadata": {
@@ -461,6 +482,7 @@ report = {
         "uefi_boot": os.path.exists("/sys/firmware/efi"),
         "privileged": os.getuid() == 0,
         "iso_version": iso_ver,
+        "system_state": sys_state,
         "inotify_max_user_instances": to_int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null || echo '0'")),
         "inotify_max_user_watches": to_int(subprocess.getoutput("cat /proc/sys/fs/inotify/max_user_watches 2>/dev/null || echo '0'")),
         "machine_id": subprocess.getoutput("cat /sys/class/net/$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\") print $(i+1)}' | head -n 1 || echo 'enp1s0')/address 2>/dev/null || cat /sys/class/net/enp1s0/address 2>/dev/null || echo 'Unknown'").strip(),
@@ -799,52 +821,83 @@ except Exception:
 # GDC SOFTWARE-ONLY BARE METAL OS PREREQUISITES AND STANDALONE PRE-FLIGHT AUDIT
 # ==============================================================================
 
-gdc_checks = {}
+class SoftwarePrerequisite:
+    def __init__(self, key, details, remediation=""):
+        self.key = key
+        self.details = details
+        self.remediation = remediation
+        self.test_results = []
 
-# 1. cgroupsv2 active (no cgroupsv1 detected)
-cgroupsv1_detected = False
+    def add_test(self, test_name, status, output=""):
+        self.test_results.append({
+            "test_name": test_name,
+            "status": status,
+            "output": output
+        })
+
+    def get_status(self):
+        if not self.test_results:
+            return "NOT RUN"
+        statuses = [t["status"] for t in self.test_results]
+        if "FAIL" in statuses:
+            return "FAIL"
+        if "PENDING" in statuses:
+            return "PENDING"
+        if "PASS" in statuses:
+            return "PASS"
+        return "NOT RUN"
+
+    def to_dict(self):
+        return {
+            "details": self.details,
+            "remediation": self.remediation,
+            "status": self.get_status(),
+            "test_results": self.test_results
+        }
+
+gdc_checks_objects = {}
+
+# 1. cgroupsv2
+cg = SoftwarePrerequisite("cgroupsv2", "Unified cgroup hierarchy configuration", "Enable cgroupsv2 in kernel boot options.")
+cg_v1 = False
 try:
     with open("/proc/mounts", "r") as f:
         for line in f:
             if "cgroup" in line and "cgroup2" not in line:
-                cgroupsv1_detected = True
+                cg_v1 = True
                 break
 except Exception:
     pass
-gdc_checks["cgroupsv2"] = {
-    "status": "FAIL" if cgroupsv1_detected else "PASS",
-    "details": "cgroupsv1 detected in system mounts!" if cgroupsv1_detected else "Pure cgroupsv2 active"
-}
+cg.add_test("cgroups_mount_check", "PASS" if not cg_v1 else "FAIL", "No cgroupsv1 detected in system mounts" if not cg_v1 else "cgroupsv1 detected in system mounts")
+cg.add_test("unified_hierarchy_check", "PASS" if os.path.exists("/sys/fs/cgroup/cgroup.controllers") else "FAIL", "cgroup.controllers present" if os.path.exists("/sys/fs/cgroup/cgroup.controllers") else "cgroup.controllers missing")
+gdc_checks_objects["cgroupsv2"] = cg
 
-# 2. BPF JIT compiler active
-bpf_jit_enabled = False
+# 2. bpf_jit_compiler
+bpf = SoftwarePrerequisite("bpf_jit_compiler", "BPF Just-In-Time compiler state", "Enforce net.core.bpf_jit_enable=1 in /etc/sysctl.conf.")
 bpf_val = "0"
 try:
     with open("/proc/sys/net/core/bpf_jit_enable", "r") as f:
         bpf_val = f.read().strip()
-        if bpf_val == "1":
-            bpf_jit_enabled = True
 except Exception:
     pass
-if not bpf_jit_enabled:
-    try:
-        kernel_ver = subprocess.getoutput("uname -r").strip()
-        config_path = f"/boot/config-{kernel_ver}"
-        if os.path.exists(config_path):
-            with open(config_path, "r") as f:
-                for line in f:
-                    if "CONFIG_BPF_JIT=y" in line:
-                        bpf_jit_enabled = True
-                        bpf_val = "y"
-                        break
-    except Exception:
-        pass
-gdc_checks["bpf_jit_compiler"] = {
-    "status": "PASS" if bpf_jit_enabled else "FAIL",
-    "details": f"BPF JIT compiler is enabled (state={bpf_val})" if bpf_jit_enabled else "BPF JIT compiler is disabled"
-}
+bpf.add_test("sysctl_state_check", "PASS" if bpf_val == "1" else "FAIL", f"BPF JIT compiler is enabled (state={bpf_val})" if bpf_val == "1" else f"BPF JIT compiler is disabled (state={bpf_val})")
+kernel_config_ok = False
+try:
+    kernel_ver = subprocess.getoutput("uname -r").strip()
+    config_path = f"/boot/config-{kernel_ver}"
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            for line in f:
+                if "CONFIG_BPF_JIT=y" in line:
+                    kernel_config_ok = True
+                    break
+except Exception:
+    pass
+bpf.add_test("kernel_config_verify", "PASS" if kernel_config_ok else "FAIL", "CONFIG_BPF_JIT=y found in boot config" if kernel_config_ok else "CONFIG_BPF_JIT=y missing or unreadable in boot config")
+gdc_checks_objects["bpf_jit_compiler"] = bpf
 
-# 3. Apt package manager integrity (using simulation mode to prevent lock collision & unprivileged fail)
+# 3. apt_package_manager
+apt = SoftwarePrerequisite("apt_package_manager", "Apt package manager status", "Run 'sudo apt-get --fix-broken install -y' to resolve package manager dependency conflicts.")
 apt_check_ok = False
 apt_err_msg = ""
 try:
@@ -853,17 +906,17 @@ try:
         apt_check_ok = True
         apt_err_msg = "No package errors"
     else:
-        # Strip standard APT simulation headers to extract the actual dependency error details
         clean_lines = [l.strip() for l in (res.stderr or res.stdout or "").split('\n') if l.strip() and "simulation" not in l.lower() and "privileges" not in l.lower() and "locking" not in l.lower()]
         apt_err_msg = clean_lines[0] if clean_lines else f"Unmet dependencies (Exit code: {res.returncode})"
 except Exception as e:
     apt_err_msg = str(e)
-gdc_checks["apt_package_manager"] = {
-    "status": "PASS" if apt_check_ok else "FAIL",
-    "details": apt_err_msg
-}
+apt.add_test("apt_check_simulation", "PASS" if apt_check_ok else "FAIL", apt_err_msg)
+dpkg_locked = os.path.exists("/var/lib/dpkg/lock-frontend") and os.path.getsize("/var/lib/dpkg/lock-frontend") > 0
+apt.add_test("dpkg_lock_check", "PASS" if not dpkg_locked else "FAIL", "DPKG lock is free" if not dpkg_locked else "DPKG lock-frontend is active/locked")
+gdc_checks_objects["apt_package_manager"] = apt
 
-# 4. UFW status (should be inactive, queried via systemctl to support unprivileged execution)
+# 4. ufw_firewall
+ufw = SoftwarePrerequisite("ufw_firewall", "Uncomplicated Firewall status", "Run 'sudo ufw disable' and mask ufw.service.")
 ufw_inactive = True
 ufw_status_str = "inactive"
 try:
@@ -873,12 +926,19 @@ try:
         ufw_status_str = "active"
 except Exception:
     pass
-gdc_checks["ufw_firewall"] = {
-    "status": "PASS" if ufw_inactive else "FAIL",
-    "details": f"UFW firewall is {ufw_status_str}"
-}
+ufw.add_test("ufw_service_state", "PASS" if ufw_inactive else "FAIL", f"UFW firewall is {ufw_status_str}")
+ufw_chains_exist = False
+try:
+    res = subprocess.run("sudo iptables -L -n 2>/dev/null | grep -q 'Chain ufw-'", shell=True)
+    if res.returncode == 0:
+        ufw_chains_exist = True
+except Exception:
+    pass
+ufw.add_test("ufw_rules_empty", "PASS" if not ufw_chains_exist else "FAIL", "No active UFW chains in iptables" if not ufw_chains_exist else "UFW chains detected in iptables")
+gdc_checks_objects["ufw_firewall"] = ufw
 
-# 5. NTP / Time synchronization
+# 5. time_synchronization
+ts = SoftwarePrerequisite("time_synchronization", "System time sync and NTP status", "Install and configure Chrony NTP daemon.")
 time_synchronized = False
 ntp_details = "Not synchronized"
 try:
@@ -893,12 +953,13 @@ try:
             ntp_details = "Synchronized (System clock synchronized: yes)"
 except Exception:
     pass
-gdc_checks["time_synchronization"] = {
-    "status": "PASS" if time_synchronized else "FAIL",
-    "details": ntp_details
-}
+ts.add_test("timedatectl_sync_check", "PASS" if time_synchronized else "FAIL", ntp_details)
+chrony_running = subprocess.run(["systemctl", "is-active", "--quiet", "chrony"]).returncode == 0
+ts.add_test("chrony_active_tracking", "PASS" if chrony_running else "FAIL", "Chrony daemon is active" if chrony_running else "Chrony daemon is inactive")
+gdc_checks_objects["time_synchronization"] = ts
 
-# 6. Linux inotify limits
+# 6. inotify_limits
+inf = SoftwarePrerequisite("inotify_limits", "Linux inotify user limits", "Add fs.inotify.max_user_instances=8192 and max_user_watches=524288 to /etc/sysctl.conf.")
 max_instances = 0
 max_watches = 0
 try:
@@ -911,13 +972,12 @@ try:
         max_watches = int(f.read().strip())
 except Exception:
     pass
-inotify_ok = (max_instances >= 8192) and (max_watches >= 524288)
-gdc_checks["inotify_limits"] = {
-    "status": "PASS" if inotify_ok else "FAIL",
-    "details": f"instances={max_instances} (req>=8192), watches={max_watches} (req>=524288)"
-}
+inf.add_test("instances_threshold_check", "PASS" if max_instances >= 8192 else "FAIL", f"instances={max_instances} (req>=8192)")
+inf.add_test("watches_threshold_check", "PASS" if max_watches >= 524288 else "FAIL", f"watches={max_watches} (req>=524288)")
+gdc_checks_objects["inotify_limits"] = inf
 
-# 7. Iptables backend (uses nf_tables)
+# 7. iptables_backend
+ipt = SoftwarePrerequisite("iptables_backend", "Iptables netfilter backend configuration", "Install and select iptables-nft backend.")
 ipt_out = ""
 iptables_ok = False
 try:
@@ -927,15 +987,17 @@ try:
     elif "legacy" in ipt_out:
         iptables_ok = False
     else:
-        iptables_ok = True  # Default ok if installed
+        iptables_ok = True
 except Exception:
     pass
-gdc_checks["iptables_backend"] = {
-    "status": "PASS" if iptables_ok else "FAIL",
-    "details": f"Iptables backend is compliant: {ipt_out}" if iptables_ok else f"Legacy iptables detected! ({ipt_out})"
-}
+ipt.add_test("iptables_nft_check", "PASS" if iptables_ok else "FAIL", f"Iptables backend is compliant: {ipt_out}" if iptables_ok else f"Legacy iptables detected: {ipt_out}")
+active_iptables_path = os.path.realpath("/usr/sbin/iptables")
+is_legacy_active = "legacy" in active_iptables_path
+ipt.add_test("iptables_legacy_absence", "PASS" if not is_legacy_active else "FAIL", "Legacy iptables is not the active system backend" if not is_legacy_active else f"Legacy iptables is currently active: {active_iptables_path}")
+gdc_checks_objects["iptables_backend"] = ipt
 
-# 8. Docker Daemon version >= 20.10.0
+# 8. docker_version
+doc = SoftwarePrerequisite("docker_version", "Docker container runtime version", "Install Docker CE >= 20.10.0.")
 docker_ok = False
 doc_ver = "Unknown"
 try:
@@ -949,124 +1011,180 @@ try:
                 docker_ok = True
 except Exception:
     pass
-gdc_checks["docker_version"] = {
-    "status": "PASS" if docker_ok else "FAIL",
-    "details": f"Docker {doc_ver} matches required >= 20.10.0" if docker_ok else f"Docker version non-compliant: {doc_ver}"
-}
+doc.add_test("docker_cli_check", "PASS" if docker_ok else "FAIL", f"Docker CLI found: {doc_ver}" if docker_ok else f"Docker version non-compliant: {doc_ver}")
+docker_info_ok = subprocess.run(["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+doc.add_test("docker_daemon_responsive", "PASS" if docker_info_ok else "FAIL", "Docker daemon responds cleanly to 'docker info'" if docker_info_ok else "Docker daemon is unresponsive")
+gdc_checks_objects["docker_version"] = doc
 
-# 9. Clean Installation Paths (/var/lib/etcd and /etc/kubernetes)
+# 9. clean_installation_paths
+cip = SoftwarePrerequisite("clean_installation_paths", "Pristine control plane directories check", "Erase or empty /var/lib/etcd and /etc/kubernetes before installation.")
 etcd_clean = True
-k8s_clean = True
 if os.path.exists("/var/lib/etcd"):
     etcd_files = [f for f in os.listdir("/var/lib/etcd") if f != "lost+found"]
     if etcd_files:
         etcd_clean = False
+cip.add_test("etcd_empty_check", "PASS" if etcd_clean else "FAIL", "/var/lib/etcd is empty or missing" if etcd_clean else "Stale etcd database files exist under /var/lib/etcd")
+k8s_clean = True
 if os.path.exists("/etc/kubernetes") and os.listdir("/etc/kubernetes"):
     k8s_clean = False
-paths_clean = etcd_clean and k8s_clean
-gdc_checks["clean_installation_paths"] = {
-    "status": "PASS" if paths_clean else "FAIL",
-    "details": "Installation directories /var/lib/etcd and /etc/kubernetes are clean/empty" if paths_clean else f"Dirty directories! etcd_clean={etcd_clean}, k8s_clean={k8s_clean}"
-}
+cip.add_test("kubernetes_empty_check", "PASS" if k8s_clean else "FAIL", "/etc/kubernetes is empty or missing" if k8s_clean else "Stale kubernetes configuration files exist under /etc/kubernetes")
+gdc_checks_objects["clean_installation_paths"] = cip
 
-# 10. gcloud CLI exists
+# 10. gcloud_cli
+gcl = SoftwarePrerequisite("gcloud_cli", "Google Cloud SDK CLI status", "Deploy and symlink standalone gcloud CLI binary.")
 gcloud_path = subprocess.getoutput("which gcloud 2>/dev/null").strip() or ("/usr/local/bin/gcloud" if os.path.exists("/usr/local/bin/gcloud") else None)
-gdc_checks["gcloud_cli"] = {
-    "status": "PASS" if gcloud_path else "FAIL",
-    "details": f"Found at {gcloud_path}" if gcloud_path else "Not found on PATH"
-}
+gcl.add_test("gcloud_path_resolved", "PASS" if gcloud_path else "FAIL", f"Found at {gcloud_path}" if gcloud_path else "Not found on PATH")
+gcloud_exec_ok = subprocess.run(["gcloud", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0 if gcloud_path else False
+gcl.add_test("gcloud_execution_check", "PASS" if gcloud_exec_ok else "FAIL", "gcloud --version responds cleanly" if gcloud_exec_ok else "gcloud is missing or failed to execute")
+gdc_checks_objects["gcloud_cli"] = gcl
 
-# 11. /var/gdc-install directory exists
+# 11. gdc_admin_dir
+gad = SoftwarePrerequisite("gdc_admin_dir", "Core GDC installation staging root", "Create /var/gdc-install directory owned by gdc-admin.")
 gdc_admin_exists = os.path.isdir("/var/gdc-install")
-gdc_checks["gdc_admin_dir"] = {
-    "status": "PASS" if gdc_admin_exists else "FAIL",
-    "details": "Directory exists" if gdc_admin_exists else "Missing /var/gdc-install"
-}
+gad.add_test("directory_presence", "PASS" if gdc_admin_exists else "FAIL", "/var/gdc-install directory exists" if gdc_admin_exists else "Missing /var/gdc-install folder")
+gdc_admin_perms_ok = False
+if gdc_admin_exists:
+    try:
+        stat_info = os.stat("/var/gdc-install")
+        gdc_admin_perms_ok = stat_info.st_uid in [0, 996, 1000, 1001]
+    except Exception:
+        pass
+gad.add_test("ownership_permissions", "PASS" if gdc_admin_perms_ok else "FAIL", "Directory ownership and permissions verified" if gdc_admin_perms_ok else "Invalid directory permissions or owner UID")
+gdc_checks_objects["gdc_admin_dir"] = gad
 
-# 12. /var/gdc-install/keys directory exists
+# 12. gdc_keys_dir
+gkd = SoftwarePrerequisite("gdc_keys_dir", "Secure keys staging folder", "Create /var/gdc-install/keys directory owned by gdc-admin.")
 gdc_keys_exists = os.path.isdir("/var/gdc-install/keys")
-gdc_checks["gdc_keys_dir"] = {
-    "status": "PASS" if gdc_keys_exists else "FAIL",
-    "details": "Directory exists" if gdc_keys_exists else "Missing keys directory"
-}
+gkd.add_test("keys_dir_check", "PASS" if gdc_keys_exists else "FAIL", "/var/gdc-install/keys exists" if gdc_keys_exists else "Missing /var/gdc-install/keys")
+gdc_keys_perms_ok = False
+if gdc_keys_exists:
+    try:
+        stat_info = os.stat("/var/gdc-install/keys")
+        gdc_keys_perms_ok = (stat_info.st_mode & 0o777) in [0o700, 0o755]
+    except Exception:
+        pass
+gkd.add_test("keys_dir_permissions", "PASS" if gdc_keys_perms_ok else "FAIL", "Directory permissions verified secure" if gdc_keys_perms_ok else "Invalid keys directory permissions")
+gdc_checks_objects["gdc_keys_dir"] = gkd
 
-# 13. TPM 2.0 Security Module
+# 13. tpm_security
+tpm = SoftwarePrerequisite("tpm_security", "TPM 2.0 Security Module availability", "Enable TPM 2.0 or fTPM in UEFI firmware settings.")
 tpm_exists = os.path.exists("/dev/tpmrm0")
-gdc_checks["tpm_security"] = {
-    "status": "PASS" if tpm_exists else "FAIL",
-    "details": "TPM 2.0 device present" if tpm_exists else "No /dev/tpmrm0"
-}
+tpm.add_test("tpm_device_node_check", "PASS" if tpm_exists else "FAIL", "TPM 2.0 device node /dev/tpmrm0 exists" if tpm_exists else "No /dev/tpmrm0 device present")
+tpm_tools_ok = subprocess.run(["which", "tpm2_getcap"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+tpm.add_test("tpm_tools_executable", "PASS" if tpm_tools_ok else "FAIL", "TPM2 tools packages installed" if tpm_tools_ok else "tpm2_getcap utility missing")
+gdc_checks_objects["tpm_security"] = tpm
 
-# 14. curl tool exists
+# 14. curl_tool
+crl = SoftwarePrerequisite("curl_tool", "curl HTTP utility presence", "Install standard curl package.")
 curl_path = subprocess.getoutput("which curl 2>/dev/null").strip()
-gdc_checks["curl_tool"] = {
-    "status": "PASS" if curl_path else "FAIL",
-    "details": f"Found at {curl_path}" if curl_path else "Not found on PATH"
-}
+crl.add_test("curl_exists", "PASS" if curl_path else "FAIL", f"Found at {curl_path}" if curl_path else "Not found on PATH")
+curl_exec_ok = subprocess.run(["curl", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0 if curl_path else False
+crl.add_test("curl_ssl_support", "PASS" if curl_exec_ok else "FAIL", "curl with SSL support responsive" if curl_exec_ok else "curl execution failed")
+gdc_checks_objects["curl_tool"] = crl
 
-# 15. ss tool exists
+# 15. ss_tool
+sst = SoftwarePrerequisite("ss_tool", "ss socket utility presence", "Install iproute2 package.")
 ss_path = subprocess.getoutput("which ss 2>/dev/null").strip()
-gdc_checks["ss_tool"] = {
-    "status": "PASS" if ss_path else "FAIL",
-    "details": f"Found at {ss_path}" if ss_path else "Not found on PATH"
-}
+sst.add_test("ss_exists", "PASS" if ss_path else "FAIL", f"Found at {ss_path}" if ss_path else "Not found on PATH")
+ss_exec_ok = subprocess.run(["ss", "-tuln"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0 if ss_path else False
+sst.add_test("ss_execution_check", "PASS" if ss_exec_ok else "FAIL", "ss socket query responsive" if ss_exec_ok else "ss execution failed")
+gdc_checks_objects["ss_tool"] = sst
 
-# 15b. Ansible Pull Success check
+# 16. swap_disabled
+swp = SoftwarePrerequisite("swap_disabled", "Universal Swap memory status", "Run 'sudo swapoff -a' and comment out swap entries in /etc/fstab.")
+swap_disabled = True
+try:
+    swap_out = subprocess.getoutput("swapon --show 2>/dev/null").strip()
+    if swap_out:
+        swap_disabled = False
+except Exception:
+    pass
+swp.add_test("swapon_status_check", "PASS" if swap_disabled else "FAIL", "No active swap partitions in swapon" if swap_disabled else "Swap partitions actively mapped in memory")
+fstab_swap_disabled = True
+try:
+    if os.path.exists("/etc/fstab"):
+        with open("/etc/fstab", "r") as f:
+            for line in f:
+                if "swap" in line and not line.strip().startswith("#"):
+                    fstab_swap_disabled = False
+                    break
+except Exception:
+    pass
+swp.add_test("fstab_entry_check", "PASS" if fstab_swap_disabled else "FAIL", "No uncommented swap entries in /etc/fstab" if fstab_swap_disabled else "Active swap mapping found in /etc/fstab")
+gdc_checks_objects["swap_disabled"] = swp
+
+# 17. network_kmods
+nm = SoftwarePrerequisite("network_kmods", "Mandatory networking kernel modules", "Load and configure nf_tables and br_netfilter persistently in /etc/modules-load.d/.")
+nf_tables_ok = False
+br_netfilter_ok = False
+try:
+    lsmod_out = subprocess.getoutput("lsmod 2>/dev/null").strip()
+    if "nf_tables" in lsmod_out:
+        nf_tables_ok = True
+    if "br_netfilter" in lsmod_out:
+        br_netfilter_ok = True
+except Exception:
+    pass
+nm.add_test("nf_tables_loaded_check", "PASS" if nf_tables_ok else "FAIL", "nf_tables module is loaded" if nf_tables_ok else "nf_tables module is missing from kernel")
+nm.add_test("br_netfilter_loaded_check", "PASS" if br_netfilter_ok else "FAIL", "br_netfilter module is loaded" if br_netfilter_ok else "br_netfilter module is missing from kernel")
+persistence_ok = False
+try:
+    conf_path = "/etc/modules-load.d/gdc-networking.conf"
+    if os.path.exists(conf_path):
+        with open(conf_path, "r") as f:
+            content = f.read()
+            if "nf_tables" in content and "br_netfilter" in content:
+                persistence_ok = True
+except Exception:
+    pass
+nm.add_test("persistent_modules_configuration", "PASS" if persistence_ok else "FAIL", "Persistent modules loader configuration found" if persistence_ok else "Missing persistent loader configuration under /etc/modules-load.d/")
+gdc_checks_objects["network_kmods"] = nm
+
+# 18. hwe_kernel
+hwe = SoftwarePrerequisite("hwe_kernel", "Hardware Enablement Linux Kernel", "Install linux-generic-hwe-24.04 and reboot the machine.")
+hwe_package_ok = False
+try:
+    dpkg_out = subprocess.getoutput("dpkg -l | grep linux-generic-hwe 2>/dev/null").strip()
+    if "linux-generic-hwe" in dpkg_out:
+        hwe_package_ok = True
+except Exception:
+    pass
+hwe.add_test("hwe_package_check", "PASS" if hwe_package_ok else "FAIL", "linux-generic-hwe package is installed" if hwe_package_ok else "linux-generic-hwe package missing")
+hwe_kernel_match = False
+try:
+    kernel_ver = subprocess.getoutput("uname -r 2>/dev/null").strip()
+    if "-generic" in kernel_ver and not kernel_ver.startswith("6.8.0-100-generic"): # base server kernel
+        hwe_kernel_match = True
+except Exception:
+    pass
+hwe.add_test("running_hwe_kernel_match", "PASS" if hwe_kernel_match else "FAIL", f"Running kernel {subprocess.getoutput('uname -r').strip()} is an HWE release" if hwe_kernel_match else f"Running legacy base kernel: {subprocess.getoutput('uname -r').strip()}")
+gdc_checks_objects["hwe_kernel"] = hwe
+
+# 19. ansible_pull_success
+aps = SoftwarePrerequisite("ansible_pull_success", "Post-install Ansible-Pull orchestration state", "Verify Gitea and Nexus are operational, then trigger gdc-provision.service.")
+runs_started = 0
+runs_succeeded = 0
 try:
     runs_started = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'Starting Ansible Pull' || true").strip() or 0)
     runs_succeeded = int(subprocess.getoutput("journalctl -u gdc-provision --no-pager 2>/dev/null | grep -c 'SUCCESS: All Ready-Linux Post-Install' || true").strip() or 0)
-    if runs_succeeded > 0:
-        ans_status = "PASS"
-        ans_details = "true"
-    elif runs_started > 0:
-        ans_status = "FAIL"
-        ans_details = "false"
-    else:
-        ans_status = "FAIL"
-        ans_details = "Not-Run"
 except Exception:
-    ans_status = "FAIL"
-    ans_details = "Not-Run"
+    pass
+aps.add_test("ansible_journal_run_check", "PASS" if runs_started > 0 else "FAIL", f"Ansible Pull has been initiated ({runs_started} started runs)" if runs_started > 0 else "Ansible Pull has never been executed")
+aps.add_test("ansible_success_log_token", "PASS" if runs_succeeded > 0 else "FAIL", "Ansible completed successfully" if runs_succeeded > 0 else "No successful Ansible run found in system journals")
+gdc_checks_objects["ansible_pull_success"] = aps
 
-gdc_checks["ansible_pull_success"] = {
-    "status": ans_status,
-    "details": ans_details
-}
+# Services Checks
+for svc in ["gitea", "nexus", "gdc-provision", "ssh", "systemd-networkd"]:
+    svc_key = f"{svc.replace('-', '_')}_service"
+    svo = SoftwarePrerequisite(svc_key, f"Status of service: {svc}", f"Ensure service {svc} is enabled and started using systemctl.")
+    is_active = report["services"][svc]["active"]
+    svo.add_test("systemd_active_check", "PASS" if is_active else "FAIL", f"Service {svc} is running" if is_active else f"Service {svc} is stopped/failed")
+    is_enabled = report["services"][svc]["unit_file_state"] == "enabled"
+    svo.add_test("systemd_enabled_check", "PASS" if is_enabled else "FAIL", f"Service {svc} is enabled at boot" if is_enabled else f"Service {svc} is disabled at boot")
+    gdc_checks_objects[svc_key] = svo
 
-# 16. Services Check - Gitea
-gitea_active = report["services"]["gitea"]["active"]
-gdc_checks["gitea_service"] = {
-    "status": "PASS" if gitea_active else "FAIL",
-    "details": "Active & Running" if gitea_active else "Inactive/Failed"
-}
-
-# 17. Services Check - Nexus
-nexus_active = report["services"]["nexus"]["active"]
-gdc_checks["nexus_service"] = {
-    "status": "PASS" if nexus_active else "FAIL",
-    "details": "Active & Running" if nexus_active else "Inactive/Failed"
-}
-
-# 18. Services Check - GDC Provision
-gdc_provision_active = report["services"]["gdc-provision"]["active"]
-gdc_checks["gdc_provision_service"] = {
-    "status": "PASS" if gdc_provision_active else "FAIL",
-    "details": "Active & Running" if gdc_provision_active else "Inactive/Failed"
-}
-
-# 19. Services Check - SSH
-ssh_active = report["services"]["ssh"]["active"]
-gdc_checks["ssh_service"] = {
-    "status": "PASS" if ssh_active else "FAIL",
-    "details": "Active & Running" if ssh_active else "Inactive/Failed"
-}
-
-# 20. Services Check - Systemd Networkd
-networkd_active = report["services"]["systemd-networkd"]["active"]
-gdc_checks["networkd_service"] = {
-    "status": "PASS" if networkd_active else "FAIL",
-    "details": "Active & Running" if networkd_active else "Inactive/Failed"
-}
+# Export checks back to dict format
+gdc_checks = {k: v.to_dict() for k, v in gdc_checks_objects.items()}
 
 # 21. Storage Directories Space (Partition Groups)
 dir_reqs = [
@@ -1172,6 +1290,12 @@ try:
         rf.write(f"{'ss Socket Tool':35} {'Installed':24} {gdc_checks['ss_tool']['details'][:34]:34} [ {gdc_checks['ss_tool']['status']} ]\n")
         # 15. TPM 2.0 Security Module
         rf.write(f"{'TPM 2.0 Security Device':35} {'/dev/tpmrm0 exists':24} {gdc_checks['tpm_security']['details'][:34]:34} [ {gdc_checks['tpm_security']['status']} ]\n")
+        # 16. Swap is Disabled
+        rf.write(f"{'Swap Memory Status':35} {'Disabled':24} {gdc_checks['swap_disabled']['details'][:34]:34} [ {gdc_checks['swap_disabled']['status']} ]\n")
+        # 17. Networking Kernel Modules
+        rf.write(f"{'Network Kernel Modules':35} {'nf_tables/br_netfilter':24} {gdc_checks['network_kmods']['details'][:34]:34} [ {gdc_checks['network_kmods']['status']} ]\n")
+        # 18. HWE Kernel
+        rf.write(f"{'HWE Linux Kernel':35} {'Installed':24} {gdc_checks['hwe_kernel']['details'][:34]:34} [ {gdc_checks['hwe_kernel']['status']} ]\n")
         
         # Services Section
         rf.write("-" * 101 + "\n")
@@ -1195,6 +1319,17 @@ try:
         rf.write("-" * 101 + "\n")
         rf.write(f"OVERALL GDC PRE-FLIGHT COMPLIANCE STATUS: [ {overall_prereq_status} ]\n")
         rf.write("=====================================================================================================\n")
+
+        # New Section: Remediation Actions
+        failed_checks = {k: v for k, v in gdc_checks.items() if v["status"] == "FAIL" and "remediation" in v}
+        if failed_checks:
+            rf.write("\n")
+            rf.write("=====================================================================================================\n")
+            rf.write("===             RECOMMENDED REMEDIATION ACTIONS FOR FAILED PRE-FLIGHT CHECKS                      ===\n")
+            rf.write("=====================================================================================================\n")
+            for key, val in failed_checks.items():
+                rf.write(f"- [{key}]: {val['remediation']}\n")
+            rf.write("=====================================================================================================\n")
 
         # New Section: Disks & LVM Volumes Enumeration
         rf.write("\n")
@@ -1783,15 +1918,19 @@ echo "     - Target RAM path: ${PRINT_PATH}"
 # SECTION 17: WEBHOOK LOGGING COMPANION UPLOAD (ALWAYS RUN)
 # ------------------------------------------------------------------------------
 COMPANION_INGEST_URL="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
-echo "[-] Uploading diagnostics tarball to GDC Ingestion Companion..."
-if command -v curl &>/dev/null; then
-  # Post the file using multipart/form-data
-  upload_res=$(curl -s -o /dev/null -w "%{http_code}" -F "file=@${TAR_PATH}" "${COMPANION_INGEST_URL}" || echo "CURL_ERROR")
-  if [ "${upload_res}" = "200" ] || [ "${upload_res}" = "201" ]; then
-    echo "  [x] Successfully uploaded diagnostics to companion (HTTP ${upload_res})"
+if [ "${UPLOAD_TO_COMPANION:-yes}" = "yes" ]; then
+  echo "[-] Uploading diagnostics tarball to GDC Ingestion Companion..."
+  if command -v curl &>/dev/null; then
+    # Post the file using multipart/form-data
+    upload_res=$(curl -s -o /dev/null -w "%{http_code}" -F "file=@${TAR_PATH}" "${COMPANION_INGEST_URL}" || echo "CURL_ERROR")
+    if [ "${upload_res}" = "200" ] || [ "${upload_res}" = "201" ]; then
+      echo "  [x] Successfully uploaded diagnostics to companion (HTTP ${upload_res})"
+    else
+      echo "  [!] Warning: Failed to upload diagnostics to companion (HTTP code: ${upload_res})"
+    fi
   else
-    echo "  [!] Warning: Failed to upload diagnostics to companion (HTTP code: ${upload_res})"
+    echo "  [!] Curl is missing. Cannot upload diagnostics."
   fi
 else
-  echo "  [!] Curl is missing. Cannot upload diagnostics."
+  echo "[-] Skipping diagnostics upload to Companion (UPLOAD_TO_COMPANION=no)"
 fi

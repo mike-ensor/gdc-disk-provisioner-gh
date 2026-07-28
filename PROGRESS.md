@@ -18,6 +18,8 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [x] **GDC-SPEC-005-TURNUP: GDC Offline Cluster Turnup** — Written & Approved
 - [x] **GDC-SPEC-006: GDC Lifecycle Update Flows** — Written & Approved
 - [x] **GDC-SPEC-007: GDC Companion Design (Rust Stack)** — Written & Decoupled
+- [ ] **GDC-SPEC-008: Non-LUKS Storage Provisioning Feature** — Planned
+- [x] **GDC-SPEC-009: Temporary Installer Removal Plan** — Written & Planned
 - [x] **GDC-SPEC-DEP-001: GDC Master Dependency Matrix** — Written & Approved
 - [x] **GDC-SPEC-READY-LINUX: GDC Ready-Linux & Idempotent Post-Install Provisioning Plan** — Written & Approved
 - [x] **Stage-Gate Software Supply Chain Design (`docs/specs/01-iso-build-pipeline.md`)** — Aligned & Approved
@@ -265,13 +267,18 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 ## 3. Unplanned & Future Reference
 
 - [ ] **GDC-SPEC-008: Non-LUKS Storage Provisioning Feature** (Enables compiling unencrypted target OS installations with a 'GDC_ENABLE_LUKS=false' build parameter to bypass specialized UEFI/TPM hardware blocks; Ref: `docs/specs/08-no-luks-feature-plan.md`)
-- [ ] **URGENT:** Investigate ISO creation report and tests (gcloud SDK was not installed on target OS, potentially due to missing binaries during ISO creation phase)
+- [ ] **FUTURE TASK: Configure for Clustered State & CMDB Integration**
+  - [ ] **Change Host Name** to match upstream by pulling data from the Machine Database (CMDB).
+  - [ ] **Remove Temp User** (`temporary-installer`) from the machine after transitioning to a healthy state (Ref: `docs/specs/09-temporary-installer-removal.md`).
+  - [ ] **BMCTL Alignment:** Ensure the installed version matches the correct pulled `bmctl` binary.
+  - [ ] **Node Agent Alignment:** Deploy the Node Agent version that strictly matches the target `bmctl` version.
+- [x] **URGENT:** Investigate ISO creation report and tests (gcloud SDK was not installed on target OS, potentially due to missing binaries during ISO creation phase)
 - [ ] **Multi-LTS Target Compilation Architecture (Support for 22.04 Jammy & 26.06 Future LTS Options)**
   - [ ] **Docker Builder Generalization:** Parameterize `src/build/Dockerfile` compilation rules to build and cache isolated compile images for separate target LTS releases.
   - [ ] **GCS Packages Isolation:** Generalize Google Cloud Storage cache prefixes to include release target trees (e.g. `gs://.../packages/22.04/`, `gs://.../packages/24.04/`) to prevent library pollution across target node OS sets.
   - [ ] **Preseed Resolvers Verification:** Enhance `preseed_packages.sh` to dynamically query and map release repositories matching `_UBUNTU_VERSION`.
   - [ ] **Variables & Settings Audit:** Review LVM fstab patterns, Netplan DBus protocols, and systemd units for system-level differences across Jammy, Noble, and Plucky configurations.
-- [ ] **Hardware Diagnostics & Node Uniqueness Updates (Near Future)**
+- [x] **Hardware Diagnostics & Node Uniqueness Updates (Near Future)**
   - [x] **Enforce MAC-based Node Uniqueness:** Migrated system identity/uniqueness mapping in `bin/collect-node-diagnostics.sh` to physical MAC addresses instead of the duplicate motherboard `System UUID` (which conflicts across Zen 4 bare-metal platforms).
   - [x] **Hardware Inventory Auto-Discovery:** Integrated auto-discovery and telemetry for CPU cores, RAM DIMM serials, NVMe storage devices, AMD fTPM modules, and NIC MACs into both JSON and text reports.
 - [ ] **FUTURE INVESTIGATION:** Investigate the use of a custom webserver to serve dynamic metadata for ISO boot (https://docs.cloud-init.io/en/23.3.2/reference/datasources/nocloud.html#method-3-custom-webserver-kernel-commandline-or-smbios and https://docs.cloud-init.io/en/23.3.2/reference/datasources/nocloud.html#example-meta-data). This would be served up dynamically by `gdc-companion` using kernel commandline parameters or SMBIOS string values, completely eliminating the need for static metadata files embedded inside the ISO.

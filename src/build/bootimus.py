@@ -47,7 +47,7 @@ def get_bootimus_credentials():
         print("[!] Please export BOOTIMUS_USER and BOOTIMUS_PASS in your environment.")
         sys.exit(1)
 
-def api_request(url, method="GET", data=None, token=None, retries=5, retry_delay=5):
+def api_request(url, method="GET", data=None, token=None, retries=5, retry_delay=5, timeout=30):
     """Utility wrapper to perform HTTP API requests with automatic network retry for intermittent connectivity."""
     encoded_data = None
     if data is not None:
@@ -61,7 +61,7 @@ def api_request(url, method="GET", data=None, token=None, retries=5, retry_delay
             req.add_header("Content-Type", "application/json")
             
         try:
-            with urllib.request.urlopen(req, data=encoded_data, timeout=30) as response:
+            with urllib.request.urlopen(req, data=encoded_data, timeout=timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             # 4xx client errors (except 429) usually shouldn't be blindly retried unless it's a 408/429/5xx
@@ -422,7 +422,7 @@ def main():
             print(f"[-] Forcing kernel/initrd extraction on target...")
         else:
             print(f"[-] Image is not extracted. Triggering kernel/initrd extraction...")
-        api_request(f"{API_BASE}/images/extract?filename={urllib.parse.quote(filename)}", method="POST", token=token)
+        api_request(f"{API_BASE}/images/extract?filename={urllib.parse.quote(filename)}", method="POST", token=token, timeout=180)
         
         # Poll extraction progress
         print("[-] Monitoring extraction progress...")

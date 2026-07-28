@@ -273,7 +273,7 @@
         flat: false
       httpClient:
         blocked: false
-        autoBlock: true
+        autoBlock: false
         connection:
           useTrustStore: false
     status_code: 201
@@ -337,7 +337,7 @@
         indexType: "REGISTRY"
       httpClient:
         blocked: false
-        autoBlock: true
+        autoBlock: false
         connection:
           useTrustStore: false
     status_code: 201
@@ -421,7 +421,7 @@
         timeToLive: 1440
       httpClient:
         blocked: false
-        autoBlock: true
+        autoBlock: false
         connection:
           useTrustStore: false
     status_code: 201

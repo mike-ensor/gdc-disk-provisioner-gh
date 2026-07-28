@@ -41,7 +41,9 @@
         "inotify_max_user_instances",
         "inotify_max_user_watches",
         "machine_id",
-        "system_uuid"
+        "system_uuid",
+        "iso_version",
+        "system_state"
       ],
       "properties": {
         "hostname": {
@@ -69,6 +71,18 @@
         "system_uuid": {
           "type": "string",
           "description": "The SMBIOS UUID of the motherboard system."
+        },
+        "iso_version": {
+          "type": "string",
+          "description": "The version of the GDC bootloader ISO used to bootstrap the system."
+        },
+        "system_state": {
+          "type": "string",
+          "enum": [
+            "First Boot",
+            "Baseline Ready"
+          ],
+          "description": "Indicates whether the system is in its initial boot state (before Ansible completed) or is fully provisioned and ready."
         }
       }
     },
@@ -351,14 +365,52 @@
             "type": "object",
             "required": [
               "status",
-              "details"
+              "details",
+              "test_results"
             ],
             "properties": {
               "status": {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "PENDING",
+                  "NOT RUN"
+                ]
               },
               "details": {
                 "type": "string"
+              },
+              "remediation": {
+                "type": "string",
+                "description": "Optional remediation instructions provided when a check fails."
+              },
+              "test_results": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "test_name",
+                    "status"
+                  ],
+                  "properties": {
+                    "test_name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "PASS",
+                        "FAIL",
+                        "PENDING",
+                        "NOT RUN"
+                      ]
+                    },
+                    "output": {
+                      "type": "string"
+                    }
+                  }
+                }
               }
             }
           }
