@@ -855,12 +855,15 @@ try:
     else:
         # Strip standard APT simulation headers to extract the actual dependency error details
         clean_lines = [l.strip() for l in (res.stderr or res.stdout or "").split('\n') if l.strip() and "simulation" not in l.lower() and "privileges" not in l.lower() and "locking" not in l.lower()]
-        apt_err_msg = clean_lines[0] if clean_lines else f"Unmet dependencies (Exit code: {res.returncode})"
+        
+        # Build out a more robust error payload including a fix command
+        apt_err_msg = f"Dependencies Broken! Action required: Run 'apt --fix-broken install -y' to repair. Details: {clean_lines[0] if clean_lines else 'Unknown dependency error.'}"
 except Exception as e:
     apt_err_msg = str(e)
 gdc_checks["apt_package_manager"] = {
     "status": "PASS" if apt_check_ok else "FAIL",
-    "details": apt_err_msg
+    "details": apt_err_msg,
+    "remediation": "Run 'sudo apt-get --fix-broken install -y' to resolve package manager dependency conflicts."
 }
 
 # 4. UFW status (should be inactive, queried via systemctl to support unprivileged execution)
@@ -973,7 +976,8 @@ gdc_checks["clean_installation_paths"] = {
 gcloud_path = subprocess.getoutput("which gcloud 2>/dev/null").strip() or ("/usr/local/bin/gcloud" if os.path.exists("/usr/local/bin/gcloud") else None)
 gdc_checks["gcloud_cli"] = {
     "status": "PASS" if gcloud_path else "FAIL",
-    "details": f"Found at {gcloud_path}" if gcloud_path else "Not found on PATH"
+    "details": f"Found at {gcloud_path}" if gcloud_path else "Not found on PATH",
+    "remediation": "Ensure Google Cloud SDK is packaged correctly during ISO generation and symlinked in post-install."
 }
 
 # 11. /var/gdc-install directory exists
@@ -1053,7 +1057,8 @@ except Exception:
     pass
 gdc_checks["hwe_kernel"] = {
     "status": "PASS" if hwe_kernel_ok else "FAIL",
-    "details": "linux-generic-hwe is installed" if hwe_kernel_ok else "HWE Kernel package not detected"
+    "details": "linux-generic-hwe is installed" if hwe_kernel_ok else "HWE Kernel package not detected",
+    "remediation": "Add 'linux-generic-hwe-24.04' to 'gdc_core_packages' and run ansible-pull."
 }
 
 # 19. Ansible Pull Success check
@@ -1246,6 +1251,17 @@ try:
         rf.write("-" * 101 + "\n")
         rf.write(f"OVERALL GDC PRE-FLIGHT COMPLIANCE STATUS: [ {overall_prereq_status} ]\n")
         rf.write("=====================================================================================================\n")
+
+        # New Section: Remediation Actions
+        failed_checks = {k: v for k, v in gdc_checks.items() if v["status"] == "FAIL" and "remediation" in v}
+        if failed_checks:
+            rf.write("\n")
+            rf.write("=====================================================================================================\n")
+            rf.write("===             RECOMMENDED REMEDIATION ACTIONS FOR FAILED PRE-FLIGHT CHECKS                      ===\n")
+            rf.write("=====================================================================================================\n")
+            for key, val in failed_checks.items():
+                rf.write(f"- [{key}]: {val['remediation']}\n")
+            rf.write("=====================================================================================================\n")
 
         # New Section: Disks & LVM Volumes Enumeration
         rf.write("\n")
