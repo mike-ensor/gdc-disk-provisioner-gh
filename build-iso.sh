@@ -74,7 +74,8 @@ source_env_safe "${BUILD_ENV}"
 source_env_safe "${LOCAL_ENV}"
 
 # Clean up GCS prefix from bucket name
-GCS_BUCKET_NAME=$(echo "${GCS_BUCKET:-gdc-disk-provisioner-isos}" | sed 's/^gs:\/\///')
+GCS_BUCKET_VAL="${GCS_BUCKET:-gdc-disk-provisioner-isos}"
+GCS_BUCKET_NAME="${GCS_BUCKET_VAL#gs://}"
 
 echo "=============================================================================="
 echo -e "\033[93m\033[1m[ISO-JOB] STEP 1: LOADING ACTIVE WORKSPACE ENVIRONMENT...\033[0m"

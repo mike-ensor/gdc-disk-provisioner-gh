@@ -20,60 +20,30 @@ for var in $(compgen -e); do
     INITIAL_ENV[$var]=1
 done
 
+# Consolidated function to load key-value configurations safely
+load_env_file() {
+    local filepath="$1"
+    if [[ -f "${filepath}" ]]; then
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ "$line" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "$line" ]] && continue
+            if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
+                local key="${BASH_REMATCH[1]}"
+                local value="${BASH_REMATCH[2]}"
+                value="${value#\"}" && value="${value%\"}"
+                value="${value#\'}" && value="${value%\'}"
+                if [[ -z "${INITIAL_ENV[${key}]:-}" ]]; then
+                    export "${key}"="${value}"
+                fi
+            fi
+        done < "${filepath}"
+    fi
+}
+
 # Load environment configuration (dependencies, defaults, and overrides)
-DEPS_FILE="${PROJECT_ROOT}/src/dependencies.env"
-if [[ -f "${DEPS_FILE}" ]]; then
-    # Export all variables from dependencies.env
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "$line" ]] && continue
-        if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
-            key="${BASH_REMATCH[1]}"
-            value="${BASH_REMATCH[2]}"
-            value="${value#\"}" && value="${value%\"}"
-            value="${value#\'}" && value="${value%\'}"
-            if [[ -z "${INITIAL_ENV[${key}]:-}" ]]; then
-                export "${key}"="${value}"
-            fi
-        fi
-    done < "${DEPS_FILE}"
-fi
-
-ENV_FILE="${SCRIPT_DIR}/build.env"
-if [[ -f "${ENV_FILE}" ]]; then
-    # Export all variables from build.env
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "$line" ]] && continue
-        if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
-            key="${BASH_REMATCH[1]}"
-            value="${BASH_REMATCH[2]}"
-            value="${value#\"}" && value="${value%\"}"
-            value="${value#\'}" && value="${value%\'}"
-            if [[ -z "${INITIAL_ENV[${key}]:-}" ]]; then
-                export "${key}"="${value}"
-            fi
-        fi
-    done < "${ENV_FILE}"
-fi
-
-LOCAL_ENV_FILE="${SCRIPT_DIR}/local.env"
-if [[ -f "${LOCAL_ENV_FILE}" ]]; then
-    # Export overrides from local.env
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "$line" ]] && continue
-        if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
-            key="${BASH_REMATCH[1]}"
-            value="${BASH_REMATCH[2]}"
-            value="${value#\"}" && value="${value%\"}"
-            value="${value#\'}" && value="${value%\'}"
-            if [[ -z "${INITIAL_ENV[${key}]:-}" ]]; then
-                export "${key}"="${value}"
-            fi
-        fi
-    done < "${LOCAL_ENV_FILE}"
-fi
+load_env_file "${PROJECT_ROOT}/src/dependencies.env"
+load_env_file "${SCRIPT_DIR}/build.env"
+load_env_file "${SCRIPT_DIR}/local.env"
 
 AUTO_APPROVE=false
 for arg in "$@"; do

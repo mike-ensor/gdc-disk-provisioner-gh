@@ -202,9 +202,16 @@ def extract_and_analyze_tarball(tarball_path: str) -> dict:
                 
                 # Check for failed software checks
                 checks = data.get("gdc_os_prerequisites", {}).get("software_checks", {})
+                if "remediations" not in analysis:
+                    analysis["remediations"] = []
                 for check_name, check_info in checks.items():
                     if check_info.get("status") == "FAIL":
                         analysis["failures"].append(f"OS preflight requirement failed: {check_name} | Detail: {check_info.get('details')}")
+                        if check_info.get("remediation"):
+                            analysis["remediations"].append({
+                                "check_name": check_name,
+                                "instruction": check_info.get("remediation")
+                            })
         except Exception as e:
             analysis["failures"].append(f"Failed to parse report.json: {e}")
 
