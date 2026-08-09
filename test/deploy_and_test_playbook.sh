@@ -297,15 +297,10 @@ else
     echo "[!] FAILURE: Remote playbook run failed with exit code: ${EXIT_CODE}" >&2
 fi
 
-# 5. Sync and execute diagnostics remotely
-echo "[-] Syncing local 'bin/collect-node-diagnostics.sh' to remote node..."
-${SCP_CMD_PREFIX} "${PROJECT_ROOT}/bin/collect-node-diagnostics.sh" "${TARGET_USER}@${TARGET_HOST}:/tmp/collect-node-diagnostics.sh"
-
+# 5. Execute diagnostics remotely
 echo "[-] Executing remote diagnostics collection..."
 ${SSH_CMD_PREFIX} "${TARGET_USER}@${TARGET_HOST}" "
-    ${SSH_SUDO_PASS_CMD} cp /tmp/collect-node-diagnostics.sh /usr/local/bin/collect-node-diagnostics.sh && \
-    ${SSH_SUDO_PASS_CMD} chmod +x /usr/local/bin/collect-node-diagnostics.sh && \
-    ${SSH_SUDO_PASS_CMD} /usr/local/bin/collect-node-diagnostics.sh
+    ${SSH_SUDO_PASS_CMD} /usr/local/bin/collect-diagnostics.sh
 "
 
 # 6. Fetch generated diagnostic reports locally

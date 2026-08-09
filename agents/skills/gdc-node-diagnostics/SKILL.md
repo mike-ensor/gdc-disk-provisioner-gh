@@ -3,7 +3,7 @@ name: gdc-node-diagnostics
 description: Finds, queries, and deep-inspects target GDC nodes to compile structured Root Cause Analysis (RCA) Markdown documents. Use when troubleshooting failed installations, provisioning freezes, network timeouts, or missing dependencies.
 dependencies:
   - "src/build/scan_ips.py"
-  - "bin/collect-node-diagnostics.sh"
+  - "collect-diagnostics.sh"
 ---
 
 # Skill: gdc-node-diagnostics
@@ -27,7 +27,7 @@ Provides a structured workflow for identifying, connecting, extracting, and deep
 
 ## 4. Dependencies
 - **Discovery Tool:** `src/build/scan_ips.py`
-- **On-Node Collector:** `bin/collect-node-diagnostics.sh`
+- **On-Node Collector:** `/usr/local/bin/collect-diagnostics.sh`
 - **CLI Utilities:** `sshpass`, `ssh`, `scp`, `tar`
 
 ---
@@ -53,7 +53,7 @@ Provides a structured workflow for identifying, connecting, extracting, and deep
 
 ### State 4: Diagnostics Tarball Acquisition
 - [ ] **Case A (URL Provided):** If the user provides a direct URL to a diagnostic tarball uploaded to the GDC Ingestion Companion app, download the archive using `curl` or `wget` directly to `/tmp/`.
-- [ ] **Case B (Direct SSH Fetch):** If no URL is provided, run `/usr/local/bin/collect-node-diagnostics.sh` on the remote target node via the active SSH session, and download the resulting gzip tarball archive locally using SCP:
+- [ ] **Case B (Direct SSH Fetch):** If no URL is provided, run `/usr/local/bin/collect-diagnostics.sh` on the remote target node via the active SSH session, and download the resulting gzip tarball archive locally using SCP:
   `sshpass -p '<password>' scp -o StrictHostKeyChecking=no <user>@<ip>:~/gdc-node-diagnostics-*.tar.gz /tmp/`
 
 ### State 5: Extraction & Unified Log Audit

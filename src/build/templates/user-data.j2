@@ -80,11 +80,11 @@ autoinstall:
       systemctl restart ssh || systemctl restart sshd
       {% endif %}
       
-      # Set up the Diagnostics script as a globally executable utility on the Live CD
-      if [ -f /cdrom/custom-data/collect-node-diagnostics.sh ]; then
-        cp /cdrom/custom-data/collect-node-diagnostics.sh /usr/local/bin/collect-node-diagnostics.sh
-        chmod +x /usr/local/bin/collect-node-diagnostics.sh
-        echo "[-] Diagnostics tool registered as globally executable: 'collect-node-diagnostics.sh'"
+      # Register the Diagnostics script as a globally executable utility on the Live CD
+      if [ -f /cdrom/custom-data/collect-diagnostics.sh ]; then
+        cp /cdrom/custom-data/collect-diagnostics.sh /usr/local/bin/collect-diagnostics.sh
+        chmod +x /usr/local/bin/collect-diagnostics.sh
+        echo "[-] Diagnostics tool registered as globally executable: 'collect-diagnostics.sh'"
       fi
     - |
       # [GDC-INSTALL-STEP 3/12] Dynamically compiling local LVM layout...
@@ -446,10 +446,10 @@ autoinstall:
       echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Diagnostics Collector Tool"
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Deploying GDC Diagnostics Collector Tool"
-      if [ -f /cdrom/custom-data/collect-node-diagnostics.sh ]; then
-        cp /cdrom/custom-data/collect-node-diagnostics.sh /target/usr/local/bin/collect-node-diagnostics.sh
-        chmod +x /target/usr/local/bin/collect-node-diagnostics.sh
-        logger -t gdc-provisioner "[GOAL] Diagnostics collector tool copied to target /usr/local/bin/collect-node-diagnostics.sh successfully"
+      if [ -f /cdrom/custom-data/collect-diagnostics.sh ]; then
+        cp /cdrom/custom-data/collect-diagnostics.sh /target/usr/local/bin/collect-diagnostics.sh
+        chmod +x /target/usr/local/bin/collect-diagnostics.sh
+        logger -t gdc-provisioner "[GOAL] Diagnostics collector tool copied to target /usr/local/bin/collect-diagnostics.sh successfully"
       fi
     # Ssh and passwordless root-unlock setup for transition gap
     - |

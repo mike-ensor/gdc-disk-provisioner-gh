@@ -41,7 +41,8 @@ steps:
         fi
 
         echo "[-] Pulling cached GGD binaries from GCS binaries/ prefix..."
-        for file in "gitea-1.22.1-linux-amd64" "OpenJDK17U-jre_x64_linux_hotspot_17.0.11_9.tar.gz" "nexus-3.69.0-02-unix.tar.gz" "google-cloud-cli-575.0.0-linux-x86_64.tar.gz" "step-cli_0.26.1_amd64.deb"; do
+        source src/dependencies.env
+        for file in $${CACHED_BINARY_FILES}; do
           gcs_path="gs://${_GCS_BUCKET_NAME}/binaries/$file"
           local_path=".cache/binaries/$file"
           if [ ! -f "$local_path" ]; then

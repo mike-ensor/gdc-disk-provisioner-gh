@@ -116,8 +116,8 @@ def fetch_diagnostics_tarball(ip: str, download_url: str | None = None) -> str:
         password = state.get("password")
         print(f"[-] SSH into target node {ip} as {user} to run diagnostics...")
         
-        # Execute collect-node-diagnostics.sh and get output tarball filename
-        diag_exec_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", f"{user}@{ip}", "sudo /usr/local/bin/collect-node-diagnostics.sh"]
+        # Execute collect-diagnostics.sh and get output tarball filename
+        diag_exec_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", f"{user}@{ip}", "sudo /usr/local/bin/collect-diagnostics.sh"]
         if password:
             diag_exec_cmd = ["sshpass", "-p", password] + diag_exec_cmd
         

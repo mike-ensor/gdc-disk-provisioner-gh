@@ -52,10 +52,10 @@
       always:
         - name: "GDC-STATE | Trigger Post-Stage 2 Diagnostic Collection"
           ansible.builtin.shell: |
-            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
-              /usr/local/bin/collect-node-diagnostics.sh --stage first-boot
-            elif [ -x "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" ]; then
-              "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" --stage first-boot
+            if [ -x /usr/local/bin/collect-diagnostics.sh ]; then
+              /usr/local/bin/collect-diagnostics.sh --stage first-boot
+            elif [ -x "{{ playbook_dir }}/../../bin/collect-diagnostics.sh" ]; then
+              "{{ playbook_dir }}/../../bin/collect-diagnostics.sh" --stage first-boot
             fi
           ignore_errors: true
           failed_when: false
@@ -66,8 +66,8 @@
       block:
         - name: "SECOND_BOOT | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
-            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
-              /usr/local/bin/collect-node-diagnostics.sh
+            if [ -x /usr/local/bin/collect-diagnostics.sh ]; then
+              /usr/local/bin/collect-diagnostics.sh
             fi
           ignore_errors: true
           failed_when: false
@@ -104,10 +104,10 @@
       always:
         - name: "GDC-STATE | Trigger Post-Stage 3 Diagnostic Collection"
           ansible.builtin.shell: |
-            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
-              /usr/local/bin/collect-node-diagnostics.sh --stage second-boot
-            elif [ -x "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" ]; then
-              "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" --stage second-boot
+            if [ -x /usr/local/bin/collect-diagnostics.sh ]; then
+              /usr/local/bin/collect-diagnostics.sh --stage second-boot
+            elif [ -x "{{ playbook_dir }}/../../bin/collect-diagnostics.sh" ]; then
+              "{{ playbook_dir }}/../../bin/collect-diagnostics.sh" --stage second-boot
             fi
           ignore_errors: true
           failed_when: false
@@ -120,8 +120,8 @@
       block:
         - name: "LINUX_READY | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
-            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
-              /usr/local/bin/collect-node-diagnostics.sh
+            if [ -x /usr/local/bin/collect-diagnostics.sh ]; then
+              /usr/local/bin/collect-diagnostics.sh
             fi
           ignore_errors: true
           failed_when: false
@@ -158,10 +158,10 @@
       always:
         - name: "GDC-STATE | Trigger Post-Stage 4 Diagnostic Collection"
           ansible.builtin.shell: |
-            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
-              /usr/local/bin/collect-node-diagnostics.sh --stage linux-ready
-            elif [ -x "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" ]; then
-              "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" --stage linux-ready
+            if [ -x /usr/local/bin/collect-diagnostics.sh ]; then
+              /usr/local/bin/collect-diagnostics.sh --stage linux-ready
+            elif [ -x "{{ playbook_dir }}/../../bin/collect-diagnostics.sh" ]; then
+              "{{ playbook_dir }}/../../bin/collect-diagnostics.sh" --stage linux-ready
             fi
           ignore_errors: true
           failed_when: false
@@ -174,8 +174,8 @@
       block:
         - name: "CLUSTER_READY | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
-            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
-              /usr/local/bin/collect-node-diagnostics.sh
+            if [ -x /usr/local/bin/collect-diagnostics.sh ]; then
+              /usr/local/bin/collect-diagnostics.sh
             fi
           ignore_errors: true
           failed_when: false
@@ -212,10 +212,10 @@
       always:
         - name: "GDC-STATE | Trigger Post-Stage 5 Diagnostic Collection"
           ansible.builtin.shell: |
-            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
-              /usr/local/bin/collect-node-diagnostics.sh --stage cluster-ready
-            elif [ -x "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" ]; then
-              "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" --stage cluster-ready
+            if [ -x /usr/local/bin/collect-diagnostics.sh ]; then
+              /usr/local/bin/collect-diagnostics.sh --stage cluster-ready
+            elif [ -x "{{ playbook_dir }}/../../bin/collect-diagnostics.sh" ]; then
+              "{{ playbook_dir }}/../../bin/collect-diagnostics.sh" --stage cluster-ready
             fi
           ignore_errors: true
           failed_when: false
@@ -229,10 +229,10 @@
       block:
         - name: Always execute diagnostics and upload telemetry
           ansible.builtin.shell: |
-            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
-              /usr/local/bin/collect-node-diagnostics.sh
+            if [ -x /usr/local/bin/collect-diagnostics.sh ]; then
+              /usr/local/bin/collect-diagnostics.sh
             else
-              echo "[!] Diagnostics collector script /usr/local/bin/collect-node-diagnostics.sh not found or not executable!" >&2
+              echo "[!] Diagnostics collector script /usr/local/bin/collect-diagnostics.sh not found or not executable!" >&2
               exit 1
             fi
           ignore_errors: true

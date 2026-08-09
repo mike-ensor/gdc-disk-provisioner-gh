@@ -391,7 +391,7 @@ def main():
                         print(f"[x] Located fully loaded image: {image_data['name']} (Size: {image_data['size']} bytes)")
                         
                         # Immediately disable to prevent premature booting of unconfigured/unextracted image
-                        if image_data.get("enabled", True):
+                        if image_data.get("enabled", True) and not image_data.get("extracted", False):
                             print("[-] Temporarily disabling image during extraction and configuration to prevent premature PXE boots...")
                             disable_data = {
                                 "boot_method": image_data.get("boot_method", "iso"),

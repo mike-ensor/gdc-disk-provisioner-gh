@@ -15,7 +15,7 @@ import json
 
 # Add project src to path so we can reuse bootimus module methods
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/build')))
-from bootimus import BOOTIMUS_API_HOST, BOOTIMUS_API_PORT, API_BASE, get_bootimus_credentials, api_request
+from bootimus import BOOTIMUS_API_HOST, BOOTIMUS_API_PORT, API_BASE, get_bootimus_credentials, api_request, auto_heal_boot_params
 
 def main():
     print("==============================================================================")
@@ -33,6 +33,9 @@ def main():
         )
         token = login_res["data"]["token"]
         print("[+] Authentication successful.")
+        
+        # Run self-healing audit to automatically restore any clobbered/disabled GDC image configs
+        auto_heal_boot_params(token)
     except Exception as e:
         print(f"[!] Authentication failed: {e}")
         sys.exit(1)

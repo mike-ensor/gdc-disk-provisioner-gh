@@ -235,13 +235,13 @@ This guarantees that any syntax errors or build anomalies are identical and repr
 
 This project includes a fully automated post-provisioning **Diagnostics & Health-Check Suite** designed to collect, parse, and verify active bare-metal nodes completely headlessly. It maps retrieved system logs directly to the respective **GDC Lifecycle Stages** for high-visibility forensics.
 
-### A. The In-Target Diagnostics Collector (`collect-node-diagnostics.sh`)
-Baked directly into every custom ISO at `/usr/local/bin/collect-node-diagnostics.sh`, this local script aggregates core OS telemetry, Netplan configs, systemd journals, LVM mappings, and Google API DNS/TCP audits.
+### A. The In-Target Diagnostics Collector (`collect-diagnostics.sh`)
+Baked directly into every custom ISO at `/usr/local/bin/collect-diagnostics.sh`, this local script aggregates core OS telemetry, Netplan configs, systemd journals, LVM mappings, and Google API DNS/TCP audits.
 
 *   **Manual Trigger on Node:**
     ```bash
     # SSH into the node and run manually:
-    echo "temporary-installer-password-here" | sudo -S /usr/local/bin/collect-node-diagnostics.sh
+    echo "temporary-installer-password-here" | sudo -S /usr/local/bin/collect-diagnostics.sh
     ```
 *   **Artifact Output:**
     Generates a versioned tarball at `~/gdc-node-diagnostics-<TIMESTAMP>.tar.gz` and copies it to physical root mount partitions to survive system reboots.

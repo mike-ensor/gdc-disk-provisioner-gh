@@ -275,10 +275,45 @@ cp "${SCRIPT_DIR}/configure_netplan.py" "${EXTRACT_DIR}/custom-data/"
 chmod +x "${EXTRACT_DIR}/custom-data/configure_netplan.py"
 cp "${SCRIPT_DIR}/generate_storage_config.sh" "${EXTRACT_DIR}/custom-data/"
 chmod +x "${EXTRACT_DIR}/custom-data/generate_storage_config.sh"
-cp "${PROJECT_ROOT}/bin/collect-node-diagnostics.sh" "${EXTRACT_DIR}/custom-data/collect-node-diagnostics.sh"
-chmod +x "${EXTRACT_DIR}/custom-data/collect-node-diagnostics.sh"
 cp "${SCRIPT_DIR}/scan_ips.py" "${EXTRACT_DIR}/custom-data/"
 chmod +x "${EXTRACT_DIR}/custom-data/scan_ips.py"
+
+echo "[-] Obtaining collect-diagnostics.sh..."
+CACHE_DIAG="${PROJECT_ROOT}/.cache/binaries/collect-diagnostics.sh"
+if [[ -f "${CACHE_DIAG}" ]]; then
+    echo "  [x] Using cached collect-diagnostics.sh."
+    cp "${CACHE_DIAG}" "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh"
+else
+    echo "  [-] Downloading collect-diagnostics.sh from GDC Companion..."
+    COMPANION_BASE_URL="${INSTALL_COMPANION_BASE%/}"
+    echo "      Target URL: ${COMPANION_BASE_URL}/v1/downloads/collect-diagnostics.sh"
+    if [[ -n "${INSTALL_COMPANION_API_KEY:-}" ]]; then
+        if curl -fL --header "Authorization: Bearer ${INSTALL_COMPANION_API_KEY}" "${COMPANION_BASE_URL}/v1/downloads/collect-diagnostics.sh" -o "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh" 2>/dev/null; then
+            echo "  [x] Downloaded collect-diagnostics.sh from GDC Companion endpoint."
+            mkdir -p "${PROJECT_ROOT}/.cache/binaries"
+            cp "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh" "${CACHE_DIAG}" 2>/dev/null || true
+        elif [[ -f "${CACHE_DIAG}" ]]; then
+            echo "  [!] Companion endpoint unreachable. Falling back to local cache."
+            cp "${CACHE_DIAG}" "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh"
+        else
+            echo "[!] ERROR: Failed to download collect-diagnostics.sh and no cached binary found!" >&2
+            exit 1
+        fi
+    else
+        if curl -fL "${COMPANION_BASE_URL}/v1/downloads/collect-diagnostics.sh" -o "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh" 2>/dev/null; then
+            echo "  [x] Downloaded collect-diagnostics.sh from GDC Companion endpoint."
+            mkdir -p "${PROJECT_ROOT}/.cache/binaries"
+            cp "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh" "${CACHE_DIAG}" 2>/dev/null || true
+        elif [[ -f "${CACHE_DIAG}" ]]; then
+            echo "  [!] Companion endpoint unreachable. Falling back to local cache."
+            cp "${CACHE_DIAG}" "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh"
+        else
+            echo "[!] ERROR: Failed to download collect-diagnostics.sh and no cached binary found!" >&2
+            exit 1
+        fi
+    fi
+fi
+chmod +x "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh"
 
 echo "[-] Generating dynamic Message of the Day (MOTD) banner..."
 "${SCRIPT_DIR}/generate_banner.py" "${EXTRACT_DIR}/custom-data/boot-banner.txt" "${ISO_VERSION}"

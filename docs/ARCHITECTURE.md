@@ -318,12 +318,12 @@ The installation and bootstrapping process is divided into **7 Discrete Stages**
 *   **Exit Qualifications:**
     *   Ports `3000` (Gitea) and `8081` (Nexus) respond with successful HTTP handshakes.
     *   `ansible-pull` completes execution with exit code `0`.
-*   **Error / Failure Handling:** If ports do not open within 120 seconds (60 polls of 2.0s), automatically trigger `@bin/collect-node-diagnostics.sh` and push the diagnostics bundle to `gdc-companion`.
+*   **Error / Failure Handling:** If ports do not open within 120 seconds (60 polls of 2.0s), automatically trigger `collect-diagnostics.sh` and push the diagnostics bundle to `gdc-companion`.
 
 ---
 
 ### Progress Tracking & Verification Evidence
-To enable real-time tracking of node state transitions in the **GDC Companion** application, the `collect-node-diagnostics.sh` script automatically records and transmits the current completed stage. The status payload includes:
+To enable real-time tracking of node state transitions in the **GDC Companion** application, the `collect-diagnostics.sh` script automatically records and transmits the current completed stage. The status payload includes:
 1.  **Stage ID:** Current active stage string (e.g., `NAMESPACE_SYNC`).
 2.  **State Status:** `PENDING`, `IN_PROGRESS`, `COMPLETED`, or `FAILED`.
 3.  **Verification Evidence:** Specific telemetry readings (e.g., MAC, disk sizes, partition mounts, socket statuses) acting as proof of transition.

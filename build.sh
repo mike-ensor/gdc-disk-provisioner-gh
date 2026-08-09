@@ -44,7 +44,7 @@ ENV_FILE="${PROJECT_ROOT}/src/build/build.env"
 # ==========================================
 # 2. Auto-Increment ISO_VERSION Patch in VERSION and .envrc
 # ==========================================
-if [[ "${ISO_VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+if [[ "${SKIP_INCREMENT:-false}" != "true" && "${ISO_VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
     MAJOR="${BASH_REMATCH[1]}"
     MINOR="${BASH_REMATCH[2]}"
     PATCH="${BASH_REMATCH[3]}"
