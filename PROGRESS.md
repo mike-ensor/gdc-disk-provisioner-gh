@@ -4,26 +4,26 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 > [!NOTE]
 > **Major Milestone:** We now have a **CLUSTER_READY** stage ISO in with `0.2.31-debug`!
-> 
+>
 > **Previous Milestone (2026-06-30):** The GDC Bootloader ISO has successfully achieved its first **absolute physical bare-metal boot to completion** under `v0.0.85-debug`! The installation loop completed flawlessly on physical UEFI single-disk nodes, and all local and remote service boundaries (Gitea and Nexus local caches) are fully integrated.
 
 ---
 
 ## 1. Specification Stage (Docs & Architecture)
 
-- [x] **GDC-SPEC-001: ISO Generation & Build Pipeline** — Written & Approved
-- [x] **GDC-SPEC-002: Baseline Installer & LVM Storage Layout** — Written & Approved
-- [x] **GDC-SPEC-002-SEQ: Installation Sequence, Timeline, & Transition Gaps** — Written & Approved
-- [x] **GDC-SPEC-003: Ready-Linux Provisioning & Sideloading** — Written & Approved
-- [x] **GDC-SPEC-004: ISO Verification & QEMU E2E Testing** — Written & Approved
-- [x] **GDC-SPEC-005: Machine Database & Cloud Verification Requirements** — Written & Approved
-- [x] **GDC-SPEC-005-TURNUP: GDC Offline Cluster Turnup** — Written & Approved
-- [x] **GDC-SPEC-006: GDC Lifecycle Update Flows** — Written & Approved
-- [x] **GDC-SPEC-007: GDC Companion Design (Rust Stack)** — Written & Decoupled
-- [ ] **GDC-SPEC-008: Non-LUKS Storage Provisioning Feature** — Planned
-- [x] **GDC-SPEC-009: Temporary Installer Removal Plan** — Written & Planned
+- [x] **GDC-SPEC-001: ISO Generation & Build Pipeline** (`docs/specs/01-iso-build-pipeline.md`) — Written & Approved
+- [x] **GDC-SPEC-002: Baseline Installer & LVM Storage Layout** (`docs/specs/02-baseline-installer.md`) — Written & Approved
+- [x] **GDC-SPEC-002-SEQ: Installation Sequence, Timeline, & Transition Gaps** (`docs/specs/02b-installer-sequence-and-timeline.md`) — Written & Approved
+- [x] **GDC-SPEC-003: Ready-Linux Provisioning & Sideloading** (`docs/specs/03-ready-linux-provisioning.md`) — Written & Approved
+- [x] **GDC-SPEC-004: ISO Verification & QEMU E2E Testing** (`docs/specs/04-verification-and-testing.md`) — Written & Approved
+- [x] **GDC-SPEC-005: Machine Database & Cloud Verification Requirements** (`docs/specs/05-cluster-turnup.md`) — Written & Approved
+- [x] **GDC-SPEC-005-TURNUP: GDC Offline Cluster Turnup** (`docs/specs/05-cluster-turnup.md`) — Written & Approved
+- [x] **GDC-SPEC-006: GDC Lifecycle Update Flows** (`docs/specs/06-lifecycle-update-flows.md`) — Written & Approved
+- [x] **GDC-SPEC-007: GDC Companion Design (Rust Stack)** (`docs/specs/07-gdc-companion-design.md`) — Written & Decoupled
+- [ ] **GDC-SPEC-008: Non-LUKS Storage Provisioning Feature** (`docs/specs/08-no-luks-feature-plan.md`) — Planned
+- [x] **GDC-SPEC-009: Temporary Installer Removal Plan** (`docs/specs/09-temporary-installer-removal.md`) — Written & Planned
 - [x] **GDC-SPEC-DEP-001: GDC Master Dependency Matrix** — Written & Approved
-- [x] **GDC-SPEC-READY-LINUX: GDC Ready-Linux & Idempotent Post-Install Provisioning Plan** — Written & Approved
+- [x] **GDC-SPEC-READY-LINUX: GDC Ready-Linux & Idempotent Post-Install Provisioning Plan** (`docs/specs/03-ready-linux-provisioning.md`) — Written & Approved
 - [x] **Stage-Gate Software Supply Chain Design (`docs/specs/01-iso-build-pipeline.md`)** — Aligned & Approved
 - [x] **Jinja2 Declarative Configuration Templating (`docs/specs/02-baseline-installer.md`)** — Aligned & Approved
 - [x] **Port-forwarding Loopback Isolation & SSH Assertions (`docs/specs/04-verification-and-testing.md`)** — Aligned & Approved
@@ -36,7 +36,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ## 2. Feature Checklist & Implementation Status
 
-### Phase 1: ISO Generation & Build Pipeline (Stage-Gate Model)
+### Phase 1: ISO Generation & Build Pipeline (Stage-Gate Model) — [`docs/specs/01-iso-build-pipeline.md`](docs/specs/01-iso-build-pipeline.md)
 
 - [x] **Workspace Scaffolding**
   - [x] Create `src/build/Makefile` for multi-stage orchestration
@@ -87,7 +87,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ---
 
-### Phase 2: Baseline Installer (Boot, LVM Layout & Storage)
+### Phase 2: Baseline Installer (Boot, LVM Layout & Storage) — [`docs/specs/02-baseline-installer.md`](docs/specs/02-baseline-installer.md)
 
 - [x] **Autoinstall Configurations & Jinja2 Templating**
   - [x] Design smart installation logging structures (`log_goal` and `log_fail`)
@@ -107,15 +107,15 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [x] **Linux VRF for Multi-IP Isolation**
   - [x] Explore Linux VRF to support two IPs on a single physical interface
   - [x] Complete full technical specification for VRF-based routing isolation
-- [-] **Installation Companion Webhook Receiver ("install-companion")**
-  - [ ] Research/Design a secure, lightweight deployment companion app
-  - [ ] Translate/forward Subiquity webhook logs to GCP Cloud Logging
-  - [ ] Explore other potential installer helper hooks (e.g. dynamic state verification, network checks)
-  - [ ] Address CD-ROM extraction gap during Subiquity `late-commands` so `bmctl` binaries successfully migrate from the ISO `/custom-data/tools` into persistent `/var/gdc-install/tools`
+- [x] **Installation Companion Webhook Receiver ("install-companion")**
+  - [x] Research/Design a secure, lightweight deployment [companion app](https://gitlab.com/gcp-solutions-public/retail-edge/gdc-companion)
+  - [x] Translate/forward Subiquity webhook logs to GCP Cloud Logging
+  - [x] Explore other potential installer helper hooks (e.g. dynamic state verification, network checks)
+  - [x] Address CD-ROM extraction gap during Subiquity `late-commands` so `bmctl` binaries successfully migrate from the ISO `/custom-data/tools` into persistent `/var/gdc-install/tools`
 
 ---
 
-### Phase 3: Ready-Linux Provisioning, Hardening & Zero-SSH
+### Phase 3: Ready-Linux Provisioning, Hardening & Zero-SSH — [`docs/specs/03-ready-linux-provisioning.md`](docs/specs/03-ready-linux-provisioning.md)
 
 - [x] **First-Boot State Transition & Mitigating Gaps**
   - [x] Subiquity `late-commands` rsync script for Gitea/Nexus partition migrations
@@ -144,6 +144,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [ ] **Future GPG Signed-Commit Enforcement:** Mandate cryptographic signed-commits for Ansible-Pull (`--verify-commit` activation)
 - [-] **CIS Hardening & Slimming**
   - [ ] Implement Ansible roles for CIS Level 2 benchmark rules
+  - [ ] Implement Kubernetes tasks in Ansible to [verify CIS benchmarking](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/concepts/cis-benchmarks#how_to_audit_benchmarks)
   - [x] Implement Ansible tasks to purge unneeded packages (snapd, x11, lxd, compiler runtimes, etc.)
 - [x] **Idempotent Post-Install System Hardening (Ansible-Pull)**
   - [x] Task 01: Wait on local boundary hubs readiness (Gitea Port 3000, Nexus Port 8081)
@@ -166,7 +167,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ---
 
-### Phase 4: Offline Updates & USB Sideloading
+### Phase 4: Offline Updates & USB Sideloading — [`docs/specs/06-lifecycle-update-flows.md`](docs/specs/06-lifecycle-update-flows.md)
 
 - [-] **USB Sideload Integration**
   - [x] Design headless automated USB updater (`udev` rules & systemd triggers detecting `GDC-UPDATE-USB`)
@@ -189,7 +190,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ---
 
-### Phase 5: ISO Verification & Testing Framework
+### Phase 5: ISO Verification & Testing Framework — [`docs/specs/04-verification-and-testing.md`](docs/specs/04-verification-and-testing.md)
 
 - [x] **Static Verification (Tier 1)**
   - [x] Create `test/validate_iso_static.sh` script
@@ -223,7 +224,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ---
 
-### Phase 6: Cluster Turnup & Target Finalization (CLUSTER_READY)
+### Phase 6: Cluster Turnup & Target Finalization (CLUSTER_READY) — [`docs/specs/05-cluster-turnup.md`](docs/specs/05-cluster-turnup.md)
 
 - [-] **Mock Companion & Orchestration Simulation (`machine_orchestration`)**
   - [ ] Build out Mock Companion Service to serve structured `gdc-companion` telemetry and states in air-gapped labs.
@@ -251,7 +252,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ---
 
-### Phase 7: Centralized Coordination Gateway (GDC Companion)
+### Phase 7: Centralized Coordination Gateway (GDC Companion) — [`docs/specs/07-gdc-companion-design.md`](docs/specs/07-gdc-companion-design.md)
 
 - [x] **Decoupled Architecture & API Contract**
   - [x] GDC Companion microservice migrated to dedicated peer repository `gdc-companion`
