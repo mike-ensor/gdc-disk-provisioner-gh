@@ -1,0 +1,99 @@
+- name: "GDC-STATE | Initialize State Machine directory"
+  ansible.builtin.file:
+    path: /var/gdc-install/state
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "GDC-STATE | Check existing state files"
+  ansible.builtin.stat:
+    path: "/var/gdc-install/state/{{ item }}.json"
+  loop:
+    - "first-boot"
+    - "second-boot"
+    - "linux-ready"
+    - "cluster-ready"
+  register: state_files_stat
+
+- name: "GDC-STATE | Initialize default state facts"
+  ansible.builtin.set_fact:
+    first_boot_state: { "status": "pending" }
+    second_boot_state: { "status": "pending" }
+    linux_ready_state: { "status": "pending" }
+    cluster_ready_state: { "status": "pending" }
+
+- name: "GDC-ORCH | Check if fallback-config.json exists"
+  ansible.builtin.stat:
+    path: /etc/gdc/fallback-config.json
+  register: fallback_config_stat
+
+- name: "GDC-ORCH | Load fallback-config.json"
+  ansible.builtin.slurp:
+    src: /etc/gdc/fallback-config.json
+  register: slurped_fallback_config
+  when: fallback_config_stat.stat.exists
+
+- name: "GDC-STATE | Set machine state stopper fact"
+  ansible.builtin.set_fact:
+    stop_stage: "{{ (slurped_fallback_config.content | b64decode | from_json).machine_state_stop_stage if (slurped_fallback_config is defined and slurped_fallback_config.content is defined and (slurped_fallback_config.content | b64decode | from_json).machine_state_stop_stage is defined) else '' }}"
+
+- name: "GDC-STATE | Load FirstBoot State if exists"
+  ansible.builtin.slurp:
+    src: /var/gdc-install/state/first-boot.json
+  register: slurped_first_boot
+  when: state_files_stat.results[0].stat.exists
+  ignore_errors: true
+  failed_when: false
+
+- name: "GDC-STATE | Set FirstBoot State fact"
+  ansible.builtin.set_fact:
+    first_boot_state: "{{ slurped_first_boot.content | b64decode | from_json }}"
+  when:
+    - state_files_stat.results[0].stat.exists
+    - slurped_first_boot is defined and slurped_first_boot.content is defined
+
+- name: "GDC-STATE | Load SecondBoot State if exists"
+  ansible.builtin.slurp:
+    src: /var/gdc-install/state/second-boot.json
+  register: slurped_second_boot
+  when: state_files_stat.results[1].stat.exists
+  ignore_errors: true
+  failed_when: false
+
+- name: "GDC-STATE | Set SecondBoot State fact"
+  ansible.builtin.set_fact:
+    second_boot_state: "{{ slurped_second_boot.content | b64decode | from_json }}"
+  when:
+    - state_files_stat.results[1].stat.exists
+    - slurped_second_boot is defined and slurped_second_boot.content is defined
+
+- name: "GDC-STATE | Load LinuxReady State if exists"
+  ansible.builtin.slurp:
+    src: /var/gdc-install/state/linux-ready.json
+  register: slurped_linux_ready
+  when: state_files_stat.results[2].stat.exists
+  ignore_errors: true
+  failed_when: false
+
+- name: "GDC-STATE | Set LinuxReady State fact"
+  ansible.builtin.set_fact:
+    linux_ready_state: "{{ slurped_linux_ready.content | b64decode | from_json }}"
+  when:
+    - state_files_stat.results[2].stat.exists
+    - slurped_linux_ready is defined and slurped_linux_ready.content is defined
+
+- name: "GDC-STATE | Load ClusterReady State if exists"
+  ansible.builtin.slurp:
+    src: /var/gdc-install/state/cluster-ready.json
+  register: slurped_cluster_ready
+  when: state_files_stat.results[3].stat.exists
+  ignore_errors: true
+  failed_when: false
+
+- name: "GDC-STATE | Set ClusterReady State fact"
+  ansible.builtin.set_fact:
+    cluster_ready_state: "{{ slurped_cluster_ready.content | b64decode | from_json }}"
+  when:
+    - state_files_stat.results[3].stat.exists
+    - slurped_cluster_ready is defined and slurped_cluster_ready.content is defined

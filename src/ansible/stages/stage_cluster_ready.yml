@@ -1,0 +1,20 @@
+- name: Run machine_orchestration role
+  ansible.builtin.include_role:
+    name: machine_orchestration
+
+- name: "GDC-STATE | Write ClusterReady completion state"
+  ansible.builtin.copy:
+    dest: /var/gdc-install/state/cluster-ready.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {
+        "stage": "cluster-ready",
+        "status": "completed",
+        "timestamp": "{{ ansible_date_time.iso8601 }}"
+      }
+
+- name: "GDC-STATE | Update ClusterReady fact in-memory"
+  ansible.builtin.set_fact:
+    cluster_ready_state: { "status": "completed" }

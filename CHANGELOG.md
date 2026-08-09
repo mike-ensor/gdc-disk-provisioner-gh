@@ -4,6 +4,26 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 ---
 
+
+
+## [0.2.23] - 2026-08-08
+
+### Fixed
+- **HWE Kernel Initramfs Deadlock:** Refactored the Subiquity \`late-commands\` logic in \`user-data.j2\` to strictly compile the \`initramfs\` module exclusively for the highest semantic-versioned kernel explicitly detected on the target OS filesystem. This completely resolves the boot hang on AMD nodes failing to map the LUKS drive on the new Hardware Enablement (HWE) kernels.
+- **Dpkg-Query Ansible False-Positives:** Removed the shell-based \`dpkg-query\` validation trap entirely from the \`host_foundations\` Ansible role. Post-installation package presence validation and caching logic is now securely delegated to Ansible's native declarative \`apt\` module state-reconciliation.
+
+## [0.2.22] - 2026-08-08
+
+### Added
+- **Machine State Guardrails:** Implemented robust overarching guardrails inside Ansible using `import_tasks` allowing granular control over execution phases. You can now define `MACHINE_STATE_STOP_STAGE` (e.g. `LINUX_READY`) in `build.env` and the playbook will dynamically halt without bleeding execution scope into future stages.
+- **Diagnostics Verification Gate:** Injected execution-halt diagnostic telemetry into the Ansible guard tasks guaranteeing a telemetry package is transmitted even when `meta: end_play` prematurely halts the run.
+
+### Fixed
+- **Subiquity Invalid Key Validation Warning:** Corrected an invalid schema key (`reboot: true`) mapping it appropriately to `shutdown: reboot` inside `user-data.j2` clearing up the `Unrecognized top-level key` warning from the `core_validation` logger module.
+- **Companion Null Mock Network Crashes:** Resolved the fatal YAML failures when `machine_orchestration` failed to locate its target API. Swapped the hard failures for non-fatal `ping` bypasses via `failed_when: false`, enabling graceful offline standalones.
+- **Dpkg-query False Failure Reporting:** Remediated a bash substitution collision in the shell-tasks resulting in silent package verification false-negatives during `host_foundations`. Re-engineered the Ansible shell check to properly query `dpkg -s`.
+- **Diagnostics Reboot Race Condition:** Increased the reboot `sleep` interval delay directly following `FIRST_BOOT` completion to 45 seconds allowing final verification diagnostics adequate transmission time to API listeners.
+
 ## [0.2.5] - 2026-07-28
 
 ### Added

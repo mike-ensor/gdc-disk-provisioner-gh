@@ -64,6 +64,20 @@ def main():
         boot_params = img.get("boot_params", "")
         enabled = img.get("enabled", False)
         extracted = img.get("extracted", False)
+        
+        # Identify the group the image belongs to, safely handling unexpected structures
+        group_data = img.get("group")
+        if isinstance(group_data, dict):
+            group_name = group_data.get("name")
+        else:
+            group_name = "ungrouped"
+            
+        group_name = str(group_name) if group_name is not None else "ungrouped"
+
+        # Explicitly skip auditing images inside 'windows' and 'linux' groups
+        # as these are typically non-GDC stock images that do not support autoinstall.
+        if group_name.lower() in ["windows", "linux"]:
+            continue
 
         # We are specifically concerned with Ubuntu OS images
         if distro == "ubuntu":

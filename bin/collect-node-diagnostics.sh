@@ -11,19 +11,129 @@
 # ==============================================================================
 set -euo pipefail
 
+# Color Output Setup & Detection
+USE_COLOR="yes"
+if [ ! -t 1 ]; then
+  USE_COLOR="no"
+fi
+
 # Argument Parsing
 UPLOAD_TO_COMPANION="yes"
-for arg in "$@"; do
-  case $arg in
+STAGE_ID=""
+while [[ $# -gt 0 ]]; do
+  case $1 in
     --no-upload|--upload=no|--upload=false)
       UPLOAD_TO_COMPANION="no"
+      shift
       ;;
     --upload=yes|--upload=true)
       UPLOAD_TO_COMPANION="yes"
+      shift
+      ;;
+    --no-color)
+      USE_COLOR="no"
+      shift
+      ;;
+    --stage)
+      STAGE_ID="$2"
+      shift 2
+      ;;
+    --stage=*)
+      STAGE_ID="${1#*=}"
+      shift
+      ;;
+    *)
+      shift
       ;;
   esac
 done
 export UPLOAD_TO_COMPANION
+
+# Normalize and standardize Stage ID to Key / Postfix matching spec matrix
+normalize_stage_id() {
+  local input=$(echo "$1" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+  case "${input}" in
+    live-cd|livecd|live_cd)
+      echo "LIVECD"
+      ;;
+    first-boot|first_boot|firstboot)
+      echo "FIRST_BOOT"
+      ;;
+    second-boot|second_boot|secondboot)
+      echo "SECOND_BOOT"
+      ;;
+    linux-ready|linux_ready|linuxready)
+      echo "LINUX_READY"
+      ;;
+    cluster-ready|cluster_ready|clusterready)
+      echo "CLUSTER_READY"
+      ;;
+    cluster-turnup|cluster_turnup|clusterturnup)
+      echo "CLUSTER_TURNUP"
+      ;;
+    post-validation|post_validation|post-cluster|post_cluster)
+      echo "POST_VALIDATION"
+      ;;
+    update-upkeep|update_upkeep|upkeep|maintenance)
+      echo "UPDATE_UPKEEP"
+      ;;
+    *)
+      echo ""
+      ;;
+  esac
+}
+
+# Auto-discover highest completed stage if not explicitly passed
+determine_current_stage() {
+  if [ -f /var/gdc-install/state/update-upkeep.json ]; then
+    echo "UPDATE_UPKEEP"
+  elif [ -f /var/gdc-install/state/post-validation.json ]; then
+    echo "POST_VALIDATION"
+  elif [ -f /var/gdc-install/state/cluster-turnup.json ]; then
+    echo "CLUSTER_TURNUP"
+  elif [ -f /var/gdc-install/state/cluster-ready.json ]; then
+    echo "CLUSTER_READY"
+  elif [ -f /var/gdc-install/state/linux-ready.json ]; then
+    echo "LINUX_READY"
+  elif [ -f /var/gdc-install/state/second-boot.json ]; then
+    echo "SECOND_BOOT"
+  elif [ -f /var/gdc-install/state/first-boot.json ]; then
+    echo "FIRST_BOOT"
+  elif [ -f /etc/gdc/provision.yml ]; then
+    echo "LIVECD"
+  else
+    echo "UNKNOWN"
+  fi
+}
+
+STANDARDIZED_STAGE=""
+if [ -n "${STAGE_ID}" ]; then
+  STANDARDIZED_STAGE=$(normalize_stage_id "${STAGE_ID}")
+fi
+
+if [ -z "${STANDARDIZED_STAGE}" ]; then
+  STANDARDIZED_STAGE=$(determine_current_stage)
+fi
+
+STAGE_SUFFIX=""
+if [ -n "${STANDARDIZED_STAGE}" ] && [ "${STANDARDIZED_STAGE}" != "UNKNOWN" ]; then
+  STAGE_SUFFIX="-${STANDARDIZED_STAGE}"
+fi
+
+# Define ANSI escape codes for colored console outputs
+if [ "${USE_COLOR}" = "yes" ]; then
+  GREEN='\033[0;32m'
+  RED='\033[0;31m'
+  YELLOW='\033[0;33m'
+  GRAY='\033[1;30m'
+  NC='\033[0m'
+else
+  GREEN=''
+  RED=''
+  YELLOW=''
+  GRAY=''
+  NC=''
+fi
 
 # Source environment configurations if present
 if [ -r /etc/default/gdc-provision ]; then
@@ -1648,6 +1758,88 @@ stages_progress.append({
 
 report["bootstrap_stages_progress"] = stages_progress
 
+# Stage-Gate Machine State Progress
+machine_stages_progress = []
+
+stop_stage_id = None
+fallback_config_path = "/etc/gdc/fallback-config.json"
+if os.path.exists(fallback_config_path):
+    try:
+        with open(fallback_config_path, "r") as fc:
+            fallback_data = json.load(fc)
+            stop_stage_id = fallback_data.get("machine_state_stop_stage")
+    except Exception:
+        pass
+
+stage_sequence = [
+    "LIVECD",
+    "FIRST_BOOT",
+    "SECOND_BOOT",
+    "LINUX_READY",
+    "CLUSTER_READY",
+    "CLUSTER_TURNUP",
+    "POST_VALIDATION",
+    "UPDATE_UPKEEP"
+]
+
+stop_stage_index = stage_sequence.index(stop_stage_id) if stop_stage_id in stage_sequence else len(stage_sequence)
+
+def get_stage_status(stage_name, default_status="PENDING"):
+    state_file = f"/var/gdc-install/state/{stage_name}.json"
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, "r") as sf:
+                data = json.load(sf)
+                status_raw = data.get("status")
+                if status_raw == "completed":
+                    return "COMPLETED", data.get("timestamp") or datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+                elif status_raw == "failed":
+                    return "FAILED", data.get("timestamp") or datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+                elif status_raw == "in_progress":
+                    return "IN_PROGRESS", data.get("timestamp") or datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        except Exception:
+            pass
+    if stage_name == "live-cd" and is_installed_os:
+        return "COMPLETED", datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    return default_status, datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+for stage_id, name in [
+    ("LIVECD", "LiveCD (ISO Build & Unattended Install)"),
+    ("FIRST_BOOT", "First Boot (Services Hubs Setup & TPM Sealing)"),
+    ("SECOND_BOOT", "Second Boot (Auto-Unlock & Stability Verification)"),
+    ("LINUX_READY", "Linux Ready (CIS Hardening & System Optimization)"),
+    ("CLUSTER_READY", "Cluster Ready (Companion Configuration & NodeAgent Gating)"),
+    ("CLUSTER_TURNUP", "Cluster Turnup (Local Standalone / HA Cluster Inception)"),
+    ("POST_VALIDATION", "Post Cluster (Verification & Validation)"),
+    ("UPDATE_UPKEEP", "Upkeep (Drift Control & Headless Updates)")
+]:
+    file_map = {
+        "LIVECD": "live-cd",
+        "FIRST_BOOT": "first-boot",
+        "SECOND_BOOT": "second-boot",
+        "LINUX_READY": "linux-ready",
+        "CLUSTER_READY": "cluster-ready",
+        "CLUSTER_TURNUP": "cluster-turnup",
+        "POST_VALIDATION": "post-validation",
+        "UPDATE_UPKEEP": "update-upkeep"
+    }
+    
+    current_index = stage_sequence.index(stage_id)
+    if current_index > stop_stage_index:
+        status_val = "BYPASSED"
+        ts_val = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    else:
+        status_val, ts_val = get_stage_status(file_map[stage_id])
+        
+    machine_stages_progress.append({
+        "stage_id": stage_id,
+        "name": name,
+        "status": status_val,
+        "timestamp": ts_val
+    })
+
+report["machine_stages_progress"] = machine_stages_progress
+
 print(json.dumps(report, indent=2))
 EOF
 
@@ -1677,23 +1869,24 @@ fi
 # ------------------------------------------------------------------------------
 echo "[-] Gathering..."
 # Core System Info (Unprivileged ok)
-echo "     [+] Core system"
+echo -e "     [${GREEN}+${NC}] Core system"
 
 # Netplan configuration files (Guarded)
 if [ "${IS_PRIVILEGED}" = "true" ] || [ -r /etc/netplan ]; then
-  echo "     [+] Netplan"
+  echo -e "     [${GREEN}+${NC}] Netplan"
   mkdir -p "${OUT_DIR}/configs"
   cp -r /etc/netplan/* "${OUT_DIR}/configs/" 2>/dev/null || true
 else
+  echo -e "     [${RED}+${NC}] Netplan"
   echo "[-] Gathering Netplan... Skipped due to lack of permissions" >> "${OUT_DIR}/report.txt"
 fi
 
 # Service status (Unprivileged ok)
-echo "     [+] Service status"
+echo -e "     [${GREEN}+${NC}] Service status"
 
 # GDC Provisioning configurations (Guarded)
 if [ "${IS_PRIVILEGED}" = "true" ] || [ -r /etc/gdc ]; then
-  echo "     [+] GDC provisioning configurations"
+  echo -e "     [${GREEN}+${NC}] GDC provisioning configurations"
   mkdir -p "${OUT_DIR}/configs"
   cp -r /etc/gdc/* "${OUT_DIR}/configs/" 2>/dev/null || true
   rm -rf "${OUT_DIR}/configs/ansible"
@@ -1701,11 +1894,16 @@ if [ "${IS_PRIVILEGED}" = "true" ] || [ -r /etc/gdc ]; then
     cp /etc/default/gdc-provision "${OUT_DIR}/configs/" 2>/dev/null || true
   fi
 else
+  echo -e "     [${RED}+${NC}] GDC provisioning configurations"
   echo "[-] Gathering GDC provisioning configurations... Skipped due to lack of permissions" >> "${OUT_DIR}/report.txt"
 fi
 
 # Gcloud CLI configuration and version check
-echo "     [+] GDC SDK check"
+if [ -x /usr/local/bin/gcloud ]; then
+  echo -e "     [${GREEN}+${NC}] GDC SDK check"
+else
+  echo -e "     [${RED}+${NC}] GDC SDK check"
+fi
 echo "--- GDC GCLOUD CLI CHECK ---" >> "${OUT_DIR}/report.txt"
 if [ -x /usr/local/bin/gcloud ]; then
   echo "gcloud CLI found at /usr/local/bin/gcloud" >> "${OUT_DIR}/report.txt"
@@ -1764,11 +1962,11 @@ K8S_GATEWAY=$(ip route show table 20 default 2>/dev/null | grep 'via' | awk '{pr
 ping_mgmt=$(ping -c 2 -W 1 -I "${MGMT_IFACE}" "${MGMT_GATEWAY}" 2>/dev/null || echo "")
 if [[ -n "${ping_mgmt}" ]] && echo "${ping_mgmt}" | grep -q "rtt"; then
   avg_rtt=$(echo "${ping_mgmt}" | tail -n 1 | cut -d'/' -f5)
-  echo "     [+] Management Gateway (${MGMT_GATEWAY}): REACHABLE (${avg_rtt}ms)"
-  echo "Management Gateway (${MGMT_GATEWAY}) via ${MGMT_IFACE}: REACHABLE (${avg_rtt}ms)" >> "${OUT_DIR}/report.txt"
+  echo -e "     [${GREEN}+${NC}] Management Gateway (${GRAY}${MGMT_GATEWAY}${NC}): ${GREEN}REACHABLE${NC} (${avg_rtt}ms)"
+  echo "Management Gateway (${GRAY}${MGMT_GATEWAY}${NC}) via ${MGMT_IFACE}: REACHABLE (${avg_rtt}ms)" >> "${OUT_DIR}/report.txt"
 else
-  echo "     [-] Management Gateway (${MGMT_GATEWAY}): UNREACHABLE"
-  echo "Management Gateway (${MGMT_GATEWAY}) via ${MGMT_IFACE}: UNREACHABLE" >> "${OUT_DIR}/report.txt"
+  echo -e "     [${RED}-${NC}] Management Gateway (${GRAY}${MGMT_GATEWAY}${NC}): ${RED}UNREACHABLE${NC}"
+  echo "Management Gateway (${GRAY}${MGMT_GATEWAY}${NC}) via ${MGMT_IFACE}: UNREACHABLE" >> "${OUT_DIR}/report.txt"
 fi
 
 # 2. Ping Kubernetes Gateway (expecting REACHABLE within VRF)
@@ -1779,25 +1977,25 @@ fi
 
 if [[ -n "${ping_k8s}" ]] && echo "${ping_k8s}" | grep -q "rtt"; then
   avg_rtt=$(echo "${ping_k8s}" | tail -n 1 | cut -d'/' -f5)
-  echo "     [+] Kubernetes Gateway (${K8S_GATEWAY}): REACHABLE (${avg_rtt}ms)"
-  echo "Kubernetes Gateway (${K8S_GATEWAY}) via ${K8S_IFACE}: REACHABLE (${avg_rtt}ms)" >> "${OUT_DIR}/report.txt"
+  echo -e "     [${GREEN}+${NC}] Kubernetes Gateway (${GRAY}${K8S_GATEWAY}${NC}): ${GREEN}REACHABLE${NC} (${avg_rtt}ms)"
+  echo "Kubernetes Gateway (${GRAY}${K8S_GATEWAY}${NC}) via ${K8S_IFACE}: REACHABLE (${avg_rtt}ms)" >> "${OUT_DIR}/report.txt"
 else
   if [ "${IS_PRIVILEGED}" = "true" ]; then
-    echo "     [-] Kubernetes Gateway (${K8S_GATEWAY}): UNREACHABLE"
-    echo "Kubernetes Gateway (${K8S_GATEWAY}) via ${K8S_IFACE}: UNREACHABLE" >> "${OUT_DIR}/report.txt"
+    echo -e "     [${RED}-${NC}] Kubernetes Gateway (${GRAY}${K8S_GATEWAY}${NC}): ${RED}UNREACHABLE${NC}"
+    echo "Kubernetes Gateway (${GRAY}${K8S_GATEWAY}${NC}) via ${K8S_IFACE}: UNREACHABLE" >> "${OUT_DIR}/report.txt"
   else
-    echo "     [-] Kubernetes Gateway (${K8S_GATEWAY}): Skipped due to lack of permissions"
-    echo "Kubernetes Gateway (${K8S_GATEWAY}) via ${K8S_IFACE}: Skipped due to lack of permissions" >> "${OUT_DIR}/report.txt"
+    echo -e "     [${YELLOW}-${NC}] Kubernetes Gateway (${GRAY}${K8S_GATEWAY}${NC}): ${YELLOW}Skipped due to lack of permissions${NC}"
+    echo "Kubernetes Gateway (${GRAY}${K8S_GATEWAY}${NC}) via ${K8S_IFACE}: Skipped due to lack of permissions" >> "${OUT_DIR}/report.txt"
   fi
 fi
 
 # 3. Ping Cross-Link Isolation (expecting BLOCKED)
 K8S_IP=$(ip -o addr show dev "${K8S_IFACE}" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || echo "192.168.109.14")
 if ping -c 2 -W 1 -I "${MGMT_IFACE}" "${K8S_IP}" 2>/dev/null | grep -q "rtt"; then
-  echo "     [!] Cross-Link Isolation:  LEAKING (Failed)"
+  echo -e "     [${RED}!${NC}] Cross-Link Isolation:  ${RED}LEAKING (Failed)${NC}"
   echo "Cross-Link Isolation between ${MGMT_IFACE} and ${K8S_IFACE}: LEAKING" >> "${OUT_DIR}/report.txt"
 else
-  echo "     [+] Cross-Link Isolation:  SECURED (Blocked)"
+  echo -e "     [${GREEN}+${NC}] Cross-Link Isolation:  ${GREEN}SECURED${NC} (Blocked)"
   echo "Cross-Link Isolation between ${MGMT_IFACE} and ${K8S_IFACE}: SECURED" >> "${OUT_DIR}/report.txt"
 fi
 
@@ -1805,30 +2003,49 @@ fi
 ping_wan=$(ping -c 2 -W 1 -I "${MGMT_IFACE}" 8.8.8.8 2>/dev/null || echo "")
 if [[ -n "${ping_wan}" ]] && echo "${ping_wan}" | grep -q "rtt"; then
   avg_rtt=$(echo "${ping_wan}" | tail -n 1 | cut -d'/' -f5)
-  echo "     [+] Public WAN (8.8.8.8):  REACHABLE (${avg_rtt}ms)"
-  echo "Public WAN (8.8.8.8) via ${MGMT_IFACE}: REACHABLE (${avg_rtt}ms)" >> "${OUT_DIR}/report.txt"
+  echo -e "     [${GREEN}+${NC}] Public WAN (${GRAY}8.8.8.8${NC}):  ${GREEN}REACHABLE${NC} (${avg_rtt}ms)"
+  echo "Public WAN (${GRAY}8.8.8.8${NC}) via ${MGMT_IFACE}: REACHABLE (${avg_rtt}ms)" >> "${OUT_DIR}/report.txt"
 else
-  echo "     [-] Public WAN (8.8.8.8):  UNREACHABLE"
-  echo "Public WAN (8.8.8.8) via ${MGMT_IFACE}: UNREACHABLE" >> "${OUT_DIR}/report.txt"
+  echo -e "     [${RED}-${NC}] Public WAN (${GRAY}8.8.8.8${NC}):  ${RED}UNREACHABLE${NC}"
+  echo "Public WAN (${GRAY}8.8.8.8${NC}) via ${MGMT_IFACE}: UNREACHABLE" >> "${OUT_DIR}/report.txt"
 fi
 
 # 5. GDC Endpoint Resolution & TCP Audits
-echo "     [+] GDC Endpoint Resolution & TCP Audits:"
+echo -e "     [${GREEN}+${NC}] GDC Endpoint Resolution & TCP Audits:"
 if [ -f /tmp/gdc_endpoints.status ]; then
   while IFS=':' read -r iface resolved connected || [[ -n "$iface" ]]; do
+    res_color="${GREEN}"
+    if [ "${resolved}" -lt 25 ]; then res_color="${YELLOW}"; fi
+    if [ "${resolved}" -eq 0 ]; then res_color="${RED}"; fi
+
+    conn_color="${GREEN}"
+    if [ "${connected}" -lt 25 ]; then conn_color="${YELLOW}"; fi
+    if [ "${connected}" -eq 0 ]; then conn_color="${RED}"; fi
+
     if [ "${iface}" = "management" ]; then
-      echo "          - Management (${MGMT_IFACE}):   ${resolved}/25 Resolved | ${connected}/25 Connected"
+      echo -e "          - Management (${MGMT_IFACE}):   ${res_color}${resolved}${NC}/25 Resolved | ${conn_color}${connected}${NC}/25 Connected"
     elif [ "${iface}" = "kubernetes" ]; then
-      echo "          - Kubernetes (${K8S_IFACE}): ${resolved}/25 Resolved | ${connected}/25 Connected"
+      echo -e "          - Kubernetes (${K8S_IFACE}): ${res_color}${resolved}${NC}/25 Resolved | ${conn_color}${connected}${NC}/25 Connected"
     fi
   done < /tmp/gdc_endpoints.status
 else
-  echo "          - GDC Endpoint Audits: Skipped (Status metadata missing)"
+  echo -e "          - GDC Endpoint Audits: ${YELLOW}Skipped (Status metadata missing)${NC}"
 fi
 echo "" >> "${OUT_DIR}/report.txt"
 
 # Output minimum requirements to console
-echo "[-] System Minimum Requirements:         $(cat /tmp/gdc-diagnostics/report.json 2>/dev/null | grep -A 5 "system_minimum_requirements" || cat /tmp/gdc_reqs.status 2>/dev/null || echo '{ CPU: Unknown, MEMORY: Unknown, STORAGE: Unknown }')"
+raw_reqs=$(cat "${OUT_DIR}/report.json" 2>/dev/null | grep -A 5 "system_minimum_requirements" || cat /tmp/gdc_reqs.status 2>/dev/null || echo '{ CPU: Unknown, MEMORY: Unknown, STORAGE: Unknown }')
+if [ "${USE_COLOR}" = "yes" ]; then
+  colorized_reqs=$(echo "${raw_reqs}" | sed -E \
+    -e "s/\"status\": \"OK\"/\"status\": \"\x1b[32mOK\x1b[0m\"/g" \
+    -e "s/\"status\": \"CAUTION\"/\"status\": \"\x1b[33mCAUTION\x1b[0m\"/g" \
+    -e "s/\"status\": \"FAIL\"/\"status\": \"\x1b[31mFAIL\x1b[0m\"/g" \
+    -e "s/(\"physical_cores\": )([0-9]+)/\1\x1b[1;30m\2\x1b[0m/g" \
+    -e "s/(\"logical_threads\": )([0-9]+)/\1\x1b[1;30m\2\x1b[0m/g")
+  echo -e "[-] System Minimum Requirements:         ${colorized_reqs}"
+else
+  echo "[-] System Minimum Requirements:         ${raw_reqs}"
+fi
 
 # ------------------------------------------------------------------------------
 # SECTION 15c: EXCLUSIONS & DELETIONS
@@ -1843,7 +2060,7 @@ for pattern in "${ADDR[@]}"; do
   # Trim spaces
   pattern=$(echo "${pattern}" | xargs)
   if [[ -n "${pattern}" ]]; then
-    echo "     [+] Processing exclusion pattern: ${pattern}"
+    echo -e "     [${GREEN}+${NC}] Processing exclusion pattern: ${pattern}"
     
     # 1. Check if the pattern is configs/ansible
     if [[ "${pattern}" == "configs/ansible" ]]; then
@@ -1873,14 +2090,14 @@ done
 # ------------------------------------------------------------------------------
 echo "[-] Sourcing obfuscation rules (Future Work)..."
 OBFUSCATION_RULES="${GDC_DIAGNOSTICS_OBFUSCATION_RULES:-secrets.conf,**/password*}"
-echo "     [+] Registered future obfuscation rule-set: ${OBFUSCATION_RULES}"
+echo -e "     [${GREEN}+${NC}] Registered future obfuscation rule-set: ${OBFUSCATION_RULES}"
 
 # ------------------------------------------------------------------------------
 # SECTION 16: TARBALL PACKAGING & DUP
 # ------------------------------------------------------------------------------
 USER_HOME="${HOME:-/home/temporary-installer}"
 TIMESTAMP=$(date +'%d-%b-%Y-%H-%M' | tr '[:lower:]' '[:upper:]')
-TAR_PATH="${USER_HOME}/gdc-node-diagnostics-${TIMESTAMP}.tar.gz"
+TAR_PATH="${USER_HOME}/gdc-node-diagnostics-${TIMESTAMP}${STAGE_SUFFIX}.tar.gz"
 
 # Format display path replacing local $HOME with '~'
 PRINT_PATH="${TAR_PATH}"
@@ -1895,24 +2112,24 @@ TAR_SUCCESS=true
 if tar -czf "${TAR_PATH}" -C "/tmp" "${OUT_BASE}" 2>/dev/null; then
   :
 else
-  echo "[-] SKIPPED Permission denied ${PRINT_PATH}"
+  echo -e "[${RED}-${NC}] SKIPPED Permission denied ${PRINT_PATH}"
   TAR_SUCCESS=false
   # Fallback to write inside /tmp RAM directory
-  TAR_PATH="/tmp/gdc-node-diagnostics-${TIMESTAMP}.tar.gz"
-  PRINT_PATH="/tmp/gdc-node-diagnostics-${TIMESTAMP}.tar.gz"
+  TAR_PATH="/tmp/gdc-node-diagnostics-${TIMESTAMP}${STAGE_SUFFIX}.tar.gz"
+  PRINT_PATH="/tmp/gdc-node-diagnostics-${TIMESTAMP}${STAGE_SUFFIX}.tar.gz"
   tar -czf "${TAR_PATH}" -C "/tmp" "${OUT_BASE}"
 fi
 
 # Duplicate package target to physical mount partition to survive VM reboots (Guarded)
 if [ "${IS_PRIVILEGED}" = "true" ] && [ -d "/target" ]; then
-  cp "${TAR_PATH}" "/target/gdc-node-diagnostics-${TIMESTAMP}.tar.gz" || true
+  cp "${TAR_PATH}" "/target/gdc-node-diagnostics-${TIMESTAMP}${STAGE_SUFFIX}.tar.gz" || true
   mkdir -p /target/root
-  cp "${TAR_PATH}" "/target/root/gdc-node-diagnostics-${TIMESTAMP}.tar.gz" || true
+  cp "${TAR_PATH}" "/target/root/gdc-node-diagnostics-${TIMESTAMP}${STAGE_SUFFIX}.tar.gz" || true
 fi
 
 # Output final terminal compilation success message matching requested pattern
-echo "[+] SUCCESS: Diagnostics successfully compiled and compressed!"
-echo "     - Target RAM path: ${PRINT_PATH}"
+echo -e "[${GREEN}+${NC}] ${GREEN}SUCCESS:${NC} Diagnostics successfully compiled and compressed!"
+echo -e "     - Target RAM path: ${GRAY}${PRINT_PATH}${NC}"
 
 # ------------------------------------------------------------------------------
 # SECTION 17: WEBHOOK LOGGING COMPANION UPLOAD (ALWAYS RUN)
@@ -1924,12 +2141,12 @@ if [ "${UPLOAD_TO_COMPANION:-yes}" = "yes" ]; then
     # Post the file using multipart/form-data
     upload_res=$(curl -s -o /dev/null -w "%{http_code}" -F "file=@${TAR_PATH}" "${COMPANION_INGEST_URL}" || echo "CURL_ERROR")
     if [ "${upload_res}" = "200" ] || [ "${upload_res}" = "201" ]; then
-      echo "  [x] Successfully uploaded diagnostics to companion (HTTP ${upload_res})"
+      echo -e "  [${GREEN}x${NC}] ${GREEN}Successfully uploaded diagnostics to companion${NC} (HTTP ${GREEN}${upload_res}${NC})"
     else
-      echo "  [!] Warning: Failed to upload diagnostics to companion (HTTP code: ${upload_res})"
+      echo -e "  [${RED}!${NC}] ${YELLOW}Warning: Failed to upload diagnostics to companion${NC} (HTTP code: ${RED}${upload_res}${NC})"
     fi
   else
-    echo "  [!] Curl is missing. Cannot upload diagnostics."
+    echo -e "  [${RED}!${NC}] ${RED}Curl is missing. Cannot upload diagnostics.${NC}"
   fi
 else
   echo "[-] Skipping diagnostics upload to Companion (UPLOAD_TO_COMPANION=no)"

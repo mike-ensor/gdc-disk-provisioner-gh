@@ -207,7 +207,7 @@
   ansible.builtin.replace:
     path: /etc/crypttab
     regexp: '^(\S+)\s+(\S+)\s+/etc/keys/temp_key\.key\s+(\S+)'
-    replace: '\1 \2 none \3,tpm2-device=auto,discard'
+    replace: '\1 \2 none \3,tpm2-device=auto,discard,noauto'
   register: crypttab_reconfigured
   when:
     - tpm_device_stat.stat.exists

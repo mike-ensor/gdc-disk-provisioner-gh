@@ -18,7 +18,8 @@
     "ip_address",
     "gdc_os_prerequisites",
     "hardware_inventory",
-    "bootstrap_stages_progress"
+    "bootstrap_stages_progress",
+    "machine_stages_progress"
   ],
   "properties": {
     "timestamp": {
@@ -654,12 +655,58 @@
               "PENDING",
               "IN_PROGRESS",
               "COMPLETED",
-              "FAILED"
+              "FAILED",
+              "BYPASSED"
             ]
           },
           "evidence": {
             "type": "object",
             "description": "Metrics or configurations captured during the stage-gate check as cryptographic or technical proof of state completion."
+          }
+        }
+      }
+    },
+    "machine_stages_progress": {
+      "type": "array",
+      "description": "Overarching sequential machine states tracking the bootstrap across separate reboots.",
+      "items": {
+        "type": "object",
+        "required": [
+          "stage_id",
+          "name",
+          "status",
+          "timestamp"
+        ],
+        "properties": {
+          "stage_id": {
+            "type": "string",
+            "enum": [
+              "LIVECD",
+              "FIRST_BOOT",
+              "SECOND_BOOT",
+              "LINUX_READY",
+              "CLUSTER_READY",
+              "CLUSTER_TURNUP",
+              "POST_VALIDATION",
+              "UPDATE_UPKEEP"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "FAILED",
+              "BYPASSED"
+            ]
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       }

@@ -1,0 +1,22 @@
+- name: Run service_hubs role
+  ansible.builtin.include_role:
+    name: service_hubs
+
+- name: "GDC-STATE | Write FirstBoot completion state"
+  ansible.builtin.copy:
+    dest: /var/gdc-install/state/first-boot.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {
+        "stage": "first-boot",
+        "status": "completed",
+        "timestamp": "{{ ansible_date_time.iso8601 }}"
+      }
+
+- name: "GDC-STATE | Reboot to transition to SecondBoot verification stage"
+  ansible.builtin.shell: |
+    sleep 45 && shutdown -r now "GDC FirstBoot completed. Rebooting to verify system auto-unsealing and stability."
+  async: 60
+  poll: 0

@@ -1,0 +1,13 @@
+[Unit]
+Description=GDC NodeAgent Daemon
+After=network.target
+
+[Service]
+User=gdc-admin
+Group=gdc-admin
+ExecStart=/var/gdc-install/tools/node-agent/nodeagentd
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

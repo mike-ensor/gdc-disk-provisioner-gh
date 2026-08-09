@@ -68,36 +68,60 @@ TIME (MIN)   PHASE                         ACTIONS EXECUTED
 
 ---
 
-## 2. Core Boot & Installation States: Live ISO vs. First Initial Boot
+## 2. Integration with Overarching Machine States State Machine
 
-The GDC bootstrapping process is divided into two major architectural and physical runtime states. Understanding the boundary between these two states is critical for ensuring secure, reliable, and completely offline-first provisioning.
+The GDC bootstrapping process integrates with the official 8-phase sequential state machine to ensure hardware, software, and cluster-readiness are verified and locked before proceeding.
 
 ```text
-               [ GDC LIFECYCLE REBOOT BOUNDARY ]
-  
-     ┌───────────────────────────────────┐      ┌───────────────────────────────────┐
-     │          LIVE ISO STATE           │      │     FIRST INITIAL BOOT STATE      │
-     ├───────────────────────────────────┤      ├───────────────────────────────────┤
-     │ • Runs entirely in RAM            │      │ • Runs on the target SSD/disk     │
-     │ • Read-Only /cdrom media          │      │ • LUKS decrypted via temp key    │
-     │ • Gitea/Nexus services INACTIVE   │ ───> │ • Gitea/Nexus services ACTIVE     │
-     │ • Subiquity partitions/installs   │      │ • Dynamic Ansible installation    │
-     │ • late-commands sync Gitea/Nexus  │      │ • TPM enrollment & CIS hardening  │
-     │ • Initiates hardware reboot       │      │ • Finalized as Ready-Linux        │
-     └───────────────────────────────────┘      └───────────────────────────────────┘
+                               ┌───────────────────────────┐
+                               │     Phase 1: LiveCD       │
+                               │  (Runs in RAM from ISO)   │
+                               └─────────────┬─────────────┘
+                                             │ (Subiquity complete)
+                                             ▼
+                               ┌───────────────────────────┐
+                               │   Phase 2: First Boot     │
+                               │  (Disk-based, Hubs Setup) │
+                               └─────────────┬─────────────┘
+                                             │ (TPM sealed / Reboot)
+                                             ▼
+                               ┌───────────────────────────┐
+                               │   Phase 3: Second Boot    │
+                               │ (Auto-Unlock Validation)  │
+                               └─────────────┬─────────────┘
+                                             │ (TPM unseal PASS)
+                                             ▼
+                               ┌───────────────────────────┐
+                               │   Phase 4: Linux Ready    │
+                               │ (Hardening & Optimizations)│
+                               └─────────────┬─────────────┘
+                                             │ (Verify Ansible PASS)
+                                             ▼
+                               ┌───────────────────────────┐
+                               │   Phase 5: Cluster Ready  │
+                               │ (Companion API & Gating)  │
+                               └───────────────────────────┘
 ```
 
-### 2.1. The Live ISO State
-* **Execution Boundary:** Spans from initial BIOS/UEFI boot ($T = 0.0\text{m}$) up to the execution of `late-commands` and the immediate reboot trigger ($T = 12.0\text{m}$).
-* **Environment:** The operating system runs entirely in-memory from a transient RAM-backed `overlayfs` created by the Ubuntu Live Casper boot system. All filesystem changes on the Live OS are lost upon reboot.
-* **Service Profile:** Local boundary service hubs (Gitea on Port 3000 and Nexus on Port 8081) are **inactive** and not running in the Live environment. This is because Nexus (JVM-based) is too resource-heavy to run in Live memory, and standard installation relies on the static `/cdrom` file repository.
-* **Core Outcomes:** Completes hardware discovery, generates autoinstall partition schemas, creates encrypted LVM partitions, writes the baseline OS, synchronizes the Gitea/Nexus pre-seeded directory assets from `/cdrom` into `/target/var/lib/`, writes systemd service units, and initiates a clean hardware restart.
+### 2.1. Phase 1: LiveCD State
+*   **Execution Boundary:** Spans from initial BIOS/UEFI boot ($T = 0.0\text{m}$) up to the execution of `late-commands` and the immediate reboot trigger ($T = 12.0\text{m}$).
+*   **Environment:** The operating system runs entirely in-memory from a transient RAM-backed `overlayfs` created by the Ubuntu Live Casper boot system. All filesystem changes are lost upon reboot.
+*   **Service Profile:** Local boundary service hubs (Gitea and Sonatype Nexus) are **inactive** and not running in RAM.
+*   **Core Outcomes:** Completes hardware discovery, generates LVM partition maps, formats encrypted LUKS volumes, writes the base OS, copies persistent Gitea/Nexus blobs, and triggers a clean hardware restart.
 
-### 2.2. The First Initial Boot State
-* **Execution Boundary:** Spans from the first post-installation boot on the target physical drive ($T = 14.5\text{m}$) up to the completion of the Ansible bootstrap playbook and the write of the success token ($T = 16.0\text{m}$).
-* **Environment:** The operating system runs permanently on the physical target block devices (`vg_system-lv_root` etc.).
-* **Service Profile:** Persistent local loopback services (Gitea on Port 3000 and Nexus on Port 8081) are **active** and started automatically by systemd.
-* **Core Outcomes:** Unlocks LUKS on boot using a one-time `/boot/temp_key.key` file, starts `gdc-provision.service`, polls for local Nexus port 8081 to become active, installs `ansible` and `git` completely offline from the local Nexus proxy, runs `ansible-pull` against Gitea, performs hardware-backed TPM 2.0 cryptographic sealing of the LUKS key, erases the temporary `/boot/temp_key.key` file, applies CIS security configurations, and transitions the system into an immutable, secure GDC **Ready-Linux** node.
+### 2.2. Phase 2: First Boot State
+*   **Execution Boundary:** Spans from the first boot on the target physical drive ($T = 14.5\text{m}$) up to the completion of initial Ansible playbooks and the first state reboot trigger ($T = 16.0\text{m}$).
+*   **Environment:** The operating system runs permanently on the physical target block devices (`vg_system-lv_root` etc.).
+*   **Service Profile:** Gitea (port 3000) and Nexus (port 8081) daemons are started automatically by systemd.
+*   **Core Outcomes:** Unlocks LUKS on boot using the one-time `/boot/temp_key.key` file, starts `gdc-provision.service`, and runs `ansible-pull`. Ansible executes TPM 2.0 cryptographic sealing of the LUKS container, erases `/boot/temp_key.key`, and triggers a controlled reboot to verify auto-unlocking.
+
+### 2.3. Phase 3 & 4: Second Boot & Linux Ready State
+*   **Execution Boundary:** Spans from the second boot on the target drive up to the completion of host hardening and system optimization.
+*   **Environment:** Permanent operating system running on physical SSD, auto-unlocked cleanly via systemd-cryptenroll/TPM 2.0.
+*   **Core Outcomes:** Verifies that the system booted completely headless without a password (TPM successful), runs best-practice system modifications, applies CIS Level 2 hardening, purges Snapd/LXD packages, and compiles the final `linux-ready` verification files.
+
+### 2.4. Phase 5: Cluster Ready State
+*   **Execution Boundary:** Queries the GDC Companion API (`GET /v1/machine-info/{mac}`) using mTLS client certificates, maps peer directories, configures `/etc/hosts`, and starts the gated `node-agent` daemon. This marks the transition to Stage 5 Cluster Turnup.
 
 ---
 

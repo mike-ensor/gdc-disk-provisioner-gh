@@ -8,6 +8,24 @@
 # --------------------------------------------------------------------------
 # Task 04: Administrator & Sudoers Provisioning
 # --------------------------------------------------------------------------
+- name: "GDC-TASK-04 | Check if installation fallback-config.json exists"
+  ansible.builtin.stat:
+    path: /etc/gdc/fallback-config.json
+  register: install_config_stat
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-04 | Load installation fallback-config.json"
+  ansible.builtin.slurp:
+    src: /etc/gdc/fallback-config.json
+  register: slurped_install_config
+  when: install_config_stat.stat.exists
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-04 | Set debug mode fact"
+  ansible.builtin.set_fact:
+    host_foundations_debug_mode: "{{ (slurped_install_config.content | b64decode | from_json).gdc_debug_mode if (slurped_install_config is defined and slurped_install_config.content is defined and (slurped_install_config.content | b64decode | from_json).gdc_debug_mode is defined) else false }}"
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-04 | Ensure administrative system group exists"
   ansible.builtin.group:
     name: "{{ gdc_admin_group }}"
@@ -45,6 +63,24 @@
       {{ gdc_admin_user }} ALL=(ALL) NOPASSWD:ALL
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-04 | Grant passwordless sudo for temporary-installer (DEBUG MODE ONLY)"
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/temporary-installer"
+    owner: root
+    group: root
+    mode: '0440'
+    content: |
+      temporary-installer ALL=(ALL) NOPASSWD:ALL
+  when: host_foundations_debug_mode | bool
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-04 | Revoke passwordless sudo for temporary-installer (PRODUCTION MODE)"
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/temporary-installer"
+    state: absent
+  when: not (host_foundations_debug_mode | bool)
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-04 | Configure authorized SSH keys for gdc-admin"
   ansible.builtin.file:
     path: "/home/{{ gdc_admin_user }}/.ssh"
@@ -54,17 +90,19 @@
     mode: '0700'
   tags: ["strictly-local"]
 
-- name: "GDC-TASK-04 | Inject administrative public SSH key for gdc-admin"
-  ansible.builtin.copy:
-    dest: "/home/{{ gdc_admin_user }}/.ssh/authorized_keys"
-    owner: "{{ gdc_admin_user }}"
-    group: "{{ gdc_admin_group }}"
-    mode: '0600'
-    content: "{{ ssh_pub_key | default('') }}"
-  when:
-    - ssh_pub_key is defined
-    - ssh_pub_key != ""
-  tags: ["strictly-local"]
+- name: "GDC-TASK-04 | Check if staged gdc-admin SSH keys exist"
+  ansible.builtin.stat:
+    path: /etc/gdc/admin-keys.pub
+  register: admin_keys_stat
+  tags: ["machine:connected", "machine:private-mode-normal", "strictly-local"]
+
+- name: "GDC-TASK-04 | Apply staged SSH keys to gdc-admin"
+  ansible.posix.authorized_key:
+    user: "{{ gdc_admin_user }}"
+    state: present
+    key: "{{ lookup('file', '/etc/gdc/admin-keys.pub') }}"
+  when: admin_keys_stat.stat.exists
+  tags: ["machine:connected", "machine:private-mode-normal", "strictly-local"]
 
 # --------------------------------------------------------------------------
 # Task 03: Local Workspace Layout Provisioning
@@ -295,21 +333,12 @@
   when: ansible_distribution_release == 'noble'
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
-- name: "GDC-TASK-06 | Check if core packages are already installed"
-  ansible.builtin.shell: dpkg-query -W -f='${Status}' {{ item }} 2>/dev/null | grep -q 'ok installed'
-  loop: "{{ gdc_core_packages }}"
-  register: package_check
-  ignore_errors: true
-  changed_when: false
-  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
-
 - name: "GDC-TASK-06 | Install GDC Configured Post-Install Packages"
   ansible.builtin.apt:
-    name: "{{ package_check.results | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) | map(attribute='item') | list }}"
+    name: "{{ gdc_core_packages }}"
     state: present
     update_cache: false
     allow_downgrades: true
-  when: (package_check.results | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) | list | length) > 0
   register: apt_install_result
   environment:
     NEEDRESTART_MODE: l
