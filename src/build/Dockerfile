@@ -18,12 +18,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install only the precise, essential build utilities
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl apt-transport-https ca-certificates gnupg \
+    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list \
+    && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyring /usr/share/keyrings/cloud.google.gpg add - \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    google-cloud-cli \
     xorriso \
     rsync \
     git \
     make \
-    curl \
-    ca-certificates \
     python3 \
     python3-pip \
     python3-venv \

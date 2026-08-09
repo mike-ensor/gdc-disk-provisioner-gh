@@ -123,6 +123,8 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [ ] **FUTURE TASK:** Investigate authorization and other methods of identification for webhook logging later
   - [ ] **FUTURE FEATURE:** Integrate cloud-init phone-home module (https://docs.cloud-init.io/en/latest/reference/modules.html#phone-home) to report post-boot completion status to GDC Companion
   - [ ] **FUTURE FEATURE:** Reach out to the "companion" API during build-time inside `remaster.sh` to dynamically retrieve target VLAN tags, subnets, and gateways
+  - [ ] **FUTURE FEATURE:** Build out a local Mock Companion Service or expand `machine_orchestration` to allow structured `gdc-companion` simulation data for easier air-gapped testing (handling Connection failure timeouts gracefully)
+  - [ ] **FUTURE FIX:** Address CD-ROM extraction gap during Subiquity `late-commands` so `bmctl` binaries successfully migrate from the ISO `/custom-data/tools` into persistent `/var/gdc-install/tools` storage for subsequent Ansible stages
 
 ---
 
@@ -163,14 +165,19 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Task 04: Implement `gdc-admin` user creation, supplementary groups setup (`sudo`, `docker`), and passwordless sudoers rules
   - [x] Task 05: Offline APT sources setup (Write DEB822 sources and deactivate default public Ubuntu files)
   - [x] Task 06: Package installation loop (`gdc_core_packages` list containing `containerd.io`, `docker-ce`, `chrony`, `step-cli`, etc.; Tagged: `external-dependency`)
+  - [x] Integrate declarative APT reconciliation and purge legacy dpkg-query wrappers
   - [x] Task 07: Deploy persistent kernel sysctl tuning parameters (`99-gdc.conf` for max inotify and BPF JIT)
   - [x] Task 08: Enforce universal UTC system timezone and configure Chrony NTP with Google pools (Tagged: `external-dependency`)
   - [x] Task 09: Setup Container engines (`docker-ce` daemon and `containerd` config/hosts TOML definitions for local mirrors redirects)
   - [x] Task 10: Standalone non-apt Google Cloud SDK deployment, silent installer configuration, and global symlinking (Tagged: `external-dependency`)
   - [x] Task 11: Security configurations (Mask `ufw` firewall, implement reboot-free unattended-upgrades with blacklist)
-  - [x] Task 12: Offline management deployment (Deploy skeleton update scripts and link daily logrotate hourly with mode `0755` executable permissions)
+  - [x] Task 12: Offline management deployment
+  - [x] Integrate robust `import_tasks` and overarching system halting using `MACHINE_STATE_STOP_STAGE` guard rails
+- [x] **URGENT BUG:** `LINUX_READY` diagnostic reports fail to collect proper HWE kernel statuses due to stale initramfs packages. The node requires a full manual reboot to properly validate.
+  - [x] Configure diagnostic tools to tag bypassed overarching pipeline stages as `BYPASSED` (Deploy skeleton update scripts and link daily logrotate hourly with mode `0755` executable permissions)
   - [x] Deploy weekly cron job for automated Google Cloud SDK updates (`gcloud components update -q`; Tagged: `external-dependency`)
   - [x] Ensure all playbook tasks are tagged according to GDC Machine State Taxonomy
+- [ ] **FUTURE SECURITY TASK:** Implement GRUB bootloader password protection (`grub-mkpasswd-pbkdf2`) when not running in `GDC_DEBUG_MODE` to prevent physical boot parameter tampering.
 
 ---
 
@@ -235,7 +242,8 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 ### Phase 6: Standalone & Multi-Node Cluster Turnup (Stage 5)
 
 - [ ] **Offline Cluster Deployment**
-  - [ ] Seed GDC bootstrap workstation credentials
+  - [x] Seed GDC bootstrap workstation credentials (`bmctl` and `nodeagent` integrated)
+  - [ ] **Authenticate `gcloud` using a service-account key securely on the new machine during CLUSTER_TURNUP (TBD on delivery mechanism)**
   - [ ] Create `bmctl` configuration file (`cluster-config.yaml`) defining target cluster IP networks, VIPs, and storage paths
   - [ ] Execute `bmctl create cluster` offline using pre-seeded container layers in local Nexus group registry
   - [ ] Redirect container registry mirror to local Nexus Group Registry loopback Port `5001`

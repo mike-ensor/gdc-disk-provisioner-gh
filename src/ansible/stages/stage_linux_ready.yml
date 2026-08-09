@@ -1,0 +1,39 @@
+- name: Run host_foundations role
+  ansible.builtin.include_role:
+    name: host_foundations
+
+- name: Run system_tuning role
+  ansible.builtin.include_role:
+    name: system_tuning
+
+- name: Run security_hardening role
+  ansible.builtin.include_role:
+    name: security_hardening
+
+- name: "GDC-STATE | Write LinuxReady completion state"
+  ansible.builtin.copy:
+    dest: /var/gdc-install/state/linux-ready.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {
+        "stage": "linux-ready",
+        "status": "completed",
+        "timestamp": "{{ ansible_date_time.iso8601 }}"
+      }
+
+- name: "GDC-STATE | Update LinuxReady fact in-memory"
+  ansible.builtin.set_fact:
+    linux_ready_state: { "status": "completed" }
+
+- name: "GDC-STATE | Schedule Reboot to apply HWE kernel (if continuing to ClusterReady)"
+  ansible.builtin.shell: |
+    sleep 45 && shutdown -r now "GDC LinuxReady completed. Rebooting to apply HWE kernel before ClusterReady."
+  async: 60
+  poll: 0
+  when: stop_stage != "LINUX_READY"
+
+- name: "GDC-STATE | Force play end to await reboot (if continuing to ClusterReady)"
+  ansible.builtin.meta: end_play
+  when: stop_stage != "LINUX_READY"

@@ -91,10 +91,17 @@ On the **First Initial Boot** of the target machine, a local instance of Sonatyp
 *   **Connected Mode (Developer Labs & Connected Testing):** If the node has external internet connectivity, Nexus operates as an on-demand caching proxy. If a requested package is missing from the local cache, Nexus fetches it from public Ubuntu mirrors, caches it in its persistent local blob store, and serves it to the node's package manager.
 *   **Air-Gapped Mode (Isolated GDC Production Targets):** In fully isolated production networks with no internet routing, Nexus operates completely offline. Because our remastering pipeline (`remaster.sh`) pre-populates and bundles every required system package (such as `ansible`, `git`, `python3`, and all of their python/system dependencies) directly into the offline GDC ISO during compilation, all required packages are guaranteed to already reside inside the local Nexus cache. If an un-cached package is requested, Nexus gracefully returns a `404/504` error instead of hanging on infinite timeouts, guaranteeing deterministic, 100% offline installation success.
 
-### Transition of Overarching States
-The GDC deployment enforces a clean separation between two states:
-* **Live ISO State:** The target node runs in RAM from the read-only custom bootloader ISO. Gitea and Nexus are inactive. Subiquity partitions the disks, formats LVM volumes, writes the base OS, and syncs pre-seeded service assets to `/target` before rebooting.
-* **First Initial Boot State:** The node reboots into the physical SSD, starts persistent Gitea and Nexus services, and launches `gdc-provision.service`. This service waits for local Nexus to initialize, automatically bootstraps the `ansible` and `git` packages completely offline, and runs local `ansible-pull` playbooks to enroll the TPM 2.0 cryptobindings and finalize the node.
+### Deterministic Boot Order Policy (The Handoff Rule)
+GDC Bare Metal nodes strictly enforce an automated bootloader handoff policy. Upon leaving the factory line, nodes are initialized in Network Boot (PXE) or USB boot mode. Following successful operating system writing during **Phase 1 (LiveCD)**, the system dynamically reconfigures the UEFI NVRAM boot order (utilizing `efibootmgr` on the Live CD host) to prioritize the newly written physical SSD/Disk. 
+*   **Initial Boot:** Network PXE or USB is used for automated bare-metal provisioning.
+*   **Subsequent Boots:** Local SSD/Disk is dynamically reordered as the primary boot target.
+*   **Non-Destructive Fallbacks:** Secondary boot fallback points back to PXE, ensuring nodes remain recoverable/re-installable if the local OS bootloader ever gets corrupted, satisfying strict recovery constraints.
+
+### Transition of Overarching Machine States
+The GDC node transitions through an integrated, sequential state machine to ensure hardware and software readiness before cluster clustering commands are executed. Rather than running a single monolithic script, the system relies on structured boundaries:
+*   **Sequential Stages:** Transitions progress from raw bootstrap (`LiveCD`) up to stable runtime and drift-correction (`Update/Upkeep`).
+*   **State Cache:** High-performance, idempotent state JSON records are written to `/var/gdc-install/state/` to track and cache completion details.
+*   **Detailed Machine State Model:** Refer to **Section 4: Overarching Machine States State Machine** below for detailed specs, state diagrams, and the node-agent firewall-shielding mechanism.
 
 ### Transition of Network Stages
 * **Bootstrap Phase (Stage 1):** The Subiquity installer boots with native DHCP to establish a reliable connection to the `install-companion` log monitoring webhook.
@@ -235,3 +242,82 @@ To enable real-time tracking of node state transitions in the **GDC Companion** 
 1.  **Stage ID:** Current active stage string (e.g., `NAMESPACE_SYNC`).
 2.  **State Status:** `PENDING`, `IN_PROGRESS`, `COMPLETED`, or `FAILED`.
 3.  **Verification Evidence:** Specific telemetry readings (e.g., MAC, disk sizes, partition mounts, socket statuses) acting as proof of transition.
+
+---
+
+## 4. Overarching Machine States State Machine
+
+To coordinate node bootstrap across separate reboots and prevent premature cluster sync operations, each physical node implements a strict sequential state-machine pattern.
+
+### 4.1. State Machine Transition Diagram
+
+```mermaid
+stateDiagram-v2
+    [*] --> LiveCD : Physical Boot (PXE/ISO)
+    LiveCD --> FirstBoot : Auto-install Completed & Reboot
+    FirstBoot --> SecondBoot : Services Init & Reboot
+    SecondBoot --> LinuxReady : TPM Sealed & Ansible Provision
+    LinuxReady --> ClusterReady : mTLS Metadata Fetched & Peers Verified
+    ClusterReady --> ClusterTurnup : bmctl create cluster (Local OCI)
+    ClusterTurnup --> PostValidation : Cluster Successfully Built
+    PostValidation --> UpdateUpkeep : Telemetry Validated
+    UpdateUpkeep --> UpdateUpkeep : Daily Drift / USB Sideload
+```
+
+### 4.1.2. AI-Readable State-Transition Matrix
+
+For automated tools, AI agents, and LLMs, this text-based state-transition model explicitly defines the active states, input triggers, transition actions, and target SENTINEL conditions:
+
+| Source State | Input Trigger | Transition Operation (Action) | Target State | State Cache Sentinel |
+| :--- | :--- | :--- | :--- | :--- |
+| `[None]` | Cold Boot | UEFI reads GDC Bootloader ISO, launches Subiquity and curtin scripts. | `LiveCD` | `[None]` |
+| `LiveCD` (Stage 1) | Installation loop completes cleanly. | Late-commands write `provision.yml` and copy Nexus/Gitea caches to LVM, then trigger reboot. | `FirstBoot` | Target disk OS boots successfully, managed by `stages/stage_first_boot.yml` via `import_tasks`. |
+| `FirstBoot` (Stage 2) | Node boots on target SSD first time. | Runs `service_hubs` (Gitea/Nexus), registers TPM LUKS keyslots, erases `/boot/temp_key.key`, then triggers controlled reboot. | `SecondBoot` | `/var/gdc-install/state/first-boot.json` status = `"completed"` |
+| `SecondBoot` (Stage 3) | Node boots on physical disk second time. | Verification suite asserts Port 3000/8081 health and LUKS auto-decryption, then transitions to hardening. | `LinuxReady` | `/var/gdc-install/state/second-boot.json` status = `"completed"` |
+| `LinuxReady` (Stage 4) | System auto-unlocked successfully. | Playbook executes standard foundations, UTC time-sync, CIS Level 2 hardening, and purges Snapd/LXD packages. | `ClusterReady` | `/var/gdc-install/state/linux-ready.json` status = `"completed"` |
+| `ClusterReady` (Stage 5) | Ready-Linux baseline completed. | Calls `/v1/machine-info/{mac}`, templates `/etc/hosts` peers, stages `nodeagentd` binaries, authenticates `gcloud`, and starts `node-agent.service`. | `ClusterTurnup` | `/var/gdc-install/state/cluster-ready.json` status = `"completed"` |
+| `ClusterTurnup` (Stage 6) | GGD dynamic configuration ready. | Executes offline standalone/HA cluster inception (`bmctl create cluster`) pulling OCI layers from local loopback (Port 5001). | `PostValidation` | Cluster kubeconfig is successfully written and active. |
+| `PostValidation` (Stage 7)| Kubernetes control plane marked `Ready`. | Executes automated sanity test suite verifying CoreDNS lookup, Storage Classes, MetalLB VIPs, and pushes validation report. | `UpdateUpkeep` | `/var/gdc-install/state/post-validation.json` status = `"completed"` |
+| `UpdateUpkeep` (Stage 8) | Validation metrics successfully pushed. | systemd timer triggers periodic `ansible-pull` drift correction, and udev auto-triggers USB update bundles. | `UpdateUpkeep` | Playbook runs with `changed=0` (stable convergence). |
+
+### 4.2. Stage-by-Stage Specifications
+
+Each stage has an explicit meaning and a clear, objective measurement strategy to determine if it is complete. If a stage fails its measurement checks, the idempotent Ansible post-install runner automatically attempts a self-repair before flagging the stage as complete.
+
+| Stage | Name | Description | Completion Measurement |
+| :--- | :--- | :--- | :--- |
+| **1** | `LiveCD` | Physical server runs in RAM from the read-only GDC Bootloader ISO, executing disk partitioning, LVM formatting, base filesystems preparation, and pre-seeding sync of Gitea/Nexus assets to disk. | 1. The node successfully completes installation and boots into the physical disk operating system. |
+| **2** | `FirstBoot` | Node boots from local NVMe/SSD, unseals LUKS, starts Gitea/Nexus service hubs, and executes initial `ansible-pull` bootstrap logic to establish dependency keys. | 1. Port `3000` (Gitea) and `8081` (Nexus) respond with `200 OK` on loopback.<br>2. `/var/gdc-install/state/first-boot.json` status is `"completed"`. |
+| **3** | `SecondBoot` | Controlled system reboot is executed to verify bootloader, UEFI, and crypttab unsealing stability without human passphrase intervention. | 1. System reboots successfully to multi-user target without hanging.<br>2. `/var/gdc-install/state/second-boot.json` status is `"completed"`. |
+| **4** | `LinuxReady` | Ansible playbook applies system tuning, CIS level 2 security hardening, purges Snapd/LXD packages, installs local tools (Google Cloud SDK), and validates core offline system dependencies. | 1. Success of system verify script (`verify_ansible.sh`).<br>2. `/var/gdc-install/state/linux-ready.json` status is `"completed"`. |
+| **5** | `ClusterReady` | Node fetches dynamic configurations from GDC Companion (`GET /v1/machine-info/{mac-address}`), populates `bmctl` on `$PATH`, stages the `NodeAgent` binary and mTLS certificates, authenticates `gcloud`, configures `/etc/hosts`, and passes peer validation. | 1. `bmctl` executable exists on `$PATH`.<br>2. `/etc/hosts` contains peer IP/hostname entries.<br>3. `gcloud auth list` confirms valid credentials.<br>4. `/var/gdc-install/state/cluster-ready.json` status is `"completed"`. |
+| **6** | `ClusterTurnup` | Node executes offline standalone cluster creation using local Nexus Group Registry (Port `5001`) via `bmctl create cluster` and deploys the GDC NodeAgent. | 1. Admin kubeconfig exists at `/root/bmctl-workspace/gdc-edge-cluster/gdc-edge-cluster-kubeconfig`.<br>2. All control plane pods are marked `Ready`. |
+| **7** | `PostValidation` | Automated post-install test suite validates storage classes, DNS resolution, and CNI connectivity. | 1. CoreDNS lookup succeeds internally.<br>2. Telemetry metrics flow smoothly to central collectors. |
+| **8** | `UpdateUpkeep` | Daily systemd timer triggers `ansible-pull` for local drift correction, and udev rules orchestrate headless USB sideload updates. | 1. Playbook execution finishes with `changed=0` (stable convergence). |
+
+### 4.3. State Storage & Performance Caching
+
+To ensure the node can survive nested VM restarts, random hypervisor hyper-threads crashes, and physical power outages, the completed states are stored in high-performance JSON cache files inside the GDC management directory:
+
+```bash
+/var/gdc-install/state/{stage_name}.json
+```
+
+Because all GDC configuration items are designed to be completely idempotent, these files act strictly as an optimization cache to avoid redundant, expensive remote calls (e.g. hitting GDC Companion every minute during loop executions). If any state file is deleted or invalidated, the runner automatically re-calculates and re-verifies the state to rebuild the cache files.
+
+### 4.4. The NodeAgent Service Gating Gate
+
+#### A. The Problem of Asynchronous Booting
+In multi-node cluster topologies, nodes do not boot or provision at identical speeds due to variations in UEFI post times, memory training sequences, or NVMe performance. If a node starts GDC NodeAgent on Port `9192` too early:
+*   It immediately attempts to scan and connect with peer nodes that may still be mid-installation in `LiveCD` or `FirstBoot`.
+*   This causes mutual TLS connection timeouts, error spam in logs, and can cause `bmctl` pre-flight checks to fail or hang indefinitely.
+
+#### B. The Service Gating Rule
+To enforce deterministic peer synchronization without introducing complex, platform-specific firewall configuration dependencies, we control the lifecycle of the `node-agent` systemd service:
+1.  **Service Disabled & Stopped (Early Stages):** During `LiveCD`, `FirstBoot`, `SecondBoot`, and `LinuxReady` stages, the `node-agent` systemd service is explicitly kept in a `stopped` and `disabled` state on the node.
+2.  **State Gating:** With `node-agent` inactive, the node remains completely isolated, focusing purely on its local post-install hardening, package caching, and host-level verification. No sockets are opened on Port `9192`.
+3.  **Activating NodeAgent (Un-gating):** Only when the node successfully transitions to `ClusterReady` (confirming all host configurations are verified, `/etc/hosts` mapping is complete, and the Companion API configuration is fully fetched and validated) does the playbook activate the service:
+    ```bash
+    systemctl enable --now node-agent.service
+    ```
+4.  **Symmetrical Discovery:** Because every node in the cluster plays by the exact same rules, peer nodes will only have active `node-agent` servers listening and handshaking when both sides have entered the `ClusterReady` boundary. This guarantees that any inter-node cluster control plane and peer discovery requests are executed cleanly and symmetrically between fully prepared nodes.

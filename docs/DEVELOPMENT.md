@@ -268,22 +268,22 @@ Located locally under `bin/gdc-diagnostics-transmit-analyze.py`, this Python scr
 
 When debugging a node, map failures directly to the GDC Lifecycle Stages using the retrieved diagnostic log directory:
 
-### Stage 1: ISO Generation & Build (IaC Build)
+### Phase 1: LiveCD State (ISO Generation & Unattended Install)
 *   **Logs to check:** `logs/casper-md5check.json`, `report.json`
 *   **Verification:** Ensure build banners are correct and the live CD boot integrity checksum is passing.
 
-### Stage 2: Baseline OS & LVM Setup (Boot & Install)
+### Phase 2: First Boot State (Services Hubs Setup & TPM Sealing)
 *   **Logs to check:** `logs/subiquity-server-debug.log`, `logs/curtin-install.log`, `logs/installer-journal.txt`, `dmesg.txt`
 *   **Verification:** Check for disk layout configurations, partition formatting failures, or `apparmor="DENIED"` events during the Subiquity unattended install.
 
-### Stage 3: Ready-Linux Provisioning (Crypto-Sealing & Hardening)
+### Phase 3 & 4: Second Boot & Linux Ready State (Verify Auto-Unlock & CIS Hardening)
 *   **Logs to check:** `logs/gdc-provision.log`, `logs/ssh.log`, `report.json`
 *   **Verification:** Confirm that first-boot `ansible-pull` playbooks executed to completion with zero failures and generated the completion token `GDC_BOOTSTRAP_COMPLETE_SUCCESSFULLY`.
 
-### Stage 4: GDC Bootstrapping (Local Dependency Integration)
+### Phase 5: Cluster Ready State (Companion Configurations & NodeAgent Gating)
 *   **Logs to check:** `logs/gitea.log`, `logs/nexus.log`, `report.json`
 *   **Verification:** Confirm Port `3000` (Gitea) and Port `8081` (Nexus) respond to HTTP health handshakes and local OCI registries are active.
 
-### Stage 5: Cluster Turnup (Cluster Creation & NodeAgent Deployment)
+### Phase 6, 7 & 8: Cluster Turnup, Post-Cluster Validation & Upkeep (bmctl, CNI, & Drift)
 *   **Logs to check:** `report.json`, `health_report.md` (mutual pings matrix)
 *   **Verification:** Verify that outbound DNS/TCP connection to Google endpoints succeed and mutual ping connectivity between all node interfaces is 100% active.

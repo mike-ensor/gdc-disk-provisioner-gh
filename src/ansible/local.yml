@@ -12,9 +12,6 @@
   connection: local
   become: true
   gather_facts: true
-  gather_subset:
-    - "!network"
-    - "!hardware"
 
   vars_files:
     - vars/all.yml
@@ -26,21 +23,210 @@
     trigger_system_upgrade: false
 
   tasks:
-    - name: Run GDC Ready-Linux Post-Install Provisioning Suite
+    - name: "GDC-STATE | Initialize and load state facts"
+      ansible.builtin.import_tasks: stages/state_initialization.yml
+
+    # ==============================================================================
+    # STAGE 2: FirstBoot (Service Hubs Setup)
+    # ==============================================================================
+    - name: "FIRST_BOOT | GDC-STATE | Run Stage 2"
       block:
-        - name: Run service_hubs role
-          include_role:
-            name: service_hubs
-        - name: Run host_foundations role
-          include_role:
-            name: host_foundations
-        - name: Run system_tuning role
-          include_role:
-            name: system_tuning
-        - name: Run security_hardening role
-          include_role:
-            name: security_hardening
+        - name: "FIRST_BOOT | GDC-STATE | Execute"
+          ansible.builtin.import_tasks: stages/stage_first_boot.yml
+      rescue:
+        - name: "GDC-STATE | Record FirstBoot Failure state"
+          ansible.builtin.copy:
+            dest: /var/gdc-install/state/first-boot.json
+            owner: root
+            group: root
+            mode: '0644'
+            content: |
+              {
+                "stage": "first-boot",
+                "status": "failed",
+                "timestamp": "{{ ansible_date_time.iso8601 }}"
+              }
+        - name: "GDC-STATE | Fail the play on FirstBoot Setup"
+          ansible.builtin.fail:
+            msg: "GDC FirstBoot Setup failed!"
       always:
+        - name: "GDC-STATE | Trigger Post-Stage 2 Diagnostic Collection"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
+              /usr/local/bin/collect-node-diagnostics.sh --stage first-boot
+            elif [ -x "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" ]; then
+              "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" --stage first-boot
+            fi
+          ignore_errors: true
+          failed_when: false
+      when: first_boot_state.status != "completed"
+      tags: ["first-boot"]
+
+    - name: "SECOND_BOOT | GDC-STATE | Guard: Halt execution if user requested stop at FIRST_BOOT"
+      block:
+        - name: "SECOND_BOOT | GDC-STATE | Collect final diagnostics before halting"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
+              /usr/local/bin/collect-node-diagnostics.sh
+            fi
+          ignore_errors: true
+          failed_when: false
+        - name: "SECOND_BOOT | GDC-STATE | Halt execution"
+          ansible.builtin.meta: end_play
+      when: 
+        - stop_stage == "FIRST_BOOT"
+        - first_boot_state.status == "completed"
+      tags: ["second-boot"]
+
+    # ==============================================================================
+    # STAGE 3: SecondBoot (Stability & Unsealing Verification)
+    # ==============================================================================
+    - name: "SECOND_BOOT | GDC-STATE | Run Stage 3"
+      block:
+        - name: "SECOND_BOOT | GDC-STATE | Execute"
+          ansible.builtin.import_tasks: stages/stage_second_boot.yml
+      rescue:
+        - name: "GDC-STATE | Record SecondBoot Failure state"
+          ansible.builtin.copy:
+            dest: /var/gdc-install/state/second-boot.json
+            owner: root
+            group: root
+            mode: '0644'
+            content: |
+              {
+                "stage": "second-boot",
+                "status": "failed",
+                "timestamp": "{{ ansible_date_time.iso8601 }}"
+              }
+        - name: "GDC-STATE | Fail the play on SecondBoot Verification"
+          ansible.builtin.fail:
+            msg: "GDC SecondBoot Verification failed!"
+      always:
+        - name: "GDC-STATE | Trigger Post-Stage 3 Diagnostic Collection"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
+              /usr/local/bin/collect-node-diagnostics.sh --stage second-boot
+            elif [ -x "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" ]; then
+              "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" --stage second-boot
+            fi
+          ignore_errors: true
+          failed_when: false
+      when:
+        - first_boot_state.status == "completed"
+        - second_boot_state.status != "completed"
+      tags: ["second-boot"]
+
+    - name: "LINUX_READY | GDC-STATE | Guard: Halt execution if user requested stop at SECOND_BOOT"
+      block:
+        - name: "LINUX_READY | GDC-STATE | Collect final diagnostics before halting"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
+              /usr/local/bin/collect-node-diagnostics.sh
+            fi
+          ignore_errors: true
+          failed_when: false
+        - name: "LINUX_READY | GDC-STATE | Halt execution"
+          ansible.builtin.meta: end_play
+      when: 
+        - stop_stage == "SECOND_BOOT"
+        - second_boot_state.status == "completed"
+      tags: ["linux-ready"]
+
+    # ==============================================================================
+    # STAGE 4: LinuxReady (Foundations, Tuning, Hardening)
+    # ==============================================================================
+    - name: "LINUX_READY | GDC-STATE | Run Stage 4"
+      block:
+        - name: "LINUX_READY | GDC-STATE | Execute"
+          ansible.builtin.import_tasks: stages/stage_linux_ready.yml
+      rescue:
+        - name: "GDC-STATE | Record LinuxReady Failure state"
+          ansible.builtin.copy:
+            dest: /var/gdc-install/state/linux-ready.json
+            owner: root
+            group: root
+            mode: '0644'
+            content: |
+              {
+                "stage": "linux-ready",
+                "status": "failed",
+                "timestamp": "{{ ansible_date_time.iso8601 }}"
+              }
+        - name: "GDC-STATE | Fail the play on LinuxReady Hardening"
+          ansible.builtin.fail:
+            msg: "GDC LinuxReady Hardening failed!"
+      always:
+        - name: "GDC-STATE | Trigger Post-Stage 4 Diagnostic Collection"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
+              /usr/local/bin/collect-node-diagnostics.sh --stage linux-ready
+            elif [ -x "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" ]; then
+              "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" --stage linux-ready
+            fi
+          ignore_errors: true
+          failed_when: false
+      when:
+        - second_boot_state.status == "completed"
+        - linux_ready_state.status != "completed"
+      tags: ["linux-ready"]
+
+    - name: "CLUSTER_READY | GDC-STATE | Guard: Halt execution if user requested stop at LINUX_READY"
+      block:
+        - name: "CLUSTER_READY | GDC-STATE | Collect final diagnostics before halting"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
+              /usr/local/bin/collect-node-diagnostics.sh
+            fi
+          ignore_errors: true
+          failed_when: false
+        - name: "CLUSTER_READY | GDC-STATE | Halt execution"
+          ansible.builtin.meta: end_play
+      when: 
+        - stop_stage == "LINUX_READY"
+        - linux_ready_state.status == "completed"
+      tags: ["cluster-ready"]
+
+    # ==============================================================================
+    # STAGE 5: ClusterReady (Machine Config & NodeAgent Integration)
+    # ==============================================================================
+    - name: "CLUSTER_READY | GDC-STATE | Run Stage 5"
+      block:
+        - name: "CLUSTER_READY | GDC-STATE | Execute"
+          ansible.builtin.import_tasks: stages/stage_cluster_ready.yml
+      rescue:
+        - name: "GDC-STATE | Record ClusterReady Failure state"
+          ansible.builtin.copy:
+            dest: /var/gdc-install/state/cluster-ready.json
+            owner: root
+            group: root
+            mode: '0644'
+            content: |
+              {
+                "stage": "cluster-ready",
+                "status": "failed",
+                "timestamp": "{{ ansible_date_time.iso8601 }}"
+              }
+        - name: "GDC-STATE | Fail the play on ClusterReady Configuration"
+          ansible.builtin.fail:
+            msg: "GDC ClusterReady Configuration failed!"
+      always:
+        - name: "GDC-STATE | Trigger Post-Stage 5 Diagnostic Collection"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
+              /usr/local/bin/collect-node-diagnostics.sh --stage cluster-ready
+            elif [ -x "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" ]; then
+              "{{ playbook_dir }}/../../bin/collect-node-diagnostics.sh" --stage cluster-ready
+            fi
+          ignore_errors: true
+          failed_when: false
+      when:
+        - linux_ready_state.status == "completed"
+        - cluster_ready_state.status != "completed"
+      tags: ["cluster-ready"]
+
+
+    - name: "GDC-STATE | Run final telemetry"
+      block:
         - name: Always execute diagnostics and upload telemetry
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/collect-node-diagnostics.sh ]; then
@@ -50,3 +236,4 @@
               exit 1
             fi
           ignore_errors: true
+          failed_when: false

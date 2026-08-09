@@ -1,0 +1,167 @@
+---
+# ==============================================================================
+# Role Tasks: machine_orchestration
+# ==============================================================================
+# Dynamic machine configuration, peer mapping, and node-agent service gating.
+# Coordinated with GDC-COMP-SPEC-003 and GDC-SPEC-010.
+# ==============================================================================
+
+- name: "GDC-ORCH | Set MAC address fact"
+  ansible.builtin.set_fact:
+    node_mac: "{{ ansible_default_ipv4.mac | default(ansible_interfaces | map('extract', ansible_facts) | selectattr('macaddress', 'defined') | map(attribute='macaddress') | first) | lower }}"
+
+- name: "GDC-ORCH | Check if local machine-info-mock.json exists"
+  ansible.builtin.stat:
+    path: /etc/gdc/machine-info-mock.json
+  register: mock_file_stat
+
+- name: "GDC-ORCH | Fetch machine-info configuration from GDC Companion"
+  ansible.builtin.uri:
+    url: "https://gdc-companion.ensor-labs.com/v1/machine-info/{{ node_mac }}"
+    method: GET
+    client_cert: "/var/gdc-install/keys/client.crt"
+    client_key: "/var/gdc-install/keys/client.key"
+    status_code: 200
+  register: api_response
+  ignore_errors: true
+  when: not mock_file_stat.stat.exists
+
+- name: "GDC-ORCH | Read local machine-info-mock.json if present"
+  ansible.builtin.slurp:
+    src: /etc/gdc/machine-info-mock.json
+  register: slurped_mock
+  when: mock_file_stat.stat.exists
+
+- name: "GDC-ORCH | Parse and register configuration facts"
+  ansible.builtin.set_fact:
+    machine_config: >-
+      {{
+        (slurped_mock.content | b64decode | from_json)
+        if mock_file_stat.stat.exists
+        else (api_response.json | default({}))
+      }}
+
+- name: "GDC-ORCH | Check if fallback-config.json exists"
+  ansible.builtin.stat:
+    path: /etc/gdc/fallback-config.json
+  register: fallback_config_stat
+
+- name: "GDC-ORCH | Load fallback-config.json"
+  ansible.builtin.slurp:
+    src: /etc/gdc/fallback-config.json
+  register: slurped_fallback_config
+  when: fallback_config_stat.stat.exists
+
+- name: "GDC-ORCH | Set fallback machine-info configuration if API failed and no mock exists"
+  ansible.builtin.set_fact:
+    machine_config:
+      hostname: "{{ (slurped_fallback_config.content | b64decode | from_json).default_final_hostname if (slurped_fallback_config is defined and slurped_fallback_config.content is defined) else 'gdc-default' }}"
+      bmctl_version: "1.35.300-gke.87"
+      static_ip:
+        ip: "192.168.100.11"
+        subnet_mask: "255.255.255.0"
+        dns_hostnames: ["192.168.254.12", "8.8.8.8", "8.8.4.4"]
+      peers: ["gdc-travel-1-2", "gdc-travel-1-3"]
+  when: machine_config is not defined or machine_config == {}
+
+- name: "GDC-ORCH | Set system hostname"
+  ansible.builtin.hostname:
+    name: "{{ machine_config.hostname }}"
+  when: machine_config.hostname is defined
+
+- name: "GDC-ORCH | Ensure peers list is registered in /etc/hosts"
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "192.168.100.{{ item.1 }} {{ item.0 }}"
+    state: present
+  loop: "{{ machine_config.peers | zip(range(12, 12 + (machine_config.peers | length))) | list }}"
+  when: machine_config.peers is defined
+
+- name: "GDC-ORCH | Check if gcloud service account key is present"
+  ansible.builtin.stat:
+    path: /var/gdc-install/keys/gsa-key.json
+  register: gsa_key_stat
+
+- name: "GDC-ORCH | Authenticate gcloud with service account"
+  ansible.builtin.command:
+    cmd: "gcloud auth activate-service-account --key-file=/var/gdc-install/keys/gsa-key.json"
+  when: gsa_key_stat.stat.exists
+  ignore_errors: true
+
+- name: "GDC-ORCH | Ensure bmctl install directory exists"
+  ansible.builtin.file:
+    path: "/var/gdc-install/tools/bmctl"
+    state: directory
+    owner: gdc-admin
+    group: gdc-admin
+    mode: '0755'
+
+- name: "GDC-ORCH | Copy bmctl binary from ISO cache"
+  ansible.builtin.copy:
+    src: "/media/cdrom/custom-data/tools/bmctl/bmctl"
+    dest: "/var/gdc-install/tools/bmctl/bmctl"
+    owner: gdc-admin
+    group: gdc-admin
+    mode: '0755'
+    remote_src: yes
+  ignore_errors: true
+
+- name: "GDC-ORCH | Create global symlink for bmctl"
+  ansible.builtin.file:
+    src: "/var/gdc-install/tools/bmctl/bmctl"
+    dest: "/usr/local/bin/bmctl"
+    state: link
+    owner: root
+    group: root
+
+- name: "GDC-ORCH | Ensure NodeAgent install directory exists"
+  ansible.builtin.file:
+    path: "/var/gdc-install/tools/node-agent"
+    state: directory
+    owner: gdc-admin
+    group: gdc-admin
+    mode: '0755'
+
+- name: "GDC-ORCH | Copy nodeagentd binary from ISO cache"
+  ansible.builtin.copy:
+    src: "/media/cdrom/custom-data/tools/node-agent/nodeagentd"
+    dest: "/var/gdc-install/tools/node-agent/nodeagentd"
+    owner: gdc-admin
+    group: gdc-admin
+    mode: '0755'
+    remote_src: yes
+  ignore_errors: true
+
+- name: "GDC-ORCH | Deploy NodeAgent systemd service unit template"
+  ansible.builtin.template:
+    src: node-agent.service.j2
+    dest: /etc/systemd/system/node-agent.service
+    owner: root
+    group: root
+    mode: '0644'
+  register: nodeagent_service_unit
+
+- name: "GDC-ORCH | Enable and start GDC NodeAgent service"
+  ansible.builtin.systemd:
+    name: node-agent.service
+    enabled: true
+    state: started
+    daemon_reload: yes
+
+- name: "GDC-ORCH | Verify peer hostname resolution"
+  ansible.builtin.command:
+    cmd: "getent hosts {{ item }}"
+  loop: "{{ machine_config.peers }}"
+  register: host_resolution
+  failed_when: host_resolution.rc != 0
+  changed_when: false
+  when: machine_config.peers is defined
+
+- name: "GDC-ORCH | Verify peer network pingability"
+  ansible.builtin.command:
+    cmd: "ping -c 1 {{ item }}"
+  loop: "{{ machine_config.peers }}"
+  register: peer_ping
+  failed_when: false
+  changed_when: false
+  when: machine_config.peers is defined

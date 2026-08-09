@@ -17,7 +17,7 @@ autoinstall:
       type: webhook
       endpoint: "{{ companion_url }}/secure?client_cert_cn=gdc-provision-{{ ISO_VERSION }}"
       level: INFO
-  reboot: true
+  shutdown: reboot
   apt:
     fallback: offline-install
     unattended-upgrades:
@@ -51,9 +51,9 @@ autoinstall:
   ssh:
     install-server: true
     allow-pw: true
-    {% if ssh_pub_key %}
+    {% if temp_installer_ssh_pub_keys %}
     authorized-keys:
-      - "{{ ssh_pub_key }}"
+      - "{{ temp_installer_ssh_pub_keys }}"
     {% endif %}
   early-commands:
     - |
@@ -301,7 +301,8 @@ autoinstall:
       cat <<'EOF' > /target/etc/gdc/provision.yml
       iso_version: "{{ ISO_VERSION }}"
       nexus_admin_password: "{{ TEMPORARY_INSTALLER_PASSWORD }}"
-      ssh_pub_key: "{{ ssh_pub_key }}"
+      admin_ssh_pub_keys: "{{ admin_ssh_pub_keys }}"
+      temp_installer_ssh_pub_keys: "{{ temp_installer_ssh_pub_keys }}"
       EOF
       chmod 600 /target/etc/gdc/provision.yml
     - |
@@ -408,20 +409,26 @@ autoinstall:
       curtin in-target -- git config --system --add safe.directory '*' || true
     - |
       echo "=============================================================================="
-      echo "[GDC-INSTALL-GOAL] Starting Task: Injecting custom administrative SSH public keys"
+      echo "[GDC-INSTALL-GOAL] Starting Task: Staging custom administrative SSH public keys"
       echo "=============================================================================="
-      logger -t gdc-provisioner "[GOAL] Injecting custom administrative SSH public keys"
-      PUB_KEY="{{ ssh_pub_key }}"
-      if [ -n "${PUB_KEY}" ]; then
-        mkdir -p /target/root/.ssh /target/home/temporary-installer/.ssh
-        echo "${PUB_KEY}" >> /target/root/.ssh/authorized_keys
-        echo "${PUB_KEY}" >> /target/home/temporary-installer/.ssh/authorized_keys
-        chmod 700 /target/root/.ssh /target/home/temporary-installer/.ssh
-        chmod 600 /target/root/.ssh/authorized_keys /target/home/temporary-installer/.ssh/authorized_keys
+      logger -t gdc-provisioner "[GOAL] Staging custom administrative SSH public keys for Ansible"
+      ADMIN_KEYS="{{ admin_ssh_pub_keys }}"
+      TEMP_KEYS="{{ temp_installer_ssh_pub_keys }}"
+      
+      mkdir -p /target/etc/gdc
+      if [ -n "${ADMIN_KEYS}" ]; then
+        echo "${ADMIN_KEYS}" > /target/etc/gdc/admin-keys.pub
+        chmod 600 /target/etc/gdc/admin-keys.pub
+        logger -t gdc-provisioner "[GOAL] Admin SSH keys staged successfully for Ansible execution"
+      fi
+
+      if [ -n "${TEMP_KEYS}" ]; then
+        mkdir -p /target/home/temporary-installer/.ssh
+        echo "${TEMP_KEYS}" >> /target/home/temporary-installer/.ssh/authorized_keys
+        chmod 700 /target/home/temporary-installer/.ssh
+        chmod 600 /target/home/temporary-installer/.ssh/authorized_keys
         curtin in-target -- chown -R temporary-installer:temporary-installer /home/temporary-installer/.ssh
-        logger -t gdc-provisioner "[GOAL] SSH public keys successfully authorized"
-      else
-        logger -t gdc-provisioner "[GOAL] No custom SSH public keys configured, skipping injection"
+        logger -t gdc-provisioner "[GOAL] Temporary-installer SSH keys successfully authorized"
       fi
     - |
       echo "=============================================================================="
@@ -542,6 +549,10 @@ autoinstall:
       NEW_HOSTNAME="gdc-standalone-node-${MAC_SUFFIX}"
       echo "${NEW_HOSTNAME}" > /target/etc/hostname
       
+      # Write the default final hostname and machine state stopper config for isolated fallback
+      mkdir -p /target/etc/gdc
+      echo "{\"default_final_hostname\": \"{{ default_final_hostname }}\", \"machine_state_stop_stage\": \"{{ machine_state_stop_stage }}\", \"gdc_debug_mode\": {{ gdc_debug_mode | lower }}}" > /target/etc/gdc/fallback-config.json
+      
       # Ensure local hostname and GDC companion gateway mappings are present in /etc/hosts to prevent resolver hangs on boot
       echo "127.0.1.1 ${NEW_HOSTNAME}" >> /target/etc/hosts
       echo "{{ companion_ip }} {{ companion_host }}" >> /target/etc/hosts
@@ -595,11 +606,54 @@ autoinstall:
           sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=".*"/GRUB_CMDLINE_LINUX_DEFAULT="console=tty1 console=ttyS0,115200 systemd.log_level=debug systemd.log_target=console rd.debug rd.shell tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp video=efifb:1280x1024"/g' /target/etc/default/grub
         fi
         
-        # Enable GRUB boot menu interaction over serial console
+        # Enable GRUB boot menu interaction over serial console and configure 5s timeout with GDC branding
+        sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT=5/g' /target/etc/default/grub
+        sed -i 's/GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=menu/g' /target/etc/default/grub
+        sed -i 's/GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="GDC Ubuntu [default]"/g' /target/etc/default/grub
         echo 'GRUB_TERMINAL="console serial"' >> /target/etc/default/grub
         echo 'GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"' >> /target/etc/default/grub
         curtin in-target -- update-grub || true
         logger -t gdc-provisioner "[GOAL] Target GRUB command line updated successfully with extreme verbose debug, serial redirects, and LUKS UUIDs"
+
+        # Apply standard GDC Boot Order Policy: set SSD as primary UEFI boot target after LiveCD installation
+        logger -t gdc-provisioner "[GOAL] Applying standard UEFI boot re-ordering to prioritize local disk"
+        if [ -d /sys/firmware/efi ]; then
+          if command -v efibootmgr &>/dev/null; then
+            # Identify the target local disk EFI boot option (matching GDC, ubuntu, NVMe, or SATA)
+            BOOT_NUM=$(efibootmgr | grep -i "GDC" | head -n 1 | awk '{print $1}' | sed 's/Boot//g' | tr -d '*' | tr -d ':')
+            if [ -z "${BOOT_NUM}" ]; then
+              BOOT_NUM=$(efibootmgr | grep -i "ubuntu" | head -n 1 | awk '{print $1}' | sed 's/Boot//g' | tr -d '*' | tr -d ':')
+            fi
+            if [ -z "${BOOT_NUM}" ]; then
+              BOOT_NUM=$(efibootmgr | grep -i "NVMe" | head -n 1 | awk '{print $1}' | sed 's/Boot//g' | tr -d '*' | tr -d ':')
+            fi
+            if [ -z "${BOOT_NUM}" ]; then
+              BOOT_NUM=$(efibootmgr | grep -i "SATA" | head -n 1 | awk '{print $1}' | sed 's/Boot//g' | tr -d '*' | tr -d ':')
+            fi
+            
+            if [ -n "${BOOT_NUM}" ]; then
+              CURRENT_ORDER=$(efibootmgr | grep "BootOrder:" | cut -d' ' -f2)
+              # Clean current order removing the target boot entry
+              CLEANED_ORDER=$(echo "${CURRENT_ORDER}" | sed "s/${BOOT_NUM}//g" | sed "s/,,/,/g" | sed "s/^,//g" | sed "s/,$//g")
+              if [ -n "${CLEANED_ORDER}" ]; then
+                NEW_ORDER="${BOOT_NUM},${CLEANED_ORDER}"
+              else
+                NEW_ORDER="${BOOT_NUM}"
+              fi
+              echo "[-] Standardized boot order policy: setting local disk (${BOOT_NUM}) as default boot option. New Order: ${NEW_ORDER}"
+              efibootmgr -o "${NEW_ORDER}" || true
+              logger -t gdc-provisioner "[GOAL] UEFI BootOrder reconfigured successfully to prioritize local disk boot: ${NEW_ORDER}"
+            else
+              echo "[WARNING] Could not identify local disk UEFI boot entry. Leaving boot order unchanged."
+              logger -t gdc-provisioner "[WARNING] Could not identify local disk UEFI boot entry."
+            fi
+          else
+            echo "[WARNING] efibootmgr is not available in the Live CD environment. Skipping boot reordering."
+            logger -t gdc-provisioner "[WARNING] efibootmgr missing. Boot reordering skipped."
+          fi
+        else
+          echo "[-] Non-UEFI/Legacy BIOS boot mode active. Skipping UEFI boot reordering."
+        fi
       fi
     - |
       echo "=============================================================================="
@@ -656,7 +710,15 @@ autoinstall:
       chmod +x /target/etc/initramfs-tools/hooks/zz-gdc-blacklist
       logger -t gdc-provisioner "[GOAL] Custom initramfs-tools hook deployed successfully to prune deadlock drivers"
       
-      if curtin in-target -- update-initramfs -u -k all; then
+      # Determine highest kernel version installed in /target
+      TARGET_KERNEL=$(ls -1 /target/lib/modules | sort -V | tail -n 1)
+      if [ -z "${TARGET_KERNEL}" ]; then
+        echo "[GDC-INSTALL-FAIL] Critical Failure: TARGET_KERNEL is empty!" >/dev/ttyS0
+        exit 1
+      fi
+      echo "[-] Rebuilding initramfs for kernel version: ${TARGET_KERNEL}"
+      
+      if curtin in-target -- update-initramfs -c -k "${TARGET_KERNEL}" || curtin in-target -- update-initramfs -u -k "${TARGET_KERNEL}"; then
         echo "=============================================================================="
         echo "[GDC-INSTALL-GOAL] Rebuilding initramfs succeeded"
         echo "=============================================================================="

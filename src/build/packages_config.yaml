@@ -44,6 +44,8 @@ packages_to_include:
     - "dracut"
     - "dracut-core"
     - "unattended-upgrades"
+    - "efibootmgr"
+    - "linux-generic-hwe-24.04"
 
   # Optional packages specified by the customer/operator for target environments
   customer_added: []

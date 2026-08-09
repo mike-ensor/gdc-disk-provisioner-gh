@@ -188,7 +188,8 @@ if __name__ == "__main__":
     env['boot_mode'] = env.get('BOOT_MODE', 'bios').lower()
     env['timestamp'] = env.get('BUILD_TIMESTAMP', '')
     env['hostname'] = env.get('HOSTNAME', 'gdc-standalone-node')
-    env['ssh_pub_key'] = env.get('ADMIN_SSH_PUB_KEYS', '')
+    env['admin_ssh_pub_keys'] = env.get('ADMIN_SSH_PUB_KEYS', '')
+    env['temp_installer_ssh_pub_keys'] = env.get('TEMPORARY_INSTALLER_SSH_PUB_KEYS', '')
     import subprocess
     try:
         git_branch = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD']).decode('utf-8').strip()
@@ -242,6 +243,8 @@ if __name__ == "__main__":
     env['k8s_ip_cidr'] = env.get('K8S_IP_CIDR', '192.168.9.10/29')
     env['k8s_gateway'] = env.get('K8S_GATEWAY', '192.168.9.9')
     env['k8s_dns'] = env.get('K8S_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')
+    env['default_final_hostname'] = env.get('DEFAULT_FINAL_HOSTNAME', 'gdc-default')
+    env['machine_state_stop_stage'] = env.get('MACHINE_STATE_STOP_STAGE', '')
     env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
     env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
     

@@ -16,26 +16,35 @@ It serves as a single source of truth for build-time dependencies, offline pre-s
 ## 2. Stage-by-Stage Dependency Matrix
 
 ```text
-[ Blessed OS ISO ] ──> STAGE 1: IaC BUILD ───────────> Add xorriso, rsync, Gitea & Nexus Bins
+[ Blessed OS ISO ] ──> PHASE 1: LiveCD ──────────────> Add xorriso, rsync, Gitea & Nexus Bins
                             │
                             ▼
-                       STAGE 2: BOOT & INSTALL ──────> Add Subiquity, cryptsetup, LVM2, Git, Ansible
+                       PHASE 2: First Boot ──────────> Start Gitea/Nexus, Seal LUKS to TPM 2.0
                             │
                             ▼
-                       STAGE 3: PROVISIONING ────────> Add tpm2-tools, systemd-cryptenroll, step-cli, auditd
+                       PHASE 3: Second Boot ─────────> Verify TPM auto-unlock, Validate service ports
                             │
                             ▼
-                       STAGE 4: BOOTSTRAPPING ───────> Start Gitea, Nexus Groups, Cosign, udev triggers
+                       PHASE 4: Linux Ready ─────────> Add tpm2-tools, step-cli, auditd (CIS hardening)
                             │
                             ▼
-                       STAGE 5: CLUSTER TURNUP ──────> Add bmctl, containerd, docker, GDC OCI images
+                       PHASE 5: Cluster Ready ───────> Fetch Companion variables, configure peers /etc/hosts
+                            │
+                            ▼
+                       PHASE 6: Cluster Turnup ──────> Deploy bmctl, configure registry mirror, run turnup
+                            │
+                            ▼
+                       PHASE 7: Post Cluster ────────> Run CNI, Storage Classes, DNS validation checks
+                            │
+                            ▼
+                       PHASE 8: Upkeep ──────────────> Sync Git-playbooks, run udev headless updates
 ```
 
 ---
 
 ## 3. Detailed Phase Dependencies
 
-### 3.1. Stage 1: ISO Generation & Build (Build-Time Host)
+### 3.1. Phase 1: LiveCD State (ISO Generation & Unattended Install)
 Executed on the builder workstation or CI/CD runner. It assemblies the remastered offline ISO.
 
 *   **Host Operating System:** Any standard Linux system (Ubuntu 22.04/24.04 LTS) or unprivileged Docker compilation container.
@@ -53,7 +62,7 @@ Executed on the builder workstation or CI/CD runner. It assemblies the remastere
 
 ---
 
-### 3.2. Stage 2: Baseline OS & LVM Setup (Boot/Installer-Time)
+### 3.2. Phase 2: First Boot State (Services Hubs Setup & TPM Sealing)
 Executed in the RAM-disk environment of the booting Live GDC ISO, and during the baseline OS write.
 
 *   **Live-Boot RAM OS Packages (Natively in Casper):**
@@ -70,7 +79,7 @@ Executed in the RAM-disk environment of the booting Live GDC ISO, and during the
 
 ---
 
-### 3.3. Stage 3: Ready-Linux Provisioning (First-Boot Target OS)
+### 3.3. Phase 3 & 4: Second Boot & Linux Ready State (Verify Auto-Unlock & CIS Hardening)
 Executed locally on the target server's first boot, orchestrated by the Ansible playbook `local.yml`.
 
 *   **TPM 2.0 Security & Cryptography Packages:**
@@ -87,7 +96,7 @@ Executed locally on the target server's first boot, orchestrated by the Ansible 
 
 ---
 
-### 3.4. Stage 4: GDC Bootstrapping (Local Dependency Integration)
+### 3.4. Phase 5: Cluster Ready State (Companion Configurations & NodeAgent Gating)
 Running continuously on the hardened GDC node to act as the offline boundary interfaces.
 
 *   **Boundary Service Hubs:**
@@ -101,7 +110,7 @@ Running continuously on the hardened GDC node to act as the offline boundary int
 
 ---
 
-### 3.5. Stage 5: Cluster Turnup (Cluster Creation)
+### 3.5. Phase 6, 7 & 8: Cluster Turnup, Post-Cluster Validation & Upkeep (bmctl, CNI, & Drift)
 The final turnup phase executed on the bootstrapped hardware node.
 
 *   **Cluster Orchestration Software:**
