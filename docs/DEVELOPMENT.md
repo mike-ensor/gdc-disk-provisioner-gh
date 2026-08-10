@@ -64,6 +64,15 @@ Handles the acquisition of dependencies and template rendering.
     *   `custom-data/network-template.yaml` (VRF Netplan configurations)
     *   `custom-data/systemd/` (Service unit files)
 
+    **Note on Binary Acquisition:** In Cloud Build CI/CD pipelines, the `.cache/` directory is excluded via `.gcloudignore` to prevent massive gigabyte uploads of raw ISOs and binaries from the local workstation. Instead, `cloudbuild.yaml` runs a sequence of `gcloud storage cp` commands during Step 1 to download the dependencies directly from the `gs://<bucket>/binaries/` and `gs://<bucket>/packages/` prefixes into the isolated Cloud Build worker `.cache` structure. 
+    
+    The `src/build/remaster.sh` script is strictly configured to only pull its payloads (like `collect-diagnostics.sh`) from this local `.cache/` folder. If a binary is missing from the cache during the Assemble phase, it will hard fail the build. This ensures hermetic, predictable assemblies.
+    
+    *Frequently Asked Question: Could we mount the GCS Bucket using FUSE instead of copying files down via `gcloud storage cp`?*
+    > **Answer:** Yes, it is technically possible to mount a GCS bucket using Cloud Storage FUSE (`gcsfuse`) inside the Cloud Build container by running it in `--privileged` mode. However, we intentionally do not do this for two reasons:
+    > 1. **I/O Performance Penalty:** `gcsfuse` translates POSIX file read requests into HTTPS GET requests. When `xorriso` runs to compile the ISO, it performs intense sequential and random I/O reads. Reading a 4GB ISO byte-by-byte over a FUSE network translation layer is significantly slower and more prone to timeouts than doing a fast, parallelized `gcloud storage cp` to the local worker SSD first, and then running `xorriso` locally.
+    > 2. **Container Complexity:** Because each Cloud Build step runs in its isolated Docker container, keeping a FUSE mount alive across multiple steps requires complex Docker volume mapping and background daemon management, which violates our core tenet of minimalism.
+
 ### Stage 2: Validate-Artifact (`make validate`)
 Before packing the ISO, this gate ensures that all hydrated configurations conform to system schemas:
 ```bash
