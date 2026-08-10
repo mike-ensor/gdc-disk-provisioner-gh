@@ -288,34 +288,8 @@ if [[ -f "${CACHE_DIAG}" ]]; then
     echo "  [x] Using cached collect-diagnostics.sh."
     cp "${CACHE_DIAG}" "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh"
 else
-    echo "  [-] Downloading collect-diagnostics.sh from GDC Companion..."
-    COMPANION_BASE_URL="${INSTALL_COMPANION_BASE%/}"
-    echo "      Target URL: ${COMPANION_BASE_URL}/v1/downloads/collect-diagnostics.sh"
-    if [[ -n "${INSTALL_COMPANION_API_KEY:-}" ]]; then
-        if curl -fL --header "Authorization: Bearer ${INSTALL_COMPANION_API_KEY}" "${COMPANION_BASE_URL}/v1/downloads/collect-diagnostics.sh" -o "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh" 2>/dev/null; then
-            echo "  [x] Downloaded collect-diagnostics.sh from GDC Companion endpoint."
-            mkdir -p "${PROJECT_ROOT}/.cache/binaries"
-            cp "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh" "${CACHE_DIAG}" 2>/dev/null || true
-        elif [[ -f "${CACHE_DIAG}" ]]; then
-            echo "  [!] Companion endpoint unreachable. Falling back to local cache."
-            cp "${CACHE_DIAG}" "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh"
-        else
-            echo "[!] ERROR: Failed to download collect-diagnostics.sh and no cached binary found!" >&2
-            exit 1
-        fi
-    else
-        if curl -fL "${COMPANION_BASE_URL}/v1/downloads/collect-diagnostics.sh" -o "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh" 2>/dev/null; then
-            echo "  [x] Downloaded collect-diagnostics.sh from GDC Companion endpoint."
-            mkdir -p "${PROJECT_ROOT}/.cache/binaries"
-            cp "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh" "${CACHE_DIAG}" 2>/dev/null || true
-        elif [[ -f "${CACHE_DIAG}" ]]; then
-            echo "  [!] Companion endpoint unreachable. Falling back to local cache."
-            cp "${CACHE_DIAG}" "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh"
-        else
-            echo "[!] ERROR: Failed to download collect-diagnostics.sh and no cached binary found!" >&2
-            exit 1
-        fi
-    fi
+    echo "  [!] ERROR: collect-diagnostics.sh not found in cache! Ensure it is synced from GCS first." >&2
+    exit 1
 fi
 chmod +x "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh"
 

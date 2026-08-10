@@ -281,6 +281,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [ ] **FUTURE INVESTIGATION:** Investigate the use of a custom webserver to serve dynamic metadata for ISO boot. This would be served up dynamically by `gdc-companion` using kernel commandline parameters or SMBIOS string values, eliminating the need for static metadata files embedded inside the ISO.
 - [ ] **FUTURE TASK:** Clean up older compiled ISOs in the GCS bucket (`gs://gdc-disk-provisioner-isos/sync/` and `gs://gdc-disk-provisioner-isos/archived/`) to reduce cloud storage retention costs over time (Low Priority).
 - [ ] **FUTURE TASK:** Rip out the dynamic python execution of `generate_banner.py` from the ISO build pipeline and replace it with a single, static `boot-banner.txt` template inside `src/build/templates/`.
+- [ ] **FUTURE TASK:** Create a regular update system for `collect-diagnostics.sh` to automatically push the newest version to GCS, which is dependent on having a `gcloud` authentication pipeline configured.
 - [ ] **APT configuration:** Review fallback error commands.
 - [ ] **Ubuntu Pro config:** Implementation guidelines.
 - [ ] **Error handling during install:** Improve Subiquity exit-line traps.
