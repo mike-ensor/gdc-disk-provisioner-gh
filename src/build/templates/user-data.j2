@@ -451,6 +451,15 @@ autoinstall:
         chmod +x /target/usr/local/bin/collect-diagnostics.sh
         logger -t gdc-provisioner "[GOAL] Diagnostics collector tool copied to target /usr/local/bin/collect-diagnostics.sh successfully"
       fi
+      
+      mkdir -p /target/var/gdc-install/scripts
+      if [ -f /cdrom/custom-data/verify-upgrade-readiness.sh ]; then
+        cp /cdrom/custom-data/verify-upgrade-readiness.sh /target/var/gdc-install/scripts/verify-upgrade-readiness.sh
+        chmod 0755 /target/var/gdc-install/scripts/verify-upgrade-readiness.sh
+        cp /cdrom/custom-data/verify-upgrade-readiness.sh /target/usr/local/bin/verify-upgrade-readiness.sh
+        chmod 0755 /target/usr/local/bin/verify-upgrade-readiness.sh
+        logger -t gdc-provisioner "[GOAL] Upgrade readiness script copied to target /var/gdc-install/scripts/ and /usr/local/bin/ successfully"
+      fi
     # Ssh and passwordless root-unlock setup for transition gap
     - |
       echo "=============================================================================="
@@ -668,6 +677,17 @@ autoinstall:
       
       # Configure all unpacked but unconfigured packages inside the target to fire triggers cleanly
       curtin in-target -- dpkg --configure -a || true
+      
+      # Deploy persistent dracut configuration so future kernel upgrades (e.g. apt-get upgrade) retain mandatory GDC drivers and modules
+      mkdir -p /target/etc/dracut.conf.d
+      printf '%s\n' \
+        '# Persistent GDC Dracut configuration' \
+        'omit_drivers+=" pcie_mp2_amd amd_sfh ccp "' \
+        'add_dracutmodules+=" crypt lvm tpm2-tss "' \
+        'add_drivers+=" tpm tpm_tis tpm_crb tpm_tis_core "' \
+        'hostonly="no"' \
+        > /target/etc/dracut.conf.d/gdc.conf
+      logger -t gdc-provisioner "[GOAL] Persistent dracut configuration deployed to /target/etc/dracut.conf.d/gdc.conf"
       
       # Deploy the initramfs-tools hook to physically delete fTPM-deadlocking drivers from compilation staging
       mkdir -p /target/etc/initramfs-tools/hooks

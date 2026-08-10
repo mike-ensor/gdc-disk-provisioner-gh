@@ -71,6 +71,30 @@
   loop: "{{ gdc_service_update_scripts }}"
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-12 | Ensure verify-upgrade-readiness.sh is present in scripts workspace"
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ gdc_install_root }}/scripts/verify-upgrade-readiness.sh"
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "/cdrom/custom-data/verify-upgrade-readiness.sh"
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-12 | Create global symlink for verify-upgrade-readiness.sh"
+  ansible.builtin.file:
+    src: "{{ gdc_install_root }}/scripts/verify-upgrade-readiness.sh"
+    dest: "/usr/local/bin/verify-upgrade-readiness.sh"
+    owner: root
+    group: root
+    mode: '0755'
+    state: link
+    force: yes
+  ignore_errors: true
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-12 | Create hourly logrotate executable symlink"
   ansible.builtin.file:
     src: /etc/cron.daily/logrotate
@@ -236,8 +260,10 @@
       # (ccp is omitted to prevent AMD PSP hardware deadlocks during early-boot LUKS unlocking)
       omit_drivers+=" pcie_mp2_amd amd_sfh ccp "
       
-      # Forcefully pack logical volume and crypt hooks (fixes NVMe-blind boot loops)
-      add_dracutmodules+=" crypt lvm "
+      # Forcefully pack logical volume, crypt, and tpm2-tss hooks (fixes NVMe-blind boot loops and guarantees TPM unseal across kernel upgrades)
+      add_dracutmodules+=" crypt lvm tpm2-tss "
+      add_drivers+=" tpm tpm_tis tpm_crb tpm_tis_core "
+      hostonly="no"
   register: dracut_gdc_configured
   when: tpm_device_stat.stat.exists
 

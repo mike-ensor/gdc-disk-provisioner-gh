@@ -277,6 +277,10 @@ cp "${SCRIPT_DIR}/generate_storage_config.sh" "${EXTRACT_DIR}/custom-data/"
 chmod +x "${EXTRACT_DIR}/custom-data/generate_storage_config.sh"
 cp "${SCRIPT_DIR}/scan_ips.py" "${EXTRACT_DIR}/custom-data/"
 chmod +x "${EXTRACT_DIR}/custom-data/scan_ips.py"
+if [[ -f "${PROJECT_ROOT}/bin/verify-upgrade-readiness.sh" ]]; then
+    cp "${PROJECT_ROOT}/bin/verify-upgrade-readiness.sh" "${EXTRACT_DIR}/custom-data/"
+    chmod +x "${EXTRACT_DIR}/custom-data/verify-upgrade-readiness.sh"
+fi
 
 echo "[-] Obtaining collect-diagnostics.sh..."
 CACHE_DIAG="${PROJECT_ROOT}/.cache/binaries/collect-diagnostics.sh"

@@ -570,6 +570,16 @@ class TestGgdTemplateHydration(unittest.TestCase):
             content = f.read()
             self.assertIn("dracut", content, "Ansible security_hardening tasks must include dracut rebuilding")
             self.assertIn("dracut.conf.d/gdc.conf", content, "Ansible security_hardening tasks must deploy gdc.conf dracut file")
+            self.assertIn("tpm2-tss", content, "Ansible security_hardening tasks must include tpm2-tss in dracut config")
+
+    def test_user_data_dracut_gdc_conf(self):
+        """Asserts that user-data.j2 deploys persistent dracut.conf.d/gdc.conf during ISO installation."""
+        user_data_path = os.path.join(PROJECT_ROOT, "src/build/templates/user-data.j2")
+        with open(user_data_path, "r") as f:
+            content = f.read()
+            self.assertIn("/etc/dracut.conf.d/gdc.conf", content, "user-data.j2 must deploy persistent gdc.conf dracut file")
+            self.assertIn("tpm2-tss", content, "user-data.j2 must include tpm2-tss in dracut gdc.conf")
+            self.assertIn("omit_drivers+=\" pcie_mp2_amd amd_sfh ccp \"", content, "user-data.j2 must omit deadlock drivers in dracut gdc.conf")
 
     @mock.patch('shutil.which')
     @mock.patch('subprocess.run')
