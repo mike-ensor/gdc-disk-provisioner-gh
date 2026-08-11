@@ -1,0 +1,42 @@
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    # We dynamically select the default management interface
+    {{ ansible_default_ipv4.interface | default('enp1s0') }}:
+{% if machine_config.network.management_network.dhcp_v4 | default(false) %}
+      dhcp4: true
+{% else %}
+      dhcp4: false
+      addresses:
+        - {{ machine_config.network.management_network.ip_cidr }}
+      routes:
+        - to: default
+          via: {{ machine_config.network.management_network.gateway }}
+      nameservers:
+        addresses:
+{% for dns in machine_config.network.management_network.dns_servers %}
+          - {{ dns }}
+{% endfor %}
+{% endif %}
+
+  vlans:
+    vlan{{ machine_config.network.cluster_network.vlan_id | default(109) }}:
+      id: {{ machine_config.network.cluster_network.vlan_id | default(109) }}
+      link: {{ ansible_default_ipv4.interface | default('enp1s0') }}
+{% if machine_config.network.cluster_network.dhcp_v4 | default(false) %}
+      dhcp4: true
+{% else %}
+      dhcp4: false
+      addresses:
+        - {{ machine_config.network.cluster_network.ip_cidr }}
+{% if machine_config.network.cluster_network.gateway is defined %}
+      routes:
+        - to: default
+          via: {{ machine_config.network.cluster_network.gateway }}
+          table: 20
+{% endif %}
+      routing-policy:
+        - from: {{ machine_config.network.cluster_network.ip_cidr | split('/') | first }}
+          table: 20
+{% endif %}

@@ -165,3 +165,40 @@
   failed_when: false
   changed_when: false
   when: machine_config.peers is defined
+
+- name: "GDC-ORCH | Ensure Ansible facts.d directory exists"
+  ansible.builtin.file:
+    path: /etc/ansible/facts.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "GDC-ORCH | Persist machine_config to local facts for CLUSTER_TURNUP"
+  ansible.builtin.copy:
+    dest: /etc/ansible/facts.d/gdc.fact
+    owner: root
+    group: root
+    mode: '0644'
+    content: "{{ machine_config | to_nice_json }}"
+
+- name: "GDC-ORCH | Deploy GDC Netplan configuration"
+  ansible.builtin.template:
+    src: 50-gdc-network.yaml.j2
+    dest: /etc/netplan/50-gdc-network.yaml
+    owner: root
+    group: root
+    mode: '0600'
+  when: machine_config.network is defined
+
+- name: "GDC-ORCH | Apply Netplan configuration"
+  ansible.builtin.command: netplan apply
+  when: machine_config.network is defined
+
+- name: "GDC-ORCH | Deploy cluster networking validation script"
+  ansible.builtin.copy:
+    src: validate-cluster-networking.sh
+    dest: /usr/local/bin/validate-cluster-networking.sh
+    owner: root
+    group: root
+    mode: '0755'
