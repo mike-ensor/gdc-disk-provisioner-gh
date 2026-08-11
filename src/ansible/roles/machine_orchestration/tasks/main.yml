@@ -15,14 +15,19 @@
     path: /etc/gdc/machine-info-mock.json
   register: mock_file_stat
 
+- name: "GDC-ORCH | Check if mTLS client certs exist"
+  ansible.builtin.stat:
+    path: "/var/gdc-install/keys/client.crt"
+  register: client_cert_stat
+
 - name: "GDC-ORCH | Fetch machine-info configuration from GDC Companion"
   ansible.builtin.uri:
     url: "https://gdc-companion.ensor-labs.com/v1/machine-info/{{ node_mac }}"
     method: GET
     headers:
       Authorization: "Bearer AOgIcFproZQpYgaqDJrsUOD1MfhxwFqBANp2JumB5wM="
-    client_cert: "/var/gdc-install/keys/client.crt"
-    client_key: "/var/gdc-install/keys/client.key"
+    client_cert: "{{ '/var/gdc-install/keys/client.crt' if client_cert_stat.stat.exists else omit }}"
+    client_key: "{{ '/var/gdc-install/keys/client.key' if client_cert_stat.stat.exists else omit }}"
     status_code: 200
     validate_certs: false
   register: api_response
@@ -60,11 +65,26 @@
     machine_config:
       hostname: "{{ (slurped_fallback_config.content | b64decode | from_json).default_final_hostname if (slurped_fallback_config is defined and slurped_fallback_config.content is defined) else 'gdc-default' }}"
       bmctl_version: "1.35.300-gke.87"
-      static_ip:
-        ip: "192.168.100.11"
-        subnet_mask: "255.255.255.0"
-        dns_hostnames: ["192.168.254.12", "8.8.8.8", "8.8.4.4"]
-      peers: ["gdc-travel-1-2", "gdc-travel-1-3"]
+      network:
+        management_network:
+          dhcp_v4: false
+          ip_cidr: "192.168.100.11/24"
+          gateway: "192.168.100.1"
+          dns_servers: ["192.168.254.12", "8.8.8.8", "8.8.4.4"]
+        cluster_network:
+          dhcp_v4: false
+          ip_cidr: "192.168.109.11/24"
+          gateway: "192.168.109.1"
+          vlan_id: 109
+      peers: 
+        - hostname: "gdc-travel-1-2"
+          ipv4: "192.168.100.12"
+        - hostname: "gdc-travel-1-3"
+          ipv4: "192.168.100.13"
+      gcp_info:
+        project_id: "anthos-bare-metal-lab-1"
+        region: "us-central1"
+        primary_gsa: "sa-companion@anthos-bare-metal-lab-1.iam.gserviceaccount.com"
   when: machine_config is not defined or machine_config == {}
 
 - name: "GDC-ORCH | Set system hostname"
@@ -84,9 +104,12 @@
   ansible.builtin.uri:
     url: "https://gdc-companion.ensor-labs.com/v1/machine-credentials/gcp-token/{{ node_mac }}"
     method: GET
-    client_cert: "/var/gdc-install/keys/client.crt"
-    client_key: "/var/gdc-install/keys/client.key"
+    headers:
+      Authorization: "Bearer AOgIcFproZQpYgaqDJrsUOD1MfhxwFqBANp2JumB5wM="
+    client_cert: "{{ '/var/gdc-install/keys/client.crt' if client_cert_stat.stat.exists else omit }}"
+    client_key: "{{ '/var/gdc-install/keys/client.key' if client_cert_stat.stat.exists else omit }}"
     status_code: 200
+    validate_certs: false
     return_content: yes
   register: companion_token_response
   ignore_errors: true
