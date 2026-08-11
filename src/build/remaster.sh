@@ -282,16 +282,16 @@ if [[ -f "${PROJECT_ROOT}/bin/verify-upgrade-readiness.sh" ]]; then
     chmod +x "${EXTRACT_DIR}/custom-data/verify-upgrade-readiness.sh"
 fi
 
-echo "[-] Obtaining collect-diagnostics.sh..."
-CACHE_DIAG="${PROJECT_ROOT}/.cache/binaries/collect-diagnostics.sh"
+echo "[-] Obtaining gdc-collector..."
+CACHE_DIAG="${PROJECT_ROOT}/.cache/binaries/gdc-collector"
 if [[ -f "${CACHE_DIAG}" ]]; then
-    echo "  [x] Using cached collect-diagnostics.sh."
-    cp "${CACHE_DIAG}" "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh"
+    echo "  [x] Using cached gdc-collector."
+    cp "${CACHE_DIAG}" "${EXTRACT_DIR}/custom-data/gdc-collector"
 else
-    echo "  [!] ERROR: collect-diagnostics.sh not found in cache! Ensure it is synced from GCS first." >&2
+    echo "  [!] ERROR: gdc-collector not found in cache! Ensure it is synced from GCS first." >&2
     exit 1
 fi
-chmod +x "${EXTRACT_DIR}/custom-data/collect-diagnostics.sh"
+chmod +x "${EXTRACT_DIR}/custom-data/gdc-collector"
 
 echo "[-] Generating dynamic Message of the Day (MOTD) banner..."
 "${SCRIPT_DIR}/generate_banner.py" "${EXTRACT_DIR}/custom-data/boot-banner.txt" "${ISO_VERSION}"

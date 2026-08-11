@@ -300,7 +300,7 @@ fi
 # 5. Execute diagnostics remotely
 echo "[-] Executing remote diagnostics collection..."
 ${SSH_CMD_PREFIX} "${TARGET_USER}@${TARGET_HOST}" "
-    ${SSH_SUDO_PASS_CMD} /usr/local/bin/collect-diagnostics.sh
+    ${SSH_SUDO_PASS_CMD} /usr/local/bin/gdc-collector
 "
 
 # 6. Fetch generated diagnostic reports locally

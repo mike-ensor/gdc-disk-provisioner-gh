@@ -81,10 +81,10 @@ autoinstall:
       {% endif %}
       
       # Register the Diagnostics script as a globally executable utility on the Live CD
-      if [ -f /cdrom/custom-data/collect-diagnostics.sh ]; then
-        cp /cdrom/custom-data/collect-diagnostics.sh /usr/local/bin/collect-diagnostics.sh
-        chmod +x /usr/local/bin/collect-diagnostics.sh
-        echo "[-] Diagnostics tool registered as globally executable: 'collect-diagnostics.sh'"
+      if [ -f /cdrom/custom-data/gdc-collector ]; then
+        cp /cdrom/custom-data/gdc-collector /usr/local/bin/gdc-collector
+        chmod +x /usr/local/bin/gdc-collector
+        echo "[-] Diagnostics tool registered as globally executable: 'gdc-collector'"
       fi
     - |
       # [GDC-INSTALL-STEP 3/12] Dynamically compiling local LVM layout...
@@ -446,10 +446,10 @@ autoinstall:
       echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Diagnostics Collector Tool"
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Deploying GDC Diagnostics Collector Tool"
-      if [ -f /cdrom/custom-data/collect-diagnostics.sh ]; then
-        cp /cdrom/custom-data/collect-diagnostics.sh /target/usr/local/bin/collect-diagnostics.sh
-        chmod +x /target/usr/local/bin/collect-diagnostics.sh
-        logger -t gdc-provisioner "[GOAL] Diagnostics collector tool copied to target /usr/local/bin/collect-diagnostics.sh successfully"
+      if [ -f /cdrom/custom-data/gdc-collector ]; then
+        cp /cdrom/custom-data/gdc-collector /target/usr/local/bin/gdc-collector
+        chmod +x /target/usr/local/bin/gdc-collector
+        logger -t gdc-provisioner "[GOAL] Diagnostics collector tool copied to target /usr/local/bin/gdc-collector successfully"
       fi
       
       mkdir -p /target/var/gdc-install/scripts
