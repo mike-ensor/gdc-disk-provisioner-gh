@@ -24,6 +24,14 @@ K8S_VLAN=$(jq -r '.network.cluster_network.vlan_id // "109"' "$FACTS_FILE")
 K8S_DHCP=$(jq -r '.network.cluster_network.dhcp_v4' "$FACTS_FILE")
 K8S_IP=$(jq -r '.network.cluster_network.ip_cidr // ""' "$FACTS_FILE" | cut -d'/' -f1)
 
+
+echo "[*] Checking GDC Companion API Status..."
+if [ "$(jq -r '.is_fallback // false' "$FACTS_FILE")" == "true" ]; then
+    echo "FAIL: GDC Companion API lookup failed. Fallback configuration was used."
+else
+    echo "PASS: GDC Companion API lookup was successful."
+fi
+
 echo "[*] Checking Management Network..."
 if [ "$MGMT_DHCP" != "true" ] && [ -n "$MGMT_IP" ] && [ "$MGMT_IP" != "null" ]; then
     if ip -4 addr show | grep -q "$MGMT_IP"; then

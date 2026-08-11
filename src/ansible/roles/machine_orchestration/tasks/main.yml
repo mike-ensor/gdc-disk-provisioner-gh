@@ -44,9 +44,9 @@
   ansible.builtin.set_fact:
     machine_config: >-
       {{
-        (slurped_mock.content | b64decode | from_json)
+        (slurped_mock.content | b64decode | from_json | combine({'is_fallback': false}))
         if mock_file_stat.stat.exists
-        else (api_response.json | default({}))
+        else (api_response.json | default({}) | combine({'is_fallback': false}))
       }}
 
 - name: "GDC-ORCH | Check if fallback-config.json exists"
@@ -63,6 +63,7 @@
 - name: "GDC-ORCH | Set fallback machine-info configuration if API failed and no mock exists"
   ansible.builtin.set_fact:
     machine_config:
+      is_fallback: true
       hostname: "{{ (slurped_fallback_config.content | b64decode | from_json).default_final_hostname if (slurped_fallback_config is defined and slurped_fallback_config.content is defined) else 'gdc-default' }}"
       bmctl_version: "1.35.300-gke.87"
       network:
@@ -86,6 +87,18 @@
         region: "us-central1"
         primary_gsa: "sa-companion@anthos-bare-metal-lab-1.iam.gserviceaccount.com"
   when: machine_config is not defined or machine_config == {} or 'error' in machine_config or 'hostname' not in machine_config
+
+
+- name: "GDC-ORCH | Write API Lookup Status for Diagnostics Collector"
+  ansible.builtin.copy:
+    dest: "/etc/gdc/api-lookup-status.json"
+    content: |
+      {
+        "api_lookup_successful": {{ 'false' if machine_config.is_fallback | default(false) else 'true' }},
+        "fallback_used": {{ 'true' if machine_config.is_fallback | default(false) else 'false' }},
+        "timestamp": "{{ ansible_date_time.iso8601 }}"
+      }
+    mode: '0644'
 
 - name: "GDC-ORCH | Set system hostname"
   ansible.builtin.hostname:

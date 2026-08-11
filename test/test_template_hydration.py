@@ -310,6 +310,45 @@ class TestGgdTemplateHydration(unittest.TestCase):
         self.assertEqual(parsed.get("instance-id"), "gdc-bootstrap-node-1782779284")
         self.assertEqual(parsed.get("local-hostname"), "gdc-standalone-node")
 
+
+    def test_ansible_netplan_vrf_inclusion(self):
+        """Asserts that the Ansible 50-gdc-network.yaml.j2 template includes the vrf-k8s declaration."""
+        import jinja2
+        
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader('src/ansible/roles/machine_orchestration/templates'))
+        env.filters['split'] = lambda value, delimiter=' ': value.split(delimiter)
+        template = env.get_template('50-gdc-network.yaml.j2')
+        
+        # Mock machine config
+        machine_config = {
+            'network': {
+                'management_network': {
+                    'dhcp_v4': False,
+                    'ip_cidr': '192.168.100.11/24',
+                    'gateway': '192.168.100.1',
+                    'dns_servers': ['8.8.8.8']
+                },
+                'cluster_network': {
+                    'dhcp_v4': False,
+                    'ip_cidr': '192.168.109.11/24',
+                    'gateway': '192.168.109.1',
+                    'vlan_id': 109
+                }
+            }
+        }
+        
+        rendered = template.render(
+            ansible_default_ipv4={'interface': 'enp1s0'},
+            machine_config=machine_config
+        )
+        
+        config = yaml.safe_load(rendered)
+        self.assertIn('vrfs', config['network'])
+        self.assertIn('vrf-k8s', config['network']['vrfs'])
+        self.assertEqual(config['network']['vrfs']['vrf-k8s']['table'], 20)
+        self.assertEqual(config['network']['vrfs']['vrf-k8s']['interfaces'], ['vlan109'])
+        self.assertEqual(config['network']['vrfs']['vrf-k8s']['optional'], True)
+
     def test_user_data_rendering(self):
         """Exercises and validates templates/user-data.j2 rendering and swap sizes."""
         ctx = self.get_context()
