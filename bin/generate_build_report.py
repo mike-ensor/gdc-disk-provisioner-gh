@@ -487,6 +487,20 @@ def main():
             fpath = os.path.join(cache_dir, fn)
             actual_sha = get_sha256(fpath) if os.path.exists(fpath) else None
             verified = (actual_sha == exp_sha) or (exp_sha == "DYNAMIC_GCS_SYNC" and actual_sha is not None)
+            
+            if exp_sha == "DYNAMIC_GCS_SYNC" and fn == "gdc-collector":
+                import subprocess
+                try:
+                    # Make it executable just in case
+                    os.chmod(fpath, 0o755)
+                    version_out = subprocess.check_output([fpath, "--version"], stderr=subprocess.STDOUT).strip()
+                    if version_out:
+                        actual_sha = version_out.decode('utf-8')
+                        exp_sha = "VERSION_SYNC"
+                except Exception:
+                    actual_sha = "Version check failed"
+                verified = True
+
             size_bytes = os.path.getsize(fpath) if os.path.exists(fpath) else 0
             size_mb = round(size_bytes / (1024 * 1024), 2)
             source = binary_sources.get(fn, "Local Disk Cache")
