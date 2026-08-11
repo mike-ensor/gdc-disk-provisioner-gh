@@ -490,11 +490,11 @@ def main():
             verified = (actual_sha == exp_sha) or (exp_sha == "DYNAMIC_GCS_SYNC" and actual_sha is not None)
             
             if exp_sha == "DYNAMIC_GCS_SYNC" and fn == "gdc-collector":
-                import subprocess
+                import subprocess as subproc
                 try:
                     # Make it executable just in case
                     os.chmod(fpath, 0o755)
-                    version_out = subprocess.check_output([fpath, "--version"], stderr=subprocess.STDOUT).strip()
+                    version_out = subproc.check_output([fpath, "--version"], stderr=subproc.STDOUT).strip()
                     if version_out:
                         actual_sha = version_out.decode('utf-8')
                         exp_sha = "VERSION_SYNC"

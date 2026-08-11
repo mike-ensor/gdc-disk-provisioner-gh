@@ -38,7 +38,7 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
   `gcloud storage objects describe gs://${GCS_BUCKET}/sync/gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}.iso --project=${PROJECT_ID}`.
 - [ ] Ensure local Cache directory is ready: `.cache/isos/`.
 
-### State 2: Build Container Tooling (If Needed)
+### State 2: Build Container Tooling (If build artifacts changed and is needed)
 - [ ] Verify image `${REGION}-docker.pkg.dev/${PROJECT_ID}/gdc-build-images/iso-builder:${BUILD_VERSION}` exists in artifact registry.
 - [ ] If missing, run `./build-builder.sh` to compile and push the xorriso/rsync-equipped builder container.
 
@@ -52,15 +52,16 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
 - [ ] Once `SUCCESS` is achieved, verify the new ISO is present on GCS: `gs://${GCS_BUCKET}/sync/gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}.iso`.
 
 ### State 4: Bootimus PXE Deployment
-- [ ] Execute `./src/build/bootimus.py --list` to check current groups and images.
-- [ ] Deploy the compiled image: `./src/build/bootimus.py gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}.iso` (which enforces a 30s settling window right after trigger-scan).
-- [ ] **MANDATORY BOOTIMUS COMPLETION GATE:** You MUST execute `python3 bin/check-bootimus-settings.py` after deploying the ISO.
-  - At NO TIME should there be a built ISO that does not complete extraction in Bootimus.
+- [ ] Wait for the NAS sync to happen by querying the Bootimus API for the version to show up in the list
+- [ ] Execute `./src/build/bootimus.py --list` to check the status of the current groups and images.
+- [ ] Only after the ISO shows up in Bootimus, deploy the compiled image: `./src/build/bootimus.py gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}.iso` (which enforces a 30s settling window right after trigger-scan).
+- [ ] **MANDATORY BOOTIMUS COMPLETION GATE:** You MUST execute `python3 bin/check-bootimus-settings.py` after deploying the ISO and the 30s cool-off period.
+  - At NO TIME should there be a built `gdc-bootstrap-*` ISO that does not complete extraction in Bootimus.
   - The script asserts that the image is classified as `ubuntu`, extraction is `COMPLETE`, and Boot Parameters (autoinstall) are correctly set.
   - If extraction is still `PENDING` or `EXTRACTING`, you MUST wait and retry until `check-bootimus-settings.py` returns `SUCCESS`.
 - [ ] Verify the stability-verification feedback loop successfully locks and holds parameters.
 
-### State 5: E2E Integration Testing
+### State 5: E2E Integration Testing (local builds only, executed with explicit ask only)
 - [ ] Validate autoinstall schemas: `./test/validate_iso_static.sh`.
 - [ ] (Optional) Launch headless virtual sandbox: `./test/run_qemu_e2e.sh`.
 - [ ] Poll serial/console outputs to verify:
@@ -84,3 +85,6 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
     * GCS sync folder path (`gs://${GCS_BUCKET}/sync/`).
     * Local build-workspace paths or output receipt logs.
   - **GDC Companion Live Telemetry Logs:** Direct HTTPS link to the `gdc-companion` telemetry dashboard or ingestion endpoints matching the `INSTALL_COMPANION_URL` (e.g. `http://gdc-companion.ensor-labs.com/v1/install-logs`).
+
+### State 7: Download and share the Build Report in GDC Companion
+- [ ] Download the build-report from the GCS bucket folder `gs://${GCS_BUCKET}/reports/

@@ -315,7 +315,7 @@ class TestGgdTemplateHydration(unittest.TestCase):
         """Asserts that the Ansible 50-gdc-network.yaml.j2 template includes the vrf-k8s declaration."""
         import jinja2
         
-        env = jinja2.Environment(loader=jinja2.FileSystemLoader('src/ansible/roles/machine_orchestration/templates'))
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../src/ansible/roles/machine_orchestration/templates')))
         env.filters['split'] = lambda value, delimiter=' ': value.split(delimiter)
         template = env.get_template('50-gdc-network.yaml.j2')
         
