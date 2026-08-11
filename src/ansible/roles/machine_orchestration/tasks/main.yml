@@ -19,9 +19,12 @@
   ansible.builtin.uri:
     url: "https://gdc-companion.ensor-labs.com/v1/machine-info/{{ node_mac }}"
     method: GET
+    headers:
+      Authorization: "Bearer AOgIcFproZQpYgaqDJrsUOD1MfhxwFqBANp2JumB5wM="
     client_cert: "/var/gdc-install/keys/client.crt"
     client_key: "/var/gdc-install/keys/client.key"
     status_code: 200
+    validate_certs: false
   register: api_response
   ignore_errors: true
   when: not mock_file_stat.stat.exists
@@ -96,32 +99,6 @@
     - companion_token_response.status == 200
     - companion_token_response.content is defined
   no_log: true
-
-- name: "GDC-ORCH | Ensure bmctl install directory exists"
-  ansible.builtin.file:
-    path: "/var/gdc-install/tools/bmctl"
-    state: directory
-    owner: gdc-admin
-    group: gdc-admin
-    mode: '0755'
-
-- name: "GDC-ORCH | Copy bmctl binary from ISO cache"
-  ansible.builtin.copy:
-    src: "/media/cdrom/custom-data/tools/bmctl/bmctl"
-    dest: "/var/gdc-install/tools/bmctl/bmctl"
-    owner: gdc-admin
-    group: gdc-admin
-    mode: '0755'
-    remote_src: yes
-  ignore_errors: true
-
-- name: "GDC-ORCH | Create global symlink for bmctl"
-  ansible.builtin.file:
-    src: "/var/gdc-install/tools/bmctl/bmctl"
-    dest: "/usr/local/bin/bmctl"
-    state: link
-    owner: root
-    group: root
 
 - name: "GDC-ORCH | Ensure NodeAgent install directory exists"
   ansible.builtin.file:
@@ -211,7 +188,7 @@
 - name: "GDC-ORCH | Deploy GDC Netplan configuration"
   ansible.builtin.template:
     src: 50-gdc-network.yaml.j2
-    dest: /etc/netplan/50-gdc-network.yaml
+    dest: /etc/netplan/99-gdc-cluster-network.yaml
     owner: root
     group: root
     mode: '0600'
