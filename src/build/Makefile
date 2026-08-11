@@ -163,7 +163,7 @@ deps:
 		echo "  [-] GCS cache active. Pulling artifacts from gs://$(GCS_BUCKET)..."; \
 		BUCKET_NAME=$$(echo "$(GCS_BUCKET)" | sed 's/^gs:\/\///'); \
 		if [ -n "$$BUCKET_NAME" ]; then \
-			for file in "$(SOURCE_ISO_FILENAME)" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)"; do \
+			for file in "$(SOURCE_ISO_FILENAME)" "collect-diagnostics.sh" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)"; do \
 				if [ "$$file" = "$(SOURCE_ISO_FILENAME)" ]; then \
 					local_path="$(CACHE_DIR)/isos/$$file"; \
 					gcs_path="gs://$$BUCKET_NAME/source/$$file"; \
@@ -240,7 +240,7 @@ deps:
 		echo "  [-] Synchronizing verified local cache back to GCS..."; \
 		BUCKET_NAME=$$(echo "$(GCS_BUCKET)" | sed 's/^gs:\/\///'); \
 		if [ -n "$$BUCKET_NAME" ]; then \
-			for file in "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)"; do \
+			for file in "collect-diagnostics.sh" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)"; do \
 				local_path="$(BIN_CACHE_DIR)/$$file"; \
 				gcs_path="gs://$$BUCKET_NAME/binaries/$$file"; \
 				if [ -f "$$local_path" ]; then \
