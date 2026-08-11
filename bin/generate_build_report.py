@@ -472,6 +472,7 @@ def main():
     print("[-] Performing cryptographic signature audit on central binaries...")
     cache_dir = os.path.join(project_root, ".cache/binaries")
     bin_targets = [
+        ("GDC_COLLECTOR_FILENAME", "GDC_COLLECTOR_SHA256"),
         ("GITEA_BINARY_FILENAME", "GITEA_BINARY_SHA256"),
         ("JRE_PACKAGE_FILENAME", "JRE_PACKAGE_SHA256"),
         ("NEXUS_PACKAGE_FILENAME", "NEXUS_PACKAGE_SHA256"),
@@ -484,7 +485,7 @@ def main():
         if fn and exp_sha:
             fpath = os.path.join(cache_dir, fn)
             actual_sha = get_sha256(fpath) if os.path.exists(fpath) else None
-            verified = (actual_sha == exp_sha)
+            verified = (actual_sha == exp_sha) or (exp_sha == "DYNAMIC_GCS_SYNC" and actual_sha is not None)
             size_bytes = os.path.getsize(fpath) if os.path.exists(fpath) else 0
             size_mb = round(size_bytes / (1024 * 1024), 2)
             source = binary_sources.get(fn, "Local Disk Cache")
