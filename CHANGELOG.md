@@ -6,6 +6,17 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 
 
+## [0.3.14] - 2026-08-11
+
+### Added
+- **Dynamic Cluster Networking Isolation (VRF):** Upgraded `machine_orchestration` Ansible playbook templates to dynamically place Kubernetes VLAN interfaces (`vlan109`) securely inside `vrf-k8s` routing tables. This prevents routing overlaps between strictly isolated cluster traffic and standard management networks.
+- **Fail-Safe DHCP API Fallbacks:** Scrubbed hardcoded laboratory environment variables (`192.168.100.11`) from the GDC Companion fallback configurations. If the API lookup crashes, Ansible now defaults both management and cluster interfaces safely to DHCP across generic hostnames (`gdc-default`).
+- **Telemetry Propagation for API Fallbacks:** Extended the `validate-cluster-networking.sh` check to capture API availability. When fallback values are applied, the diagnostic test correctly surfaces `FAIL: GDC Companion API lookup failed. Fallback configuration was used.` to the uploaded node diagnostic report.
+- **Bootimus Strict Synchronization Mandates:** Rewrote `src/build/bootimus.py` to correctly map the entire hydrated image schema, preventing database failures during polling synchronization. The script now mandates Bootimus to persistently lock image `enabled: True` with required `autoinstall ds=nocloud-net` parameters across 30 seconds of constant polling before yielding `SUCCESS`.
+
+### Changed
+- **Pipeline Governance Guardrails (SKILL.md):** Explicitly updated the ISO CI/CD pipeline skills documentation ensuring strict adherence to the remote Google Cloud Build architecture for published artifacts, while keeping local-runs solely scoped to ad-hoc testing. Refined Bootimus stage steps to require synchronous verification gates matching exact parameter structures.
+
 ## [0.2.23] - 2026-08-08
 
 ### Fixed
