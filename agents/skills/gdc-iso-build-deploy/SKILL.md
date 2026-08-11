@@ -83,4 +83,4 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
 
 ### State 7: Download and share the Build Report in GDC Companion
 - [ ] Download the build-report from the GCS bucket folder `gs://${GCS_BUCKET_NAME}/reports/build-reports/build-report-v${ISO_VERSION}.json` or `.md`.
-
+- [ ] Push the build report to the GDC Companion app 

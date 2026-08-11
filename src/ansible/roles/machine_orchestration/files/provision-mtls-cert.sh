@@ -42,9 +42,14 @@ echo "[*] Bootstrapping trust with step-ca at ${CA_URL}..."
 if [[ -n "${CA_FINGERPRINT}" ]]; then
     step ca bootstrap --ca-url="${CA_URL}" --fingerprint="${CA_FINGERPRINT}" --force
 else
-    # Fallback to insecure bootstrap ONLY if debugging is explicitly enabled, otherwise fail
-    echo "WARN: No CA fingerprint provided. Relying on system trust store."
-    step ca bootstrap --ca-url="${CA_URL}" --install --force || true
+    echo "WARN: No CA fingerprint provided. Executing insecure TOFU by downloading root CA..."
+    # Download the root CA certificate securely-bypassed for lab use
+    curl -sk "${CA_URL}/roots.pem" -o "${CERT_DIR}/root_ca.crt"
+    if [[ ! -s "${CERT_DIR}/root_ca.crt" ]]; then
+        echo "FAIL: Could not download root CA certificate from ${CA_URL}/roots.pem"
+        exit 1
+    fi
+    step ca bootstrap --ca-url="${CA_URL}" --root="${CERT_DIR}/root_ca.crt" --install --force
 fi
 
 echo "[*] Requesting TPM-attested certificate for identity: ${NODE_MAC}..."
