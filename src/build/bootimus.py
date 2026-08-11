@@ -422,7 +422,14 @@ def main():
             print(f"[-] Forcing kernel/initrd extraction on target...")
         else:
             print(f"[-] Image is not extracted. Triggering kernel/initrd extraction...")
-        api_request(f"{API_BASE}/images/extract?filename={urllib.parse.quote(filename)}", method="POST", token=token, timeout=180)
+        
+        try:
+            # Bootimus API blocks on /extract until complete or timeout. We trigger it with a short timeout
+            # and intentionally catch the timeout so we can move immediately to the polling loop.
+            api_request(f"{API_BASE}/images/extract?filename={urllib.parse.quote(filename)}", method="POST", token=token, timeout=5, retries=1)
+        except Exception:
+            print("[-] Extraction triggered (ignoring HTTP timeout due to Bootimus synchronous architecture)...")
+            pass
         
         # Poll extraction progress
         print("[-] Monitoring extraction progress...")
