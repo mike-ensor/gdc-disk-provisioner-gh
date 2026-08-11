@@ -188,7 +188,8 @@ def auto_heal_boot_params(token):
                     verified = False
                     
                     # Force write initially
-                    api_request(update_url, method="PUT", data=update_data, token=token)
+                    img.update(update_data)
+                    api_request(update_url, method="PUT", data=img, token=token)
                     
                     for verify_attempt in range(1, max_attempts + 1):
                         time.sleep(5)
@@ -215,10 +216,12 @@ def auto_heal_boot_params(token):
                                         break
                                 else:
                                     consecutive_verifications = 0
-                                    api_request(update_url, method="PUT", data=update_data, token=token)
+                                    current_img.update(update_data)
+                                    api_request(update_url, method="PUT", data=current_img, token=token)
                     if not verified:
                         print(f"    [!] Warning: Failed to permanently lock healed '{img.get('name')}' configuration. Forcing final write...")
-                        api_request(update_url, method="PUT", data=update_data, token=token)
+                        img.update(update_data)
+                        api_request(update_url, method="PUT", data=img, token=token)
     except Exception as e:
         print(f"[!] Warning: Self-healing audit encountered an error: {e}")
 
@@ -487,9 +490,20 @@ def main():
         "enabled": True
     }
     
-    # Send PUT request to save image configurations
-    update_url = f"{API_BASE}/images?filename={urllib.parse.quote(filename)}"
-    api_request(update_url, method="PUT", data=update_data, token=token)
+    # We must fetch the current full object state so the PUT API does not reject missing fields
+    images_res = api_request(f"{API_BASE}/images", token=token)
+    img_match = [i for i in images_res.get("data", []) if i.get("filename") == filename]
+    
+    if img_match:
+        current_img_state = img_match[0]
+        current_img_state.update(update_data)
+        
+        # Send PUT request to save image configurations
+        update_url = f"{API_BASE}/images?filename={urllib.parse.quote(filename)}"
+        api_request(update_url, method="PUT", data=current_img_state, token=token)
+    else:
+        update_url = f"{API_BASE}/images?filename={urllib.parse.quote(filename)}"
+        api_request(update_url, method="PUT", data=update_data, token=token)
     
     print("[-] Running database stability verification (verifying parameters persist consecutively)...")
     consecutive_verifications = 0
@@ -524,7 +538,8 @@ def main():
                 else:
                     print(f"    [!] Warning: Attempt {verify_attempt}/{max_attempts}: Detected parameter clobbering or mismatch! Re-applying custom configurations...")
                     consecutive_verifications = 0
-                    api_request(update_url, method="PUT", data=update_data, token=token)
+                    current_image.update(update_data)
+                    api_request(update_url, method="PUT", data=current_image, token=token)
                     
     if not verified:
         print("[!] CRITICAL ERROR: Failed to establish a stable, un-clobbered boot configuration in Bootimus!")
