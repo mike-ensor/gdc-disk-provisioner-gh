@@ -473,6 +473,7 @@ def main():
     cache_dir = os.path.join(project_root, ".cache/binaries")
     bin_targets = [
         ("GDC_COLLECTOR_FILENAME", "GDC_COLLECTOR_SHA256"),
+        ("verify-upgrade-readiness.sh", "DYNAMIC_GCS_SYNC"),
         ("GITEA_BINARY_FILENAME", "GITEA_BINARY_SHA256"),
         ("JRE_PACKAGE_FILENAME", "JRE_PACKAGE_SHA256"),
         ("NEXUS_PACKAGE_FILENAME", "NEXUS_PACKAGE_SHA256"),
