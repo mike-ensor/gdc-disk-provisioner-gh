@@ -85,7 +85,7 @@
         project_id: "anthos-bare-metal-lab-1"
         region: "us-central1"
         primary_gsa: "sa-companion@anthos-bare-metal-lab-1.iam.gserviceaccount.com"
-  when: machine_config is not defined or machine_config == {}
+  when: machine_config is not defined or machine_config == {} or 'error' in machine_config or 'hostname' not in machine_config
 
 - name: "GDC-ORCH | Set system hostname"
   ansible.builtin.hostname:
@@ -157,41 +157,6 @@
     state: started
     daemon_reload: yes
 
-- name: "GDC-ORCH | Verify peer hostname resolution"
-  ansible.builtin.command:
-    cmd: "getent hosts {{ item.hostname }}"
-  loop: "{{ machine_config.peers }}"
-  register: host_resolution
-  failed_when: host_resolution.rc != 0
-  changed_when: false
-  when: machine_config.peers is defined
-
-- name: "GDC-ORCH | Verify peer network pingability (Wait up to 5 mins)"
-  ansible.builtin.command:
-    cmd: "ping -c 1 {{ item.ipv4 }}"
-  loop: "{{ machine_config.peers }}"
-  register: peer_ping
-  until: peer_ping.rc == 0
-  retries: 10
-  delay: 30
-  failed_when: false
-  changed_when: false
-  when: machine_config.peers is defined
-
-- name: "GDC-ORCH | Check if any peers are unreachable"
-  ansible.builtin.set_fact:
-    peers_unreachable: true
-  loop: "{{ peer_ping.results }}"
-  when: 
-    - machine_config.peers is defined
-    - item.rc is defined
-    - item.rc != 0
-
-- name: "GDC-ORCH | Gracefully halt if waiting on peers"
-  ansible.builtin.fail:
-    msg: "WAITING_ON_PEERS"
-  when: peers_unreachable | default(false)
-
 - name: "GDC-ORCH | Ensure Ansible facts.d directory exists"
   ansible.builtin.file:
     path: /etc/ansible/facts.d
@@ -228,3 +193,39 @@
     owner: root
     group: root
     mode: '0755'
+
+- name: "GDC-ORCH | Verify peer hostname resolution"
+  ansible.builtin.command:
+    cmd: "getent hosts {{ item.hostname }}"
+  loop: "{{ machine_config.peers }}"
+  register: host_resolution
+  failed_when: host_resolution.rc != 0
+  changed_when: false
+  when: machine_config.peers is defined
+
+- name: "GDC-ORCH | Verify peer network pingability (Wait up to 5 mins)"
+  ansible.builtin.command:
+    cmd: "ping -c 1 {{ item.ipv4 }}"
+  loop: "{{ machine_config.peers }}"
+  register: peer_ping
+  until: peer_ping.rc == 0
+  retries: 10
+  delay: 30
+  failed_when: false
+  changed_when: false
+  when: machine_config.peers is defined
+
+- name: "GDC-ORCH | Check if any peers are unreachable"
+  ansible.builtin.set_fact:
+    peers_unreachable: true
+  loop: "{{ peer_ping.results }}"
+  when: 
+    - machine_config.peers is defined
+    - item.rc is defined
+    - item.rc != 0
+
+- name: "GDC-ORCH | Gracefully halt if waiting on peers"
+  ansible.builtin.fail:
+    msg: "WAITING_ON_PEERS"
+  when: peers_unreachable | default(false)
+
