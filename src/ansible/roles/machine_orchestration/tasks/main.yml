@@ -68,14 +68,9 @@
       bmctl_version: "1.35.300-gke.87"
       network:
         management_network:
-          dhcp_v4: false
-          ip_cidr: "192.168.100.11/24"
-          gateway: "192.168.100.1"
-          dns_servers: ["192.168.254.12", "8.8.8.8", "8.8.4.4"]
+          dhcp_v4: true
         cluster_network:
-          dhcp_v4: false
-          ip_cidr: "192.168.109.11/24"
-          gateway: "192.168.109.1"
+          dhcp_v4: true
           vlan_id: 109
       peers: 
         - hostname: "gdc-travel-1-2"
