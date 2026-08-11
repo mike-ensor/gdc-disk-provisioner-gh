@@ -25,6 +25,15 @@ K8S_DHCP=$(jq -r '.network.cluster_network.dhcp_v4' "$FACTS_FILE")
 K8S_IP=$(jq -r '.network.cluster_network.ip_cidr // ""' "$FACTS_FILE" | cut -d'/' -f1)
 
 
+echo "[*] Checking mTLS Certificate Provisioning..."
+if [ -f "/var/gdc-install/keys/client.crt" ] && [ -f "/var/gdc-install/keys/client.key" ]; then
+    echo "PASS: TPM-attested mTLS certificates found."
+else
+    echo "FAIL: mTLS certificates are missing in /var/gdc-install/keys/."
+    # We do not strictly exit 1 here yet to allow the script to finish testing networking,
+    # but the failure will be logged in the diagnostics collector.
+fi
+
 echo "[*] Checking GDC Companion API Status..."
 if [ "$(jq -r '.is_fallback // false' "$FACTS_FILE")" == "true" ]; then
     echo "FAIL: GDC Companion API lookup failed. Fallback configuration was used."

@@ -15,6 +15,26 @@
     path: /etc/gdc/machine-info-mock.json
   register: mock_file_stat
 
+- name: "GDC-ORCH | Install Smallstep CLI (step-cli) from ISO cache"
+  ansible.builtin.apt:
+    deb: "/media/cdrom/custom-data/packages/step-cli_0.26.1_amd64.deb"
+  ignore_errors: true
+
+- name: "GDC-ORCH | Deploy TPM mTLS Provisioning Script"
+  ansible.builtin.copy:
+    src: provision-mtls-cert.sh
+    dest: /usr/local/bin/provision-mtls-cert.sh
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: "GDC-ORCH | Execute TPM mTLS Attestation (Zero-Touch Provisioning)"
+  ansible.builtin.command: /usr/local/bin/provision-mtls-cert.sh
+  environment:
+    STEP_CA_URL: "https://step-ca.ensor-labs.com"
+    # Note: STEP_CA_FINGERPRINT is intentionally left blank here to rely on system trust or future injection
+    STEP_PROVISIONER_NAME: "tpm"
+
 - name: "GDC-ORCH | Check if mTLS client certs exist"
   ansible.builtin.stat:
     path: "/var/gdc-install/keys/client.crt"

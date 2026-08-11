@@ -4,6 +4,12 @@ This manual governs the local development, compilation, validation, and release 
 
 ---
 
+
+### Critical Development Dependencies
+
+* **Smallstep CA (`step-ca`):** The zero-touch hardware attestation workflow absolutely requires a centralized `step-ca` server. Ensure this service (e.g., `https://step-ca.ensor-labs.com`) is operational before attempting to test the `machine_orchestration` Ansible playbook, as the nodes will fail to acquire mTLS certificates and GCP access tokens without it.
+* **Bootimus PXE Server:** If you are running `make ingest-pxe` or heavily developing the `remaster.sh` pipelines, a Bootimus PXE server is heavily recommended. The `bootimus.py` scripts enforce strict, stable-state synchronization with the Bootimus database.
+
 ## 1. Architectural Philosophy & Core Tenets
 
 All development actions in this repository must align with the core standards defined in `GEMINI.md`:

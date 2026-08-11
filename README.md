@@ -143,3 +143,10 @@ Gitea and Nexus act as the local boundary endpoints for the target node. Operato
 1.  **Code Updates (Gitea):** `git push` new playbooks directly to Gitea from a tethered administrator workstation, or insert a USB drive containing a `.bundle` update. Local cron tasks automatically trigger `ansible-pull` from the local Gitea repo.
 2.  **Binary & Image Updates (Nexus):** Sideload new packages or containers using the Nexus HTTP API or a local `gdc-update` CLI tool directly from mounted USB drives.
 3.  **LLM Model Syncs (Nexus Raw):** Sideload Hugging Face models directly to Nexus raw stores. Inference clients fetch locally offline by targeting `HF_ENDPOINT=http://localhost:8081/repository/gdc-llm-raw/`.
+
+
+## 📦 System Dependencies
+
+### Required External Dependencies
+* **Smallstep CA (`step-ca`):** The zero-touch hardware attestation workflow absolutely requires a centralized `step-ca` server to be reachable by the bare-metal nodes during first boot. Google Cloud CAS and Certbot are explicitly unsupported for TPM hardware attestation in this architecture. By default, the nodes will attempt to communicate with `https://step-ca.ensor-labs.com`.
+* **Bootimus PXE Server (Highly Recommended):** If you are actively developing the custom ISO or require automated bare-metal PXE ingestion, a running Bootimus instance is required. The `bootimus.py` build script enforces synchronous non-interactive parameter locking across the Bootimus API.
