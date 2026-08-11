@@ -194,7 +194,11 @@
         - name: "CLUSTER_READY | GDC-STATE | Execute"
           ansible.builtin.import_tasks: stages/stage_cluster_ready.yml
       rescue:
-        - name: "GDC-STATE | Record ClusterReady Failure state"
+        - name: "GDC-STATE | Determine if failure was due to waiting on peers"
+          ansible.builtin.set_fact:
+            is_waiting: "{{ ansible_failed_result.msg is defined and ansible_failed_result.msg == 'WAITING_ON_PEERS' }}"
+
+        - name: "GDC-STATE | Record ClusterReady state"
           ansible.builtin.copy:
             dest: /var/gdc-install/state/cluster-ready.json
             owner: root
@@ -203,12 +207,18 @@
             content: |
               {
                 "stage": "cluster-ready",
-                "status": "failed",
+                "status": "{{ 'in_progress' if is_waiting else 'failed' }}",
                 "timestamp": "{{ ansible_date_time.iso8601 }}"
               }
+
         - name: "GDC-STATE | Fail the play on ClusterReady Configuration"
           ansible.builtin.fail:
             msg: "GDC ClusterReady Configuration failed!"
+          when: not (is_waiting | default(false))
+
+        - name: "GDC-STATE | End play gracefully if waiting on peers"
+          ansible.builtin.meta: end_play
+          when: is_waiting | default(false)
       always:
         - name: "GDC-STATE | Trigger Post-Stage 5 Diagnostic Collection"
           ansible.builtin.shell: |

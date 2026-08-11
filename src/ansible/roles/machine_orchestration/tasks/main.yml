@@ -72,9 +72,9 @@
 - name: "GDC-ORCH | Ensure peers list is registered in /etc/hosts"
   ansible.builtin.lineinfile:
     path: /etc/hosts
-    line: "192.168.100.{{ item.1 }} {{ item.0 }}"
+    line: "{{ item.ipv4 }} {{ item.hostname }}"
     state: present
-  loop: "{{ machine_config.peers | zip(range(12, 12 + (machine_config.peers | length))) | list }}"
+  loop: "{{ machine_config.peers }}"
   when: machine_config.peers is defined
 
 - name: "GDC-ORCH | Check if gcloud service account key is present"
@@ -150,21 +150,38 @@
 
 - name: "GDC-ORCH | Verify peer hostname resolution"
   ansible.builtin.command:
-    cmd: "getent hosts {{ item }}"
+    cmd: "getent hosts {{ item.hostname }}"
   loop: "{{ machine_config.peers }}"
   register: host_resolution
   failed_when: host_resolution.rc != 0
   changed_when: false
   when: machine_config.peers is defined
 
-- name: "GDC-ORCH | Verify peer network pingability"
+- name: "GDC-ORCH | Verify peer network pingability (Wait up to 5 mins)"
   ansible.builtin.command:
-    cmd: "ping -c 1 {{ item }}"
+    cmd: "ping -c 1 {{ item.ipv4 }}"
   loop: "{{ machine_config.peers }}"
   register: peer_ping
+  until: peer_ping.rc == 0
+  retries: 10
+  delay: 30
   failed_when: false
   changed_when: false
   when: machine_config.peers is defined
+
+- name: "GDC-ORCH | Check if any peers are unreachable"
+  ansible.builtin.set_fact:
+    peers_unreachable: true
+  loop: "{{ peer_ping.results }}"
+  when: 
+    - machine_config.peers is defined
+    - item.rc is defined
+    - item.rc != 0
+
+- name: "GDC-ORCH | Gracefully halt if waiting on peers"
+  ansible.builtin.fail:
+    msg: "WAITING_ON_PEERS"
+  when: peers_unreachable | default(false)
 
 - name: "GDC-ORCH | Ensure Ansible facts.d directory exists"
   ansible.builtin.file:

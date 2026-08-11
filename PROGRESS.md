@@ -285,3 +285,5 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [ ] **APT configuration:** Review fallback error commands.
 - [ ] **Ubuntu Pro config:** Implementation guidelines.
 - [ ] **Error handling during install:** Improve Subiquity exit-line traps.
+
+- [ ] **FUTURE TASK:** Look into whether `nodeagent` would be a better or more efficient choice to determine if the expected peers are all online compared to the current 5-minute ICMP ping loop.
