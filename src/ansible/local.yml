@@ -148,9 +148,10 @@
             mode: '0644'
             content: |
               {
-                "stage": "linux-ready",
-                "status": "failed",
-                "timestamp": "{{ ansible_date_time.iso8601 }}"
+                "stage": "LINUX_READY",
+                "status": "FAILED",
+                "timestamp": "{{ ansible_date_time.iso8601 }}",
+                "evidence": {{ linux_ready_evidence | default({}) | to_json }}
               }
         - name: "GDC-STATE | Fail the play on LinuxReady Hardening"
           ansible.builtin.fail:

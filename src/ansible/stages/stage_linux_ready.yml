@@ -10,6 +10,55 @@
   ansible.builtin.include_role:
     name: security_hardening
 
+- name: "GDC-EVIDENCE | Check Dracut configuration for TPM modules"
+  ansible.builtin.shell: grep -q 'add_dracutmodules+=.*tpm2-tss' /etc/dracut.conf.d/gdc.conf
+  register: dracut_check
+  ignore_errors: true
+  changed_when: false
+
+- name: "GDC-EVIDENCE | Check GRUB parameters for TPM interrupts"
+  ansible.builtin.shell: grep -q 'tpm_tis.interrupts=0' /etc/default/grub
+  register: grub_check
+  ignore_errors: true
+  changed_when: false
+
+- name: "GDC-EVIDENCE | Check if auditd is active"
+  ansible.builtin.shell: systemctl is-active --quiet auditd
+  register: auditd_check
+  ignore_errors: true
+  changed_when: false
+
+- name: "GDC-EVIDENCE | Check if apparmor is active"
+  ansible.builtin.shell: systemctl is-active --quiet apparmor
+  register: apparmor_check
+  ignore_errors: true
+  changed_when: false
+
+- name: "GDC-EVIDENCE | Check for LUKS TPM token"
+  ansible.builtin.shell: |
+    LUKS_DEV=$(blkid -t TYPE=crypto_LUKS -o device | head -n 1)
+    if [ -n "$LUKS_DEV" ]; then
+      cryptsetup luksDump "$LUKS_DEV" | grep -q "systemd-tpm2"
+    else
+      exit 1
+    fi
+  register: luks_tpm_check
+  ignore_errors: true
+  changed_when: false
+
+- name: "GDC-EVIDENCE | Structure LinuxReady Evidence Facts"
+  ansible.builtin.set_fact:
+    linux_ready_evidence:
+      bootloader_hardening:
+        dracut_config_valid: "{{ dracut_check.rc == 0 }}"
+        grub_params_injected: "{{ grub_check.rc == 0 }}"
+      security_baselines:
+        auditd_running: "{{ auditd_check.rc == 0 }}"
+        apparmor_enforced: "{{ apparmor_check.rc == 0 }}"
+      fde_tpm_unlock:
+        cryptenroll_success: "{{ luks_tpm_check.rc == 0 }}"
+        luks_tpm_token_present: "{{ luks_tpm_check.rc == 0 }}"
+
 - name: "GDC-STATE | Write LinuxReady completion state"
   ansible.builtin.copy:
     dest: /var/gdc-install/state/linux-ready.json
@@ -18,9 +67,10 @@
     mode: '0644'
     content: |
       {
-        "stage": "linux-ready",
-        "status": "completed",
-        "timestamp": "{{ ansible_date_time.iso8601 }}"
+        "stage": "LINUX_READY",
+        "status": "COMPLETED",
+        "timestamp": "{{ ansible_date_time.iso8601 }}",
+        "evidence": {{ linux_ready_evidence | to_json }}
       }
 
 - name: "GDC-STATE | Update LinuxReady fact in-memory"
