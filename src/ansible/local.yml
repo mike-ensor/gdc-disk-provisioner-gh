@@ -41,10 +41,14 @@
             group: root
             mode: '0644'
             content: |
+              {% set _evidence = first_boot_evidence | default({}) %}
+              {% set _error_msg = ansible_failed_result.msg | default(ansible_failed_result.stderr | default('Unknown Ansible failure')) %}
+              {% set _ = _evidence.update({"error_message": _error_msg}) %}
               {
                 "stage": "first-boot",
                 "status": "failed",
-                "timestamp": "{{ ansible_date_time.iso8601 }}"
+                "timestamp": "{{ ansible_date_time.iso8601 }}",
+                "evidence": {{ _evidence | to_json }}
               }
         - name: "GDC-STATE | Fail the play on FirstBoot Setup"
           ansible.builtin.fail:
@@ -93,10 +97,14 @@
             group: root
             mode: '0644'
             content: |
+              {% set _evidence = second_boot_evidence | default({}) %}
+              {% set _error_msg = ansible_failed_result.msg | default(ansible_failed_result.stderr | default('Unknown Ansible failure')) %}
+              {% set _ = _evidence.update({"error_message": _error_msg}) %}
               {
                 "stage": "second-boot",
                 "status": "failed",
-                "timestamp": "{{ ansible_date_time.iso8601 }}"
+                "timestamp": "{{ ansible_date_time.iso8601 }}",
+                "evidence": {{ _evidence | to_json }}
               }
         - name: "GDC-STATE | Fail the play on SecondBoot Verification"
           ansible.builtin.fail:
@@ -147,11 +155,14 @@
             group: root
             mode: '0644'
             content: |
+              {% set _evidence = linux_ready_evidence | default({}) %}
+              {% set _error_msg = ansible_failed_result.msg | default(ansible_failed_result.stderr | default('Unknown Ansible failure')) %}
+              {% set _ = _evidence.update({"error_message": _error_msg}) %}
               {
                 "stage": "LINUX_READY",
                 "status": "FAILED",
                 "timestamp": "{{ ansible_date_time.iso8601 }}",
-                "evidence": {{ linux_ready_evidence | default({}) | to_json }}
+                "evidence": {{ _evidence | to_json }}
               }
         - name: "GDC-STATE | Fail the play on LinuxReady Hardening"
           ansible.builtin.fail:
@@ -206,11 +217,14 @@
             group: root
             mode: '0644'
             content: |
+              {% set _evidence = cluster_ready_evidence | default({}) %}
+              {% set _error_msg = ansible_failed_result.msg | default(ansible_failed_result.stderr | default('Unknown Ansible failure')) %}
+              {% set _ = _evidence.update({"error_message": _error_msg}) %}
               {
                 "stage": "CLUSTER_READY",
                 "status": "{{ 'IN_PROGRESS' if is_waiting else 'FAILED' }}",
                 "timestamp": "{{ ansible_date_time.iso8601 }}",
-                "evidence": {{ cluster_ready_evidence | default({}) | to_json }}
+                "evidence": {{ _evidence | to_json }}
               }
 
         - name: "GDC-STATE | Fail the play on ClusterReady Configuration"
