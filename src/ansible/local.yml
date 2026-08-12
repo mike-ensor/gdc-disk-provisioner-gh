@@ -42,8 +42,8 @@
             mode: '0644'
             content: |
               {% set _evidence = first_boot_evidence | default({}) %}
-              {% set _error_msg = ansible_failed_result.msg | default(ansible_failed_result.stderr | default('Unknown Ansible failure')) %}
-              {% set _ = _evidence.update({"error_message": _error_msg}) %}
+              {% set _error_detail = ansible_failed_result | default({}) %}
+              {% set _ = _evidence.update({"error_details": _error_detail}) %}
               {
                 "stage": "first-boot",
                 "status": "failed",
@@ -98,8 +98,8 @@
             mode: '0644'
             content: |
               {% set _evidence = second_boot_evidence | default({}) %}
-              {% set _error_msg = ansible_failed_result.msg | default(ansible_failed_result.stderr | default('Unknown Ansible failure')) %}
-              {% set _ = _evidence.update({"error_message": _error_msg}) %}
+              {% set _error_detail = ansible_failed_result | default({}) %}
+              {% set _ = _evidence.update({"error_details": _error_detail}) %}
               {
                 "stage": "second-boot",
                 "status": "failed",
@@ -156,8 +156,8 @@
             mode: '0644'
             content: |
               {% set _evidence = linux_ready_evidence | default({}) %}
-              {% set _error_msg = ansible_failed_result.msg | default(ansible_failed_result.stderr | default('Unknown Ansible failure')) %}
-              {% set _ = _evidence.update({"error_message": _error_msg}) %}
+              {% set _error_detail = ansible_failed_result | default({}) %}
+              {% set _ = _evidence.update({"error_details": _error_detail}) %}
               {
                 "stage": "LINUX_READY",
                 "status": "FAILED",
@@ -218,8 +218,8 @@
             mode: '0644'
             content: |
               {% set _evidence = cluster_ready_evidence | default({}) %}
-              {% set _error_msg = ansible_failed_result.msg | default(ansible_failed_result.stderr | default('Unknown Ansible failure')) %}
-              {% set _ = _evidence.update({"error_message": _error_msg}) %}
+              {% set _error_detail = ansible_failed_result | default({}) %}
+              {% set _ = _evidence.update({"error_details": _error_detail}) %}
               {
                 "stage": "CLUSTER_READY",
                 "status": "{{ 'IN_PROGRESS' if is_waiting else 'FAILED' }}",
