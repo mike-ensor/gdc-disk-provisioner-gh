@@ -141,6 +141,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [ ] SSH host key TPM-secure binding using `ssh-tpm-agent`
   - [x] Generate TPM-backed device identity certs via Step-CA
   - [ ] **NodeAgent mTLS Certificate Pre-Seeding:** Automated injection of Server CA, Client CA, and Node Server Cert/Key to enable 100% Zero-SSH bootstrapping
+  - [ ] **Future mTLS Phone-Home Authentication:** Inject `write_files` module inside `user-data` to write `/var/lib/cloud/data/ssl/cert.pem` and `key.pem` to enable native mTLS with the `cc_phone_home` POST to the GDC Companion.
   - [ ] **Future GPG Signed-Commit Enforcement:** Mandate cryptographic signed-commits for Ansible-Pull (`--verify-commit` activation)
 - [-] **CIS Hardening & Slimming**
   - [ ] Implement Ansible roles for CIS Level 2 benchmark rules
@@ -227,8 +228,8 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 ### Phase 6: Cluster Turnup & Target Finalization (CLUSTER_READY) — [`docs/specs/05-cluster-turnup.md`](docs/specs/05-cluster-turnup.md)
 
 - [-] **Mock Companion & Orchestration Simulation (`machine_orchestration`)**
-  - [ ] Build out Mock Companion Service to serve structured `gdc-companion` telemetry and states in air-gapped labs.
-  - [ ] Ensure connection failure timeouts are handled gracefully during offline turnup.
+  - [x] Build out Mock Companion Service to serve structured `gdc-companion` telemetry and states in air-gapped labs. (Integrated `fallback-config.json` payload refactor; #9)
+  - [x] Ensure connection failure timeouts are handled gracefully during offline turnup. (Explicit `phone_home` tries limit resolving 23min hangs; #9)
   - [ ] Webhook/Phone-Home Integration: Enable node to report post-boot completion and state transitions back to the orchestrator.
   - [ ] **CMDB Identity Sync:** Pull cluster data to dynamically assert and Change Host Name to match the upstream machine database.
 - [-] **Standalone Cluster Turnup (`bmctl` & Local Registries)**

@@ -29,12 +29,12 @@ class TestGgdTemplateHydration(unittest.TestCase):
             'ISO_NAME_PREFIX': 'gdc-bootstrap-test',
             'TEMPORARY_INSTALLER_PASSWORD': 'testpassword123',
             'UPSTREAM_PLAYBOOKS_REPO': 'https://github.com/google/gdc-disk-provisioner.git',
-            'MACHINE_IP_CIDR': '192.168.9.11/24',
-            'MACHINE_GATEWAY': '192.168.9.1',
-            'MACHINE_DNS': '192.168.1.1, 8.8.8.8',
-            'K8S_IP_CIDR': '192.168.109.10/29',
-            'K8S_GATEWAY': '192.168.109.1',
-            'K8S_DNS': '192.168.1.1, 8.8.8.8',
+            'BOOTSTRAP_MACHINE_IP_CIDR': '192.168.9.11/24',
+            'BOOTSTRAP_MACHINE_GATEWAY': '192.168.9.1',
+            'BOOTSTRAP_MACHINE_DNS': '192.168.1.1, 8.8.8.8',
+            'BOOTSTRAP_K8S_IP_CIDR': '192.168.109.10/29',
+            'BOOTSTRAP_K8S_GATEWAY': '192.168.109.1',
+            'BOOTSTRAP_K8S_DNS': '192.168.1.1, 8.8.8.8',
             'INSTALL_COMPANION_URL': 'http://gdc-companion.ensor-labs.com:8080/v1/install-logs',
             'GITEA_BINARY_FILENAME': 'gitea-1.22.1-linux-amd64',
             'NEXUS_PACKAGE_FILENAME': 'nexus-3.69.0-02-unix.tar.gz',
@@ -46,8 +46,8 @@ class TestGgdTemplateHydration(unittest.TestCase):
             'BUILD_TIMESTAMP': '1782779284',
             'HOSTNAME': 'gdc-standalone-node',
             'ADMIN_SSH_PUB_KEYS': 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHFEKz',
-            'MACHINE_VLAN_ID': '0',
-            'K8S_VLAN_ID': '0'
+            'BOOTSTRAP_MACHINE_VLAN_ID': '0',
+            'BOOTSTRAP_K8S_VLAN_ID': '0'
         }
         
     def tearDown(self):
@@ -68,8 +68,8 @@ class TestGgdTemplateHydration(unittest.TestCase):
         with open(env_file_path, "w") as f:
             f.write(f"MACHINE_IP={machine_ip}\n")
             f.write(f"K8S_IP={k8s_ip}\n")
-            f.write(f"MACHINE_IP_CIDR={machine_cidr}\n")
-            f.write(f"K8S_IP_CIDR={k8s_cidr}\n")
+            f.write(f"BOOTSTRAP_MACHINE_IP_CIDR={machine_cidr}\n")
+            f.write(f"BOOTSTRAP_K8S_IP_CIDR={k8s_cidr}\n")
         return env_file_path
 
     def get_context(self, custom_env=None):
@@ -88,16 +88,16 @@ class TestGgdTemplateHydration(unittest.TestCase):
         env['companion_ip'] = '192.168.120.2'
         env['companion_host'] = 'gdc-companion.ensor-labs.com'
         env['companion_report_url'] = 'http://192.168.120.2:8080/v1/install-logs'
-        env['machine_vlan'] = env.get('MACHINE_VLAN_ID', '0')
-        env['k8s_vlan'] = env.get('K8S_VLAN_ID', '0')
-        env['machine_dhcp4'] = env.get('MACHINE_DHCP4', 'true').lower()
-        env['machine_dhcp6'] = env.get('MACHINE_DHCP6', 'false').lower()
-        env['machine_ip_cidr'] = env.get('MACHINE_IP_CIDR', '')
-        env['machine_gateway'] = env.get('MACHINE_GATEWAY', '')
-        env['machine_dns'] = env.get('MACHINE_DNS', '')
-        env['k8s_ip_cidr'] = env.get('K8S_IP_CIDR', '')
-        env['k8s_gateway'] = env.get('K8S_GATEWAY', '')
-        env['k8s_dns'] = env.get('K8S_DNS', '')
+        env['machine_vlan'] = env.get('BOOTSTRAP_MACHINE_VLAN_ID', '0')
+        env['k8s_vlan'] = env.get('BOOTSTRAP_K8S_VLAN_ID', '0')
+        env['machine_dhcp4'] = env.get('BOOTSTRAP_MACHINE_DHCP4', 'true').lower()
+        env['machine_dhcp6'] = env.get('BOOTSTRAP_MACHINE_DHCP6', 'false').lower()
+        env['machine_ip_cidr'] = env.get('BOOTSTRAP_MACHINE_IP_CIDR', '')
+        env['machine_gateway'] = env.get('BOOTSTRAP_MACHINE_GATEWAY', '')
+        env['machine_dns'] = env.get('BOOTSTRAP_MACHINE_DNS', '')
+        env['k8s_ip_cidr'] = env.get('BOOTSTRAP_K8S_IP_CIDR', '')
+        env['k8s_gateway'] = env.get('BOOTSTRAP_K8S_GATEWAY', '')
+        env['k8s_dns'] = env.get('BOOTSTRAP_K8S_DNS', '')
         env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
         env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
         env['persist_add_hosts'] = False
@@ -410,16 +410,16 @@ class TestGgdTemplateHydration(unittest.TestCase):
     def test_netplan_flat_vs_tagged_combinations(self):
         """Exercises netplan.j2 and configure_netplan.py combined across all VLAN/VRF combinations."""
         combinations = [
-            {'MACHINE_VLAN_ID': '0', 'K8S_VLAN_ID': '0', 'desc': 'flat'},
-            {'MACHINE_VLAN_ID': '10', 'K8S_VLAN_ID': '0', 'desc': 'mgmt_tagged'},
-            {'MACHINE_VLAN_ID': '0', 'K8S_VLAN_ID': '109', 'desc': 'k8s_tagged'},
-            {'MACHINE_VLAN_ID': '10', 'K8S_VLAN_ID': '109', 'desc': 'both_tagged'}
+            {'BOOTSTRAP_MACHINE_VLAN_ID': '0', 'BOOTSTRAP_K8S_VLAN_ID': '0', 'desc': 'flat'},
+            {'BOOTSTRAP_MACHINE_VLAN_ID': '10', 'BOOTSTRAP_K8S_VLAN_ID': '0', 'desc': 'mgmt_tagged'},
+            {'BOOTSTRAP_MACHINE_VLAN_ID': '0', 'BOOTSTRAP_K8S_VLAN_ID': '109', 'desc': 'k8s_tagged'},
+            {'BOOTSTRAP_MACHINE_VLAN_ID': '10', 'BOOTSTRAP_K8S_VLAN_ID': '109', 'desc': 'both_tagged'}
         ]
         
         for comb in combinations:
             ctx = self.get_context({
-                'MACHINE_VLAN_ID': comb['MACHINE_VLAN_ID'],
-                'K8S_VLAN_ID': comb['K8S_VLAN_ID']
+                'BOOTSTRAP_MACHINE_VLAN_ID': comb['BOOTSTRAP_MACHINE_VLAN_ID'],
+                'BOOTSTRAP_K8S_VLAN_ID': comb['BOOTSTRAP_K8S_VLAN_ID']
             })
             template = self.jinja_env.get_template('netplan.j2')
             rendered = template.render(ctx)
@@ -461,8 +461,8 @@ class TestGgdTemplateHydration(unittest.TestCase):
             vrfs = config["network"].get("vrfs")
             if vrfs and "vrf-k8s" in vrfs:
                 k8s_interfaces = vrfs["vrf-k8s"].get("interfaces", [])
-                if comb['K8S_VLAN_ID'] != '0':
-                    self.assertEqual(k8s_interfaces, [f"ens3.{comb['K8S_VLAN_ID']}"])
+                if comb['BOOTSTRAP_K8S_VLAN_ID'] != '0':
+                    self.assertEqual(k8s_interfaces, [f"ens3.{comb['BOOTSTRAP_K8S_VLAN_ID']}"])
 
             # Verify secondary NIC is added as a plain DHCP interface
             ethernets = config["network"].get("ethernets", {})
@@ -488,15 +488,15 @@ class TestGgdTemplateHydration(unittest.TestCase):
         self.assertTrue(is_valid, f"K8s Gateway {k8s_gateway} must be within the subnet of {k8s_cidr_ok}!")
 
     def test_netplan_static_l3_machine_nic(self):
-        """Asserts that when MACHINE_DHCP4 is false, the primary interface gets a static IP and routes."""
+        """Asserts that when BOOTSTRAP_MACHINE_DHCP4 is false, the primary interface gets a static IP and routes."""
         ctx = self.get_context({
-            'MACHINE_DHCP4': 'false',
-            'MACHINE_DHCP6': 'false',
-            'MACHINE_IP_CIDR': '192.168.9.14/24',
-            'MACHINE_GATEWAY': '192.168.9.1',
-            'MACHINE_DNS': '8.8.8.8, 8.8.4.4',
-            'MACHINE_VLAN_ID': '0',
-            'K8S_VLAN_ID': '0'
+            'BOOTSTRAP_MACHINE_DHCP4': 'false',
+            'BOOTSTRAP_MACHINE_DHCP6': 'false',
+            'BOOTSTRAP_MACHINE_IP_CIDR': '192.168.9.14/24',
+            'BOOTSTRAP_MACHINE_GATEWAY': '192.168.9.1',
+            'BOOTSTRAP_MACHINE_DNS': '8.8.8.8, 8.8.4.4',
+            'BOOTSTRAP_MACHINE_VLAN_ID': '0',
+            'BOOTSTRAP_K8S_VLAN_ID': '0'
         })
         template = self.jinja_env.get_template('netplan.j2')
         rendered = template.render(ctx)

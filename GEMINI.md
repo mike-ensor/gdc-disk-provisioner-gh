@@ -55,6 +55,13 @@ All implementations in this repository must align with the following core archit
 * **Directive:** Do not embed raw, multi-line configurations, configuration generation scripts, or dynamic file writes directly inside primary orchestration scripts (like `remaster.sh` or playbooks).
 * **Enforcement:** All configuration structures (Subiquity `user-data`, `meta-data`, Netplan interface descriptions, systemd service units, and partition maps) must reside as cleanly bounded declarative files. If any configuration is dynamic or contains variable bindings, it must be written as a Jinja2 template (`.j2`) in the template directory and hydrated safely at build-time. This eliminates string-replacement hazards and guarantees schema validation compliance.
 
+
+### Rule 1.10: Agent Intelligent Routing via Trigger Phrases
+* **Directive:** When interacting with the AI Agent Framework, specific trigger phrases natively map to specialized skill protocols. Avoid using conversational keywords that accidentally overlap with isolated recovery actions.
+* **Enforcement:**
+  * To trigger ISO compilations and release packaging, explicitly ask to **"Build a new ISO"** or **"Build a new ISO Version"**. This ensures `ask-matt` and intelligent routers map directly to `gdc-iso-build-deploy`.
+  * The `gdc-grub-recovery` skill is strictly ring-fenced for *post-deployment* physical server node recovery when stuck in the `grub>` command line shell.
+
 ---
 
 ## 2. Coding & Tooling Standards
