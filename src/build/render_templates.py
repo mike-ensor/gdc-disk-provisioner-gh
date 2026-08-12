@@ -197,6 +197,7 @@ if __name__ == "__main__":
         git_branch = 'main'
     env['git_branch'] = git_branch
     env['persist_add_hosts'] = env.get('PERSIST_ADD_HOSTS', 'false').lower() == 'true'
+    env['ansible_pull_schedule'] = env.get('ANSIBLE_PULL_SCHEDULE', '02:00:00')
     
     # Parse git-ignored add-hosts file for custom DNS mappings
     add_hosts_lines = []
