@@ -190,6 +190,31 @@ INSTALL4J_JAVA_HOME_OVERRIDE="/var/lib/nexus/jre"
 EOF
 
 # ==========================================
+# 2. Inject Mock GDC Companion Data (If configured)
+# ==========================================
+if [[ -n "${MOCK_GDC_COMPANION_DATA:-}" ]]; then
+    MOCK_SOURCE_FILE="${PROJECT_ROOT}/custom-data/machine-info-mock-${MOCK_GDC_COMPANION_DATA}.json"
+    echo "[-] Development Override: MOCK_GDC_COMPANION_DATA is set to '${MOCK_GDC_COMPANION_DATA}'"
+    
+    if [[ ! -f "${MOCK_SOURCE_FILE}" ]]; then
+        echo "[!] [ERROR] Mock companion data file not found: ${MOCK_SOURCE_FILE}"
+        echo "[!] Continuing with standard mTLS/Companion build..."
+    else
+        echo "[-] Injecting mock configuration from ${MOCK_SOURCE_FILE} to bypass Companion API..."
+        mkdir -p "${EXTRACT_DIR}/custom-data/gdc"
+        cp "${MOCK_SOURCE_FILE}" "${EXTRACT_DIR}/custom-data/gdc/machine-info-mock.json"
+        
+        # Add early-command to copy it from custom-data to the target filesystem before Ansible runs
+        cat << 'EARLY_EOF' > "${EXTRACT_DIR}/custom-data/gdc/inject-mock.sh"
+#!/bin/bash
+mkdir -p /target/etc/gdc
+cp /cdrom/custom-data/gdc/machine-info-mock.json /target/etc/gdc/machine-info-mock.json
+EARLY_EOF
+        chmod +x "${EXTRACT_DIR}/custom-data/gdc/inject-mock.sh"
+    fi
+fi
+
+# ==========================================
 # 2. Pre-Seed Ansible & Playbook Repositories
 # ==========================================
 GITEA_REPOS_DIR="${EXTRACT_DIR}/custom-data/gitea/repos/gdc"

@@ -57,6 +57,12 @@ autoinstall:
     {% endif %}
   early-commands:
     - |
+      # [GDC-INSTALL-STEP] Injecting mock companion data if present
+      if [ -x /cdrom/custom-data/gdc/inject-mock.sh ]; then
+        echo "[-] Found mock API injection script, executing..."
+        bash /cdrom/custom-data/gdc/inject-mock.sh
+      fi
+    - |
       # [GDC-INSTALL-STEP 1/12] Deactivating default public sources & preparing bootstrap keys...
       echo "[-] [DEBUG-ISO] Purging Live CD parent public Ubuntu sources..."
       rm -f /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources
