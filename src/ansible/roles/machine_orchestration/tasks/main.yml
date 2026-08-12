@@ -34,6 +34,7 @@
     STEP_CA_URL: "https://step-ca.ensor-labs.com"
     # Note: STEP_CA_FINGERPRINT is intentionally left blank here to rely on system trust or future injection
     STEP_PROVISIONER_NAME: "tpm"
+    STEP_MOCK_MTLS: "{{ 'true' if mock_file_stat.stat.exists else 'false' }}"
 
 - name: "GDC-ORCH | Check if mTLS client certs exist"
   ansible.builtin.stat:

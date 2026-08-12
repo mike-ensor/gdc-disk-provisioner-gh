@@ -26,7 +26,27 @@ fi
 mkdir -p "${CERT_DIR}"
 chmod 0700 "${CERT_DIR}"
 
+MOCK_MTLS="${STEP_MOCK_MTLS:-false}"
+
+if [[ "${MOCK_MTLS}" == "true" ]] || [[ -f "/etc/gdc/mock-mtls" ]]; then
+    echo "WARN: Development mode enabled. Bypassing step-cli and TPM attestation."
+    echo "[*] Generating self-signed mock certificates..."
+    
+    # Generate an ephemeral mock certificate using node_mac as the Common Name
+    MOCK_HOSTNAME="${STEP_MOCK_HOSTNAME:-gdc-mock-node}"
+    openssl req -x509 -newkey rsa:2048 -keyout "${CLIENT_KEY}" -out "${CLIENT_CRT}" \
+        -days 365 -nodes -subj "/CN=${MOCK_HOSTNAME}" 2>/dev/null
+        
+    chmod 0600 "${CLIENT_KEY}"
+    chmod 0644 "${CLIENT_CRT}"
+    chown root:root "${CLIENT_KEY}" "${CLIENT_CRT}"
+    
+    echo "PASS: Mock certificates generated successfully at ${CERT_DIR}."
+    exit 0
+fi
+
 # Ensure step-cli is available
+
 if ! command -v step &> /dev/null; then
     echo "FAIL: step-cli binary not found in PATH."
     exit 1
