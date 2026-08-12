@@ -1,0 +1,15 @@
+{
+  "hostname": "gdc-mock-node",
+  "network": {
+    "management_network": {
+      "dhcp_v4": true
+    },
+    "cluster_network": {
+      "vlan_id": 9,
+      "ip_cidr": "192.168.9.10/24",
+      "gateway": "192.168.9.1",
+      "dns": ["192.168.254.13", "192.168.9.1", "8.8.8.8", "8.8.4.4"]
+    }
+  },
+  "peers": []
+}
