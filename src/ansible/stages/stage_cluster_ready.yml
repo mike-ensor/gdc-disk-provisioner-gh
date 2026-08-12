@@ -10,9 +10,10 @@
     mode: '0644'
     content: |
       {
-        "stage": "cluster-ready",
-        "status": "completed",
-        "timestamp": "{{ ansible_date_time.iso8601 }}"
+        "stage": "CLUSTER_READY",
+        "status": "COMPLETED",
+        "timestamp": "{{ ansible_date_time.iso8601 }}",
+        "evidence": {{ cluster_ready_evidence | to_json }}
       }
 
 - name: "GDC-STATE | Update ClusterReady fact in-memory"

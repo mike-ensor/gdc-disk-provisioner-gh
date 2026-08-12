@@ -206,9 +206,10 @@
             mode: '0644'
             content: |
               {
-                "stage": "cluster-ready",
-                "status": "{{ 'in_progress' if is_waiting else 'failed' }}",
-                "timestamp": "{{ ansible_date_time.iso8601 }}"
+                "stage": "CLUSTER_READY",
+                "status": "{{ 'IN_PROGRESS' if is_waiting else 'FAILED' }}",
+                "timestamp": "{{ ansible_date_time.iso8601 }}",
+                "evidence": {{ cluster_ready_evidence | default({}) | to_json }}
               }
 
         - name: "GDC-STATE | Fail the play on ClusterReady Configuration"

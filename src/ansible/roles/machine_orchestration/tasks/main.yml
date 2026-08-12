@@ -223,6 +223,48 @@
     group: root
     mode: '0755'
 
+- name: "GDC-EVIDENCE | Stat mTLS Client Certificate"
+  ansible.builtin.stat:
+    path: /var/gdc-install/keys/client.crt
+  register: cert_stat_ev
+
+- name: "GDC-EVIDENCE | Stat mTLS Client Key"
+  ansible.builtin.stat:
+    path: /var/gdc-install/keys/client.key
+  register: key_stat_ev
+
+- name: "GDC-EVIDENCE | Extract Subject CN"
+  ansible.builtin.shell: |
+    openssl x509 -in /var/gdc-install/keys/client.crt -noout -subject | sed -n 's/.*CN = \([^,]*\).*/\1/p' | xargs
+  register: subject_cn_output
+  changed_when: false
+  ignore_errors: true
+  when: cert_stat_ev.stat.exists
+
+- name: "GDC-EVIDENCE | Extract Issuer CN"
+  ansible.builtin.shell: |
+    openssl x509 -in /var/gdc-install/keys/client.crt -noout -issuer | sed -n 's/.*CN = \([^,]*\).*/\1/p' | xargs
+  register: issuer_cn_output
+  changed_when: false
+  ignore_errors: true
+  when: cert_stat_ev.stat.exists
+
+- name: "GDC-EVIDENCE | Structure Evidence Facts"
+  ansible.builtin.set_fact:
+    cluster_ready_evidence:
+      mtls_checks:
+        cert_exists: "{{ cert_stat_ev.stat.exists | bool }}"
+        cert_permissions: "{{ cert_stat_ev.stat.mode | default('') }}"
+        key_exists: "{{ key_stat_ev.stat.exists | bool }}"
+        key_permissions: "{{ key_stat_ev.stat.mode | default('') }}"
+        subject_cn: "{{ subject_cn_output.stdout | default('') }}"
+        issuer_cn: "{{ issuer_cn_output.stdout | default('') }}"
+      token_broker:
+        companion_reachable: "{{ companion_token_response.status | default(0) | int > 0 }}"
+        http_status: "{{ companion_token_response.status | default(0) | int }}"
+        token_fetched: "{{ companion_token_response.status | default(0) | int == 200 }}"
+        token_type: "Bearer"
+
 - name: "GDC-ORCH | Verify peer hostname resolution"
   ansible.builtin.command:
     cmd: "getent hosts {{ item.hostname }}"
