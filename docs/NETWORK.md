@@ -113,14 +113,14 @@ The build pipeline injects these parameters dynamically into the cloud-init netw
 
 | Parameter | Build Variable | Default Value | Scoped Routing Domain |
 | :--- | :--- | :--- | :--- |
-| **Machine IP / Subnet** | `MACHINE_IP_CIDR` | `192.168.10.5/24` | `vrf-machine` (Table 10) |
-| **Machine Gateway** | `MACHINE_GATEWAY` | `192.168.10.1` | `vrf-machine` (Table 10) |
-| **Machine VLAN ID** | `MACHINE_VLAN_ID` | `10` | Physical 802.1Q tag |
-| **Machine DNS** | `MACHINE_DNS` | `8.8.8.8, 8.8.4.4` | `vrf-machine` (Table 10) |
-| **Kubernetes IP / Subnet** | `K8S_IP_CIDR` | `192.168.20.5/24` | `vrf-k8s` (Table 20) |
-| **Kubernetes Gateway** | `K8S_GATEWAY` | `192.168.20.1` | `vrf-k8s` (Table 20) |
-| **Kubernetes VLAN ID** | `K8S_VLAN_ID` | `20` | Physical 802.1Q tag |
-| **Kubernetes DNS** | `K8S_DNS` | `1.1.1.1` | `vrf-k8s` (Table 20) |
+| **Machine IP / Subnet** | `BOOTSTRAP_MACHINE_IP_CIDR` | `192.168.10.5/24` | `vrf-machine` (Table 10) |
+| **Machine Gateway** | `BOOTSTRAP_MACHINE_GATEWAY` | `192.168.10.1` | `vrf-machine` (Table 10) |
+| **Machine VLAN ID** | `BOOTSTRAP_MACHINE_VLAN_ID` | `10` | Physical 802.1Q tag |
+| **Machine DNS** | `BOOTSTRAP_MACHINE_DNS` | `8.8.8.8, 8.8.4.4` | `vrf-machine` (Table 10) |
+| **Kubernetes IP / Subnet** | `BOOTSTRAP_K8S_IP_CIDR` | `192.168.20.5/24` | `vrf-k8s` (Table 20) |
+| **Kubernetes Gateway** | `BOOTSTRAP_K8S_GATEWAY` | `192.168.20.1` | `vrf-k8s` (Table 20) |
+| **Kubernetes VLAN ID** | `BOOTSTRAP_K8S_VLAN_ID` | `20` | Physical 802.1Q tag |
+| **Kubernetes DNS** | `BOOTSTRAP_K8S_DNS` | `1.1.1.1` | `vrf-k8s` (Table 20) |
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: gdc-grub-recovery
-description: Recover GDC nodes stuck in a `grub>` command-line shell or experiencing EFI boot sector corruption. Use when a node is stuck in the GRUB prompt and cannot load the kernel or grub.cfg automatically.
+description: Recover post-deployment GDC nodes stuck in a `grub>` command-line shell or experiencing EFI boot sector corruption. Use when a deployed node is stuck in the GRUB prompt and cannot load the kernel or grub.cfg automatically.
 ---
 
 # Skill: gdc-grub-recovery

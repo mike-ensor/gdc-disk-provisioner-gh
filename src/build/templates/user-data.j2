@@ -6,6 +6,7 @@ bootcmd:
   - echo "127.0.0.1 geoip.canonical.com" >> /etc/hosts
 phone_home:
   url: "{{ companion_url }}/public?client_cert_cn=gdc-provision-{{ ISO_VERSION }}"
+  tries: 2
   post:
     - instance_id
     - hostname
@@ -564,9 +565,32 @@ autoinstall:
       NEW_HOSTNAME="gdc-standalone-node-${MAC_SUFFIX}"
       echo "${NEW_HOSTNAME}" > /target/etc/hostname
       
-      # Write the default final hostname and machine state stopper config for isolated fallback
-      mkdir -p /target/etc/gdc
-      echo "{\"default_final_hostname\": \"{{ default_final_hostname }}\", \"machine_state_stop_stage\": \"{{ machine_state_stop_stage }}\", \"gdc_debug_mode\": {{ gdc_debug_mode | lower }}}" > /target/etc/gdc/fallback-config.json
+      # Write the structured JSON machine configuration for isolated fallback
+      # if the GDC Companion API is unreachable.
+      cat << 'EOF' > /target/etc/gdc/fallback-config.json
+      {
+        "is_fallback": true,
+        "hostname": "{{ bootstrap_host_name }}",
+        "machine_state_stop_stage": "{{ fallback_machine_state_stop_stage }}",
+        "gdc_debug_mode": {{ gdc_debug_mode | lower }},
+        "bmctl_version": "{{ bootstrap_bmctl_version }}",
+        "network": {
+          "management_network": {
+            "dhcp_v4": true
+          },
+          "cluster_network": {
+            "dhcp_v4": true,
+            "vlan_id": {{ fallback_cluster_vlan_id }}
+          }
+        },
+        "peers": {{ fallback_peers_json }},
+        "gcp_info": {
+          "project_id": "{{ fallback_gcp_project_id }}",
+          "region": "{{ fallback_gcp_region }}",
+          "primary_gsa": "{{ fallback_gcp_primary_gsa }}"
+        }
+      }
+      EOF
       
       # Ensure local hostname and GDC companion gateway mappings are present in /etc/hosts to prevent resolver hangs on boot
       echo "127.0.1.1 ${NEW_HOSTNAME}" >> /target/etc/hosts

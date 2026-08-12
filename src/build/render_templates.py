@@ -160,10 +160,10 @@ if __name__ == "__main__":
         'ISO_NAME_PREFIX',
         'TEMPORARY_INSTALLER_PASSWORD',
         'UPSTREAM_PLAYBOOKS_REPO',
-        'MACHINE_IP_CIDR',
-        'MACHINE_GATEWAY',
-        'K8S_IP_CIDR',
-        'K8S_GATEWAY',
+        'BOOTSTRAP_MACHINE_IP_CIDR',
+        'BOOTSTRAP_MACHINE_GATEWAY',
+        'BOOTSTRAP_K8S_IP_CIDR',
+        'BOOTSTRAP_K8S_GATEWAY',
         'INSTALL_COMPANION_URL',
         'GITEA_BINARY_FILENAME',
         'NEXUS_PACKAGE_FILENAME',
@@ -234,18 +234,24 @@ if __name__ == "__main__":
     
     # Generate IP-based report URL to bypass early boot-time DNS resolutions
     env['companion_report_url'] = env['companion_url'].replace(env['companion_host'], env['companion_ip'])
-    env['machine_vlan'] = env.get('MACHINE_VLAN_ID', '0')
-    env['k8s_vlan'] = env.get('K8S_VLAN_ID', '0')
-    env['machine_dhcp4'] = env.get('MACHINE_DHCP4', 'true').lower()
-    env['machine_dhcp6'] = env.get('MACHINE_DHCP6', 'false').lower()
-    env['machine_ip_cidr'] = env.get('MACHINE_IP_CIDR', '192.168.9.5/29')
-    env['machine_gateway'] = env.get('MACHINE_GATEWAY', '192.168.9.1')
-    env['machine_dns'] = env.get('MACHINE_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')
-    env['k8s_ip_cidr'] = env.get('K8S_IP_CIDR', '192.168.9.10/29')
-    env['k8s_gateway'] = env.get('K8S_GATEWAY', '192.168.9.9')
-    env['k8s_dns'] = env.get('K8S_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')
-    env['default_final_hostname'] = env.get('DEFAULT_FINAL_HOSTNAME', 'gdc-default')
-    env['machine_state_stop_stage'] = env.get('MACHINE_STATE_STOP_STAGE', '')
+    env['machine_vlan'] = env.get('BOOTSTRAP_MACHINE_VLAN_ID', '0')
+    env['k8s_vlan'] = env.get('BOOTSTRAP_K8S_VLAN_ID', '0')
+    env['machine_dhcp4'] = env.get('BOOTSTRAP_MACHINE_DHCP4', 'true').lower()
+    env['machine_dhcp6'] = env.get('BOOTSTRAP_MACHINE_DHCP6', 'false').lower()
+    env['machine_ip_cidr'] = env.get('BOOTSTRAP_MACHINE_IP_CIDR', '192.168.9.5/29')
+    env['machine_gateway'] = env.get('BOOTSTRAP_MACHINE_GATEWAY', '192.168.9.1')
+    env['machine_dns'] = env.get('BOOTSTRAP_MACHINE_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')
+    env['k8s_ip_cidr'] = env.get('BOOTSTRAP_K8S_IP_CIDR', '192.168.9.10/29')
+    env['k8s_gateway'] = env.get('BOOTSTRAP_K8S_GATEWAY', '192.168.9.9')
+    env['k8s_dns'] = env.get('BOOTSTRAP_K8S_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')
+    env['bootstrap_host_name'] = env.get('BOOTSTRAP_HOST_NAME', 'gdc-default')
+    env['fallback_machine_state_stop_stage'] = env.get('FALLBACK_MACHINE_STATE_STOP_STAGE', '')
+    env['bootstrap_bmctl_version'] = env.get('BOOTSTRAP_BMCTL_VERSION', '1.35.300-gke.87')
+    env['fallback_cluster_vlan_id'] = env.get('FALLBACK_CLUSTER_VLAN_ID', '100')
+    env['fallback_peers_json'] = env.get('FALLBACK_PEERS_JSON', '[]')
+    env['fallback_gcp_project_id'] = env.get('FALLBACK_GCP_PROJECT_ID', '')
+    env['fallback_gcp_region'] = env.get('FALLBACK_GCP_REGION', '')
+    env['fallback_gcp_primary_gsa'] = env.get('FALLBACK_GCP_PRIMARY_GSA', '')
     env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
     env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
     

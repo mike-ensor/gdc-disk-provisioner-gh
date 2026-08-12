@@ -83,25 +83,7 @@
 
 - name: "GDC-ORCH | Set fallback machine-info configuration if API failed and no mock exists"
   ansible.builtin.set_fact:
-    machine_config:
-      is_fallback: true
-      hostname: "{{ (slurped_fallback_config.content | b64decode | from_json).default_final_hostname if (slurped_fallback_config is defined and slurped_fallback_config.content is defined) else 'gdc-default' }}"
-      bmctl_version: "1.35.300-gke.87"
-      network:
-        management_network:
-          dhcp_v4: true
-        cluster_network:
-          dhcp_v4: true
-          vlan_id: 100
-      peers: 
-        - hostname: "gdc-example-2"
-          ipv4: "192.168.100.12"
-        - hostname: "gdc-example-3"
-          ipv4: "192.168.100.13"
-      gcp_info:
-        project_id: "gdc-example-project"
-        region: "us-central1"
-        primary_gsa: "gsa-example@gdc-example-project.iam.gserviceaccount.com"
+    machine_config: "{{ slurped_fallback_config.content | b64decode | from_json }}"
   when: machine_config is not defined or machine_config == {} or 'error' in machine_config or 'hostname' not in machine_config
 
 

@@ -150,3 +150,20 @@ Gitea and Nexus act as the local boundary endpoints for the target node. Operato
 ### Required External Dependencies
 * **Smallstep CA (`step-ca`):** The zero-touch hardware attestation workflow absolutely requires a centralized `step-ca` server to be reachable by the bare-metal nodes during first boot. Google Cloud CAS and Certbot are explicitly unsupported for TPM hardware attestation in this architecture. By default, the nodes will attempt to communicate with `https://step-ca.ensor-labs.com`.
 * **Bootimus PXE Server (Highly Recommended):** If you are actively developing the custom ISO or require automated bare-metal PXE ingestion, a running Bootimus instance is required. The `bootimus.py` build script enforces synchronous non-interactive parameter locking across the Bootimus API.
+
+---
+
+## 🛑 Air-Gapped / Fallback Scenarios (No GDC Companion)
+If the provisioning node cannot reach the GDC Companion (e.g., an entirely offline air-gapped deployment, or a network failure), the node falls back to a predefined offline configuration.
+
+This configuration is defined through environment variables in `src/build/build.env` (or overridden in `local.env`). See the **GDC COMPANION FALLBACK CONFIGURATION** group in `src/build/build.env`:
+*   `BOOTSTRAP_HOST_NAME`
+*   `FALLBACK_MACHINE_STATE_STOP_STAGE`
+*   `BOOTSTRAP_BMCTL_VERSION`
+*   `FALLBACK_CLUSTER_VLAN_ID`
+*   `FALLBACK_PEERS_JSON`
+*   `FALLBACK_GCP_PROJECT_ID`
+*   `FALLBACK_GCP_REGION`
+*   `FALLBACK_GCP_PRIMARY_GSA`
+
+During the ISO build process, these variables are baked into `/target/etc/gdc/fallback-config.json`. If Ansible fails to receive a configuration from the GDC Companion, it parses this fallback JSON file and continues configuring the machine.

@@ -109,16 +109,16 @@ chmod +x "${EXTRACT_DIR}/custom-data/gitea/gitea"
 echo "[-] Copying pre-verified Google Cloud SDK tarball..."
 cp "${BIN_CACHE_DIR}/${GCLOUD_SDK_FILENAME}" "${EXTRACT_DIR}/custom-data/tools/google-cloud-cli-linux-x86_64.tar.gz"
 
-echo "[-] Fetching bmctl and nodeagentd version ${BMCTL_VERSION}..."
+echo "[-] Fetching bmctl and nodeagentd version ${BOOTSTRAP_BMCTL_VERSION}..."
 mkdir -p "${EXTRACT_DIR}/custom-data/tools/bmctl"
 mkdir -p "${EXTRACT_DIR}/custom-data/tools/node-agent"
-if ! gcloud storage cp "gs://anthos-baremetal-release/bmctl/${BMCTL_VERSION}/linux-amd64/bmctl" "${EXTRACT_DIR}/custom-data/tools/bmctl/bmctl" --project="${PROJECT_ID}"; then
+if ! gcloud storage cp "gs://anthos-baremetal-release/bmctl/${BOOTSTRAP_BMCTL_VERSION}/linux-amd64/bmctl" "${EXTRACT_DIR}/custom-data/tools/bmctl/bmctl" --project="${PROJECT_ID}"; then
     echo "[!] Failed to download bmctl from GCS. Attempting public HTTPS fallback..."
-    curl -L "https://storage.googleapis.com/anthos-baremetal-release/bmctl/${BMCTL_VERSION}/linux-amd64/bmctl" -o "${EXTRACT_DIR}/custom-data/tools/bmctl/bmctl"
+    curl -L "https://storage.googleapis.com/anthos-baremetal-release/bmctl/${BOOTSTRAP_BMCTL_VERSION}/linux-amd64/bmctl" -o "${EXTRACT_DIR}/custom-data/tools/bmctl/bmctl"
 fi
-if ! gcloud storage cp "gs://anthos-baremetal-release/bmctl/${BMCTL_VERSION}/linux-amd64/nodeagentd" "${EXTRACT_DIR}/custom-data/tools/node-agent/nodeagentd" --project="${PROJECT_ID}"; then
+if ! gcloud storage cp "gs://anthos-baremetal-release/bmctl/${BOOTSTRAP_BMCTL_VERSION}/linux-amd64/nodeagentd" "${EXTRACT_DIR}/custom-data/tools/node-agent/nodeagentd" --project="${PROJECT_ID}"; then
     echo "[!] Failed to download nodeagentd from GCS. Attempting public HTTPS fallback..."
-    curl -L "https://storage.googleapis.com/anthos-baremetal-release/bmctl/${BMCTL_VERSION}/linux-amd64/nodeagentd" -o "${EXTRACT_DIR}/custom-data/tools/node-agent/nodeagentd"
+    curl -L "https://storage.googleapis.com/anthos-baremetal-release/bmctl/${BOOTSTRAP_BMCTL_VERSION}/linux-amd64/nodeagentd" -o "${EXTRACT_DIR}/custom-data/tools/node-agent/nodeagentd"
 fi
 chmod +x "${EXTRACT_DIR}/custom-data/tools/bmctl/bmctl"
 chmod +x "${EXTRACT_DIR}/custom-data/tools/node-agent/nodeagentd"

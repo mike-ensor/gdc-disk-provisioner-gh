@@ -6,6 +6,17 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 
 
+## [0.3.19] - 2026-08-12
+
+### Added
+- **Explicit Cloud-Init Phone Home Timeout Retry Limit:** Added an explicit `tries: 2` limit to the Subiquity `phone_home` module inside `user-data.j2`. This prevents the 23-minute hang where Cloud-Init falls back to a default of 10 TCP connection timeouts (~135s each) when the GDC Companion is unreachable, which otherwise crashes the installer into interactive mode.
+
+### Changed
+- **Centralized GDC Companion Fallback Environments:** Completely decoupled Ansible roles from hardcoded fallback variables. Replaced all occurrences of `DEFAULT_FINAL_HOSTNAME` and `BMCTL_VERSION` with a clean `BOOTSTRAP_*` namespace (`BOOTSTRAP_HOST_NAME`, `BOOTSTRAP_BMCTL_VERSION`) and relocated target OS offline variables into a centralized `FALLBACK_*` group in `build.env`.
+- **Expanded Fallback Cloud-Init Payload:** Modified `user-data.j2` to generate a fully-structured JSON payload at `/target/etc/gdc/fallback-config.json` containing complete network, peer, and GCP variables, giving the target OS a robust offline bootstrapping path when the Companion API fails.
+- **Renamed LiveCD Network Variables (`BOOTSTRAP_*`):** Renamed all `MACHINE_*` and `K8S_*` L3 network variables in `build.env` to the `BOOTSTRAP_*` namespace to semantically isolate LiveCD boot parameters from Target OS configuration variables.
+
+
 ## [0.3.14] - 2026-08-11
 
 ### Added

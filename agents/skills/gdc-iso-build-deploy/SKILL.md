@@ -1,6 +1,6 @@
 ---
 name: gdc-iso-build-deploy
-description: Build, remaster, validate, and deploy GDC custom bootstrap ISOs. Use when compiling ISOs, running remaster pipelines, deploying release images to PXE/Bootimus, or troubleshooting installer boot loops, TPM enrollment, and partition failures.
+description: Build, remaster, validate, and deploy GDC custom bootstrap ISOs. Use when the user asks to "build a new ISO", "build a new ISO version", compile ISOs, run remaster pipelines, deploy release images to PXE/Bootimus, or troubleshoot installer boot loops, TPM enrollment, and partition failures.
 dependencies: []
 ---
 
@@ -82,5 +82,15 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
   - **GDC Companion Live Telemetry Logs:** Direct HTTPS link.
 
 ### State 7: Download and share the Build Report in GDC Companion
-- [ ] Download the build-report from the GCS bucket folder `gs://${GCS_BUCKET_NAME}/reports/build-reports/build-report-v${ISO_VERSION}.json` or `.md`.
-- [ ] Push the build report to the GDC Companion app 
+- [ ] Download the build-report from the GCS bucket folder `gs://${GCS_BUCKET_NAME}/reports/build-reports/build-report-v${ISO_VERSION}.json` or `.md`. to ./build-workspace/output/build-report-{{ISO_VERSION}}.json
+- [ ] **Upload** to the gdc-companion service using the following pattern. Expect to see an HTTP 200
+  ```shell
+  curl -X POST http://{{gdc-companion}}/v1/build-reports/ingest \
+  -F "file=@path/to/build-report-gdc-{{ISO_VERSION}}.json"
+
+  # Response
+  `{
+  "status": "ingested",
+  "id": "gdc-v1.2.0"
+  }`
+  ```
