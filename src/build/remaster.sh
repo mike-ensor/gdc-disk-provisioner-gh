@@ -194,6 +194,9 @@ EOF
 # ==========================================
 if [[ -n "${MOCK_GDC_COMPANION_DATA:-}" ]]; then
     MOCK_SOURCE_FILE="${PROJECT_ROOT}/custom-data/machine-info-mock-${MOCK_GDC_COMPANION_DATA}.json"
+    MOCK_CRT="${PROJECT_ROOT}/custom-data/mock-client.crt"
+    MOCK_KEY="${PROJECT_ROOT}/custom-data/mock-client.key"
+    
     echo "[-] Development Override: MOCK_GDC_COMPANION_DATA is set to '${MOCK_GDC_COMPANION_DATA}'"
     
     if [[ ! -f "${MOCK_SOURCE_FILE}" ]]; then
@@ -204,11 +207,22 @@ if [[ -n "${MOCK_GDC_COMPANION_DATA:-}" ]]; then
         mkdir -p "${EXTRACT_DIR}/custom-data/gdc"
         cp "${MOCK_SOURCE_FILE}" "${EXTRACT_DIR}/custom-data/gdc/machine-info-mock.json"
         
+        # Also inject mock certificates if they exist
+        if [[ -f "${MOCK_CRT}" ]] && [[ -f "${MOCK_KEY}" ]]; then
+            echo "[-] Found mock client certificates. Injecting..."
+            cp "${MOCK_CRT}" "${EXTRACT_DIR}/custom-data/gdc/mock-client.crt"
+            cp "${MOCK_KEY}" "${EXTRACT_DIR}/custom-data/gdc/mock-client.key"
+        fi
+        
         # Add early-command to copy it from custom-data to the target filesystem before Ansible runs
         cat << 'EARLY_EOF' > "${EXTRACT_DIR}/custom-data/gdc/inject-mock.sh"
 #!/bin/bash
 mkdir -p /target/etc/gdc
 cp /cdrom/custom-data/gdc/machine-info-mock.json /target/etc/gdc/machine-info-mock.json
+if [ -f /cdrom/custom-data/gdc/mock-client.crt ]; then
+    cp /cdrom/custom-data/gdc/mock-client.crt /target/etc/gdc/mock-client.crt
+    cp /cdrom/custom-data/gdc/mock-client.key /target/etc/gdc/mock-client.key
+fi
 EARLY_EOF
         chmod +x "${EXTRACT_DIR}/custom-data/gdc/inject-mock.sh"
     fi

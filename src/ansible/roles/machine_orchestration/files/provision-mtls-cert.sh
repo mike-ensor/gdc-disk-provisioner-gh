@@ -30,18 +30,24 @@ MOCK_MTLS="${STEP_MOCK_MTLS:-false}"
 
 if [[ "${MOCK_MTLS}" == "true" ]] || [[ -f "/etc/gdc/mock-mtls" ]]; then
     echo "WARN: Development mode enabled. Bypassing step-cli and TPM attestation."
-    echo "[*] Generating self-signed mock certificates..."
     
-    # Generate an ephemeral mock certificate using node_mac as the Common Name
-    MOCK_HOSTNAME="${STEP_MOCK_HOSTNAME:-gdc-mock-node}"
-    openssl req -x509 -newkey rsa:2048 -keyout "${CLIENT_KEY}" -out "${CLIENT_CRT}" \
-        -days 365 -nodes -subj "/CN=${MOCK_HOSTNAME}" 2>/dev/null
+    if [[ -f "/etc/gdc/mock-client.crt" ]] && [[ -f "/etc/gdc/mock-client.key" ]]; then
+        echo "[*] Found pre-injected mock certificates. Copying to ${CERT_DIR}..."
+        cp "/etc/gdc/mock-client.crt" "${CLIENT_CRT}"
+        cp "/etc/gdc/mock-client.key" "${CLIENT_KEY}"
+    else
+        echo "[*] Generating self-signed mock certificates..."
+        # Generate an ephemeral mock certificate using node_mac as the Common Name
+        MOCK_HOSTNAME="${STEP_MOCK_HOSTNAME:-gdc-mock-node}"
+        openssl req -x509 -newkey rsa:2048 -keyout "${CLIENT_KEY}" -out "${CLIENT_CRT}" \
+            -days 365 -nodes -subj "/CN=${MOCK_HOSTNAME}" 2>/dev/null
+    fi
         
     chmod 0600 "${CLIENT_KEY}"
     chmod 0644 "${CLIENT_CRT}"
     chown root:root "${CLIENT_KEY}" "${CLIENT_CRT}"
     
-    echo "PASS: Mock certificates generated successfully at ${CERT_DIR}."
+    echo "PASS: Mock certificates generated/copied successfully at ${CERT_DIR}."
     exit 0
 fi
 
