@@ -59,17 +59,20 @@ if [[ -z "${NODE_MAC}" ]]; then
 fi
 
 echo "[*] Bootstrapping trust with step-ca at ${CA_URL}..."
+EXTRA_ARGS=""
 if [[ -n "${CA_FINGERPRINT}" ]]; then
     step ca bootstrap --ca-url="${CA_URL}" --fingerprint="${CA_FINGERPRINT}" --force
 else
     echo "WARN: No CA fingerprint provided. Executing insecure TOFU by downloading root CA..."
     # Download the root CA certificate securely-bypassed for lab use
-    curl -sk "${CA_URL}/roots.pem" -o "${CERT_DIR}/root_ca.crt"
+    curl -sk "${CA_URL}/roots.pem" -o "${CERT_DIR}/root_ca.crt" || true
     if [[ ! -s "${CERT_DIR}/root_ca.crt" ]]; then
         echo "FAIL: Could not download root CA certificate from ${CA_URL}/roots.pem"
-        exit 1
+        # We don't exit here, we'll let step ca certificate fail naturally if it can't reach the CA
+    else
+        # We skip bootstrap and just pass the root directly to the certificate request
+        EXTRA_ARGS="--ca-url=${CA_URL} --root=${CERT_DIR}/root_ca.crt"
     fi
-    step ca bootstrap --ca-url="${CA_URL}" --root="${CERT_DIR}/root_ca.crt" --install --force
 fi
 
 echo "[*] Requesting TPM-attested certificate for identity: ${NODE_MAC}..."
@@ -77,7 +80,7 @@ echo "[*] Requesting TPM-attested certificate for identity: ${NODE_MAC}..."
 step ca certificate "${NODE_MAC}" "${CLIENT_CRT}" "${CLIENT_KEY}" \
     --provisioner="${PROVISIONER_NAME}" \
     --kms="tpmkms:" \
-    --force
+    --force ${EXTRA_ARGS}
 
 # Enforce strict permissions
 chmod 0600 "${CLIENT_KEY}"
