@@ -137,3 +137,10 @@ gdc_unattended_blacklist:
 # Toggle to deactivate standard public Ubuntu apt repositories
 # (set to false for connected testing/development, true for strict air-gapped production)
 deactivate_public_sources: true
+
+# ==============================================================================
+# GDC Companion Global Variables (Hydrated at Build Time)
+# ==============================================================================
+gdc_companion_base_url: "{{ install_companion_base }}"
+gdc_companion_api_key: "{{ install_companion_api_key }}"
+gdc_companion_ingest_url: "{{ companion_url }}"

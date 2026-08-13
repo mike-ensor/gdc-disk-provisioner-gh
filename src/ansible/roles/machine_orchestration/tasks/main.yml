@@ -43,10 +43,10 @@
 
 - name: "GDC-ORCH | Fetch machine-info configuration from GDC Companion"
   ansible.builtin.uri:
-    url: "https://gdc-companion.ensor-labs.com/v1/machine-info/{{ node_mac }}"
+    url: "{{ gdc_companion_base_url }}v1/machine-info/{{ node_mac }}"
     method: GET
     headers:
-      Authorization: "Bearer AOgIcFproZQpYgaqDJrsUOD1MfhxwFqBANp2JumB5wM="
+      Authorization: "Bearer {{ gdc_companion_api_key }}"
     client_cert: "{{ '/var/gdc-install/keys/client.crt' if client_cert_stat.stat.exists else omit }}"
     client_key: "{{ '/var/gdc-install/keys/client.key' if client_cert_stat.stat.exists else omit }}"
     status_code: 200
@@ -113,10 +113,10 @@
 
 - name: "GDC-ORCH | Fetch short-lived GCP token from GDC Companion"
   ansible.builtin.uri:
-    url: "https://gdc-companion.ensor-labs.com/v1/machine-credentials/gcp-token/{{ node_mac }}"
+    url: "{{ gdc_companion_base_url }}v1/machine-credentials/gcp-token/{{ node_mac }}"
     method: GET
     headers:
-      Authorization: "Bearer AOgIcFproZQpYgaqDJrsUOD1MfhxwFqBANp2JumB5wM="
+      Authorization: "Bearer {{ gdc_companion_api_key }}"
     client_cert: "{{ '/var/gdc-install/keys/client.crt' if client_cert_stat.stat.exists else omit }}"
     client_key: "{{ '/var/gdc-install/keys/client.key' if client_cert_stat.stat.exists else omit }}"
     status_code: 200

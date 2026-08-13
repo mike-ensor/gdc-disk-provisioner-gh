@@ -111,7 +111,15 @@ def render_templates(template_dir, output_dir, env):
     timer_template = jinja_env.get_template('gdc-provision.timer.j2')
     with open(os.path.join(systemd_dir, 'gdc-provision.timer'), 'w') as f:
         f.write(timer_template.render(env))
-        
+
+    # Render Ansible Global Vars
+    ansible_vars_dir = os.path.join(output_dir, 'custom-data', 'ansible', 'vars')
+    os.makedirs(ansible_vars_dir, exist_ok=True)
+    ansible_env = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "ansible", "vars")))
+    all_yml_template = ansible_env.get_template('all.yml.j2')
+    with open(os.path.join(ansible_vars_dir, 'all.yml'), 'w') as f:
+        f.write(all_yml_template.render(env))
+
     # Write the patched unattended GRUB configuration during hydration to satisfy static validation gates
     grub_dir = os.path.join(output_dir, "boot", "grub")
     os.makedirs(grub_dir, exist_ok=True)
@@ -217,6 +225,8 @@ if __name__ == "__main__":
     env['add_hosts_lines'] = add_hosts_lines
 
     env['companion_url'] = env.get('INSTALL_COMPANION_URL', 'http://127.0.0.1:8080/v1/install-logs')
+    env['install_companion_base'] = env.get('INSTALL_COMPANION_BASE', 'https://127.0.0.1/')
+    env['install_companion_api_key'] = env.get('INSTALL_COMPANION_API_KEY', '')
     from urllib.parse import urlparse
     u = urlparse(env['companion_url'])
     env['companion_host'] = env.get('COMPANION_HOST', u.netloc)

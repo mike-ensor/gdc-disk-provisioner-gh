@@ -57,9 +57,9 @@
         - name: "GDC-STATE | Trigger Post-Stage 2 Diagnostic Collection"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --stage first-boot --companion-url="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+              /usr/local/bin/gdc-collector --stage first-boot --companion-url="{{ gdc_companion_ingest_url }}"
             elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
-              "{{ playbook_dir }}/../../bin/gdc-collector" --stage first-boot --companion-url="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+              "{{ playbook_dir }}/../../bin/gdc-collector" --stage first-boot --companion-url="{{ gdc_companion_ingest_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -71,7 +71,7 @@
         - name: "SECOND_BOOT | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_ingest_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -113,9 +113,9 @@
         - name: "GDC-STATE | Trigger Post-Stage 3 Diagnostic Collection"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --stage second-boot --companion-url="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+              /usr/local/bin/gdc-collector --stage second-boot --companion-url="{{ gdc_companion_ingest_url }}"
             elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
-              "{{ playbook_dir }}/../../bin/gdc-collector" --stage second-boot --companion-url="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+              "{{ playbook_dir }}/../../bin/gdc-collector" --stage second-boot --companion-url="{{ gdc_companion_ingest_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -129,7 +129,7 @@
         - name: "LINUX_READY | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_ingest_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -171,9 +171,9 @@
         - name: "GDC-STATE | Trigger Post-Stage 4 Diagnostic Collection"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --stage linux-ready --companion-url="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+              /usr/local/bin/gdc-collector --stage linux-ready --companion-url="{{ gdc_companion_ingest_url }}"
             elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
-              "{{ playbook_dir }}/../../bin/gdc-collector" --stage linux-ready --companion-url="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+              "{{ playbook_dir }}/../../bin/gdc-collector" --stage linux-ready --companion-url="{{ gdc_companion_ingest_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -187,7 +187,7 @@
         - name: "CLUSTER_READY | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_ingest_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -239,9 +239,9 @@
         - name: "GDC-STATE | Trigger Post-Stage 5 Diagnostic Collection"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --stage cluster-ready --companion-url="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+              /usr/local/bin/gdc-collector --stage cluster-ready --companion-url="{{ gdc_companion_ingest_url }}"
             elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
-              "{{ playbook_dir }}/../../bin/gdc-collector" --stage cluster-ready --companion-url="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+              "{{ playbook_dir }}/../../bin/gdc-collector" --stage cluster-ready --companion-url="{{ gdc_companion_ingest_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -256,7 +256,7 @@
         - name: Always execute diagnostics and upload telemetry
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="http://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_ingest_url }}"
             else
               echo "[!] Diagnostics collector script /usr/local/bin/gdc-collector not found or not executable!" >&2
               exit 1
