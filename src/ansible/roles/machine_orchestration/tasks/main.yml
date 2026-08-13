@@ -31,9 +31,9 @@
 - name: "GDC-ORCH | Execute TPM mTLS Attestation (Zero-Touch Provisioning)"
   ansible.builtin.command: /usr/local/bin/provision-mtls-cert.sh
   environment:
-    STEP_CA_URL: "https://step-ca.ensor-labs.com"
+    STEP_CA_URL: "{{ gdc_step_ca_url }}"
     # Note: STEP_CA_FINGERPRINT is intentionally left blank here to rely on system trust or future injection
-    STEP_PROVISIONER_NAME: "tpm"
+    STEP_PROVISIONER_NAME: "{{ gdc_step_provisioner_name }}"
     STEP_MOCK_MTLS: "{{ 'true' if mock_file_stat.stat.exists else 'false' }}"
 
 - name: "GDC-ORCH | Check if mTLS client certs exist"

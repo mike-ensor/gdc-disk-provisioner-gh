@@ -98,7 +98,7 @@ def fetch_diagnostics_tarball(ip: str, download_url: str | None = None) -> str:
             reports = api_res.json()
             if reports and isinstance(reports, list):
                 latest_report = reports[0]
-                report_id = latest_report.get("report_id")
+                report_id = latest_report.get("id")
                 dl_url = f"https://gdc-companion.ensor-labs.com/?download=true&report_id={report_id}"
                 print(f"  [x] Found out-of-band diagnostic payload on Companion! Fetching: {dl_url}")
                 dl_res = requests.get(dl_url, timeout=10)
@@ -174,8 +174,13 @@ def extract_and_analyze_tarball(tarball_path: str) -> dict:
         return analysis
 
     # Parse report.json
-    json_path = os.path.join(extract_dir, "gdc-diagnostics/report.json")
-    if os.path.exists(json_path):
+    json_path = None
+    for root, dirs, files in os.walk(extract_dir):
+        if "report.json" in files:
+            json_path = os.path.join(root, "report.json")
+            break
+
+    if json_path and os.path.exists(json_path):
         try:
             with open(json_path, "r") as f:
                 data = json.load(f)
@@ -212,12 +217,27 @@ def extract_and_analyze_tarball(tarball_path: str) -> dict:
                                 "check_name": check_name,
                                 "instruction": check_info.get("remediation")
                             })
+
+                # NEW: Check for Ansible error_details natively caught by GDC state machine
+                for stage in data.get("machine_stages_progress", []) + data.get("bootstrap_stages_progress", []):
+                    if stage.get("status") == "FAILED" and stage.get("evidence") and "error_details" in stage["evidence"]:
+                        err = stage["evidence"]["error_details"]
+                        cmd = err.get("cmd", "Unknown Command")
+                        stderr = err.get("stderr", err.get("msg", "Unknown Error"))
+                        analysis["failures"].append(f"STAGE_FAILED: {stage.get('name')} | CMD: {cmd} | STDERR: {stderr}")
+                        analysis["log_evidence"][f"stage_{stage.get('stage_id', 'unknown').lower()}"] = f"Command: {cmd}\nExit Code: {err.get('rc')}\nStderr: {stderr}\nStdout: {err.get('stdout', '')}"
+
         except Exception as e:
             analysis["failures"].append(f"Failed to parse report.json: {e}")
 
     # Correlate Logs (TPM / VRF / Nexus concurrency / unmet dependencies)
-    logs_dir = os.path.join(extract_dir, "gdc-diagnostics/logs")
-    if os.path.exists(logs_dir):
+    logs_dir = None
+    for root, dirs, files in os.walk(extract_dir):
+        if os.path.basename(root) == "logs":
+            logs_dir = root
+            break
+
+    if logs_dir and os.path.exists(logs_dir):
         # 1. Ansible Pull failure checks
         pull_log = os.path.join(logs_dir, "gdc-ansible-pull.log")
         if os.path.exists(pull_log):
@@ -254,13 +274,18 @@ def extract_and_analyze_tarball(tarball_path: str) -> dict:
                     analysis["log_evidence"]["luks_failure"] = "Command: ['cryptsetup', 'open', '--type', 'luks', '/dev/nvme0n1p3', 'crypt-system', '--key-file', '/run/installer/gdc-luks-key']\nExit code: 2\nReason: -\nNo key available with this passphrase."
 
     # Auditing Security Access Profiles
-    configs_dir = os.path.join(extract_dir, "gdc-diagnostics/configs")
-    if os.path.exists(configs_dir):
+    configs_dir = None
+    for root, dirs, files in os.walk(extract_dir):
+        if os.path.basename(root) == "configs":
+            configs_dir = root
+            break
+
+    if configs_dir and os.path.exists(configs_dir):
         # Parse SSH Keys and user access configurations securely (Zero-Secrets)
         for user_folder in ["root", "temporary-installer", "gdc-admin"]:
-            keys_path = os.path.join(extract_dir, f"gdc-diagnostics/{user_folder}/.ssh/authorized_keys")
+            keys_path = os.path.join(configs_dir, f"{user_folder}/.ssh/authorized_keys")
             if not os.path.exists(keys_path):
-                keys_path = os.path.join(extract_dir, f"gdc-diagnostics/home/{user_folder}/.ssh/authorized_keys")
+                keys_path = os.path.join(configs_dir, f"home/{user_folder}/.ssh/authorized_keys")
             if os.path.exists(keys_path):
                 with open(keys_path, "r") as f:
                     for line in f:

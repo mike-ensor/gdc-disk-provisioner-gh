@@ -227,6 +227,8 @@ if __name__ == "__main__":
     env['companion_url'] = env.get('INSTALL_COMPANION_URL', 'http://127.0.0.1:8080/v1/install-logs')
     env['install_companion_base'] = env.get('INSTALL_COMPANION_BASE', 'https://127.0.0.1/')
     env['install_companion_api_key'] = env.get('INSTALL_COMPANION_API_KEY', '')
+    env['step_ca_url'] = env.get('STEP_CA_URL', 'https://step-ca.local')
+    env['step_provisioner_name'] = env.get('STEP_PROVISIONER_NAME', 'tpm')
     from urllib.parse import urlparse
     u = urlparse(env['companion_url'])
     env['companion_host'] = env.get('COMPANION_HOST', u.netloc)
