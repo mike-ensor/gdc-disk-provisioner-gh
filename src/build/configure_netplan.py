@@ -103,6 +103,12 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
     for placeholder, replacement in replacements.items():
         content = content.replace(placeholder, replacement)
         
+    # 6b. Clean up dangling YAML keys resulting from empty Jinja evaluation
+    # If vrfs: is left dangling with no children, it crashes netplan generate
+    import re
+    content = re.sub(r'^\s*vrfs:\s*$', '', content, flags=re.MULTILINE)
+    content = re.sub(r'^\s*vlans:\s*$', '', content, flags=re.MULTILINE)
+        
     # 7. Dynamically append any secondary and additional NICs as plain DHCP interfaces
     if len(ifaces) > 1:
         extra_configs = []

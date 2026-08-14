@@ -66,27 +66,60 @@ fi
 
 echo "[*] Bootstrapping trust with step-ca at ${CA_URL}..."
 EXTRA_ARGS=""
-if [[ -n "${CA_FINGERPRINT}" ]]; then
-    step ca bootstrap --ca-url="${CA_URL}" --fingerprint="${CA_FINGERPRINT}" --force
-else
-    echo "WARN: No CA fingerprint provided. Executing insecure TOFU by downloading root CA..."
-    # Download the root CA certificate securely-bypassed for lab use
-    curl -sk "${CA_URL}/roots.pem" -o "${CERT_DIR}/root_ca.crt" || true
-    if [[ ! -s "${CERT_DIR}/root_ca.crt" ]]; then
-        echo "FAIL: Could not download root CA certificate from ${CA_URL}/roots.pem"
-        # We don't exit here, we'll let step ca certificate fail naturally if it can't reach the CA
+
+# Verify if the CA_URL is serving a publicly trusted certificate (e.g. Let's Encrypt)
+# by checking if a standard curl succeeds without the -k (insecure) flag.
+if curl -sI --connect-timeout 3 "${CA_URL}/health" &>/dev/null; then
+    echo "[*] CA server presents a publicly trusted TLS certificate. Using system trust store."
+    echo "WARN: SSL Passthrough detected. Public TLS valid, but step-cli requires internal root fingerprint."
+    if [[ -n "${CA_FINGERPRINT}" ]]; then
+        echo "[-] Bootstrapping step trust chain via provided CA fingerprint..."
+        # We must bootstrap the step environment so it natively trusts the backend CA root during issuance
+        step ca bootstrap --ca-url="${CA_URL}" --fingerprint="${CA_FINGERPRINT}" --force
     else
-        # We skip bootstrap and just pass the root directly to the certificate request
-        EXTRA_ARGS="--ca-url=${CA_URL} --root=${CERT_DIR}/root_ca.crt"
+        echo "FAIL: CA_FINGERPRINT is required when the Step CA operates behind a public proxy."
+        exit 1
+    fi
+else
+    if [[ -n "${CA_FINGERPRINT}" ]]; then
+        step ca bootstrap --ca-url="${CA_URL}" --fingerprint="${CA_FINGERPRINT}" --force
+    else
+        echo "WARN: No CA fingerprint provided and TLS is untrusted. Executing insecure TOFU by downloading root CA..."
+        # Download the root CA certificate securely-bypassed for lab use
+        curl -sk "${CA_URL}/roots.pem" -o "${CERT_DIR}/root_ca.crt" || true
+        if [[ ! -s "${CERT_DIR}/root_ca.crt" ]]; then
+            echo "FAIL: Could not download root CA certificate from ${CA_URL}/roots.pem"
+        else
+            EXTRA_ARGS="--ca-url=${CA_URL} --root=${CERT_DIR}/root_ca.crt"
+        fi
     fi
 fi
 
 echo "[*] Requesting TPM-attested certificate for identity: ${NODE_MAC}..."
-# Using --kms tpmkms: invokes the TPM 2.0 module for hardware attestation
-step ca certificate "${NODE_MAC}" "${CLIENT_CRT}" "${CLIENT_KEY}" \
-    --provisioner="${PROVISIONER_NAME}" \
-    --kms="tpmkms:" \
-    --force ${EXTRA_ARGS}
+
+# If a provisioner password is provided (e.g. for JWK provisioners), we must generate a token first.
+if [[ -n "${STEP_PROVISIONER_PASSWORD:-}" ]]; then
+    echo "[-] Provisioner password detected. Generating JWK authorization token..."
+    # Write password to a temporary file
+    PASS_FILE=$(mktemp)
+    echo -n "${STEP_PROVISIONER_PASSWORD}" > "${PASS_FILE}"
+    
+    TOKEN=$(step ca token "${NODE_MAC}" ${EXTRA_ARGS} --provisioner="${PROVISIONER_NAME}" --password-file="${PASS_FILE}")
+    rm -f "${PASS_FILE}"
+    
+    echo "[-] Token generated. Requesting certificate bound to TPM..."
+    step ca certificate "${NODE_MAC}" "${CLIENT_CRT}" "${CLIENT_KEY}" \
+        --token="${TOKEN}" \
+        --kms="tpmkms:name=node-key" \
+        --force
+else
+    # Fallback to direct request (relies on ACME or interactive prompt)
+    echo "[-] No provisioner password detected. Attempting direct certificate request..."
+    step ca certificate "${NODE_MAC}" "${CLIENT_CRT}" "${CLIENT_KEY}" \
+        --provisioner="${PROVISIONER_NAME}" \
+        --kms="tpmkms:name=node-key" \
+        --force ${EXTRA_ARGS}
+fi
 
 # Enforce strict permissions
 chmod 0600 "${CLIENT_KEY}"

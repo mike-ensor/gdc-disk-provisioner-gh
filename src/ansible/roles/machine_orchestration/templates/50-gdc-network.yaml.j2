@@ -20,6 +20,7 @@ network:
 {% endfor %}
 {% endif %}
 
+{% if machine_config.network.cluster_network.vlan_id | default(109) | int > 0 %}
   vlans:
     vlan{{ machine_config.network.cluster_network.vlan_id | default(109) }}:
       id: {{ machine_config.network.cluster_network.vlan_id | default(109) }}
@@ -40,9 +41,14 @@ network:
         - from: {{ machine_config.network.cluster_network.ip_cidr | split('/') | first }}
           table: 20
 {% endif %}
+{% endif %}
 
   vrfs:
     vrf-k8s:
       table: 20
+{% if machine_config.network.cluster_network.vlan_id | default(109) | int > 0 %}
       interfaces: [vlan{{ machine_config.network.cluster_network.vlan_id | default(109) }}]
+{% else %}
+      interfaces: [{{ ansible_default_ipv4.interface | default('enp1s0') }}]
+{% endif %}
       optional: true

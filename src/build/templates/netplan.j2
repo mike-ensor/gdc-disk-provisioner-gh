@@ -54,10 +54,10 @@ network:
         addresses: [{{ k8s_dns }}]
     {% endif %}
   {% endif %}
+  {% if k8s_vlan and k8s_vlan != '0' %}
   vrfs:
-    {% if k8s_vlan and k8s_vlan != '0' %}
     vrf-k8s:
       table: 20
       interfaces: [{{ phys_iface }}.{{ k8s_vlan }}]
       optional: true
-    {% endif %}
+  {% endif %}
