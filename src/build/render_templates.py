@@ -229,6 +229,7 @@ if __name__ == "__main__":
     env['install_companion_api_key'] = env.get('INSTALL_COMPANION_API_KEY', '')
     env['step_ca_url'] = env.get('STEP_CA_URL', 'https://step-ca.local')
     env['step_provisioner_name'] = env.get('STEP_PROVISIONER_NAME', 'tpm')
+    env['step_provisioner_password'] = env.get('STEP_PROVISIONER_PASSWORD', '')
     from urllib.parse import urlparse
     u = urlparse(env['companion_url'])
     env['companion_host'] = env.get('COMPANION_HOST', u.netloc)
