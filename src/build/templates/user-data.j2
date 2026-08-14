@@ -409,11 +409,6 @@ autoinstall:
         logger -t gdc-provisioner "[GOAL] Admin SSH keys staged successfully for Ansible execution"
       fi
 
-      echo "MACHINE_IP_CIDR={{ machine_ip_cidr }}" > /target/etc/gdc/ip-scan-params.env
-      echo "K8S_IP_CIDR={{ k8s_ip_cidr }}" >> /target/etc/gdc/ip-scan-params.env
-      chmod 644 /target/etc/gdc/ip-scan-params.env
-      logger -t gdc-provisioner "[GOAL] IP scanner parameters saved to /etc/gdc/ip-scan-params.env"
-
       if [ -n "${TEMP_KEYS}" ]; then
         mkdir -p /target/home/temporary-installer/.ssh
         echo "${TEMP_KEYS}" >> /target/home/temporary-installer/.ssh/authorized_keys

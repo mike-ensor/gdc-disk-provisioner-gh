@@ -4,9 +4,7 @@ import sys
 import argparse
 import ipaddress
 import subprocess
-import random
-import time
-import re
+import json
 
 def log_info(msg):
     print(f"[-] [GDC-IP-Scanner] {msg}")
@@ -14,66 +12,22 @@ def log_info(msg):
 def log_warn(msg):
     print(f"[!] [GDC-IP-Scanner] WARNING: {msg}")
 
-def get_mac_address(interface):
+def get_local_ips(interface):
     try:
-        # Check /sys/class/net/<interface>/address directly (unprivileged ok)
-        sys_path = f"/sys/class/net/{interface}/address"
-        if os.path.exists(sys_path):
-            with open(sys_path, 'r') as f:
-                return f.read().strip()
-    except Exception:
-        pass
-    # Fallback to ip link
-    try:
-        res = subprocess.run(["ip", "link", "show", interface], capture_output=True, text=True)
-        if res.returncode == 0:
-            match = re.search(r"link/ether\s+([0-9a-fA-F:]+)", res.stdout)
-            if match:
-                return match.group(1)
-    except Exception:
-        pass
-    # Safety default mock MAC
-    return "00:00:00:00:00:00"
-
-def get_dhcp_ip_suffix(interface):
-    try:
-        # Check ip addr show dev <interface>
         res = subprocess.run(["ip", "-o", "-4", "addr", "show", "dev", interface], capture_output=True, text=True)
-        if res.returncode == 0:
-            match = re.search(r"inet\s+([0-9.]+)", res.stdout)
-            if match:
-                ip = match.group(1)
-                return int(ip.split(".")[-1])
+        ips = []
+        for line in res.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 4:
+                ip = parts[3].split('/')[0]
+                ips.append(ip)
+        return ips
     except Exception:
-        pass
-    return 0
-
-def calculate_preferred_ip(mac_addr, dhcp_suffix, hosts):
-    try:
-        last_byte = int(mac_addr.split(":")[-1], 16)
-    except Exception:
-        last_byte = 0
-    
-    # Combined mathematical hashing of both MAC last byte and DHCP suffix
-    idx = (last_byte + dhcp_suffix) % len(hosts)
-    return hosts[idx]
-
-def bind_defensive_ip(ip, interface):
-    try:
-        log_info(f"Applying defensive L2 IP reservation for {ip} on {interface}...")
-        # Add a temporary /24 or /32 IP address alias to the interface
-        # This forces the kernel to respond to any incoming ARP queries for this IP immediately
-        res = subprocess.run(["ip", "addr", "add", f"{ip}/24", "dev", interface, "label", f"{interface}:gdc_temp"], capture_output=True, text=True)
-        if res.returncode == 0:
-            log_info(f"[+] Defensive L2 reservation locked successfully for {ip}.")
-            return True
-        else:
-            log_warn(f"Failed to apply defensive L2 reservation: {res.stderr.strip()}")
-    except Exception as e:
-        log_warn(f"Defensive L2 reservation exception: {e}")
-    return False
+        return []
 
 def is_ip_taken(ip, interface):
+    local_ips = get_local_ips(interface)
+    
     # 1. ARP Scan
     try:
         res = subprocess.run(["arp-scan", "-I", interface, "--timeout=500", ip], capture_output=True, text=True)
@@ -96,13 +50,14 @@ def is_ip_taken(ip, interface):
         pass
 
     # 3. ICMP Ping Scan
-    try:
-        res = subprocess.run(["ping", "-c", "1", "-W", "1", "-I", interface, ip], capture_output=True, text=True)
-        if "rtt" in res.stdout:
-            log_warn(f"IP {ip} is taken (ICMP response)")
-            return True
-    except Exception:
-        pass
+    if ip not in local_ips:
+        try:
+            res = subprocess.run(["ping", "-c", "1", "-W", "1", "-I", interface, ip], capture_output=True, text=True)
+            if "rtt" in res.stdout:
+                log_warn(f"IP {ip} is taken (ICMP response)")
+                return True
+        except Exception:
+            pass
 
     # 4. Check local neighbor cache table
     try:
@@ -117,96 +72,104 @@ def is_ip_taken(ip, interface):
 
     return False
 
-def scan_network_hybrid(cidr, interface):
+def expand_range(ip_range):
     try:
-        net = ipaddress.ip_network(cidr, strict=False)
-        hosts = [str(ip) for ip in net.hosts()]
+        start_str, end_str = ip_range.split('-')
+        start_ip = ipaddress.IPv4Address(start_str.strip())
+        end_ip = ipaddress.IPv4Address(end_str.strip())
+        
+        ips = []
+        for ip_int in range(int(start_ip), int(end_ip) + 1):
+            ips.append(str(ipaddress.IPv4Address(ip_int)))
+        return ips
     except Exception as e:
-        print(f"[!] Invalid CIDR network {cidr}: {e}", file=sys.stderr)
-        sys.exit(2)
-
-    if not hosts:
-        print(f"[!] No valid host IPs in CIDR {cidr}", file=sys.stderr)
-        sys.exit(2)
-
-    mac_addr = get_mac_address(interface)
-    dhcp_suffix = get_dhcp_ip_suffix(interface)
-    log_info(f"Primary Interface: {interface} | MAC: {mac_addr} | DHCP Suffix: {dhcp_suffix}")
-
-    # Compute preferred IP deterministically using combined entropy
-    preferred_ip = calculate_preferred_ip(mac_addr, dhcp_suffix, hosts)
-    log_info(f"Deterministic preferred IP: {preferred_ip}")
-
-    # Pass 1: Jitter and check the preferred IP
-    sleep_time = random.uniform(1.0, 3.0)
-    log_info(f"Applying randomized splay delay of {round(sleep_time, 2)}s...")
-    time.sleep(sleep_time)
-
-    if not is_ip_taken(preferred_ip, interface):
-        # Claim immediately and reserve!
-        bind_defensive_ip(preferred_ip, interface)
-        return preferred_ip
-
-    # Pass 2: Fallback Loop (Shuffle remaining and scan)
-    log_warn(f"Preferred IP {preferred_ip} is already taken! Initiating randomized splay fallback check...")
-    candidates = [ip for ip in hosts if ip != preferred_ip]
-    random.shuffle(candidates)
-
-    for ip in candidates:
-        sleep_time = random.uniform(1.0, 3.0)
-        log_info(f"Applying randomized splay delay of {round(sleep_time, 2)}s before checking {ip}...")
-        time.sleep(sleep_time)
-
-        if not is_ip_taken(ip, interface):
-            # Claim immediately and reserve!
-            bind_defensive_ip(ip, interface)
-            return ip
-
-    return None
+        log_warn(f"Failed to expand IP range {ip_range}: {e}")
+        return []
 
 def main():
-    parser = argparse.ArgumentParser(description="GDC Jittered Hybrid IP Suffix Allocator")
-    parser.add_argument("--cidr", default="192.168.9.8/29", help="CIDR pool network (default: 192.168.9.8/29)")
+    parser = argparse.ArgumentParser(description="GDC IP Verification Scanner")
     parser.add_argument("--interface", required=True, help="Network interface to scan on")
-    parser.add_argument("--fallback", default="192.168.9.14", help="Default fallback IP if all are taken (default: 192.168.9.14)")
-    parser.add_argument("--output", default="/tmp/allocated_ips.env", help="Output file path (default: /tmp/allocated_ips.env)")
-    parser.add_argument("--machine-cidr", default="192.168.9.11/24", help="Baseline machine subnet CIDR")
-    parser.add_argument("--k8s-cidr", default="192.168.109.8/24", help="Baseline kubernetes subnet CIDR")
+    parser.add_argument("--config", required=True, help="Path to gdc.fact JSON file")
+    
+    # Kept for backward compatibility with existing calls if any
+    parser.add_argument("--cidr", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--fallback", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--output", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--machine-cidr", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--k8s-cidr", default="", help=argparse.SUPPRESS)
+    
     args = parser.parse_args()
 
-    # Validate that fallback IP is within the CIDR range to prevent configuration faults
-    try:
-        net = ipaddress.ip_network(args.cidr, strict=False)
-        fallback_ip = ipaddress.ip_address(args.fallback)
-        if fallback_ip not in net:
-            print(f"[!] CRITICAL CONFIG ERROR: Fallback IP {args.fallback} is outside the CIDR scanning range {args.cidr}!", file=sys.stderr)
-            sys.exit(3)
-    except Exception as e:
-        print(f"[!] Config Validation Error: {e}", file=sys.stderr)
-        sys.exit(3)
-
-    selected_ip = scan_network_hybrid(args.cidr, args.interface)
-
-    if selected_ip:
-        log_info(f"[x] SUCCESS: Allocated and reserved free IP {selected_ip}")
-        allocated_suffix = selected_ip.split(".")[-1]
-    else:
-        log_warn(f"All IP slots in range {args.cidr} are occupied! Falling back to safety IP {args.fallback}")
-        selected_ip = args.fallback
-        allocated_suffix = selected_ip.split(".")[-1]
-
-    # Write environment output file
-    try:
-        with open(args.output, "w") as f:
-            f.write(f"ALLOC_SUFFIX={allocated_suffix}\n")
-            f.write(f"MACHINE_IP={selected_ip}\n")
-            f.write(f"K8S_IP=192.168.109.{allocated_suffix}\n")
-            f.write(f"MACHINE_IP_CIDR={args.machine_cidr}\n")
-            f.write(f"K8S_IP_CIDR={args.k8s_cidr}\n")
-        log_info(f"Dynamic IP allocation written to {args.output}")
-    except Exception as e:
-        print(f"[!] Failed to write output env file: {e}", file=sys.stderr)
+    if not os.path.exists(args.config):
+        print(f"[!] Config file not found: {args.config}", file=sys.stderr)
         sys.exit(1)
+
+    try:
+        with open(args.config, 'r') as f:
+            config = json.load(f)
+    except Exception as e:
+        print(f"[!] Failed to parse JSON config: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    cluster = config.get("cluster", {})
+    networking = cluster.get("networking", {})
+    network = config.get("network", {})
+
+    must_be_free = []
+    if "cluster_ingress" in networking:
+        must_be_free.append(networking["cluster_ingress"])
+        
+    if "cluster_vip" in networking:
+        must_be_free.append(networking["cluster_vip"])
+        
+    if "cluster_lb_range" in networking:
+        must_be_free.extend(expand_range(networking["cluster_lb_range"]))
+        
+    mgmt = network.get("management_network", {})
+    if not mgmt.get("dhcp_v4", True) and "ip_cidr" in mgmt:
+        try:
+            ip = mgmt.get("ip_cidr", "").split('/')[0]
+            if ip: must_be_free.append(ip)
+        except Exception:
+            pass
+
+    must_be_taken = []
+    k8s = network.get("cluster_network", {})
+    if not k8s.get("dhcp_v4", True) and "gateway" in k8s:
+        must_be_taken.append(k8s["gateway"])
+        
+    if not mgmt.get("dhcp_v4", True) and "gateway" in mgmt:
+        must_be_taken.append(mgmt["gateway"])
+
+    errors = 0
+
+    log_info(f"Checking IPs that must be FREE on interface {args.interface}...")
+    for ip in set(must_be_free):
+        if not ip:
+            continue
+        log_info(f"Scanning {ip}...")
+        if is_ip_taken(ip, args.interface):
+            log_warn(f"[ERROR] IP {ip} is taken but it should be free!")
+            errors += 1
+        else:
+            log_info(f"[+] {ip} is free.")
+
+    log_info(f"Checking IPs that must be TAKEN on interface {args.interface}...")
+    for ip in set(must_be_taken):
+        if not ip:
+            continue
+        log_info(f"Scanning {ip}...")
+        if not is_ip_taken(ip, args.interface):
+            log_warn(f"[ERROR] Gateway IP {ip} is NOT responding!")
+            errors += 1
+        else:
+            log_info(f"[+] {ip} is active/resolving.")
+
+    if errors > 0:
+        log_warn(f"Validation failed with {errors} errors.")
+        sys.exit(1)
+    else:
+        log_info("[x] SUCCESS: All IPs validated successfully.")
 
 if __name__ == "__main__":
     main()
