@@ -277,26 +277,6 @@ autoinstall:
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
         logger -p user.warning -t gdc-provisioner "[WARNING] Connectivity to GDC Installation Companion failed. Foregoing logging callback."
       fi
-    - |
-      echo "=============================================================================="
-      echo "[GDC-INSTALL-GOAL] Starting Task: Scanning for free Machine & Kubernetes IPs"
-      echo "=============================================================================="
-      PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
-      
-      # [GDC-INSTALL-STEP 7/12] Offline-installing net-tools & arp-scan from GDC local media...
-      if ! command -v arp-scan &>/dev/null; then
-        echo "[-] Sideloading net-tools & arp-scan packages from local GDC media..."
-        if [ -d /cdrom/custom-data/packages ] && ls /cdrom/custom-data/packages/arp-scan*.deb &>/dev/null; then
-          dpkg -i /cdrom/custom-data/packages/arp-scan*.deb /cdrom/custom-data/packages/net-tools*.deb 2>/dev/null || true
-        fi
-        # Fallback to online repo only if local media is missing packages
-        if ! command -v arp-scan &>/dev/null; then
-          apt-get update &>/dev/null && apt-get install -y arp-scan net-tools &>/dev/null || true
-        fi
-      fi
-
-      # Invoke the robust splay python IP scanner
-      python3 /cdrom/custom-data/scan_ips.py --cidr "192.168.9.8/29" --interface "${PHYS_IFACE}" --fallback "192.168.9.14" --output "/tmp/allocated_ips.env" --machine-cidr "{{ machine_ip_cidr }}" --k8s-cidr "{{ k8s_ip_cidr }}"
   late-commands:
     # [GDC-INSTALL-STEP 8/12] Writing target local bootstrap properties to target drive...
     - |
@@ -429,6 +409,11 @@ autoinstall:
         logger -t gdc-provisioner "[GOAL] Admin SSH keys staged successfully for Ansible execution"
       fi
 
+      echo "MACHINE_IP_CIDR={{ machine_ip_cidr }}" > /target/etc/gdc/ip-scan-params.env
+      echo "K8S_IP_CIDR={{ k8s_ip_cidr }}" >> /target/etc/gdc/ip-scan-params.env
+      chmod 644 /target/etc/gdc/ip-scan-params.env
+      logger -t gdc-provisioner "[GOAL] IP scanner parameters saved to /etc/gdc/ip-scan-params.env"
+
       if [ -n "${TEMP_KEYS}" ]; then
         mkdir -p /target/home/temporary-installer/.ssh
         echo "${TEMP_KEYS}" >> /target/home/temporary-installer/.ssh/authorized_keys
@@ -457,6 +442,12 @@ autoinstall:
         cp /cdrom/custom-data/gdc-collector /target/usr/local/bin/gdc-collector
         chmod +x /target/usr/local/bin/gdc-collector
         logger -t gdc-provisioner "[GOAL] Diagnostics collector tool copied to target /usr/local/bin/gdc-collector successfully"
+      fi
+      
+      if [ -f /cdrom/custom-data/scan_ips.py ]; then
+        cp /cdrom/custom-data/scan_ips.py /target/usr/local/bin/scan_ips.py
+        chmod +x /target/usr/local/bin/scan_ips.py
+        logger -t gdc-provisioner "[GOAL] IP scanner script copied to target /usr/local/bin/scan_ips.py successfully"
       fi
       
       mkdir -p /target/var/gdc-install/scripts

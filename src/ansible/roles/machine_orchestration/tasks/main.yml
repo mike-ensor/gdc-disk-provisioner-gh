@@ -198,6 +198,20 @@
   ansible.builtin.command: netplan apply
   when: machine_config.network is defined
 
+- name: "GDC-ORCH | Read IP scanner parameters"
+  ansible.builtin.slurp:
+    src: /etc/gdc/ip-scan-params.env
+  register: slurped_scan_params
+  ignore_errors: true
+
+- name: "GDC-ORCH | Execute dynamic IP allocation network checks"
+  ansible.builtin.shell: |
+    . /etc/gdc/ip-scan-params.env
+    PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
+    /usr/local/bin/scan_ips.py --cidr "192.168.9.8/29" --interface "${PHYS_IFACE}" --fallback "192.168.9.14" --output "/tmp/allocated_ips.env" --machine-cidr "${MACHINE_IP_CIDR}" --k8s-cidr "${K8S_IP_CIDR}"
+  when: not slurped_scan_params.failed
+  ignore_errors: true
+
 - name: "GDC-ORCH | Deploy cluster networking validation script"
   ansible.builtin.copy:
     src: validate-cluster-networking.sh
