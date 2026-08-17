@@ -74,7 +74,7 @@
 - name: "GDC-ORCH | Execute TPM mTLS Attestation (Zero-Touch Provisioning)"
   ansible.builtin.command: /usr/local/bin/provision-mtls-cert.sh
   environment:
-    STEP_IDENTITY: "{{ machine_config.hostname | default(node_mac) }}"
+    STEP_IDENTITY: "{{ node_mac }}"
     STEP_NODE_MAC: "{{ node_mac }}"
     STEP_CA_URL: "{{ gdc_step_ca_url }}"
     STEP_CA_FINGERPRINT: "{{ gdc_step_ca_fingerprint }}"
