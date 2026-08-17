@@ -58,6 +58,13 @@
 # --------------------------------------------------------------------------
 # Task 12: Offline Management Utilities (Logrotate & Update Scripts)
 # --------------------------------------------------------------------------
+- name: "GDC-TASK-12 | Remove legacy root gcloud update cron job"
+  ansible.builtin.cron:
+    name: "Update Google Cloud SDK components regularly"
+    user: "root"
+    state: absent
+  tags: ["machine:connected"]
+
 - name: "GDC-TASK-12 | Configure regular gcloud components update cron job"
   ansible.builtin.cron:
     name: "gcloud-update"
