@@ -12,7 +12,21 @@ def get_physical_interfaces(sys_class_net='/sys/class/net'):
     try:
         ifaces = os.listdir(sys_class_net)
         # Filter: starts with 'e', does not contain '.', is not virtual/loopback
-        phys = [i for i in ifaces if i.startswith('e') and '.' not in i and i != 'eth0' or (i == 'eth0' and len(ifaces) == 1)]
+        phys = []
+        for i in ifaces:
+            if (i.startswith('e') and '.' not in i and i != 'eth0') or (i == 'eth0' and len(ifaces) == 1):
+                carrier_path = os.path.join(sys_class_net, i, 'carrier')
+                try:
+                    with open(carrier_path, 'r') as f:
+                        if f.read().strip() == '1':
+                            phys.append(i)
+                except Exception:
+                    pass
+        
+        # If no physically connected interfaces are found, fallback to the old behavior
+        if not phys:
+            phys = [i for i in ifaces if i.startswith('e') and '.' not in i and i != 'eth0' or (i == 'eth0' and len(ifaces) == 1)]
+            
         phys.sort()
         return phys
     except Exception as e:

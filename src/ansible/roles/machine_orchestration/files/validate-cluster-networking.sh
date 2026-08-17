@@ -16,12 +16,12 @@ if [ "$HAS_NETWORK" -eq 0 ] || [ "$HAS_NETWORK" == "null" ]; then
     exit 0
 fi
 
-MGMT_DHCP=$(jq -r '.network.management_network.dhcp_v4' "$FACTS_FILE")
+MGMT_DHCP=$(jq -r '.network.management_network.dhcp_v4 // true' "$FACTS_FILE")
 MGMT_IP=$(jq -r '.network.management_network.ip_cidr // ""' "$FACTS_FILE" | cut -d'/' -f1)
 
 # Using default vlan ID of 109 if not specified 
 K8S_VLAN=$(jq -r '.network.cluster_network.vlan_id // "109"' "$FACTS_FILE")
-K8S_DHCP=$(jq -r '.network.cluster_network.dhcp_v4' "$FACTS_FILE")
+K8S_DHCP=$(jq -r '.network.cluster_network.dhcp_v4 // true' "$FACTS_FILE")
 K8S_IP=$(jq -r '.network.cluster_network.ip_cidr // ""' "$FACTS_FILE" | cut -d'/' -f1)
 
 

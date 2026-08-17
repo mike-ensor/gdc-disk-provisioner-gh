@@ -85,7 +85,8 @@ steps:
           ENABLE_GCS="true" \
           GCS_BUCKET="gs://${_GCS_BUCKET_NAME}" \
           _CUSTOMER_ASSETS_URI="${_CUSTOMER_ASSETS_URI}" \
-          AUTO_APPROVE="true"
+          AUTO_APPROVE="true" \
+          INSTALL_COMPANION_URL="${_INSTALL_COMPANION_URL}"
 
   # ==========================================
   # Step 3: Publish, Manifest, and Promote Release Artifacts
@@ -162,6 +163,7 @@ substitutions:
   _CUSTOMER_ASSETS_URI: ''
   _GIT_BRANCH: 'N/A'
   _GIT_COMMIT: 'N/A'
+  _INSTALL_COMPANION_URL: ''
 
 # Extend timeout to 30 minutes in case of larger asset synchronization
 timeout: '1800s'

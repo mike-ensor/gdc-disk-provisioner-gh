@@ -1,3 +1,22 @@
+- name: "GDC-NETWORK | Determine primary connected interface"
+  ansible.builtin.shell: |
+    # Loop through /sys/class/net/e* alphanumerically
+    for iface in $(ls -d /sys/class/net/e* | sort); do
+      # Check if the carrier file exists and reads '1' (physically connected)
+      if [ -f "$iface/carrier" ] && [ "$(cat $iface/carrier 2>/dev/null)" = "1" ]; then
+        basename "$iface"
+        exit 0
+      fi
+    done
+    # Fallback to the first e* interface if nothing shows carrier
+    basename $(ls -d /sys/class/net/e* | head -n 1)
+  register: detect_primary_iface
+  changed_when: false
+
+- name: "GDC-NETWORK | Set primary interface fact"
+  ansible.builtin.set_fact:
+    gdc_primary_interface: "{{ detect_primary_iface.stdout }}"
+
 - name: "GDC-STATE | Initialize State Machine directory"
   ansible.builtin.file:
     path: /var/gdc-install/state

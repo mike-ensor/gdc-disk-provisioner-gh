@@ -42,6 +42,18 @@
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
   tags: ["strictly-local"]
+- name: "GDC-TASK-11 | Unmask and enable automatic upgrade timers to pull from local Nexus"
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    masked: false
+    enabled: true
+    state: started
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+    - unattended-upgrades.service
+  tags: ["strictly-local"]
+
 
 # --------------------------------------------------------------------------
 # Task 12: Offline Management Utilities (Logrotate & Update Scripts)

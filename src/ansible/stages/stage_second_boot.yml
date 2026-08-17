@@ -24,6 +24,40 @@
   register: luks_system_mapped
   failed_when: not luks_system_mapped.stat.exists
 
+- name: "GDC-NETWORK | Network Sanity Check (Ping Gateway with DHCP wait)"
+  ansible.builtin.shell: |
+    # 1. Check if the primary interface has an IP yet.
+    if ! ip -4 addr show dev "{{ gdc_primary_interface }}" | grep -q "inet "; then
+      echo "Waiting for DHCP lease on {{ gdc_primary_interface }}..."
+      exit 1
+    fi
+
+    # 2. Extract the gateway specific to the primary interface.
+    GW_IP=$(ip route show table all | grep "default.*dev {{ gdc_primary_interface }}" | awk '{print $3}' | head -n 1)
+    if [ -z "$GW_IP" ]; then
+      echo "Waiting for default route on {{ gdc_primary_interface }}..."
+      exit 1
+    fi
+
+    # 3. We have an IP and a Gateway. Attempt the ping.
+    ping -c 1 -W 2 -I "{{ gdc_primary_interface }}" "$GW_IP"
+  register: gateway_ping
+  changed_when: false
+  ignore_errors: true
+  until: gateway_ping.rc == 0
+  retries: 15
+  delay: 5
+
+- name: "GDC-NETWORK | Halt if Network Sanity Check Fails"
+  ansible.builtin.fail:
+    msg: "Network Sanity Check failed. Cannot ping gateway for interface {{ gdc_primary_interface }}"
+  when: gateway_ping.rc != 0
+
+- name: "GDC-EVIDENCE | Set Second Boot Evidence"
+  ansible.builtin.set_fact:
+    second_boot_evidence:
+      network_sanity: "Network Sanity Check [{{ gdc_primary_interface }}] = {{ 'True' if gateway_ping.rc is defined and gateway_ping.rc == 0 else 'False' }}"
+
 - name: "GDC-STATE | Write SecondBoot completion state"
   ansible.builtin.copy:
     dest: /var/gdc-install/state/second-boot.json
@@ -34,7 +68,8 @@
       {
         "stage": "second-boot",
         "status": "completed",
-        "timestamp": "{{ ansible_date_time.iso8601 }}"
+        "timestamp": "{{ ansible_date_time.iso8601 }}",
+        "evidence": {{ second_boot_evidence | default({}) | to_json }}
       }
 
 # Update the fact in-memory so subsequent stage execution is allowed

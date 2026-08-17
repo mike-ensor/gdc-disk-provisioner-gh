@@ -51,15 +51,22 @@ if [[ -f "${USER_DATA}" ]]; then
     
     # Run official cloud-init schema validation with annotations if available
     if command -v cloud-init &>/dev/null; then
-        # Use annotated schema validation as requested
-        if ! cloud-init schema -c "${USER_DATA}" --annotate &>/dev/null; then
+        # Use annotated schema validation as requested.
+        # Note: If the file is a jinja template (## template: jinja), cloud-init schema will crash
+        # on the build host because it lacks /run/cloud-init/instance-data.json context.
+        # We create a temporary stripped version for schema validation.
+        TMP_SCHEMA_TEST=$(mktemp)
+        sed '/^## template: jinja/d' "${USER_DATA}" > "${TMP_SCHEMA_TEST}"
+        
+        if ! cloud-init schema -c "${TMP_SCHEMA_TEST}" --annotate &>/dev/null; then
             echo "[GDC-VALIDATE-FAIL] Critical: user-data fails official Cloud-Init autoinstall schema checks!" >&2
             echo "[-] Detailed Annotated Schema Log:" >&2
-            cloud-init schema -c "${USER_DATA}" --annotate || true
+            cloud-init schema -c "${TMP_SCHEMA_TEST}" --annotate || true
             SUCCESS=false
         else
             echo "  [x] user-data Cloud-Init autoinstall schema verified."
         fi
+        rm -f "${TMP_SCHEMA_TEST}"
     else
         echo "  [!] Note: 'cloud-init' tool is not installed on the build host. Skipping schema check."
     fi

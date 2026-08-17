@@ -113,7 +113,7 @@ def main():
 
     cluster = config.get("cluster", {})
     networking = cluster.get("networking", {})
-    network = config.get("network", {})
+    network = config.get("network") or {}
 
     must_be_free = []
     if "cluster_ingress" in networking:

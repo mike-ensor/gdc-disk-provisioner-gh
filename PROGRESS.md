@@ -289,3 +289,5 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 - [ ] **Error handling during install:** Improve Subiquity exit-line traps.
 
 - [ ] **FUTURE TASK:** Look into whether `nodeagent` would be a better or more efficient choice to determine if the expected peers are all online compared to the current 5-minute ICMP ping loop.
+- [ ] Address HTTP 301 Redirect payload dropping: Updated `INSTALL_COMPANION_URL` to explicitly use HTTPS to ensure telemetry logs are uploaded correctly instead of hitting a redirect and losing the POST body.
+- [ ] Address mTLS CN Hostname mismatch: The Companion API uses Zero-Trust logic and verifies the CN of the cert against the node's registered Hostname. The `provision-mtls-cert.sh` script inside the ISO currently uses the physical MAC address, causing `gdc-companion` to throw an HTTP 403. Needs adjustment to request the cert matching `machine_config.hostname`.

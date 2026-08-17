@@ -76,17 +76,27 @@ fi
 # ==========================================
 # 3. Parse Defaults from build.env
 # ==========================================
-GCS_BUCKET_DEFAULT=""
-SOURCE_ISO_DEFAULT="ubuntu-24.04-live-server-amd64.iso"
+# Robust Helper to extract variables from build.env and local.env safely
+get_env() {
+    (
+        set -a
+        [ -f src/dependencies.env ] && . src/dependencies.env &>/dev/null
+        [ -f src/build/build.env ] && . src/build/build.env &>/dev/null
+        [ -f src/build/local.env ] && . src/build/local.env &>/dev/null
+        if [ -n "$1" ]; then eval echo "\$$1"; fi
+    )
+}
 
-if [[ -f "${ENV_FILE}" ]]; then
-    GCS_BUCKET_DEFAULT=$(grep "^GCS_BUCKET=" "${ENV_FILE}" | cut -d'=' -f2 | tr -d '"'\')
-    SOURCE_ISO_DEFAULT=$(grep "^SOURCE_ISO_FILENAME=" "${ENV_FILE}" | cut -d'=' -f2 | tr -d '"'\')
-fi
+GCS_BUCKET_DEFAULT=$(get_env GCS_BUCKET)
+SOURCE_ISO_DEFAULT=$(get_env SOURCE_ISO_FILENAME)
+INSTALL_COMPANION_URL_DEFAULT=$(get_env INSTALL_COMPANION_URL)
+
+
 
 # Initialize runtime variables
 GCS_BUCKET="${GCS_BUCKET_DEFAULT}"
 SOURCE_ISO_FILENAME="${SOURCE_ISO_DEFAULT}"
+INSTALL_COMPANION_URL_VAL="${INSTALL_COMPANION_URL_DEFAULT}"
 
 # ==========================================
 # 4. Help and Usage Menu
@@ -203,7 +213,7 @@ GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "N/A")
 BUILD_ID=$(gcloud builds submit "${PROJECT_ROOT}" \
     --config="${PROJECT_ROOT}/cloudbuild.yaml" \
     --project="${PROJECT_ID}" \
-    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME},_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false},_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI:-},_GIT_BRANCH=${GIT_BRANCH},_GIT_COMMIT=${GIT_COMMIT}" \
+    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME},_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false},_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI:-},_GIT_BRANCH=${GIT_BRANCH},_GIT_COMMIT=${GIT_COMMIT},_INSTALL_COMPANION_URL=${INSTALL_COMPANION_URL_VAL:-}" \
     --async --format="value(id)")
 
 echo "[+] Cloud Build job created with ID: ${BUILD_ID}"

@@ -254,6 +254,14 @@ fi
 # Copy ONLY the contents of src/ansible/ into the target directory
 cp -r "${PROJECT_ROOT}/src/ansible"/* "${TARGET_COPY_DIR}/"
 
+# [HOTFIX] Inject the rendered all.yml global vars from the hydrator,
+# replacing the checked-in all.yml.j2 so ansible-pull has actual variables
+if [[ -f "${EXTRACT_DIR}/custom-data/ansible/vars/all.yml" ]]; then
+    mkdir -p "${TARGET_COPY_DIR}/vars"
+    cp "${EXTRACT_DIR}/custom-data/ansible/vars/all.yml" "${TARGET_COPY_DIR}/vars/all.yml"
+    rm -f "${TARGET_COPY_DIR}/vars/all.yml.j2"
+fi
+
 # Initialize a fresh, clean git repository inside the staging directory
 git -C "${TEMP_STAGING_DIR}" init -b main &>/dev/null
 git -C "${TEMP_STAGING_DIR}" config user.name "${GDC_RELEASE_USER_NAME:-GDC Release Builder}"

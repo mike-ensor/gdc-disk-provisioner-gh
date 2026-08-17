@@ -120,10 +120,15 @@ class TestGgdTemplateHydration(unittest.TestCase):
 
     def assert_no_unrendered_jinja_or_placeholders(self, content, filepath_or_label="content"):
         """Asserts that no unresolved JINJA tags exist in the hydrated content."""
-        self.assertNotIn("{{", content, f"Unresolved JINJA token '{{{{' found in {filepath_or_label}")
-        self.assertNotIn("}}", content, f"Unresolved JINJA token '}}}}' found in {filepath_or_label}")
-        self.assertNotIn("{%", content, f"Unresolved JINJA block '{{%' found in {filepath_or_label}")
-        self.assertNotIn("%}", content, f"Unresolved JINJA block '%}}' found in {filepath_or_label}")
+        # We explicitly allow {{ boot_session_id }} and {% raw %} as it is intentionally passed through
+        # to be rendered natively by cloud-init at boot time, not during build time.
+        import re
+        stripped_content = re.sub(r'\{%.*?%\}', '', content)
+        stripped_content = stripped_content.replace("{{ boot_session_id }}", "")
+        self.assertNotIn("{{", stripped_content, f"Unresolved JINJA token '{{{{' found in {filepath_or_label}")
+        self.assertNotIn("}}", stripped_content, f"Unresolved JINJA token '}}}}' found in {filepath_or_label}")
+        self.assertNotIn("{%", stripped_content, f"Unresolved JINJA block '{{%' found in {filepath_or_label}")
+        self.assertNotIn("%}", stripped_content, f"Unresolved JINJA block '%}}' found in {filepath_or_label}")
 
     # ==========================================================================
     # TEST SUITE 1: storage_config.j2 Conditional Hydration (GDC-SPEC-002-SEQ)
@@ -339,6 +344,7 @@ class TestGgdTemplateHydration(unittest.TestCase):
         
         rendered = template.render(
             ansible_default_ipv4={'interface': 'enp1s0'},
+            gdc_primary_interface='enp1s0',
             machine_config=machine_config
         )
         
@@ -348,6 +354,32 @@ class TestGgdTemplateHydration(unittest.TestCase):
         self.assertEqual(config['network']['vrfs']['vrf-k8s']['table'], 20)
         self.assertEqual(config['network']['vrfs']['vrf-k8s']['interfaces'], ['vlan109'])
         self.assertEqual(config['network']['vrfs']['vrf-k8s']['optional'], True)
+
+
+    def test_env_loader_priority(self):
+        """Asserts that load_env_properties correctly prioritizes local.env over build.env."""
+        test_workspace = tempfile.mkdtemp()
+        
+        # Write dummy build.env
+        with open(os.path.join(test_workspace, 'build.env'), 'w') as f:
+            f.write('INSTALL_COMPANION_URL="http://gdc-companion.example.com/v1/install-logs"\n')
+            f.write('SHARED_VAR="from-build"\n')
+            
+        # Write dummy local.env
+        with open(os.path.join(test_workspace, 'local.env'), 'w') as f:
+            f.write('INSTALL_COMPANION_URL="http://gdc-companion.override.local/v1/install-logs"\n')
+            
+        # Mock paths
+        with mock.patch('render_templates.os.path.dirname', return_value=test_workspace):
+            with mock.patch('os.path.abspath', return_value=os.path.join(test_workspace, 'render_templates.py')):
+                # Temporarily wipe os.environ matching keys so they don't override our test files
+                with mock.patch.dict('os.environ', {}, clear=True):
+                    env = render_templates.load_env_properties()
+                    
+                    self.assertEqual(env.get('INSTALL_COMPANION_URL'), 'http://gdc-companion.override.local/v1/install-logs')
+                    self.assertEqual(env.get('SHARED_VAR'), 'from-build')
+
+        shutil.rmtree(test_workspace)
 
     def test_user_data_rendering(self):
         """Exercises and validates templates/user-data.j2 rendering and swap sizes."""

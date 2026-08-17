@@ -8,39 +8,12 @@
 
 - name: "GDC-ORCH | Set MAC address fact"
   ansible.builtin.set_fact:
-    node_mac: "{{ ansible_default_ipv4.mac | default(ansible_interfaces | map('extract', ansible_facts) | selectattr('macaddress', 'defined') | map(attribute='macaddress') | first) | lower }}"
+    node_mac: "{{ ansible_facts[gdc_primary_interface]['macaddress'] | lower }}"
 
 - name: "GDC-ORCH | Check if local machine-info-mock.json exists"
   ansible.builtin.stat:
     path: /etc/gdc/machine-info-mock.json
   register: mock_file_stat
-
-- name: "GDC-ORCH | Install Smallstep CLI (step-cli) from ISO cache"
-  ansible.builtin.apt:
-    deb: "/media/cdrom/custom-data/packages/step-cli_0.26.1_amd64.deb"
-  ignore_errors: true
-
-- name: "GDC-ORCH | Deploy TPM mTLS Provisioning Script"
-  ansible.builtin.copy:
-    src: provision-mtls-cert.sh
-    dest: /usr/local/bin/provision-mtls-cert.sh
-    owner: root
-    group: root
-    mode: '0700'
-
-- name: "GDC-ORCH | Execute TPM mTLS Attestation (Zero-Touch Provisioning)"
-  ansible.builtin.command: /usr/local/bin/provision-mtls-cert.sh
-  environment:
-    STEP_CA_URL: "{{ gdc_step_ca_url }}"
-    STEP_CA_FINGERPRINT: "{{ gdc_step_ca_fingerprint }}"
-    STEP_PROVISIONER_NAME: "{{ gdc_step_provisioner_name }}"
-    STEP_PROVISIONER_PASSWORD: "{{ gdc_step_provisioner_password }}"
-    STEP_MOCK_MTLS: "{{ 'true' if mock_file_stat.stat.exists else 'false' }}"
-
-- name: "GDC-ORCH | Check if mTLS client certs exist"
-  ansible.builtin.stat:
-    path: "/var/gdc-install/keys/client.crt"
-  register: client_cert_stat
 
 - name: "GDC-ORCH | Fetch machine-info configuration from GDC Companion"
   ansible.builtin.uri:
@@ -48,8 +21,6 @@
     method: GET
     headers:
       Authorization: "Bearer {{ gdc_companion_api_key }}"
-    client_cert: "{{ '/var/gdc-install/keys/client.crt' if client_cert_stat.stat.exists else omit }}"
-    client_key: "{{ '/var/gdc-install/keys/client.key' if client_cert_stat.stat.exists else omit }}"
     status_code: 200
     validate_certs: false
   register: api_response
@@ -68,7 +39,7 @@
       {{
         (slurped_mock.content | b64decode | from_json | combine({'is_fallback': false}))
         if mock_file_stat.stat.exists
-        else (api_response.json | default({}) | combine({'is_fallback': false}))
+        else (api_response.json.variables | default(api_response.json | default({})) | combine({'is_fallback': false}))
       }}
 
 - name: "GDC-ORCH | Check if fallback-config.json exists"
@@ -86,6 +57,34 @@
   ansible.builtin.set_fact:
     machine_config: "{{ slurped_fallback_config.content | b64decode | from_json }}"
   when: machine_config is not defined or machine_config == {} or 'error' in machine_config or 'hostname' not in machine_config
+
+- name: "GDC-ORCH | Install Smallstep CLI (step-cli) from ISO cache"
+  ansible.builtin.apt:
+    deb: "/media/cdrom/custom-data/packages/step-cli_0.26.1_amd64.deb"
+  ignore_errors: true
+
+- name: "GDC-ORCH | Deploy TPM mTLS Provisioning Script"
+  ansible.builtin.copy:
+    src: provision-mtls-cert.sh
+    dest: /usr/local/bin/provision-mtls-cert.sh
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: "GDC-ORCH | Execute TPM mTLS Attestation (Zero-Touch Provisioning)"
+  ansible.builtin.command: /usr/local/bin/provision-mtls-cert.sh
+  environment:
+    STEP_IDENTITY: "{{ machine_config.hostname | default(node_mac) }}"
+    STEP_CA_URL: "{{ gdc_step_ca_url }}"
+    STEP_CA_FINGERPRINT: "{{ gdc_step_ca_fingerprint }}"
+    STEP_PROVISIONER_NAME: "{{ gdc_step_provisioner_name }}"
+    STEP_PROVISIONER_PASSWORD: "{{ gdc_step_provisioner_password }}"
+    STEP_MOCK_MTLS: "{{ 'true' if mock_file_stat.stat.exists else 'false' }}"
+
+- name: "GDC-ORCH | Check if mTLS client certs exist"
+  ansible.builtin.stat:
+    path: "/var/gdc-install/keys/client.crt"
+  register: client_cert_stat
 
 
 - name: "GDC-ORCH | Write API Lookup Status for Diagnostics Collector"
@@ -166,7 +165,7 @@
   ansible.builtin.systemd:
     name: node-agent.service
     enabled: true
-    state: started
+    state: stopped
     daemon_reload: yes
 
 - name: "GDC-ORCH | Ensure Ansible facts.d directory exists"
@@ -197,6 +196,35 @@
 - name: "GDC-ORCH | Apply Netplan configuration"
   ansible.builtin.command: netplan apply
   when: machine_config.network is defined
+
+- name: "GDC-NETWORK | Network Sanity Check (Ping Gateway with DHCP wait)"
+  ansible.builtin.shell: |
+    # 1. Check if the primary interface has an IP yet.
+    if ! ip -4 addr show dev "{{ gdc_primary_interface }}" | grep -q "inet "; then
+      echo "Waiting for DHCP lease on {{ gdc_primary_interface }}..."
+      exit 1
+    fi
+
+    # 2. Extract the gateway specific to the primary interface.
+    GW_IP=$(ip route show table all | grep "default.*dev {{ gdc_primary_interface }}" | awk '{print $3}' | head -n 1)
+    if [ -z "$GW_IP" ]; then
+      echo "Waiting for default route on {{ gdc_primary_interface }}..."
+      exit 1
+    fi
+
+    # 3. We have an IP and a Gateway. Attempt the ping.
+    ping -c 1 -W 2 -I "{{ gdc_primary_interface }}" "$GW_IP"
+  register: gateway_ping
+  changed_when: false
+  ignore_errors: true
+  until: gateway_ping.rc == 0
+  retries: 15
+  delay: 5
+
+- name: "GDC-NETWORK | Halt if Network Sanity Check Fails"
+  ansible.builtin.fail:
+    msg: "Network Sanity Check failed. Cannot ping gateway for interface {{ gdc_primary_interface }}"
+  when: gateway_ping.rc != 0
 
 - name: "GDC-ORCH | Execute dynamic IP allocation network checks"
   ansible.builtin.shell: |
@@ -241,6 +269,7 @@
 - name: "GDC-EVIDENCE | Structure Evidence Facts"
   ansible.builtin.set_fact:
     cluster_ready_evidence:
+      network_sanity: "Network Sanity Check [{{ gdc_primary_interface }}] = {{ 'True' if gateway_ping.rc is defined and gateway_ping.rc == 0 else 'False' }}"
       mtls_checks:
         cert_exists: "{{ cert_stat_ev.stat.exists | bool }}"
         cert_permissions: "{{ cert_stat_ev.stat.mode | default('') }}"

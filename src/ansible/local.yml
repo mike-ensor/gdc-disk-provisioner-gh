@@ -22,6 +22,20 @@
     # Toggle to execute safe offline system upgrade
     trigger_system_upgrade: false
 
+  pre_tasks:
+    - name: "GDC-PREFLIGHT | Load initial state to get gdc_primary_interface"
+      ansible.builtin.import_tasks: stages/state_initialization.yml
+
+    - name: "GDC-PREFLIGHT | Assert gdc_primary_interface is defined and has MAC"
+      ansible.builtin.assert:
+        that:
+          - gdc_primary_interface is defined
+          - gdc_primary_interface in ansible_interfaces
+          - ansible_facts[gdc_primary_interface]['macaddress'] is defined
+          - ansible_facts[gdc_primary_interface]['macaddress'] | regex_search('^([0-9a-f]{2}:){5}[0-9a-f]{2}$')
+        fail_msg: "Pre-flight failure: Primary interface {{ gdc_primary_interface | default('UNDEFINED') }} is missing or lacks a valid MAC address."
+        success_msg: "Pre-flight passed: Primary interface is {{ gdc_primary_interface | default('UNDEFINED') }} with MAC {{ ansible_facts[gdc_primary_interface | default('')]['macaddress'] | default('UNKNOWN') }}"
+
   tasks:
     - name: "GDC-STATE | Initialize and load state facts"
       ansible.builtin.import_tasks: stages/state_initialization.yml
@@ -57,9 +71,9 @@
         - name: "GDC-STATE | Trigger Post-Stage 2 Diagnostic Collection"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --stage first-boot --companion-url="{{ gdc_companion_ingest_url }}"
+              /usr/local/bin/gdc-collector --stage first-boot --companion-url="{{ gdc_companion_reports_url }}"
             elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
-              "{{ playbook_dir }}/../../bin/gdc-collector" --stage first-boot --companion-url="{{ gdc_companion_ingest_url }}"
+              "{{ playbook_dir }}/../../bin/gdc-collector" --stage first-boot --companion-url="{{ gdc_companion_reports_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -71,7 +85,7 @@
         - name: "SECOND_BOOT | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_ingest_url }}"
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -113,9 +127,9 @@
         - name: "GDC-STATE | Trigger Post-Stage 3 Diagnostic Collection"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --stage second-boot --companion-url="{{ gdc_companion_ingest_url }}"
+              /usr/local/bin/gdc-collector --stage second-boot --companion-url="{{ gdc_companion_reports_url }}"
             elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
-              "{{ playbook_dir }}/../../bin/gdc-collector" --stage second-boot --companion-url="{{ gdc_companion_ingest_url }}"
+              "{{ playbook_dir }}/../../bin/gdc-collector" --stage second-boot --companion-url="{{ gdc_companion_reports_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -129,7 +143,7 @@
         - name: "LINUX_READY | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_ingest_url }}"
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -171,9 +185,9 @@
         - name: "GDC-STATE | Trigger Post-Stage 4 Diagnostic Collection"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --stage linux-ready --companion-url="{{ gdc_companion_ingest_url }}"
+              /usr/local/bin/gdc-collector --stage linux-ready --companion-url="{{ gdc_companion_reports_url }}"
             elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
-              "{{ playbook_dir }}/../../bin/gdc-collector" --stage linux-ready --companion-url="{{ gdc_companion_ingest_url }}"
+              "{{ playbook_dir }}/../../bin/gdc-collector" --stage linux-ready --companion-url="{{ gdc_companion_reports_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -187,7 +201,7 @@
         - name: "CLUSTER_READY | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_ingest_url }}"
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -239,9 +253,9 @@
         - name: "GDC-STATE | Trigger Post-Stage 5 Diagnostic Collection"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --stage cluster-ready --companion-url="{{ gdc_companion_ingest_url }}"
+              /usr/local/bin/gdc-collector --stage cluster-ready --companion-url="{{ gdc_companion_reports_url }}"
             elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
-              "{{ playbook_dir }}/../../bin/gdc-collector" --stage cluster-ready --companion-url="{{ gdc_companion_ingest_url }}"
+              "{{ playbook_dir }}/../../bin/gdc-collector" --stage cluster-ready --companion-url="{{ gdc_companion_reports_url }}"
             fi
           ignore_errors: true
           failed_when: false
@@ -256,7 +270,7 @@
         - name: Always execute diagnostics and upload telemetry
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_ingest_url }}"
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url }}"
             else
               echo "[!] Diagnostics collector script /usr/local/bin/gdc-collector not found or not executable!" >&2
               exit 1
