@@ -267,6 +267,12 @@
   ignore_errors: true
   when: cert_stat_ev.stat.exists
 
+- name: "GDC-EVIDENCE | Verify gcloud authentication state"
+  ansible.builtin.shell: gcloud config configurations list | grep -q "True.*{{ machine_config.gcp_info.primary_gsa }}"
+  register: gcloud_auth_check
+  ignore_errors: true
+  changed_when: false
+
 - name: "GDC-EVIDENCE | Structure Evidence Facts"
   ansible.builtin.set_fact:
     cluster_ready_evidence:
@@ -283,6 +289,8 @@
         http_status: "{{ companion_token_response.status | default(0) | int }}"
         token_fetched: "{{ companion_token_response.status | default(0) | int == 200 }}"
         token_type: "Bearer"
+      gcloud_status:
+        authenticated: "{{ gcloud_auth_check.rc == 0 }}"
 
 - name: "GDC-ORCH | Verify peer hostname resolution"
   ansible.builtin.command:
