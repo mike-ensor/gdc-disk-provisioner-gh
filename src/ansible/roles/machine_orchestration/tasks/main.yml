@@ -236,7 +236,8 @@
 
 - name: "GDC-ORCH | Execute dynamic IP allocation network checks"
   ansible.builtin.shell: |
-    PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
+    PHYS_IFACE=$(ip link show | awk -F': ' '/state UP/ {getline; print $0}' | awk -F': ' '/^ / {next} {print $2}' | grep -E '^e' | head -n 1 || ip link show | awk -F': ' '/state UP/ && $2 ~ /^e/ {print $2}' | head -n 1)
+    if [ -z "$PHYS_IFACE" ]; then PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0"); fi
     /usr/local/bin/scan_ips.py --interface "${PHYS_IFACE}" --config /etc/ansible/facts.d/gdc.fact
   ignore_errors: true
 
