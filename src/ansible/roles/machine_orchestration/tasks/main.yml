@@ -60,7 +60,7 @@
 
 - name: "GDC-ORCH | Install Smallstep CLI (step-cli) from ISO cache"
   ansible.builtin.apt:
-    deb: "/media/cdrom/custom-data/packages/step-cli_0.26.1_amd64.deb"
+    deb: "/var/gdc-install/iso-cache/packages/step-cli_0.26.1_amd64.deb"
   ignore_errors: true
 
 - name: "GDC-ORCH | Deploy TPM mTLS Provisioning Script"
@@ -152,7 +152,7 @@
 
 - name: "GDC-ORCH | Copy nodeagentd binary from ISO cache"
   ansible.builtin.copy:
-    src: "/media/cdrom/custom-data/tools/node-agent/nodeagentd"
+    src: "/var/gdc-install/iso-cache/tools/node-agent/nodeagentd"
     dest: "/var/gdc-install/tools/node-agent/nodeagentd"
     owner: gdc-admin
     group: gdc-admin

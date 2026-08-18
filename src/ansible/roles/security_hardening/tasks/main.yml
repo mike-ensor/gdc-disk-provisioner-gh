@@ -119,7 +119,7 @@
     group: root
     mode: '0755'
   loop:
-    - "/cdrom/custom-data/verify-upgrade-readiness.sh"
+    - "/var/gdc-install/iso-cache/verify-upgrade-readiness.sh"
   ignore_errors: true
   tags: ["strictly-local"]
 
