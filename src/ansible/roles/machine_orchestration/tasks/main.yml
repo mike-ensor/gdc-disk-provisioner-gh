@@ -128,9 +128,15 @@
 
 - name: "GDC-ORCH | Authenticate gcloud using short-lived access token"
   ansible.builtin.shell: |
+    # Authenticate for root (system automation)
     gcloud config set auth/access_token {{ (companion_token_response.content | from_json).access_token }}
     gcloud config set account {{ machine_config.gcp_info.primary_gsa }}
     gcloud config set project {{ machine_config.gcp_info.project_id }}
+    
+    # Authenticate for gdc-admin (operator and cron jobs)
+    sudo -u {{ gdc_admin_user }} gcloud config set auth/access_token {{ (companion_token_response.content | from_json).access_token }}
+    sudo -u {{ gdc_admin_user }} gcloud config set account {{ machine_config.gcp_info.primary_gsa }}
+    sudo -u {{ gdc_admin_user }} gcloud config set project {{ machine_config.gcp_info.project_id }}
   when: 
     - companion_token_response.status == 200
     - companion_token_response.content is defined
