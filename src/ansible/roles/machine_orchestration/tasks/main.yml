@@ -190,6 +190,32 @@
     remote_src: yes
   ignore_errors: true
 
+- name: "GDC-ORCH | Ensure bmctl install directory exists"
+  ansible.builtin.file:
+    path: "/var/gdc-install/tools/bmctl"
+    state: directory
+    owner: gdc-admin
+    group: gdc-admin
+    mode: '0755'
+
+- name: "GDC-ORCH | Copy bmctl binary from ISO cache"
+  ansible.builtin.copy:
+    src: "/var/gdc-install/iso-cache/tools/bmctl/bmctl"
+    dest: "/var/gdc-install/tools/bmctl/bmctl"
+    owner: gdc-admin
+    group: gdc-admin
+    mode: '0755'
+    remote_src: yes
+  ignore_errors: true
+
+- name: "GDC-ORCH | Create symlink for bmctl in /usr/local/bin"
+  ansible.builtin.file:
+    src: "/var/gdc-install/tools/bmctl/bmctl"
+    dest: "/usr/local/bin/bmctl"
+    state: link
+    owner: root
+    group: root
+
 - name: "GDC-ORCH | Deploy NodeAgent systemd service unit template"
   ansible.builtin.template:
     src: node-agent.service.j2
