@@ -126,6 +126,19 @@
   register: companion_token_response
   ignore_errors: true
 
+- name: "GDC-ORCH | Deploy GDC credentials refresh script"
+  ansible.builtin.copy:
+    src: refresh-gdc-credentials.sh
+    dest: /usr/local/bin/refresh-gdc-credentials.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "GDC-ORCH | Execute GDC credentials refresh script to seed initial token"
+  ansible.builtin.command: /usr/local/bin/refresh-gdc-credentials.sh
+  register: token_refresh_result
+  failed_when: token_refresh_result.rc != 0
+
 - name: "GDC-ORCH | Authenticate gcloud using short-lived access token"
   ansible.builtin.shell: |
     # Clean up the legacy incorrect property if it exists
@@ -142,19 +155,6 @@
     sudo -u {{ gdc_admin_user }} gcloud config set account {{ machine_config.gcp_info.primary_gsa }}
     sudo -u {{ gdc_admin_user }} gcloud config set project {{ machine_config.gcp_info.project_id }}
   no_log: true
-
-- name: "GDC-ORCH | Deploy GDC credentials refresh script"
-  ansible.builtin.copy:
-    src: refresh-gdc-credentials.sh
-    dest: /usr/local/bin/refresh-gdc-credentials.sh
-    owner: root
-    group: root
-    mode: '0755'
-
-- name: "GDC-ORCH | Execute GDC credentials refresh script to seed initial token"
-  ansible.builtin.command: /usr/local/bin/refresh-gdc-credentials.sh
-  register: token_refresh_result
-  failed_when: token_refresh_result.rc != 0
 
 - name: "GDC-ORCH | Schedule automatic GDC credential renewal (@reboot)"
   ansible.builtin.cron:
