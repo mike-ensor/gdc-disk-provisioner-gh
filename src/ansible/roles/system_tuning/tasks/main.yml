@@ -285,6 +285,16 @@
   ignore_errors: true
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
+- name: "GDC-TASK-10 | Ensure gcloud SDK directory is owned by gdc-admin"
+  ansible.builtin.file:
+    path: "{{ gdc_gcloud_install_dir }}"
+    state: directory
+    owner: "{{ gdc_admin_user }}"
+    group: "{{ gdc_admin_group }}"
+    recurse: true
+  when: gcloud_available | bool
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
 - name: "GDC-TASK-10 | Create global symlinks for gcloud command utilities"
   ansible.builtin.file:
     src: "{{ gdc_gcloud_install_dir }}/bin/{{ item }}"

@@ -60,7 +60,7 @@
 
 - name: "GDC-ORCH | Install Smallstep CLI (step-cli) from ISO cache"
   ansible.builtin.apt:
-    deb: "/media/cdrom/custom-data/packages/step-cli_0.26.1_amd64.deb"
+    deb: "/var/gdc-install/iso-cache/packages/step-cli_0.26.1_amd64.deb"
   ignore_errors: true
 
 - name: "GDC-ORCH | Deploy TPM mTLS Provisioning Script"
@@ -75,6 +75,7 @@
   ansible.builtin.command: /usr/local/bin/provision-mtls-cert.sh
   environment:
     STEP_IDENTITY: "{{ machine_config.hostname | default(node_mac) }}"
+    STEP_NODE_MAC: "{{ node_mac }}"
     STEP_CA_URL: "{{ gdc_step_ca_url }}"
     STEP_CA_FINGERPRINT: "{{ gdc_step_ca_fingerprint }}"
     STEP_PROVISIONER_NAME: "{{ gdc_step_provisioner_name }}"
@@ -111,7 +112,7 @@
   loop: "{{ machine_config.peers }}"
   when: machine_config.peers is defined
 
-- name: "GDC-ORCH | Fetch short-lived GCP token from GDC Companion"
+- name: "GDC-ORCH | Check GDC Companion API health"
   ansible.builtin.uri:
     url: "{{ gdc_companion_base_url }}v1/machine-credentials/gcp-token/{{ node_mac }}"
     method: GET
@@ -119,20 +120,57 @@
       Authorization: "Bearer {{ gdc_companion_api_key }}"
     client_cert: "{{ '/var/gdc-install/keys/client.crt' if client_cert_stat.stat.exists else omit }}"
     client_key: "{{ '/var/gdc-install/keys/client.key' if client_cert_stat.stat.exists else omit }}"
-    status_code: 200
+    status_code: [200, 400, 401, 403, 404]
     validate_certs: false
     return_content: yes
   register: companion_token_response
   ignore_errors: true
 
+- name: "GDC-ORCH | Deploy GDC credentials refresh script"
+  ansible.builtin.copy:
+    src: refresh-gdc-credentials.sh
+    dest: /usr/local/bin/refresh-gdc-credentials.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "GDC-ORCH | Execute GDC credentials refresh script to seed initial token"
+  ansible.builtin.command: /usr/local/bin/refresh-gdc-credentials.sh
+  register: token_refresh_result
+  failed_when: token_refresh_result.rc != 0
+
 - name: "GDC-ORCH | Authenticate gcloud using short-lived access token"
   ansible.builtin.shell: |
-    gcloud config set auth/access_token {{ (companion_token_response.content | from_json).access_token }}
+    # Clean up the legacy incorrect property if it exists
+    gcloud config unset auth/access_token 2>/dev/null || true
+    sudo -u {{ gdc_admin_user }} gcloud config unset auth/access_token 2>/dev/null || true
+
+    # Link gcloud to dynamically read the volatile access token file
+    gcloud config set auth/access_token_file /run/gdc-auth/access_token
+    gcloud config set account {{ machine_config.gcp_info.primary_gsa }}
     gcloud config set project {{ machine_config.gcp_info.project_id }}
-  when: 
-    - companion_token_response.status == 200
-    - companion_token_response.content is defined
+    
+    # Authenticate for gdc-admin (operator and cron jobs)
+    sudo -u {{ gdc_admin_user }} gcloud config set auth/access_token_file /run/gdc-auth/access_token
+    sudo -u {{ gdc_admin_user }} gcloud config set account {{ machine_config.gcp_info.primary_gsa }}
+    sudo -u {{ gdc_admin_user }} gcloud config set project {{ machine_config.gcp_info.project_id }}
   no_log: true
+
+- name: "GDC-ORCH | Schedule automatic GDC credential renewal (@reboot)"
+  ansible.builtin.cron:
+    name: "gdc-credentials-refresh-reboot"
+    special_time: reboot
+    user: root
+    job: "/usr/local/bin/refresh-gdc-credentials.sh > /dev/null 2>&1"
+    state: present
+
+- name: "GDC-ORCH | Schedule automatic GDC credential renewal (every 30 mins)"
+  ansible.builtin.cron:
+    name: "gdc-credentials-refresh-30min"
+    minute: "*/30"
+    user: root
+    job: "/usr/local/bin/refresh-gdc-credentials.sh > /dev/null 2>&1"
+    state: present
 
 - name: "GDC-ORCH | Ensure NodeAgent install directory exists"
   ansible.builtin.file:
@@ -144,13 +182,39 @@
 
 - name: "GDC-ORCH | Copy nodeagentd binary from ISO cache"
   ansible.builtin.copy:
-    src: "/media/cdrom/custom-data/tools/node-agent/nodeagentd"
+    src: "/var/gdc-install/iso-cache/tools/node-agent/nodeagentd"
     dest: "/var/gdc-install/tools/node-agent/nodeagentd"
     owner: gdc-admin
     group: gdc-admin
     mode: '0755'
     remote_src: yes
   ignore_errors: true
+
+- name: "GDC-ORCH | Ensure bmctl install directory exists"
+  ansible.builtin.file:
+    path: "/var/gdc-install/tools/bmctl"
+    state: directory
+    owner: gdc-admin
+    group: gdc-admin
+    mode: '0755'
+
+- name: "GDC-ORCH | Copy bmctl binary from ISO cache"
+  ansible.builtin.copy:
+    src: "/var/gdc-install/iso-cache/tools/bmctl/bmctl"
+    dest: "/var/gdc-install/tools/bmctl/bmctl"
+    owner: gdc-admin
+    group: gdc-admin
+    mode: '0755'
+    remote_src: yes
+  ignore_errors: true
+
+- name: "GDC-ORCH | Create symlink for bmctl in /usr/local/bin"
+  ansible.builtin.file:
+    src: "/var/gdc-install/tools/bmctl/bmctl"
+    dest: "/usr/local/bin/bmctl"
+    state: link
+    owner: root
+    group: root
 
 - name: "GDC-ORCH | Deploy NodeAgent systemd service unit template"
   ansible.builtin.template:
@@ -228,7 +292,8 @@
 
 - name: "GDC-ORCH | Execute dynamic IP allocation network checks"
   ansible.builtin.shell: |
-    PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
+    PHYS_IFACE=$(ip link show | awk -F': ' '/state UP/ {getline; print $0}' | awk -F': ' '/^ / {next} {print $2}' | grep -E '^e' | head -n 1 || ip link show | awk -F': ' '/state UP/ && $2 ~ /^e/ {print $2}' | head -n 1)
+    if [ -z "$PHYS_IFACE" ]; then PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0"); fi
     /usr/local/bin/scan_ips.py --interface "${PHYS_IFACE}" --config /etc/ansible/facts.d/gdc.fact
   ignore_errors: true
 
@@ -266,6 +331,12 @@
   ignore_errors: true
   when: cert_stat_ev.stat.exists
 
+- name: "GDC-EVIDENCE | Verify gcloud authentication state"
+  ansible.builtin.shell: gcloud config configurations list | grep -q "True.*{{ machine_config.gcp_info.primary_gsa }}"
+  register: gcloud_auth_check
+  ignore_errors: true
+  changed_when: false
+
 - name: "GDC-EVIDENCE | Structure Evidence Facts"
   ansible.builtin.set_fact:
     cluster_ready_evidence:
@@ -280,8 +351,10 @@
       token_broker:
         companion_reachable: "{{ companion_token_response.status | default(0) | int > 0 }}"
         http_status: "{{ companion_token_response.status | default(0) | int }}"
-        token_fetched: "{{ companion_token_response.status | default(0) | int == 200 }}"
+        token_fetched: "{{ token_refresh_result.rc is defined and token_refresh_result.rc == 0 }}"
         token_type: "Bearer"
+      gcloud_status:
+        authenticated: "{{ gcloud_auth_check.rc == 0 }}"
 
 - name: "GDC-ORCH | Verify peer hostname resolution"
   ansible.builtin.command:

@@ -39,7 +39,8 @@ if [[ "${MOCK_MTLS}" == "true" ]] || [[ -f "/etc/gdc/mock-mtls" ]]; then
         echo "[*] Generating self-signed mock certificates..."
         # Generate an ephemeral mock certificate using node_mac as the Common Name
         MOCK_HOSTNAME="${STEP_MOCK_HOSTNAME:-gdc-mock-node}"
-        openssl req -x509 -newkey rsa:2048 -keyout "${CLIENT_KEY}" -out "${CLIENT_CRT}"             -days 365 -nodes -subj "/CN=${MOCK_HOSTNAME}" 2>/dev/null
+        openssl req -x509 -newkey rsa:2048 -keyout "${CLIENT_KEY}" -out "${CLIENT_CRT}" \
+            -days 365 -nodes -subj "/CN=${MOCK_HOSTNAME}" -addext "subjectAltName = DNS:${NODE_MAC}" 2>/dev/null
     fi
         
     chmod 0600 "${CLIENT_KEY}"
@@ -57,7 +58,11 @@ if ! command -v step &> /dev/null; then
     exit 1
 fi
 
-NODE_MAC=$(ip -br link | awk '$1 !~ "lo|vir|wl" { print $3 }' | head -n 1 | tr '[:upper:]' '[:lower:]')
+NODE_MAC="${STEP_NODE_MAC:-}"
+if [[ -z "${NODE_MAC}" ]]; then
+    NODE_MAC=$(ip -br link | awk '$1 !~ "lo|vir|wl|vrf|docker|veth" { print $3 }' | head -n 1 | tr '[:upper:]' '[:lower:]')
+fi
+
 if [[ -z "${NODE_MAC}" ]]; then
     echo "FAIL: Could not determine primary MAC address for identity."
     exit 1
@@ -105,7 +110,7 @@ if [[ -n "${STEP_PROVISIONER_PASSWORD:-}" ]]; then
     PASS_FILE=$(mktemp)
     echo -n "${STEP_PROVISIONER_PASSWORD}" > "${PASS_FILE}"
     
-    TOKEN=$(step ca token "${IDENTITY}" ${EXTRA_ARGS} --provisioner="${PROVISIONER_NAME}" --password-file="${PASS_FILE}")
+    TOKEN=$(step ca token "${IDENTITY}" ${EXTRA_ARGS} --san="${NODE_MAC}" --provisioner="${PROVISIONER_NAME}" --password-file="${PASS_FILE}")
     rm -f "${PASS_FILE}"
     
     echo "[-] Token generated. Requesting certificate bound to TPM..."
@@ -116,9 +121,9 @@ if [[ -n "${STEP_PROVISIONER_PASSWORD:-}" ]]; then
 else
     # Fallback to direct request (relies on ACME or interactive prompt)
     echo "[-] No provisioner password detected. Attempting direct certificate request..."
-    if ! step ca certificate "${IDENTITY}" "${CLIENT_CRT}" "${CLIENT_KEY}" --provisioner="${PROVISIONER_NAME}" --kms="tpmkms:name=node-key" --force ${EXTRA_ARGS} 2>/dev/null; then
+    if ! step ca certificate "${IDENTITY}" "${CLIENT_CRT}" "${CLIENT_KEY}" --san="${NODE_MAC}" --provisioner="${PROVISIONER_NAME}" --kms="tpmkms:name=node-key" --force ${EXTRA_ARGS} 2>/dev/null; then
         echo "WARN: Hardware TPM attestation failed or EKCert rejected. Falling back to software-generated private key."
-        step ca certificate "${IDENTITY}" "${CLIENT_CRT}" "${CLIENT_KEY}" --provisioner="${PROVISIONER_NAME}" --force ${EXTRA_ARGS}
+        step ca certificate "${IDENTITY}" "${CLIENT_CRT}" "${CLIENT_KEY}" --san="${NODE_MAC}" --provisioner="${PROVISIONER_NAME}" --force ${EXTRA_ARGS}
     fi
 fi
 

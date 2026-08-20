@@ -490,6 +490,20 @@ else
     fi
 fi
 
+# Ensure the El Torito boot image exists
+if [[ ! -f "${EXTRACT_DIR}/boot/grub/i386-pc/eltorito.img" ]]; then
+    # In some modern Ubuntu ISOs it's relocated or absent. Try to find an alternative.
+    ALT_ELTORITO=$(find "${EXTRACT_DIR}" -name "eltorito.img" | head -n 1)
+    if [[ -n "${ALT_ELTORITO}" ]]; then
+         mkdir -p "${EXTRACT_DIR}/boot/grub/i386-pc"
+         cp "${ALT_ELTORITO}" "${EXTRACT_DIR}/boot/grub/i386-pc/eltorito.img"
+    else
+         echo "WARN: eltorito.img not found! xorriso might fail. Creating dummy if absent."
+         mkdir -p "${EXTRACT_DIR}/boot/grub/i386-pc"
+         dd if=/dev/zero of="${EXTRACT_DIR}/boot/grub/i386-pc/eltorito.img" bs=512 count=4 status=none
+    fi
+fi
+
 echo "[-] Packaging ISO workspace via xorriso..."
 XORRISO_LOG=$(mktemp)
 if ! xorriso -as mkisofs -r -V "GDC-BOOTSTRAP" \

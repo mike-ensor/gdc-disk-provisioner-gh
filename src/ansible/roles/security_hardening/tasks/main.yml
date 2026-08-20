@@ -58,13 +58,41 @@
 # --------------------------------------------------------------------------
 # Task 12: Offline Management Utilities (Logrotate & Update Scripts)
 # --------------------------------------------------------------------------
-- name: "GDC-TASK-12 | Configure regular gcloud components update cron job"
+- name: "GDC-TASK-12 | Remove legacy root gcloud update cron job"
   ansible.builtin.cron:
     name: "Update Google Cloud SDK components regularly"
-    job: "/usr/local/bin/gcloud components update -q > /dev/null 2>&1"
-    special_time: "weekly"
+    user: "root"
+    state: absent
+  tags: ["machine:connected"]
+
+- name: "GDC-TASK-12 | Configure regular gcloud components update cron job"
+  ansible.builtin.cron:
+    name: "gcloud-update"
+    user: "{{ gdc_admin_user }}"
+    job: "/usr/local/bin/gcloud components update -q >> /var/gdc-install/logs/gcloud-update.log 2>&1"
+    minute: "0"
+    hour: "4"
+    weekday: "0"
     state: present
   tags: ["machine:connected"]
+
+- name: "GDC-TASK-12 | Configure logrotate for gcloud-update log"
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/gcloud-update
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      /var/gdc-install/logs/gcloud-update.log {
+          weekly
+          rotate 4
+          compress
+          delaycompress
+          missingok
+          notifempty
+          create 0640 {{ gdc_admin_user }} {{ gdc_admin_group }}
+      }
+  tags: ["strictly-local"]
 
 - name: "GDC-TASK-12 | Deploy skeleton service update scripts"
   ansible.builtin.copy:
@@ -91,7 +119,7 @@
     group: root
     mode: '0755'
   loop:
-    - "/cdrom/custom-data/verify-upgrade-readiness.sh"
+    - "/var/gdc-install/iso-cache/verify-upgrade-readiness.sh"
   ignore_errors: true
   tags: ["strictly-local"]
 

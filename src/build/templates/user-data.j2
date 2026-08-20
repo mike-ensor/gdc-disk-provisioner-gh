@@ -359,12 +359,13 @@ autoinstall:
       echo "[GDC-INSTALL-GOAL] Starting Task: Syncing Gitea, Nexus, & Ansible collections"
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Syncing Gitea, Nexus, & Ansible collections"
-      mkdir -p /target/var/lib/gitea /target/var/lib/nexus /target/usr/share/ansible/collections
+      mkdir -p /target/var/lib/gitea /target/var/lib/nexus /target/usr/share/ansible/collections /target/var/gdc-install/iso-cache
       
       # [GDC-INSTALL-STEP 10/12] Synchronizing Gitea, Sonatype Nexus, and Ansible collection assets...
       rsync_success=true
       rsync -a --sparse /cdrom/custom-data/gitea/ /target/var/lib/gitea/ 2>/tmp/rsync_gitea_err.log || rsync_success=false
       rsync -a --sparse /cdrom/custom-data/nexus/ /target/var/lib/nexus/ 2>/tmp/rsync_nexus_err.log || rsync_success=false
+      rsync -a /cdrom/custom-data/ /target/var/gdc-install/iso-cache/ 2>/tmp/rsync_iso_cache_err.log || rsync_success=false
       
       if [ -d /cdrom/custom-data/ansible/collections ]; then
         rsync -a /cdrom/custom-data/ansible/collections/ /target/usr/share/ansible/collections/ 2>/tmp/rsync_ansible_err.log || rsync_success=false
@@ -376,6 +377,7 @@ autoinstall:
         curtin in-target -- useradd --system --shell /bin/bash --comment "Gitea Service User" --home-dir /var/lib/gitea --gid git git || true
         curtin in-target -- chown -R git:git /var/lib/gitea
         curtin in-target -- chown -R root:root /var/lib/nexus
+        curtin in-target -- chown -R root:root /var/gdc-install/iso-cache
         logger -t gdc-provisioner "[GOAL] Asset synchronization completed successfully"
       else
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0
@@ -386,6 +388,8 @@ autoinstall:
         cat /tmp/rsync_nexus_err.log >/dev/ttyS0 || true
         echo "Ansible collections rsync error:" >/dev/ttyS0
         cat /tmp/rsync_ansible_err.log >/dev/ttyS0 || true
+        echo "ISO Cache rsync error:" >/dev/ttyS0
+        cat /tmp/rsync_iso_cache_err.log >/dev/ttyS0 || true
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0
         exit 1
       fi
