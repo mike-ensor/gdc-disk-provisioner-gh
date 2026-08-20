@@ -79,9 +79,7 @@
 
 - name: "GDC-STATE | Schedule Reboot to apply HWE kernel (if continuing to ClusterReady)"
   ansible.builtin.shell: |
-    sleep 45 && shutdown -r now "GDC LinuxReady completed. Rebooting to apply HWE kernel before ClusterReady."
-  async: 60
-  poll: 0
+    shutdown -r +1 "GDC LinuxReady completed. Rebooting to apply HWE kernel before ClusterReady."
   when: stop_stage != "LINUX_READY"
 
 - name: "GDC-STATE | Force play end to await reboot (if continuing to ClusterReady)"
