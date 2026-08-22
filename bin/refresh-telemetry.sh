@@ -35,6 +35,19 @@ if [ $# -eq 0 ]; then
         # Clean up python list notation, brackets, quotes, and commas
         RAW_IPS=$(echo "${TARGET_TEST_MACHINES}" | tr -d "[]'\"" | tr ',' ' ')
         read -r -a TARGET_IPS <<< "$RAW_IPS"
+
+        echo "=============================================================================="
+        echo " Target machines in scope (from TARGET_TEST_MACHINES):"
+        for ip in "${TARGET_IPS[@]}"; do
+            echo "  - $ip"
+        done
+        echo "=============================================================================="
+        read -p "Are you sure you want to proceed? [y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "[-] Aborted by user."
+            exit 1
+        fi
     else
         echo "Usage: $0 <ip-address> [ip-address-2] ..."
         echo "       Or set TARGET_TEST_MACHINES environment variable."

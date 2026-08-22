@@ -126,6 +126,38 @@
   register: companion_token_response
   ignore_errors: true
 
+
+- name: "GDC-ORCH | Deploy GDC STS Proxy script"
+  ansible.builtin.copy:
+    src: gdc-sts-proxy.py
+    dest: /usr/local/bin/gdc-sts-proxy.py
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "GDC-ORCH | Deploy GDC STS Proxy service"
+  ansible.builtin.copy:
+    src: gdc-sts-proxy.service
+    dest: /etc/systemd/system/gdc-sts-proxy.service
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: "GDC-ORCH | Enable and start GDC STS Proxy"
+  ansible.builtin.systemd:
+    name: gdc-sts-proxy.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: "GDC-ORCH | Deploy ADC Executable script"
+  ansible.builtin.copy:
+    src: gdc-adc-executable.sh
+    dest: /usr/local/bin/gdc-adc-executable.sh
+    owner: root
+    group: root
+    mode: '0755'
+
 - name: "GDC-ORCH | Deploy GDC credentials refresh script"
   ansible.builtin.copy:
     src: refresh-gdc-credentials.sh
@@ -138,6 +170,44 @@
   ansible.builtin.command: /usr/local/bin/refresh-gdc-credentials.sh
   register: token_refresh_result
   failed_when: token_refresh_result.rc != 0
+
+
+# ==============================================================================
+# TEMPORARY WORKAROUND: ADC EXECUTABLE WRAPPER
+# This external_account setup allows the GCP SDKs to read the raw access
+# token refreshed by refresh-gdc-credentials.sh.
+# See FUTURE SECURITY TASK in PROGRESS.md to replace this with native OIDC WIF.
+# ==============================================================================
+- name: "GDC-ORCH | Generate Application Default Credentials mapping"
+  ansible.builtin.copy:
+    dest: /etc/gdc/application_default_credentials.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {
+        "type": "external_account",
+        "audience": "//iam.googleapis.com/projects/{{ machine_config.gcp_info.project_id }}/locations/global/workloadIdentityPools/local/providers/local",
+        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+        "token_url": "http://127.0.0.1:12345/token",
+        "credential_source": {
+          "executable": {
+            "command": "/usr/local/bin/gdc-adc-executable.sh",
+            "timeout_millis": 10000,
+            "output_file": ""
+          }
+        }
+      }
+
+- name: "GDC-ORCH | Set global GOOGLE_APPLICATION_CREDENTIALS for ADC"
+  ansible.builtin.copy:
+    dest: /etc/profile.d/gdc-adc.sh
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      export GOOGLE_APPLICATION_CREDENTIALS="/etc/gdc/application_default_credentials.json"
+      export GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1
 
 - name: "GDC-ORCH | Authenticate gcloud using short-lived access token"
   ansible.builtin.shell: |
@@ -164,13 +234,18 @@
     job: "/usr/local/bin/refresh-gdc-credentials.sh > /dev/null 2>&1"
     state: present
 
-- name: "GDC-ORCH | Schedule automatic GDC credential renewal (every 30 mins)"
+- name: "GDC-ORCH | Schedule automatic GDC credential renewal (every 15 mins)"
   ansible.builtin.cron:
-    name: "gdc-credentials-refresh-30min"
-    minute: "*/30"
+    name: "gdc-credentials-refresh-15min"
+    minute: "*/15"
     user: root
     job: "/usr/local/bin/refresh-gdc-credentials.sh > /dev/null 2>&1"
     state: present
+    
+- name: "GDC-ORCH | Purge legacy 30 min cron job"
+  ansible.builtin.cron:
+    name: "gdc-credentials-refresh-30min"
+    state: absent
 
 - name: "GDC-ORCH | Ensure NodeAgent install directory exists"
   ansible.builtin.file:

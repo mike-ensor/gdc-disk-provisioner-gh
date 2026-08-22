@@ -76,12 +76,3 @@
 - name: "GDC-STATE | Update LinuxReady fact in-memory"
   ansible.builtin.set_fact:
     linux_ready_state: { "status": "completed" }
-
-- name: "GDC-STATE | Schedule Reboot to apply HWE kernel (if continuing to ClusterReady)"
-  ansible.builtin.shell: |
-    shutdown -r +1 "GDC LinuxReady completed. Rebooting to apply HWE kernel before ClusterReady."
-  when: stop_stage != "LINUX_READY"
-
-- name: "GDC-STATE | Force play end to await reboot (if continuing to ClusterReady)"
-  ansible.builtin.meta: end_play
-  when: stop_stage != "LINUX_READY"

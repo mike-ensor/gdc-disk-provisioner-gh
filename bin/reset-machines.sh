@@ -23,6 +23,19 @@ RAW_IPS=$(echo "${TARGET_TEST_MACHINES}" | tr -d "[]'\"" | tr ',' ' ')
 read -ra TARGETS <<< "$RAW_IPS"
 
 echo "=============================================================================="
+echo " Target machines in scope (from TARGET_TEST_MACHINES):"
+for ip in "${TARGETS[@]}"; do
+    echo "  - $ip"
+done
+echo "=============================================================================="
+read -p "Are you sure you want to proceed? [y/N] " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "[-] Aborted by user."
+    exit 1
+fi
+
+echo "=============================================================================="
 echo " GDC REMOTE REBOOT TO PXE PROTOCOL (Active Interface MAC Matching)"
 echo "=============================================================================="
 

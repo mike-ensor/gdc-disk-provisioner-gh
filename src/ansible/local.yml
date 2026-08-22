@@ -196,6 +196,31 @@
         - linux_ready_state.status != "completed"
       tags: ["linux-ready"]
 
+    # ==============================================================================
+    # STAGE 4.5: Kernel/System Pending Reboots (HWE Kernel Application)
+    # ==============================================================================
+    - name: "GDC-STATE | Check if system requires a reboot (e.g. for HWE kernel)"
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_required_file
+      tags: ["linux-ready", "cluster-ready"]
+
+    - name: "GDC-STATE | Perform Pending Reboots before continuing"
+      block:
+        - name: "GDC-STATE | Trigger local background reboot to apply pending kernel/system updates"
+          ansible.builtin.shell: |
+            nohup bash -c 'sleep 10 && shutdown -r now "GDC Provisioner: Applying pending kernel/system updates before ClusterReady."' >/dev/null 2>&1 &
+          async: 0
+          poll: 0
+        
+        - name: "GDC-STATE | Force play end to await scheduled reboot"
+          ansible.builtin.meta: end_play
+      when: 
+        - stop_stage != "LINUX_READY"
+        - reboot_required_file.stat.exists
+      tags: ["linux-ready", "cluster-ready"]
+
+
     - name: "CLUSTER_READY | GDC-STATE | Guard: Halt execution if user requested stop at LINUX_READY"
       block:
         - name: "CLUSTER_READY | GDC-STATE | Collect final diagnostics before halting"

@@ -1,0 +1,13 @@
+[Unit]
+Description=GDC Local STS Proxy for ADC
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /usr/local/bin/gdc-sts-proxy.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

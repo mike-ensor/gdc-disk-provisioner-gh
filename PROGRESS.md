@@ -166,6 +166,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Configure diagnostic tools to tag bypassed overarching pipeline stages as `BYPASSED`
   - [x] Deploy weekly cron job for automated Google Cloud SDK updates
 - [ ] **FUTURE SECURITY TASK:** Implement GRUB bootloader password protection (`grub-mkpasswd-pbkdf2`) when not running in `GDC_DEBUG_MODE`
+- [ ] **FUTURE SECURITY TASK:** Migrate `refresh-gdc-credentials.sh` and ADC to natively use OIDC Identity Tokens and Workload Identity Federation (once the GDC Companion API is updated).
 
 ---
 

@@ -55,7 +55,13 @@
 
 - name: "GDC-STATE | Set machine state stopper fact"
   ansible.builtin.set_fact:
-    stop_stage: "{{ (slurped_fallback_config.content | b64decode | from_json).machine_state_stop_stage if (slurped_fallback_config is defined and slurped_fallback_config.content is defined and (slurped_fallback_config.content | b64decode | from_json).machine_state_stop_stage is defined) else '' }}"
+    stop_stage: "{{ (slurped_fallback_config.content | b64decode | from_json).machine_state_stop_stage | default('') }}"
+  when: fallback_config_stat.stat.exists
+
+- name: "GDC-STATE | Set machine state stopper fact (default fallback)"
+  ansible.builtin.set_fact:
+    stop_stage: ""
+  when: not fallback_config_stat.stat.exists
 
 - name: "GDC-STATE | Load FirstBoot State if exists"
   ansible.builtin.slurp:

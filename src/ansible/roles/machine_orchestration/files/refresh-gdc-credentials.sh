@@ -1,6 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+# ==============================================================================
+# TEMPORARY WORKAROUND: ADC EXECUTABLE WRAPPER
+# ==============================================================================
+# This script wraps the OAuth 2.0 access token into an ADC-compatible format.
+# Future state: Migrate to native OIDC Identity Tokens and Workload Identity Federation
+# once the GDC Companion API is updated. See FUTURE SECURITY TASK in PROGRESS.md.
+# ==============================================================================
+
 # Ensure the auth RAM disk directory exists
 mkdir -p /run/gdc-auth
 chmod 755 /run/gdc-auth
@@ -26,9 +34,22 @@ TOKEN_JSON=$(curl -s -X GET "${COMPANION_URL}" \
 
 # Parse the JSON and write purely the token to the tmpfs file
 if echo "${TOKEN_JSON}" | grep -q "access_token"; then
-    echo "${TOKEN_JSON}" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4 > /run/gdc-auth/access_token
+    RAW_TOKEN=$(echo "${TOKEN_JSON}" | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+    echo "${RAW_TOKEN}" > /run/gdc-auth/access_token
     # Set permissive ACLs so both root and gdc-admin can read it
     chmod 644 /run/gdc-auth/access_token
+    
+    # Write the ADC-compatible output
+    cat <<ADC_EOF > /run/gdc-auth/adc_token.json
+{
+  "version": 1,
+  "success": true,
+  "token_type": "Bearer",
+  "access_token": "${RAW_TOKEN}",
+  "expiration_time": $(date -d '+55 minutes' +%s)
+}
+ADC_EOF
+    chmod 644 /run/gdc-auth/adc_token.json
 else
     echo "ERROR: Failed to fetch a valid access token from Companion." >&2
     exit 1
