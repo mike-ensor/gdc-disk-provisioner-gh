@@ -1,3 +1,5 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
 - name: Run service_hubs role
   ansible.builtin.include_role:
     name: service_hubs

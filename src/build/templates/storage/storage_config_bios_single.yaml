@@ -1,3 +1,5 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
 # Generated dynamically by GDC storage orchestrator (BIOS Single Disk)
   config:
     - {type: disk, id: disk-system, path: /dev/${DISK_1}, ptable: gpt, grub_device: true, wipe: superblock-recursive}
