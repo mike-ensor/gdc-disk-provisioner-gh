@@ -1,3 +1,5 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
 - name: "GDC-STATE | Wait for Gitea and Nexus ports to become active"
   ansible.builtin.wait_for:
     host: 127.0.0.1

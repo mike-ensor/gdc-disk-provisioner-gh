@@ -1,3 +1,5 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
 - name: Run machine_orchestration role
   ansible.builtin.include_role:
     name: machine_orchestration
