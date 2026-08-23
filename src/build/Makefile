@@ -25,7 +25,7 @@ ISO_VERSION := $(call get_env,ISO_VERSION)
 ISO_NAME_PREFIX := $(call get_env,ISO_NAME_PREFIX)
 ENABLE_GCS := $(call get_env,ENABLE_GCS)
 GCS_BUCKET := $(call get_env,GCS_BUCKET)
-ENABLE_NFS := $(call get_env,ENABLE_NFS)
+DEPENDENCY_CACHE_GCS_BUCKET := $(call get_env,DEPENDENCY_CACHE_GCS_BUCKET)
 NFS_DEPLOY_PATH := $(call get_env,NFS_DEPLOY_PATH)
 SOURCE_ISO_URL := $(call get_env,SOURCE_ISO_URL)
 SOURCE_ISO_FILENAME := $(call get_env,SOURCE_ISO_FILENAME)
@@ -160,8 +160,8 @@ deps:
 	@mkdir -p $(CACHE_DIR)/isos
 	@# GCS Pull Cache Phase
 	@if [ "$(ENABLE_GCS)" = "true" ] && [ "$(GCLOUD_PRESENT)" = "true" ]; then \
-		echo "  [-] GCS cache active. Pulling artifacts from gs://$(GCS_BUCKET)..."; \
-		BUCKET_NAME=$$(echo "$(GCS_BUCKET)" | sed 's/^gs:\/\///'); \
+		echo "  [-] GCS cache active. Pulling artifacts from $(DEPENDENCY_CACHE_GCS_BUCKET)..."; \
+		BUCKET_NAME=$$(echo "$(DEPENDENCY_CACHE_GCS_BUCKET)" | sed 's/^gs:\/\///'); \
 		if [ -n "$$BUCKET_NAME" ]; then \
 			for file in "$(SOURCE_ISO_FILENAME)" "gdc-collector" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)"; do \
 				if [ "$$file" = "$(SOURCE_ISO_FILENAME)" ]; then \
@@ -238,7 +238,7 @@ deps:
 	@# GCS Seed Cache Phase
 	@if [ "$(ENABLE_GCS)" = "true" ] && [ "$(GCLOUD_PRESENT)" = "true" ]; then \
 		echo "  [-] Synchronizing verified local cache back to GCS..."; \
-		BUCKET_NAME=$$(echo "$(GCS_BUCKET)" | sed 's/^gs:\/\///'); \
+		BUCKET_NAME=$$(echo "$(DEPENDENCY_CACHE_GCS_BUCKET)" | sed 's/^gs:\/\///'); \
 		if [ -n "$$BUCKET_NAME" ]; then \
 			for file in "gdc-collector" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)"; do \
 				local_path="$(BIN_CACHE_DIR)/$$file"; \

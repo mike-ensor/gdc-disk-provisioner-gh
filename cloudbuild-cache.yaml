@@ -24,9 +24,10 @@ steps:
       - '-c'
       - |
         echo "[-] [GCS Cache Fill] Checking and caching service binaries..."
+        source src/build/build.env
         make -C src/build deps \
           ENABLE_GCS="true" \
-          GCS_BUCKET="gs://${_GCS_BUCKET_NAME}"
+          GCS_BUCKET="$${DEPENDENCY_CACHE_GCS_BUCKET}"
 
   # ==========================================
   # Step 2: Pre-resolve & Cache Offline .deb Packages
@@ -42,11 +43,12 @@ steps:
         echo "[-] [GCS Cache Fill] Checking and caching debian packages inside Ubuntu 24.04 Noble..."
         apt-get update -qq && apt-get install -y -qq curl python3 python3-yaml sudo
         
+        source src/build/build.env
+        export DEPENDENCY_CACHE_GCS_BUCKET="$${DEPENDENCY_CACHE_GCS_BUCKET}"
+        export ENABLE_GCS="false"
+        export TEST_ONLY="${_TEST_ONLY}"
+        
         ./src/build/preseed_packages.sh
-    env:
-      - 'GCS_BUCKET=gs://${_GCS_BUCKET_NAME}'
-      - 'ENABLE_GCS=false'
-      - 'TEST_ONLY=${_TEST_ONLY}'
 
   # ==========================================
   # Step 3: Synchronize .deb Packages Cache to GCS
@@ -59,9 +61,10 @@ steps:
       - '-c'
       - |
         echo "[-] [GCS Cache Fill] Uploading compiled native Ubuntu 24.04 packages to GCS..."
-        BUCKET_NAME=$(echo "${_GCS_BUCKET_NAME}" | sed 's/^gs:\/\///')
+        source src/build/build.env
+        DEP_BUCKET_NAME=$(echo "$${DEPENDENCY_CACHE_GCS_BUCKET}" | sed 's/^gs:\/\///')
         if ls .cache/packages/*.deb &>/dev/null; then
-          gcloud storage cp .cache/packages/*.deb "gs://$${BUCKET_NAME}/packages/" --quiet
+          gcloud storage cp .cache/packages/*.deb "gs://$${DEP_BUCKET_NAME}/packages/" --quiet
           echo "  [x] Successfully synchronized cached packages to GCS."
         else
           echo "  [!] No packages found to synchronize!"

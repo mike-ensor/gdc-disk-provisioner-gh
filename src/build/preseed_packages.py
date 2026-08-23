@@ -149,7 +149,7 @@ def main():
     local_env = parse_env_file(os.path.join(script_dir, "local.env"))
     
     # Combine configurations (priority: process environment > local.env > build.env)
-    gcs_bucket = os.environ.get("GCS_BUCKET") or local_env.get("GCS_BUCKET") or build_env.get("GCS_BUCKET") or "gs://gdc-disk-provisioner-isos"
+    gcs_bucket = os.environ.get("DEPENDENCY_CACHE_GCS_BUCKET") or local_env.get("DEPENDENCY_CACHE_GCS_BUCKET") or build_env.get("DEPENDENCY_CACHE_GCS_BUCKET") or "gs://gdc-disk-provisioner-isos"
     enable_gcs = os.environ.get("ENABLE_GCS") or local_env.get("ENABLE_GCS") or build_env.get("ENABLE_GCS") or "false"
     test_only = os.environ.get("TEST_ONLY") or local_env.get("TEST_ONLY") or build_env.get("TEST_ONLY") or "false"
     ubuntu_override = os.environ.get("_UBUNTU_VERSION") or local_env.get("_UBUNTU_VERSION") or build_env.get("_UBUNTU_VERSION")

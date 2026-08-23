@@ -56,8 +56,13 @@ steps:
 
         echo "[-] Pulling cached GGD binaries from GCS binaries/ prefix..."
         source src/dependencies.env
+        source src/build/build.env
+        
+        # Clean the gs:// prefix for local string manipulation if needed
+        DEP_BUCKET_NAME=$(echo "$${DEPENDENCY_CACHE_GCS_BUCKET}" | sed 's/^gs:\/\///')
+
         for file in $${CACHED_BINARY_FILES}; do
-          gcs_path="gs://${_GCS_BUCKET_NAME}/binaries/$file"
+          gcs_path="gs://$${DEP_BUCKET_NAME}/binaries/$file"
           local_path=".cache/binaries/$file"
           if [ ! -f "$local_path" ]; then
             if gcloud storage objects describe "$gcs_path" &>/dev/null; then
@@ -71,11 +76,11 @@ steps:
 
         echo "[-] Pulling cached GGD Debian packages from GCS packages/ prefix..."
         mkdir -p .cache/packages
-        if gcloud storage ls "gs://${_GCS_BUCKET_NAME}/packages/*.deb" &>/dev/null; then
-          gcloud storage cp "gs://${_GCS_BUCKET_NAME}/packages/*.deb" ".cache/packages/"
+        if gcloud storage ls "gs://$${DEP_BUCKET_NAME}/packages/*.deb" &>/dev/null; then
+          gcloud storage cp "gs://$${DEP_BUCKET_NAME}/packages/*.deb" ".cache/packages/"
           echo "  [x] Successfully synchronized cached packages from GCS."
         else
-          echo "  [!] No cached packages found in gs://${_GCS_BUCKET_NAME}/packages/."
+          echo "  [!] No cached packages found in gs://$${DEP_BUCKET_NAME}/packages/."
         fi
 
   # ==========================================
@@ -91,6 +96,8 @@ steps:
       - |
         echo "[-] [CI Stage: compile] Triggering Stage-Gate compilation for version: ${_ISO_VERSION}..."
         
+        source src/build/build.env
+
         # Build the targets sequentially using GNU Make dependencies
         make -C src/build test-static \
           ISO_VERSION="${_ISO_VERSION}" \
@@ -98,6 +105,7 @@ steps:
           GDC_DEBUG_MODE="${_GDC_DEBUG_MODE}" \
           ENABLE_GCS="true" \
           GCS_BUCKET="gs://${_GCS_BUCKET_NAME}" \
+          DEPENDENCY_CACHE_GCS_BUCKET="$${DEPENDENCY_CACHE_GCS_BUCKET}" \
           _CUSTOMER_ASSETS_URI="${_CUSTOMER_ASSETS_URI}" \
           AUTO_APPROVE="true" \
           INSTALL_COMPANION_URL="${_INSTALL_COMPANION_URL}" \
@@ -137,6 +145,7 @@ steps:
           GDC_DEBUG_MODE="${_GDC_DEBUG_MODE}" \
           ENABLE_GCS="true" \
           GCS_BUCKET="gs://${_GCS_BUCKET_NAME}" \
+          DEPENDENCY_CACHE_GCS_BUCKET="$${DEPENDENCY_CACHE_GCS_BUCKET}" \
           _CUSTOMER_ASSETS_URI="${_CUSTOMER_ASSETS_URI}"
         
         BUCKET_NAME=$(echo "${_GCS_BUCKET_NAME}" | sed 's/^gs:\/\///')
