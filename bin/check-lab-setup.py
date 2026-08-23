@@ -36,6 +36,7 @@ import urllib.parse
 import ssl
 import json
 import socket
+import subprocess
 from typing import Dict, Any, Tuple
 
 # Add src/build to path to parse env files
@@ -62,6 +63,7 @@ except ImportError:
 # Global state
 VERBOSE = False
 LAB_CONFIG = {}
+LOCAL_CONFIG = {}
 
 def log_info(msg):
     print(f"[-] {msg}")
@@ -88,6 +90,8 @@ def check_tcp_port(host: str, port: int, timeout: int = 3) -> bool:
         return result == 0
     except Exception:
         return False
+    finally:
+        sock.close()
 
 def http_get(url: str, headers: dict = None, timeout: int = 5, verify_ssl: bool = False) -> Tuple[bool, int, str]:
     """Helper to perform HTTP GET requests."""
@@ -113,11 +117,14 @@ def http_get(url: str, headers: dict = None, timeout: int = 5, verify_ssl: bool 
 def load_environment():
     """Loads variables from build.env and local.env."""
     global LAB_CONFIG
+    global LOCAL_CONFIG
     
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     build_env = parse_env_file(os.path.join(project_root, "src/build/build.env"))
     local_env = parse_env_file(os.path.join(project_root, "src/build/local.env"))
     
+    LOCAL_CONFIG = local_env.copy()
+
     # Merge environments, local.env taking precedence
     for key, val in build_env.items():
         LAB_CONFIG[key] = val
@@ -125,6 +132,51 @@ def load_environment():
         LAB_CONFIG[key] = val
 
     log_debug(f"Loaded {len(LAB_CONFIG)} configuration variables.")
+
+
+def display_env_summary():
+    """Displays a markdown-formatted table of critical environment variables."""
+    print("\n--- Environment Configuration Summary ---")
+    
+    def print_row(key, val, defined_ok, mask=False):
+        status = "[OK]" if defined_ok else "[FAIL]"
+        display_val = val
+        if mask and display_val and len(display_val) > 15:
+            display_val = display_val[:15] + "**[masked]"
+        elif not display_val:
+            display_val = "**MISSING**"
+            
+        print(f"| {key:<25} | {status:<7} | {display_val:<29} |")
+        return defined_ok
+
+    print("| Service Variables       | Defined | Value                         |")
+    print("|-------------------------|---------|-------------------------------|")
+    svcs_ok = True
+    svcs_ok &= print_row("ADMIN_SSH_PUB_KEYS", LOCAL_CONFIG.get("ADMIN_SSH_PUB_KEYS", ""), bool(LOCAL_CONFIG.get("ADMIN_SSH_PUB_KEYS")), mask=True)
+    svcs_ok &= print_row("INSTALL_COMPANION_BASE", LOCAL_CONFIG.get("INSTALL_COMPANION_BASE", LAB_CONFIG.get("INSTALL_COMPANION_BASE")), bool(LOCAL_CONFIG.get("INSTALL_COMPANION_BASE")))
+    svcs_ok &= print_row("STEP_CA_URL", LOCAL_CONFIG.get("STEP_CA_URL", LAB_CONFIG.get("STEP_CA_URL")), bool(LOCAL_CONFIG.get("STEP_CA_URL")))
+    svcs_ok &= print_row("PXE_SERVER_HOST", LOCAL_CONFIG.get("PXE_SERVER_HOST", LAB_CONFIG.get("PXE_SERVER_HOST")), bool(LOCAL_CONFIG.get("PXE_SERVER_HOST")))
+    svcs_ok &= print_row("PXE_SERVER_PORT", LOCAL_CONFIG.get("PXE_SERVER_PORT", LAB_CONFIG.get("PXE_SERVER_PORT")), bool(LOCAL_CONFIG.get("PXE_SERVER_PORT")))
+
+    print("\n| GCP Settings            | Defined | Value                         |")
+    print("|-------------------------|---------|-------------------------------|")
+    gcp_ok = True
+    gcp_ok &= print_row("PROJECT_ID", LOCAL_CONFIG.get("PROJECT_ID", LAB_CONFIG.get("PROJECT_ID")), bool(LOCAL_CONFIG.get("PROJECT_ID")))
+    gcp_ok &= print_row("REGION", LOCAL_CONFIG.get("REGION", LAB_CONFIG.get("REGION")), bool(LOCAL_CONFIG.get("REGION")))
+    
+    print("\n| Networking Defaults     | Defined | Value                         |")
+    print("|-------------------------|---------|-------------------------------|")
+    net_ok = True
+    net_ok &= print_row("BOOTSTRAP_MACHINE_DHCP4", LOCAL_CONFIG.get("BOOTSTRAP_MACHINE_DHCP4", LAB_CONFIG.get("BOOTSTRAP_MACHINE_DHCP4")), bool(LOCAL_CONFIG.get("BOOTSTRAP_MACHINE_DHCP4")))
+    net_ok &= print_row("BOOTSTRAP_MACHINE_DHCP6", LOCAL_CONFIG.get("BOOTSTRAP_MACHINE_DHCP6", LAB_CONFIG.get("BOOTSTRAP_MACHINE_DHCP6")), bool(LOCAL_CONFIG.get("BOOTSTRAP_MACHINE_DHCP6")))
+    
+    if not (svcs_ok and gcp_ok and net_ok):
+        print("\n[X] ERROR: Critical environment variables are missing from your configuration.")
+        print("    Please ensure they are defined in src/build/local.env.")
+        sys.exit(1)
+    
+    print("\n[+] Required environment configuration variables are populated.")
+    
 
 # ==============================================================================
 # INDIVIDUAL SERVICE CHECKS
@@ -302,51 +354,33 @@ def check_network_configs():
         return True
     return False
 
-import subprocess
-
-def check_bootimus_server():
-    """Audits the Bootimus HTTP Orchestrator reachability."""
-    print("\n--- 6. Bootimus Orchestrator Audit ---")
-    pxe_host = LAB_CONFIG.get("PXE_SERVER_HOST")
-    pxe_port = LAB_CONFIG.get("PXE_SERVER_PORT", "26000")
+def check_nexus_registry():
+    """Audits the Nexus Apt/Docker local registry if specified."""
+    print("\n--- 4. Sonatype Nexus Hub Audit ---")
+    # Normally Nexus IP is determined during provisioning or set via an env var like NEXUS_IP 
+    # For this audit, we will look for an override or inform the user.
+    nexus_ip = LAB_CONFIG.get("NEXUS_IP")
     
-    if not pxe_host or "example-labs.com" in pxe_host:
-        log_warn(f"PXE_SERVER_HOST is missing or uses default example: {pxe_host}")
-        return False
-    
-    try:
-        port_int = int(pxe_port)
-    except ValueError:
-        port_int = 80
+    if not nexus_ip:
+        log_info("NEXUS_IP is not explicitly set in environment configurations. Skipping direct Nexus checks.")
+        log_info("Note: Nexus is usually hosted dynamically or on a dedicated lab node.")
+        return True
         
-    log_info(f"Targeting Bootimus at: {pxe_host}:{port_int}")
-    if check_tcp_port(pxe_host, port_int):
-        log_success(f"Bootimus HTTP service is REACHABLE on {pxe_host}:{port_int}.")
-        return True
-    else:
-        log_error(f"Bootimus HTTP service is UNREACHABLE on {pxe_host}:{port_int}.")
-        return False
-
-
-    log_info(f"Targeting TFTP Server at: {pxe_host}:69")
+    log_info(f"Targeting Nexus Hub at: {nexus_ip}")
     
-    # TFTP RRQ for a dummy file "probe.txt"
-    # Opcode 1 (RRQ), filename, 0, mode, 0
-    payload = b"\x00\x01probe.txt\x00octet\x00"
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.settimeout(3)
-    try:
-        sock.sendto(payload, (pxe_host, 69))
-        # Any response (even an error opcode 5) means a TFTP daemon is listening
-        data, server = sock.recvfrom(1024)
-        log_success(f"TFTP service is REACHABLE on {pxe_host}:69 (received daemon response).")
-        return True
-    except socket.timeout:
-        log_error(f"TFTP service is UNREACHABLE on {pxe_host}:69 (timeout). Is the daemon running?")
-        return False
-    except Exception as e:
-        log_error(f"TFTP service check failed: {e}")
-        return False
+    # Check Nexus UI port (8081)
+    if check_tcp_port(nexus_ip, 8081):
+        log_success(f"Nexus Web/API port (8081) is OPEN.")
+    else:
+        log_error(f"Nexus Web/API port (8081) is CLOSED on {nexus_ip}.")
+        
+    # Check Docker Proxy port (5001)
+    if check_tcp_port(nexus_ip, 5001):
+        log_success(f"Nexus Docker Proxy port (5001) is OPEN.")
+    else:
+        log_warn(f"Nexus Docker Proxy port (5001) is CLOSED on {nexus_ip}.")
+
+    return True
 
 def check_gcloud_config():
     """Audits the local gcloud CLI configuration for authentication and project ID."""
@@ -396,34 +430,28 @@ def check_gcloud_config():
 
     return issues == 0
 
-def check_nexus_registry():
-    """Audits the Nexus Apt/Docker local registry if specified."""
-    print("\n--- 4. Sonatype Nexus Hub Audit ---")
-    # Normally Nexus IP is determined during provisioning or set via an env var like NEXUS_IP 
-    # For this audit, we will look for an override or inform the user.
-    nexus_ip = LAB_CONFIG.get("NEXUS_IP")
+def check_bootimus_server():
+    """Audits the Bootimus HTTP Orchestrator reachability."""
+    print("\n--- 6. Bootimus Orchestrator Audit ---")
+    pxe_host = LAB_CONFIG.get("PXE_SERVER_HOST")
+    pxe_port = LAB_CONFIG.get("PXE_SERVER_PORT", "26000")
     
-    if not nexus_ip:
-        log_info("NEXUS_IP is not explicitly set in environment configurations. Skipping direct Nexus checks.")
-        log_info("Note: Nexus is usually hosted dynamically or on a dedicated lab node.")
+    if not pxe_host or "example-labs.com" in pxe_host:
+        log_warn(f"PXE_SERVER_HOST is missing or uses default example: {pxe_host}")
+        return False
+    
+    try:
+        port_int = int(pxe_port)
+    except ValueError:
+        port_int = 80
+        
+    log_info(f"Targeting Bootimus at: {pxe_host}:{port_int}")
+    if check_tcp_port(pxe_host, port_int):
+        log_success(f"Bootimus HTTP service is REACHABLE on {pxe_host}:{port_int}.")
         return True
-        
-    log_info(f"Targeting Nexus Hub at: {nexus_ip}")
-    
-    # Check Nexus UI port (8081)
-    if check_tcp_port(nexus_ip, 8081):
-        log_success(f"Nexus Web/API port (8081) is OPEN.")
     else:
-        log_error(f"Nexus Web/API port (8081) is CLOSED on {nexus_ip}.")
-        
-    # Check Docker Proxy port (5001)
-    if check_tcp_port(nexus_ip, 5001):
-        log_success(f"Nexus Docker Proxy port (5001) is OPEN.")
-    else:
-        log_warn(f"Nexus Docker Proxy port (5001) is CLOSED on {nexus_ip}.")
-
-    return True
-
+        log_error(f"Bootimus HTTP service is UNREACHABLE on {pxe_host}:{port_int}.")
+        return False
 
 def main():
     parser = argparse.ArgumentParser(description="Audit and diagnose GDC local lab setup.")
@@ -439,6 +467,8 @@ def main():
     
     log_info("Loading configurations from src/build/build.env and local.env...")
     load_environment()
+    
+    display_env_summary()
     
     step_ok = check_step_ca()
     comp_ok = check_gdc_companion()
