@@ -152,7 +152,7 @@ def display_env_summary():
         
         display_val = val
         if mask and display_val and len(display_val) > 15:
-            display_val = f"{display_val[:6]}{'*' * 8}{display_val[-6:]}"
+            display_val = f"{display_val[:10]}{'*' * 8}[masked]"
         elif not display_val:
             display_val = f"{RED}**MISSING**{RESET}"
             
