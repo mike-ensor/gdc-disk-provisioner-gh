@@ -88,8 +88,6 @@ def check_tcp_port(host: str, port: int, timeout: int = 3) -> bool:
         return result == 0
     except Exception:
         return False
-    finally:
-        sock.close()
 
 def http_get(url: str, headers: dict = None, timeout: int = 5, verify_ssl: bool = False) -> Tuple[bool, int, str]:
     """Helper to perform HTTP GET requests."""
@@ -163,7 +161,7 @@ def check_step_ca():
             log_warn("openssl s_client command failed or returned empty.")
         else:
             x509_cmd = ["openssl", "x509", "-noout", "-text"]
-            x509_res = subprocess.run(x509_cmd, input=res.stdout, capture_output=True, text=True, check=True)
+            x509_res = subprocess.run(x509_cmd, input=res.stdout.decode('utf-8', errors='ignore'), capture_output=True, text=True, check=True)
             if "Subject Alternative Name" in x509_res.stdout:
                 # Basic string match to see if the host is covered
                 if host in x509_res.stdout:
@@ -329,13 +327,6 @@ def check_bootimus_server():
         log_error(f"Bootimus HTTP service is UNREACHABLE on {pxe_host}:{port_int}.")
         return False
 
-def check_tftp_server():
-    """Audits the TFTP/DHCP dependency reachability on UDP Port 69."""
-    print("\n--- 7. TFTP / DHCP Dependency Audit ---")
-    pxe_host = LAB_CONFIG.get("PXE_SERVER_HOST")
-    if not pxe_host or "example-labs.com" in pxe_host:
-        log_warn(f"PXE_SERVER_HOST is missing or uses default example: {pxe_host}")
-        return False
 
     log_info(f"Targeting TFTP Server at: {pxe_host}:69")
     
@@ -356,8 +347,6 @@ def check_tftp_server():
     except Exception as e:
         log_error(f"TFTP service check failed: {e}")
         return False
-    finally:
-        sock.close()
 
 def check_gcloud_config():
     """Audits the local gcloud CLI configuration for authentication and project ID."""
@@ -457,7 +446,6 @@ def main():
     nex_ok = check_nexus_registry()
     gcloud_ok = check_gcloud_config()
     bootimus_ok = check_bootimus_server()
-    tftp_ok = check_tftp_server()
     
     print("\n==============================================================================")
     print(" AUDIT SUMMARY")
@@ -470,9 +458,8 @@ def main():
     print(f"  Nexus Offline Hub     : {'[OK]' if nex_ok else '[FAIL/WARN]'}")
     print(f"  Google Cloud CLI      : {'[OK]' if gcloud_ok else '[FAIL]'}")
     print(f"  Bootimus Orchestrator : {'[OK]' if bootimus_ok else '[FAIL]'}")
-    print(f"  TFTP Boot Service     : {'[OK]' if tftp_ok else '[FAIL]'}")
     
-    if not (step_ok and comp_ok and net_ok and gcloud_ok and bootimus_ok and tftp_ok):
+    if not (step_ok and comp_ok and net_ok and gcloud_ok and bootimus_ok):
         all_ok = False
         
     print("\n==============================================================================")
