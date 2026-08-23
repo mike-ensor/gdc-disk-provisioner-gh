@@ -135,22 +135,35 @@ def load_environment():
 
 
 def display_env_summary():
-    """Displays a markdown-formatted table of critical environment variables."""
+    """Displays a clean terminal-formatted table of critical environment variables."""
     print("\n--- Environment Configuration Summary ---")
     
+    GREEN = '\033[92m'
+    RED = '\033[91m'
+    RESET = '\033[0m'
+    CYAN = '\033[96m'
+    BOLD = '\033[1m'
+
     def print_row(key, val, defined_ok, mask=False):
-        status = "[OK]" if defined_ok else "[FAIL]"
+        status_text = "[OK]" if defined_ok else "[FAIL]"
+        status_color = GREEN if defined_ok else RED
+        # Pad the status string manually to account for hidden ANSI characters
+        status_padded = f"{status_color}{status_text}{RESET}" + " " * (8 - len(status_text))
+        
         display_val = val
         if mask and display_val and len(display_val) > 15:
             display_val = display_val[:15] + "**[masked]"
         elif not display_val:
-            display_val = "**MISSING**"
+            display_val = f"{RED}**MISSING**{RESET}"
             
-        print(f"| {key:<25} | {status:<7} | {display_val:<29} |")
+        print(f"  {key:<26} {status_padded} {display_val}")
         return defined_ok
 
-    print("| Service Variables       | Defined | Value                         |")
-    print("|-------------------------|---------|-------------------------------|")
+    def print_header(title):
+        print(f"\n  {BOLD}{CYAN}{title}{RESET}")
+        print("  " + "-" * 70)
+
+    print_header("SERVICE VARIABLES")
     svcs_ok = True
     svcs_ok &= print_row("ADMIN_SSH_PUB_KEYS", LOCAL_CONFIG.get("ADMIN_SSH_PUB_KEYS", ""), bool(LOCAL_CONFIG.get("ADMIN_SSH_PUB_KEYS")), mask=True)
     svcs_ok &= print_row("INSTALL_COMPANION_BASE", LOCAL_CONFIG.get("INSTALL_COMPANION_BASE", LAB_CONFIG.get("INSTALL_COMPANION_BASE")), bool(LOCAL_CONFIG.get("INSTALL_COMPANION_BASE")))
@@ -158,24 +171,22 @@ def display_env_summary():
     svcs_ok &= print_row("PXE_SERVER_HOST", LOCAL_CONFIG.get("PXE_SERVER_HOST", LAB_CONFIG.get("PXE_SERVER_HOST")), bool(LOCAL_CONFIG.get("PXE_SERVER_HOST")))
     svcs_ok &= print_row("PXE_SERVER_PORT", LOCAL_CONFIG.get("PXE_SERVER_PORT", LAB_CONFIG.get("PXE_SERVER_PORT")), bool(LOCAL_CONFIG.get("PXE_SERVER_PORT")))
 
-    print("\n| GCP Settings            | Defined | Value                         |")
-    print("|-------------------------|---------|-------------------------------|")
+    print_header("GCP SETTINGS")
     gcp_ok = True
     gcp_ok &= print_row("PROJECT_ID", LOCAL_CONFIG.get("PROJECT_ID", LAB_CONFIG.get("PROJECT_ID")), bool(LOCAL_CONFIG.get("PROJECT_ID")))
     gcp_ok &= print_row("REGION", LOCAL_CONFIG.get("REGION", LAB_CONFIG.get("REGION")), bool(LOCAL_CONFIG.get("REGION")))
     
-    print("\n| Networking Defaults     | Defined | Value                         |")
-    print("|-------------------------|---------|-------------------------------|")
+    print_header("NETWORKING DEFAULTS")
     net_ok = True
     net_ok &= print_row("BOOTSTRAP_MACHINE_DHCP4", LOCAL_CONFIG.get("BOOTSTRAP_MACHINE_DHCP4", LAB_CONFIG.get("BOOTSTRAP_MACHINE_DHCP4")), bool(LOCAL_CONFIG.get("BOOTSTRAP_MACHINE_DHCP4")))
     net_ok &= print_row("BOOTSTRAP_MACHINE_DHCP6", LOCAL_CONFIG.get("BOOTSTRAP_MACHINE_DHCP6", LAB_CONFIG.get("BOOTSTRAP_MACHINE_DHCP6")), bool(LOCAL_CONFIG.get("BOOTSTRAP_MACHINE_DHCP6")))
     
     if not (svcs_ok and gcp_ok and net_ok):
-        print("\n[X] ERROR: Critical environment variables are missing from your configuration.")
+        print(f"\n{RED}[X] ERROR: Critical environment variables are missing from your configuration.{RESET}")
         print("    Please ensure they are defined in src/build/local.env.")
         sys.exit(1)
     
-    print("\n[+] Required environment configuration variables are populated.")
+    print(f"\n{GREEN}[+] Required environment configuration variables are populated.{RESET}")
     
 
 # ==============================================================================
