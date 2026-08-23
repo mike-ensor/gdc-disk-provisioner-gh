@@ -10,6 +10,17 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 ## [Unreleased] - 2026-08-22
 
 ### Added
+- **Automated Pre-Flight Lab Auditor (`check-lab-setup.py`):** Developed a comprehensive diagnostic python script to parse `build.env` and `local.env`, actively validating critical network dependencies prior to booting bare metal nodes.
+- **Dynamic Infrastructure Auditing:** The lab auditor actively verifies:
+  - **Step CA (mTLS):** Validates network reachability, asserts required Subject Alternative Name (SAN) fields in the x509 cert via openssl, and dynamically probes for `acme` or `jwk` provisioner endpoints.
+  - **Google Cloud Platform:** Authenticates the local `gcloud` context, parses active `PROJECT_ID`, tests IAM read-permissions, asserts the presence of `admin-sa` and `baremetal-gcr` GSAs, and queries the GCP API to guarantee all 19 mandated GDC APIs (e.g. `anthos.googleapis.com`) are fully enabled.
+  - **Network & Orchestration:** Pings Bootimus HTTP endpoints (`PXE_SERVER_HOST`), tests core GDC Companion API endpoints via the bearer token, verifies local DNS forwarder functionality, and cross-checks the L3 VRF definitions to prevent static IP collisions.
+- **Decoupled Bootimus Sockets:** Promoted Bootimus IP routing into dedicated, explicitly defined `PXE_SERVER_HOST` and `PXE_SERVER_PORT` variables in `build.env` and `LAB_SETUP.md`, decoupling it from hardcoded IP assumptions.
+
+### Changed
+- **GCS Sync Fallback Normalization:** Replaced hardcoded string declarations of `gs://gdc-disk-provisioner-isos` throughout Python scripts, Makefiles, and CloudBuild templates with a unified, standard environment variable `DEPENDENCY_CACHE_GCS_BUCKET` explicitly driven by `build.env`.
+
+### Added
 - **Aggressive Log Rotation & Capping:** Added a centralized `logrotate` configuration (`/etc/logrotate.d/gdc-syslog`) to strictly enforce a maximum 50MB file size per shard with a 14-day retention cycle across all `rsyslog` and `auditd` outputs. Reduced `systemd-journald` total disk allocation to 50MB max (`SystemMaxUse=50M`) and 10MB per active shard (`SystemMaxFileSize=10M`). This combination prevents aggressive runaway logging from consuming disk space and creating unrecoverable disk pressure loops.
 - **CIS Benchmark System Logging & Audit Trailing:** Deployed comprehensive logging constraints inside the `security_hardening` playbook (Task 13). Reconfigured `systemd-journald` to run in persistent storage mode while forwarding to syslog.
 - **System Service Route Auditing (`rsyslog`):** Instantiated `rsyslog` to separate dynamic OS events away from binary files, dynamically routing specific kernel flows into standard `/var/log/syslog`, `/var/log/secure` (authentication boundaries), `/var/log/cron`, and `/var/log/boot.log` file drops.

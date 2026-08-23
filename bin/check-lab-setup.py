@@ -335,7 +335,7 @@ def check_gdc_companion():
     return True
 
 def check_network_configs():
-    """Audits static network definitions for collisions or missing parameters."""
+    """Audits static network definitions for collisions or missing parameters, and verifies DNS resolution of core GCP APIs."""
     print("\n--- 3. Static Network Configuration Audit ---")
     
     machine_ip = LAB_CONFIG.get("BOOTSTRAP_MACHINE_IP_CIDR")
@@ -360,6 +360,44 @@ def check_network_configs():
     if machine_ip and k8s_ip and machine_ip == k8s_ip:
         log_error("Machine IP CIDR and K8s IP CIDR are identical. VRF tables will collide!")
         issues += 1
+        
+    # DNS Resolution checks for core GCP APIs
+    required_apis = [
+        "anthos.googleapis.com",
+        "anthosaudit.googleapis.com",
+        "anthosgke.googleapis.com",
+        "cloudbuild.googleapis.com",
+        "cloudresourcemanager.googleapis.com",
+        "compute.googleapis.com",
+        "connectgateway.googleapis.com",
+        "container.googleapis.com",
+        "gkeconnect.googleapis.com",
+        "gkehub.googleapis.com",
+        "gkeonprem.googleapis.com",
+        "iam.googleapis.com",
+        "kubernetesmetadata.googleapis.com",
+        "logging.googleapis.com",
+        "monitoring.googleapis.com",
+        "opsconfigmonitoring.googleapis.com",
+        "serviceusage.googleapis.com",
+        "stackdriver.googleapis.com",
+        "storage.googleapis.com"
+    ]
+    
+    failed_dns = []
+    for api in required_apis:
+        try:
+            # Resolves the hostname to an IP address. If it throws socket.gaierror, resolution failed.
+            socket.gethostbyname(api)
+        except socket.gaierror:
+            failed_dns.append(api)
+            
+    if failed_dns:
+        log_error(f"DNS Resolution failed for {len(failed_dns)} required GCP APIs: {', '.join(failed_dns)}")
+        log_error("Your lab network DNS cannot resolve Google Cloud endpoints. Check your firewall or DNS forwarders.")
+        issues += 1
+    else:
+        log_success("DNS successfully resolved all required GCP APIs from this network.")
         
     if issues == 0:
         return True
@@ -408,6 +446,7 @@ def check_gcloud_config():
     issues = 0
     
     # 2. Check authenticated account
+    account = "unknown"
     try:
         acct_res = subprocess.run(
             ["gcloud", "config", "get-value", "account"], 
@@ -435,6 +474,88 @@ def check_gcloud_config():
             issues += 1
         else:
             log_success(f"Active GCP Project: {project}")
+            
+            # 4. Check GCP APIs enablement
+            required_apis = [
+                "anthos.googleapis.com",
+                "anthosaudit.googleapis.com",
+                "anthosgke.googleapis.com",
+                "cloudbuild.googleapis.com",
+                "cloudresourcemanager.googleapis.com",
+                "compute.googleapis.com",
+                "connectgateway.googleapis.com",
+                "container.googleapis.com",
+                "gkeconnect.googleapis.com",
+                "gkehub.googleapis.com",
+                "gkeonprem.googleapis.com",
+                "iam.googleapis.com",
+                "kubernetesmetadata.googleapis.com",
+                "logging.googleapis.com",
+                "monitoring.googleapis.com",
+                "opsconfigmonitoring.googleapis.com",
+                "serviceusage.googleapis.com",
+                "stackdriver.googleapis.com",
+                "storage.googleapis.com"
+            ]
+            try:
+                api_res = subprocess.run(
+                    ["gcloud", "services", "list", "--enabled", "--format=value(config.name)"],
+                    capture_output=True, text=True, check=True
+                )
+                enabled_apis = set(api_res.stdout.split())
+                missing_apis = [api for api in required_apis if api not in enabled_apis]
+                
+                if not missing_apis:
+                    log_success(f"All {len(required_apis)} required GCP APIs are ENABLED.")
+                else:
+                    log_error(f"Missing {len(missing_apis)} required GCP APIs!")
+                    log_info(f"Run: 'gcloud services enable {' '.join(missing_apis)}'")
+                    issues += 1
+            except subprocess.CalledProcessError as e:
+                log_error(f"Failed to verify GCP APIs status: {e.stderr.strip()}")
+                issues += 1
+                
+            # 6. Check required Google Service Accounts (GSAs)
+            try:
+                sa_res = subprocess.run(
+                    ["gcloud", "iam", "service-accounts", "list", "--format=value(email)"],
+                    capture_output=True, text=True, check=True
+                )
+                sa_emails = sa_res.stdout.split()
+                required_sas = ["admin-sa", "baremetal-gcr"]
+                missing_sas = []
+                
+                for required_sa in required_sas:
+                    # Construct the expected full email address for the SA
+                    expected_email = f"{required_sa}@{project}.iam.gserviceaccount.com"
+                    if expected_email not in sa_emails:
+                        missing_sas.append(required_sa)
+                        
+                if not missing_sas:
+                    log_success(f"Required GSAs ('admin-sa', 'baremetal-gcr') exist in project '{project}'.")
+                else:
+                    log_error(f"Missing required GSAs in project '{project}': {', '.join(missing_sas)}")
+                    log_info("Please create these service accounts before proceeding.")
+                    issues += 1
+            except subprocess.CalledProcessError as e:
+                log_error(f"Failed to query Service Accounts: {e.stderr.strip()}")
+                issues += 1
+                
+            # 5. Check IAM Permissions (Can we read builds?)
+            if issues == 0:
+                try:
+                    bld_res = subprocess.run(
+                        ["gcloud", "builds", "list", "--limit=1", "--format=value(id)"],
+                        capture_output=True, text=True, check=True
+                    )
+                    log_success("IAM Permissions verified. Successfully authenticated against Cloud Build.")
+                except subprocess.CalledProcessError as e:
+                    if "PERMISSION_DENIED" in e.stderr:
+                        log_error(f"Permission Denied. Your account '{account}' lacks Cloud Build viewer/editor roles on '{project}'.")
+                    else:
+                        log_error(f"Failed to query Cloud Build API: {e.stderr.strip()}")
+                    issues += 1
+                    
     except subprocess.CalledProcessError as e:
         log_error(f"Failed to retrieve gcloud project: {e.stderr.strip()}")
         issues += 1

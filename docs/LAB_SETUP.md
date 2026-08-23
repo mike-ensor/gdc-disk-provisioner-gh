@@ -28,17 +28,19 @@ This document outlines how to build a local GDC Bare Metal test lab from scratch
 
 The ISO build pipeline relies on Google Cloud Platform. You must have:
 
-* An active GCP Project.
-* The Cloud Build API enabled.
+* An active GCP Project configured locally via the `gcloud` CLI.
+* All 19 required [GDC GCP APIs](https://cloud.google.com/kubernetes-engine/docs/how-to/apis) enabled (e.g. `anthos.googleapis.com`, `cloudbuild.googleapis.com`, `gkeonprem.googleapis.com`).
+* Proper Google Service Accounts created in the active project (`admin-sa` and `baremetal-gcr`).
 
 **Critical CI/CD Variables**
 The Cloud Build pipeline produces environment-specific ISOs by injecting variables at build time. Below are sample variables passed into the pipeline:
 
 | Variable | Description | Sample / Default Value |
 | :--- | :--- | :--- |
-| `_STEP_CA_URL` | The public URL of your Step CA server | `https://step-ca.your-domain.com` |
-| `_PXE_SERVER_IP` | The IP address of the Bootimus PXE server | `192.168.1.50` |
-| `_NEXUS_IP` | The IP address of the local apt/docker proxy | `192.168.1.51` |
+| `STEP_CA_URL` | The public URL of your Step CA server | `https://step-ca.your-domain.com` |
+| `PXE_SERVER_HOST` | The hostname or IP of the Bootimus PXE server | `pxe.example-labs.com` |
+| `PXE_SERVER_PORT` | The port the Bootimus PXE server listens on | `26000` |
+| `NEXUS_IP` | The IP address of the local apt/docker proxy | `192.168.1.51` |
 
 ### 3.2 DHCP & PXE Configuration (Option 67)
 
@@ -114,6 +116,23 @@ curl -sk https://step-ca.your-domain.com/provisioners
 ### 4.4 NAS Sync (Optional)
 
 A Network Attached Storage (NAS) device is highly recommended. It can be used to locally sync and store large assets (like the generated GDC ISOs) and can act as the TFTP server hosting the initial `bootimus.efi` payload.
+
+### 4.5 Automated Lab Auditing
+
+A Python verification script (`bin/check-lab-setup.py`) is included to dynamically audit your lab environment against the exact requirements outlined in this guide. 
+
+Before booting physical nodes, execute the pre-flight auditor from your workspace:
+```bash
+./bin/check-lab-setup.py
+```
+
+The auditor dynamically tests:
+1. Local Network bindings (VRF collisions and Subnet configurations).
+2. Step CA `mTLS` reachability and Subject Alternative Name (SAN) enforcement.
+3. Live `gdc-companion` API endpoints.
+4. GCloud context (checking GCP Project IDs, 19 Required API enablements, and necessary Service Accounts).
+5. Orchestration reachability (`pxe.example-labs.com` HTTP services).
+6. Local DNS resolution for critical GCP boundaries.
 
 ## 5. Operating the Lab (The Workflow)
 
