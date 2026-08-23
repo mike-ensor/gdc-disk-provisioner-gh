@@ -59,6 +59,15 @@ Executed on the builder workstation or CI/CD runner. It assemblies the remastere
     *   `nexus` (v3.68.0+): Standalone Sonatype Nexus Repository Manager package.
     *   `openjdk-17-jre-headless`: Standalone Java JVM required by Nexus.
     *   `bootstrap-playbooks.git`: Bare mirror of GDC playbooks cloned from `UPSTREAM_PLAYBOOKS_REPO`.
+    *   `packages/*.deb`: Native Debian packages and recursively resolved dependencies cached from GCS.
+
+---
+
+### 3.1b. Caching & Storage Implementation
+*   **Central GCS Bucket (`gs://gdc-disk-provisioner-isos`)**: Serves as the unified source of truth for both binary dependencies (`/binaries/`), pre-resolved APT packages (`/packages/`), and the blessed Ubuntu OS (`/source/`).
+*   **Offline Propagation**:
+    *   **Debian Packages**: Injected into the ISO `/custom-data/packages/`, `rsync`'d to persistent LVM at `/var/gdc-install/iso-cache/` during first boot, and actively seeded to the local offline Nexus Hosted registry (`gdc-apt-hosted` / Port 8081).
+    *   **OCI Containers**: Not stored in the ISO to prevent bloat. Managed strictly by the Nexus Docker Group Repository (`gdc-docker-group` / Port 5001), serving layers persistently from `/var/lib/nexus` with infinite TTL caching from upstream or USB sideloads.
 
 ---
 
