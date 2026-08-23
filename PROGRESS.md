@@ -160,6 +160,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] Task 10: Standalone non-apt Google Cloud SDK deployment
   - [x] Task 11: Security configurations (Mask `ufw`, unattended-upgrades)
   - [x] Task 12: Offline management deployment
+- [x] Task 13: System logging (auditd, rsyslog) with aggressive size/rotation constraints
 - [ ] **IMMEDIATE NEXT FIX:** Fix Netplan VRF indentation mapping error (`/etc/netplan/01-netcfg.yaml:18:8: Error in network definition: expected mapping (check indentation) vrfs: ^`)
 - [x] **Diagnostics & System Fixes**
   - [x] Fix URGENT BUG: `LINUX_READY` diagnostic reports fail to collect proper HWE kernel statuses due to stale initramfs.

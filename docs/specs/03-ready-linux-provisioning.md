@@ -153,6 +153,25 @@ To maximize idempotence and declarative engineering standards, the entire GDC po
 *   **Unlocking Config:** Writes target `/etc/crypttab` pointing to `tpm2-device=auto,discard`.
 *   **Cleanup:** Generates an escrow LVM recovery passphrase, wipes the temporary bootstrap password from metadata keyslots, and purges temporary files.
 
+
+### 5.7. System Logging & Audit Trailing (Task 13)
+*   **Action:** Configures comprehensive logging and auditing infrastructure to capture system events, authentication, and kernel modifications while strictly preventing disk pressure.
+*   **Journald (`systemd-journald`):** 
+    *   **Location:** `/var/log/journal/`
+    *   **Configuration:** Persistent binary logs on disk with aggressive size capping.
+    *   **Constraints:** `SystemMaxUse=50M` (Maximum total size across all shards) and `SystemMaxFileSize=10M`. Logs older than 1 month are pruned. Overflows are forwarded to Syslog.
+*   **Auditd (`auditd`):**
+    *   **Location:** `/var/log/audit/audit.log`
+    *   **Configuration:** Deep system-call and modification auditing (e.g., changes to `/etc/shadow`, `/etc/sudoers`, network configurations).
+*   **Syslog (`rsyslog`):**
+    *   **Location:** Routes events into `/var/log/syslog` (general), `/var/log/secure` (auth), `/var/log/cron` (scheduling), `/var/log/boot.log` (local boot), and `/var/log/maillog`.
+*   **Rotation Enforcement (`logrotate`):**
+    *   A centralized configuration (`/etc/logrotate.d/gdc-syslog`) rotates `rsyslog` and `auditd` logs.
+    *   **Schedule:** Rotated `daily`.
+    *   **Retention:** `rotate 14` (14 days of history kept).
+    *   **Size Caps:** `maxsize 50M` triggers an aggressive rotation immediately if a log exceeds 50MB before the daily schedule.
+    *   **Compression:** Old shards are compressed to minimize storage payload, delaying compression by one rotation cycle to allow active ingestors to finish reading.
+
 ### 5.6. Remote Attestation & Cloud-Validated Device Identity
 *   **Handshake:** Generates an Attestation Key (AK) and takes a TPM PCR boot quote signed with a dynamic cloud-challenge nonce.
 *   **TLS Enrollment:** Requests GDC Device TLS identity certificates from GCP Cloud CAs using an un-extractable RSA private key generated inside the TPM's secure PKCS#11 enclave.

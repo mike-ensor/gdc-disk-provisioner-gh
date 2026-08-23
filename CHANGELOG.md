@@ -6,6 +6,15 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 
 
+
+## [Unreleased] - 2026-08-22
+
+### Added
+- **Aggressive Log Rotation & Capping:** Added a centralized `logrotate` configuration (`/etc/logrotate.d/gdc-syslog`) to strictly enforce a maximum 50MB file size per shard with a 14-day retention cycle across all `rsyslog` and `auditd` outputs. Reduced `systemd-journald` total disk allocation to 50MB max (`SystemMaxUse=50M`) and 10MB per active shard (`SystemMaxFileSize=10M`). This combination prevents aggressive runaway logging from consuming disk space and creating unrecoverable disk pressure loops.
+- **CIS Benchmark System Logging & Audit Trailing:** Deployed comprehensive logging constraints inside the `security_hardening` playbook (Task 13). Reconfigured `systemd-journald` to run in persistent storage mode while forwarding to syslog.
+- **System Service Route Auditing (`rsyslog`):** Instantiated `rsyslog` to separate dynamic OS events away from binary files, dynamically routing specific kernel flows into standard `/var/log/syslog`, `/var/log/secure` (authentication boundaries), `/var/log/cron`, and `/var/log/boot.log` file drops.
+- **High-Security Kernel System-Call Auditing (`auditd`):** Configured strict `/etc/audit/rules.d/99-gdc-audit.rules` to monitor unauthorized configuration modifications (tracking write/appends against `/etc/passwd`, `/etc/sudoers`, `/etc/network`, and `/etc/shadow`), dumping events strictly into `/var/log/audit/audit.log` while bridging failure modes dynamically out to syslog via the kernel.
+
 ## [0.3.19] - 2026-08-12
 
 ### Added
