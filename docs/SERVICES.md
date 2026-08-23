@@ -49,6 +49,47 @@ This document provides a registry of the critical system-level and OS-level serv
 *   **Logs:** `/var/log/unattended-upgrades/unattended-upgrades.log`
 *   **Update Mechanism:** Automated by systemd timers. It silently runs in the background and applies DEB packages downloaded from the local Nexus cache.
 
+
+## System Logging & Auditing
+
+The GDC OS uses a strict, rotated logging architecture designed to balance deep auditing with strong constraints against disk pressure.
+
+### 6. `systemd-journald` (Primary System Logger)
+*   **Purpose:** The core binary logging daemon for systemd. Captures stdout/stderr from all systemd units (including `gitea`, `nexus`, and `node-agent`).
+*   **Binaries:** `/lib/systemd/systemd-journald`
+*   **Configuration:** `/etc/systemd/journald.conf.d/99-gdc-logging.conf`
+*   **Constraints:**
+    *   Maximum total disk usage is capped at **50MB**.
+    *   Maximum individual file size is **10MB**.
+    *   Maximum retention is **1 month**.
+    *   Forwards events natively to Syslog (`rsyslog`).
+*   **Logs Location:** `/var/log/journal/` (Persistent binary format, readable via `journalctl`).
+
+### 7. `rsyslog` (Syslog Router)
+*   **Purpose:** Separates and routes forwarded journal logs and native syslog streams into standard UNIX flat files.
+*   **Binaries:** `/usr/sbin/rsyslogd`
+*   **Configuration:** `/etc/rsyslog.d/99-gdc-syslog.conf`
+*   **Logs Location:**
+    *   `/var/log/syslog` (General info)
+    *   `/var/log/secure` (Authentication/privilege events)
+    *   `/var/log/cron` (Cron scheduling events)
+    *   `/var/log/boot.log` (Local boot sequences)
+
+### 8. `auditd` (Security Auditing)
+*   **Purpose:** Deep kernel-level monitoring of system calls, file modifications, and security events based on CIS compliance rules.
+*   **Binaries:** `/sbin/auditd`
+*   **Configuration:** `/etc/audit/rules.d/99-gdc-audit.rules`
+    *   Monitors critical system files (`/etc/passwd`, `/etc/sudoers`, `/etc/network`, etc.) for any `wa` (write/append) modifications.
+*   **Logs Location:** `/var/log/audit/audit.log`
+
+### 9. Syslog & Auditd Rotation (`logrotate`)
+*   **Purpose:** A dedicated, aggressive logrotate configuration protects the OS from log spam originated by syslog or auditd.
+*   **Configuration:** `/etc/logrotate.d/gdc-syslog`
+    *   **Schedule:** Rotated `daily`.
+    *   **Size Constraint:** If a log hits **50MB**, it rotates immediately.
+    *   **Retention:** Keeps exactly **14 days** of history.
+    *   **Compression:** Shards are compressed, with the active shard delayed by one cycle to prevent I/O locks.
+
 ## Additional Utilities
 
 ### 5. Logrotate

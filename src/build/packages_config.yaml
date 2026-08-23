@@ -39,6 +39,7 @@ packages_to_include:
     - "arp-scan"
     - "libseccomp2"
     - "auditd"
+    - "rsyslog"
     - "audispd-plugins"
     - "ansible"
     - "git"

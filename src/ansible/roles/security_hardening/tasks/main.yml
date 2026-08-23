@@ -160,6 +160,151 @@
     force: yes
   tags: ["strictly-local"]
 
+
+# --------------------------------------------------------------------------
+# Task 13: System Logging (Auditd, Syslog, Journald)
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-13 | Ensure journald configuration directory exists"
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-13 | Configure systemd-journald"
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/99-gdc-logging.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      [Journal]
+      Storage=persistent
+      Compress=yes
+      SyncIntervalSec=5m
+      RateLimitInterval=30s
+      RateLimitBurst=1000
+      SystemMaxUse=50M
+      SystemMaxFileSize=10M
+      MaxRetentionSec=1month
+      ForwardToSyslog=yes
+      ForwardToWall=yes
+  register: journald_config
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-13 | Restart systemd-journald service"
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted
+  when: journald_config.changed
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-13 | Configure auditd rules (audit.d)"
+  ansible.builtin.copy:
+    dest: /etc/audit/rules.d/99-gdc-audit.rules
+    owner: root
+    group: root
+    mode: '0640'
+    content: |
+      ## First rule - delete all
+      -D
+      ## Increase the buffers to survive stress events.
+      -b 8192
+      ## Set failure mode to syslog
+      -f 1
+      ## Monitor user/group modifications
+      -w /etc/group -p wa -k identity
+      -w /etc/passwd -p wa -k identity
+      -w /etc/gshadow -p wa -k identity
+      -w /etc/shadow -p wa -k identity
+      -w /etc/security/opasswd -p wa -k identity
+      ## Monitor login/logout actions
+      -w /var/log/faillog -p wa -k logins
+      -w /var/log/lastlog -p wa -k logins
+      -w /var/log/tallylog -p wa -k logins
+      ## Monitor sudo configuration changes
+      -w /etc/sudoers -p wa -k sudoers
+      -w /etc/sudoers.d -p wa -k sudoers
+      ## Monitor network configuration changes
+      -a always,exit -F arch=b64 -S sethostname -S setdomainname -k system-locale
+      -a always,exit -F arch=b32 -S sethostname -S setdomainname -k system-locale
+      -w /etc/issue -p wa -k system-locale
+      -w /etc/issue.net -p wa -k system-locale
+      -w /etc/hosts -p wa -k system-locale
+      -w /etc/network -p wa -k system-locale
+  register: auditd_config
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-13 | Restart auditd service"
+  ansible.builtin.systemd:
+    name: auditd
+    state: restarted
+  when: auditd_config.changed
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-13 | Configure syslog (rsyslog)"
+  ansible.builtin.copy:
+    dest: /etc/rsyslog.d/99-gdc-syslog.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # GDC Syslog Rules
+      *.info;mail.none;authpriv.none;cron.none                /var/log/syslog
+      authpriv.*                                              /var/log/secure
+      mail.*                                                  -/var/log/maillog
+      cron.*                                                  /var/log/cron
+      *.emerg                                                 :omusrmsg:*
+      uucp,news.crit                                          /var/log/spooler
+      local7.*                                                /var/log/boot.log
+  register: rsyslog_config
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-13 | Restart rsyslog service"
+  ansible.builtin.systemd:
+    name: rsyslog
+    state: restarted
+  when: rsyslog_config.changed
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+
+- name: "GDC-TASK-13 | Configure logrotate for rsyslog and auditd"
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/gdc-syslog
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      /var/log/syslog
+      /var/log/secure
+      /var/log/maillog
+      /var/log/cron
+      /var/log/spooler
+      /var/log/boot.log
+      /var/log/audit/audit.log
+      {
+          daily
+          rotate 14
+          maxsize 50M
+          compress
+          delaycompress
+          missingok
+          notifempty
+          create 0640 root adm
+          sharedscripts
+          postrotate
+              /usr/lib/rsyslog/rsyslog-rotate
+              /sbin/service auditd reload > /dev/null 2>/dev/null || true
+          endscript
+      }
+  tags: ["strictly-local"]
+
 # --------------------------------------------------------------------------
 # Configure Persistent GPG Signed-Commits for Ansible-Pull
 # --------------------------------------------------------------------------
