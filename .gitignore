@@ -18,6 +18,7 @@ out/
 build/
 !src/build/
 target/
+.review/
 
 # Python Caches
 __pycache__/

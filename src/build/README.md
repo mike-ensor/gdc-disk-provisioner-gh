@@ -63,6 +63,27 @@ You can dynamically override build configurations (like the target GCS bucket, v
 
 ---
 
+## Build Configuration & Air-Gapped Fallbacks
+
+The build process relies heavily on environment variables defined in `src/build/build.env` (or overridden locally via `local.env`).
+
+### Air-Gapped / Fallback Scenarios (No GDC Companion)
+If the provisioning node cannot reach the GDC Companion during deployment (e.g., an entirely offline air-gapped deployment, or a network failure), the node falls back to a predefined offline configuration baked into the ISO.
+
+During the ISO build process, variables under the **GDC COMPANION FALLBACK CONFIGURATION** group in `src/build/build.env` are baked directly into `/target/etc/gdc/fallback-config.json` on the LiveCD. If Ansible fails to receive a configuration from the GDC Companion, it parses this fallback JSON file and continues configuring the machine. 
+
+Relevant fallback variables include:
+*   `BOOTSTRAP_HOST_NAME`
+*   `FALLBACK_MACHINE_STATE_STOP_STAGE`
+*   `BOOTSTRAP_BMCTL_VERSION`
+*   `FALLBACK_CLUSTER_VLAN_ID`
+*   `FALLBACK_PEERS_JSON`
+*   `FALLBACK_GCP_PROJECT_ID`
+*   `FALLBACK_GCP_REGION`
+*   `FALLBACK_GCP_PRIMARY_GSA`
+
+---
+
 ## GCS Directory Structure & Synology Cloud Sync Integration
 
 For Bootimus or other network booting / PXE servers to access your custom-compiled GDC ISOs headlessly:
@@ -82,14 +103,15 @@ For Bootimus or other network booting / PXE servers to access your custom-compil
    This ensures that your local Synology path `/volume1/iso_share/sync/` only pulls down the 5 active, latest ready-to-boot ISOs from the GCS `/sync/` directory, while older versions moved to GCS `/archived/` are completely skipped, saving local NAS disk space.
 5. **PXE / Bootimus Triggering & Ingestion:**
    Once synchronized, Bootimus can serve bootable custom GDC images locally from `/volume1/iso_share/sync/`.
-   
-   To fully automate the ingestion, kernel extraction, and boot parameter configuration of these newly synced images in Bootimus, use our helper CLI: **`src/build/bootimus.py`**.
 
 ---
 
 ## Bootimus Automation CLI (`bootimus.py`)
 
-The helper CLI `src/build/bootimus.py` completely automates the Bootimus pipeline and provides tree-based image audits headlessly:
+If you are actively developing the custom ISO or require automated bare-metal PXE ingestion, a running Bootimus instance is highly recommended. 
+
+The helper CLI `src/build/bootimus.py` completely automates the Bootimus pipeline, enforces synchronous non-interactive parameter locking across the Bootimus API, and provides tree-based image audits headlessly:
+
 1. **Authentication:** Securely retrieves login credentials from active environment variables (`BOOTIMUS_USER` and `BOOTIMUS_PASS`) or dynamically queries **Infisical** for the secure `bootimus_creds` secret.
 2. **Storage Scan & Ingestion:** Sends a `POST /api/scan` request to trigger Bootimus to scan your `/volume1/iso_share/sync/` folder for the newly arrived ISO.
 3. **Async Extraction:** Triggers and monitors the asynchronous kernel/initrd extraction from the ISO (`POST /api/images/extract`), polling `/api/images/extract-progress` until fully extracted (100%).

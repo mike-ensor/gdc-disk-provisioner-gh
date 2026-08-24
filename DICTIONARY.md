@@ -4,31 +4,21 @@ This dictionary defines key terms, concepts, and acronyms used throughout the `g
 
 ---
 
-### Core Phases
+### Core Stages
 
-#### 1. Baseline Phase
+The GDC Node lifecycle is orchestrated across distinct system stages, ensuring deterministic progression from bare-metal RAM to a fully clustered state.
 
-The initial bootstrap phase where a "blessed" (vetted, official) Ubuntu 24.04 LTS server ISO boots, automated disk LVM partitioning is established, a minimal Ubuntu OS is installed onto the target drive, and basic offline networking is configured. This is orchestrated entirely via `subiquity` and `cloud-init` (NoCloud).
+#### 1. Stage 1: LiveCD
+The initial bootstrap stage where a "blessed" (vetted, official) Ubuntu 24.04 LTS server ISO boots, automated disk LVM partitioning is established, a minimal Ubuntu OS is installed onto the target drive, and basic offline networking is configured. This is orchestrated entirely via `subiquity` and `cloud-init` (NoCloud). In this ephemeral state, the machine runs entirely in-memory from the read-only custom bootloader ISO (backed by a RAM `tmpfs` / `overlayfs`).
 
-#### 2. Ready-Linux Phase
+#### 2. Stage 2: First Boot
+The initial boot cycle of the newly written operating system on the physical target drive after rebooting from the Live ISO. This state is characterized by unlocking the LUKS storage with a temporary boot-unlock key, starting persistent local services (Gitea and Nexus), and running local `ansible-pull` playbooks to enroll the physical TPM 2.0 chip and finalize the node into an immutable, secure state.
 
-The post-baseline configuration, provisioning, and hardening phase. It begins immediately on the first boot of the target OS and is orchestrated by a localized `ansible-pull` run. This phase creates the persistent administrative users, deploys persistent services (Gitea and Nexus), configures hardware cryptography (TPM 2.0 LUKS, SSH, and identity), and applies security hardening scripts.
+#### 3. Stage 3-5: Ready-Linux (SecondBoot to ClusterReady)
+The post-baseline configuration, provisioning, and hardening phase. Orchestrated by localized `ansible-pull` runs, this creates persistent administrative users, enforces CIS hardening scripts, verifies auto-unsealing stability, and gates the execution of the node-agent until all configurations are verified.
 
-#### 3. Cluster Turnup Phase
-
-After `ready-linux`, this phase invovles reaching up to the **machine database** with the unique information to pull a set of desired state variables. Uing thse variables, this phase will create a GDC Software Only Standalone Edge-profile cluster. This phase will utilize `ansible-pull` to perform coordnation between one or three nodes (based on upstream configuration), `bmctl` and the rest of the setup to create a cluster. Upon completion a fully usable, registered cluter will be available.
-
----
-
-### Core Boot & Installation States
-
-#### 1. Live ISO State
-
-The ephemeral operating state where the target bare-metal machine boots and runs entirely in-memory from the read-only custom bootloader ISO (backed by a RAM `tmpfs` / `overlayfs`). In this state, physical disk partitioning, LUKS volume creation, target system image writing, and baseline boundary service configurations are staged via Subiquity and cloud-init, ending once a physical reboot is initiated.
-
-#### 2. First Initial Boot State
-
-The initial boot cycle of the newly written operating system on the physical target drive after rebooting from the Live ISO. This state is characterized by unlocking the LUKS storage with a temporary boot-unlock key, starting persistent local services (Gitea and Nexus), dynamically installing the core orchestration utilities (`ansible` and `git`) from the local persistent loopback Nexus, and running local `ansible-pull` playbooks to enroll the physical TPM 2.0 chip, apply CIS hardening, and finalize the node into an immutable, secure GDC-ready state.
+#### 4. Stage 6-8: Cluster Turnup & Upkeep (ClusterTurnup to UpdateUpkeep)
+This final lifecycle span involves reaching up to the machine database for configurations to create a GDC Software Only Standalone Edge-profile cluster. It uses `ansible-pull` and `bmctl` to perform cluster inception. Upon completion, a fully usable cluster enters the automated Upkeep stage, receiving daily drift correction.
 
 ---
 
@@ -151,27 +141,27 @@ Finding a "Crashed Provision" system on the network requires Network Console or 
 
 ---
 
-### GDC Bootstrap Stage-Gates
+### GDC Bootstrap Installation Gates
 
-The standardized sequence of stages executed during the automated GDC bare-metal installation and post-install bootstrap. Each stage acts as a blocking gate with specific entry/exit qualifications.
+The standardized sequence of internal gates executed during the automated GDC bare-metal LiveCD installation and post-install bootstrap. Each gate acts as a blocking barrier with specific entry/exit qualifications to prevent temporal race conditions.
 
-#### 1. Stage 1: Hardware Bus Settling & Enumeration (`HARDWARE_SETTLING`)
-The stage that waits for physical system hardware buses (PCI, USB, storage controllers, TPM) and device nodes to fully initialize and register in `/dev/` and `/sys/`.
+#### 1. Gate 1: Hardware Bus Settling & Enumeration (`HARDWARE_SETTLING`)
+The gate that waits for physical system hardware buses (PCI, USB, storage controllers, TPM) and device nodes to fully initialize and register in `/dev/` and `/sys/`.
 
-#### 2. Stage 2: Disk Sanitization & Interface Purge (`DISK_SANITIZATION`)
-The stage where the primary installation block device is cleaned of all residual partitions, signatures, filesystems, logical volumes, and LUKS encryption mappings from any previous installations.
+#### 2. Gate 2: Disk Sanitization & Interface Purge (`DISK_SANITIZATION`)
+The gate where the primary installation block device is cleaned of all residual partitions, signatures, filesystems, logical volumes, and LUKS encryption mappings from any previous installations.
 
-#### 3. Stage 3: Cross-Namespace Integrity Verification (`NAMESPACE_SYNC`)
-The stage that performs file-system read/write synchronization loops between the container/snap mount namespace and the host overlayfs namespace to ensure no propagation latencies block keyfiles.
+#### 3. Gate 3: Cross-Namespace Integrity Verification (`NAMESPACE_SYNC`)
+The gate that performs file-system read/write synchronization loops between the container/snap mount namespace and the host overlayfs namespace to ensure no propagation latencies block keyfiles.
 
-#### 4. Stage 4: Storage Structure & Partitioning (`STORAGE_LAYOUT`)
-The stage where the physical partitions are created, the LUKS2 secure cryptographic container is formatted and mapped, and the LVM volume group and all 11 required logical volumes are allocated.
+#### 4. Gate 4: Storage Structure & Partitioning (`STORAGE_LAYOUT`)
+The gate where the physical partitions are created, the LUKS2 secure cryptographic container is formatted and mapped, and the LVM volume group and all 11 required logical volumes are allocated.
 
-#### 5. Stage 5: OS Payload Injection & Bootloader Stage (`OS_PAYLOAD`)
-The stage that writes the baseline operating system filesystem payload, mounts system paths under `/target`, and installs and configures the UEFI GRUB bootloader.
+#### 5. Gate 5: OS Payload Injection & Bootloader Stage (`OS_PAYLOAD`)
+The gate that writes the baseline operating system filesystem payload, mounts system paths under `/target`, and installs and configures the UEFI GRUB bootloader.
 
-#### 6. Stage 6: First-Boot Security Sealing & Key Sanitization (`TPM_SEALING`)
-The first-boot stage where the physical node's fTPM/dTPM chip is initialized and enrolled to seal the LUKS encryption key to PCR values 0+7, and any temporary bootstrap keyfiles are permanently wiped and deleted from disk.
+#### 6. Gate 6: First-Boot Security Sealing & Key Sanitization (`TPM_SEALING`)
+The first-boot gate where the physical node's fTPM/dTPM chip is initialized and enrolled to seal the LUKS encryption key to PCR values 0+7, and any temporary bootstrap keyfiles are permanently wiped and deleted from disk.
 
-#### 7. Stage 7: Local Boundary Hubs & Playbook Execution (`BOUNDARY_HUB_TURNUP`)
-The final bootstrap stage where the local isolated Gitea and Sonatype Nexus services are verified as healthy, and `ansible-pull` is executed locally to apply system post-install configurations.
+#### 7. Gate 7: Local Boundary Hubs & Playbook Execution (`BOUNDARY_HUB_TURNUP`)
+The final bootstrap gate where the local isolated Gitea and Sonatype Nexus services are verified as healthy, and `ansible-pull` is executed locally to apply system post-install configurations.

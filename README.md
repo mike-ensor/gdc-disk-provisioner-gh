@@ -1,8 +1,17 @@
 # Google Distributed Cloud (GDC) Disk Provisioner & Bootloader ISO
 
-`gdc-disk-provisioner` contains the design, tooling, and configurations for building, provisioning, and maintaining secure, offline-first bootloader ISOs for Google Distributed Cloud (GDC) environments.
+The `gdc-disk-provisioner` provides the tooling, design specifications, and configurations required to build, provision, and maintain secure, **offline-first bootloader ISOs** for Google Distributed Cloud (GDC) bare-metal environments.
 
-The project implements a **Hub-and-Spoke Sideloading Architecture** that enables nodes to bootstrap, configure, and receive updates completely offline in low-internet or air-gapped environments, while supporting proxy-pass-thru when internet connectivity is active.
+## Why this project exists
+Bare-metal GDC environments often operate in strictly air-gapped or low-internet conditions. Provisioning physical servers in these environments traditionally requires manual intervention or complex PXE infrastructures that break down without internet access.
+
+This project exists to solve this by implementing a **Hub-and-Spoke Sideloading Architecture**. It allows physical nodes to bootstrap, configure, secure themselves, and receive ongoing updates completely offline.
+
+Key pillars of this architecture include:
+*   **Hardware-Backed Security:** LUKS disk encryption, SSH host keys, and device identities are cryptographically bound directly to the physical hardware's TPM 2.0 chip.
+*   **GDC Bare Metal Compliance:** Automates dynamic disk partitioning to implement the official enterprise LVM layout required by GDC out-of-the-box.
+*   **Local Boundary Interfaces (Service Hubs):** Installs local instances of Gitea (for IaC/Ansible playbooks) and Sonatype Nexus (for containers, packages, and LLM caches) that act as the offline boundary endpoints for the target node.
+*   **Autonomous Upkeep:** Once provisioned, nodes maintain themselves autonomously by periodically pulling configuration updates via `ansible-pull` from their local Gitea instance.
 
 ## :rotating_light: ALPHA STATE :rotating_light:
 
@@ -10,7 +19,9 @@ The project implements a **Hub-and-Spoke Sideloading Architecture** that enables
 
 ---
 
-## GDC Overarching Machine States State Machine
+## The GDC Node State Machine
+
+To coordinate node bootstrap across separate reboots and prevent premature cluster operations, each physical GDC node implements a strict 8-stage sequential state machine.
 
 ```mermaid
 flowchart LR
@@ -23,14 +34,14 @@ flowchart LR
     classDef orange fill:#F57C00,stroke:#E65100,stroke-width:2px,color:#FFFFFF;
 
     %% Nodes
-    Stage1["Phase 1: LiveCD\n(ISO & Subiquity)"]
-    Stage2["Phase 2: First Boot\n(Services & TPM)"]
-    Stage3["Phase 3: Second Boot\n(Unseal & Stability)"]
-    Stage4["Phase 4: Linux Ready\n(CIS & Hardening)"]
-    Stage5["Phase 5: Cluster Ready\n(Config & NodeAgent)"]
-    Stage6["Phase 6: Cluster Turnup\n(bmctl creation)"]
-    Stage7["Phase 7: Post Cluster\n(Validation)"]
-    Stage8["Phase 8: Upkeep\n(Drift & Sideloads)"]
+    Stage1["Stage 1: LiveCD\n(ISO & Subiquity)"]
+    Stage2["Stage 2: First Boot\n(Services & TPM)"]
+    Stage3["Stage 3: Second Boot\n(Unseal & Stability)"]
+    Stage4["Stage 4: Linux Ready\n(OS Deps, CIS/Hardening)"]
+    Stage5["Stage 5: Cluster Ready\n(Config & NodeAgent)"]
+    Stage6["Stage 6: Cluster Turnup\n(bmctl creation)"]
+    Stage7["Stage 7: Post Cluster\n(Validation)"]
+    Stage8["Stage 8: Upkeep\n(Drift & Sideloads)"]
 
     %% Connections
     Stage1 --> Stage2
@@ -52,118 +63,38 @@ flowchart LR
     class Stage8 yellow;
 ```
 
-For detailed specifications, transition triggers, and state cache sentinels for each stage, refer to the [AI-Readable State-Transition Matrix in docs/ARCHITECTURE.md](https://gitlab.com/gcp-solutions-public/retail-edge/gdc-disk-provisioner/-/blob/main/docs/ARCHITECTURE.md?ref_type=heads#412-ai-readable-state-transition-matrix).
+For detailed specifications and transition triggers for each stage, refer to the [AI-Readable State-Transition Matrix in docs/ARCHITECTURE.md](https://gitlab.com/gcp-solutions-public/retail-edge/gdc-disk-provisioner/-/blob/main/docs/ARCHITECTURE.md?ref_type=heads#412-ai-readable-state-transition-matrix).
 
-At each stage during machine provisioning, automated checks and tests are executed to validate node health and readiness. Diagnostic telemetry and verification results are captured by the `collect-diagnostics` utility and pushed directly to the **[GDC Companion](https://gitlab.com/gcp-solutions-public/retail-edge/gdc-companion)** application.
-
----
-
-### Enumeration of Overarching Machine States
-
-To coordinate node bootstrap across separate reboots and prevent premature cluster sync operations, each physical GDC node implements a strict sequential state-machine pattern.
-
-#### **Phase 1: LiveCD (ISO Build & Unattended Install)**
-*   **Description:** Physical server runs in RAM from the read-only custom GDC Bootloader ISO. Subiquity handles drive partitioning (LVM logical volumes), formats filesystems, writes the base OS, and synchronizes Gitea/Nexus pre-seeded assets to target disks.
-*   **Measurement:** Successful completion of the installation loop and a clean system reboot into the newly provisioned disk-based operating system.
-
-#### **Phase 2: First Boot (Services Hubs Setup & TPM Sealing)**
-*   **Description:** Node boots on physical target drive for the first time, unlocks LUKS using a temporary bootstrap key file, and launches Gitea and Sonatype Nexus services. The post-install Ansible playbook seals LUKS disk encryption directly to the hardware TPM 2.0 chip and erases the temporary key file.
-*   **Measurement:** Ports `3000` (Gitea) and `8081` (Nexus) respond with `200 OK` on loopback, and `/var/gdc-install/state/first-boot.json` status is `"completed"`. A controlled reboot is triggered immediately.
-
-#### **Phase 3: Second Boot (Auto-Unlock & Stability Verification)**
-*   **Description:** The system executes a controlled reboot to verify full, unattended boot stability, ensuring LUKS auto-decrypts cleanly using systemd-cryptenroll / TPM 2.0 without manual passcodes or files.
-*   **Measurement:** Successful boot to multi-user target with `/var/gdc-install/state/second-boot.json` written with status `"completed"`.
-
-#### **Phase 4: Linux Ready (CIS Hardening & System Optimization)**
-*   **Description:** Playbook applies system sysctl tuning, timezone synchronization, and CIS Level 2 security hardening, while purging unnecessary baseline system packages.
-*   **Measurement:** Successful execution of standard `verify_ansible.sh` validation checks; file `/var/gdc-install/state/linux-ready.json` status is `"completed"`.
-
-#### **Phase 5: Cluster Ready (Companion Configuration & NodeAgent Gating)**
-*   **Description:** The node queries the GDC Companion API (`GET /v1/machine-info/{mac-address}`) using mTLS client certificates to fetch custom bootstrap configurations. It templates `/etc/hosts` with peer resolutions, stages `nodeagentd` binaries, authenticates `gcloud`, and activates (starts and enables) the `node-agent` systemd service.
-*   **Measurement:** `bmctl` exists on `$PATH`, `gcloud` confirms valid credentials, all peers successfully ping, and `/var/gdc-install/state/cluster-ready.json` status is `"completed"`.
-
-#### **Phase 6: Cluster Turnup (Local Standalone / HA Cluster Inception)**
-*   **Description:** Initiates offline cluster creation via `bmctl create cluster`, pulling system OCI container layers locally from the loopback Nexus group repository (Port `5001`), and deploys GDC NodeAgent controllers.
-*   **Measurement:** Admin kubeconfig exists at `/root/bmctl-workspace/gdc-edge-cluster/gdc-edge-cluster-kubeconfig` and control plane pods are marked `Ready` in Kubernetes.
-
-#### **Phase 7: Post Cluster (Verification & Validation)**
-*   **Description:** Runs post-install sanity tests (validating local Storage Classes, CoreDNS lookup, MetalLB route tables, and telemetry streams) to verify the cluster is healthy and operational.
-*   **Measurement:** Ephemeral namespace deployment checks succeed, and `/var/gdc-install/state/post-validation.json` status is `"completed"`.
-
-#### **Phase 8: Upkeep (Drift Control & Headless Updates)**
-*   **Description:** Daily systemd timers trigger `ansible-pull` against Gitea for local configuration drift correction, and custom `udev` rules orchestrate headless USB sideload updates.
-*   **Measurement:** Playbook execution finishes with `changed=0` (stable convergence).
-
----
-
-## Core Project Goals
-
-1. **Automated Baseline Installation:** Boot from a remastered Ubuntu 24.04 LTS ISO using `subiquity` and `cloud-init` (NoCloud) to establish standard networking and partition schemes without manual intervention.
-2. **GDC Bare Metal Resource Compliance:** Dynamically implement the official GDC Bare Metal enterprise LVM layout, providing isolated partitions for log buffers, metrics collection, container image stores (`containerd`), and low-latency `etcd` transactions.
-3. **Local Boundary Interfaces (Gitea & Nexus Hub):** Spin up Gitea and Nexus within the booting live environment to host Ansible playbooks, local APT repositories, private Docker registries, and Hugging Face/LLM caches. These services are persistently migrated onto the target OS during installation.
-4. **Seamless Offline Sideloading:** Enable operators to sideload system updates, updated playbooks, updated Docker containers, and new LLM models completely offline via physical USB bundles or localized administrative API pushing.
-5. **Hardware-Backed Security:** Bind LUKS disk encryption directly to the TPM 2.0 chip, store host SSH keys securely in the TPM, register TPM-based device identity certificates, and apply CIS Benchmark Level 1/2 hardening policies.
+### Stage Breakdown
+*   **Stage 1: LiveCD (ISO & Unattended Install):** Server runs in RAM from the custom ISO. Subiquity partitions drives, formats filesystems, and synchronizes Gitea/Nexus assets to disks.
+*   **Stage 2: First Boot (Services & TPM Sealing):** Node boots from target drive, temporarily unlocks LUKS, launches Gitea/Nexus, and seals LUKS encryption directly to the hardware TPM 2.0 chip.
+*   **Stage 3: Second Boot (Auto-Unlock & Stability):** Controlled reboot verifies full, unattended LUKS auto-decryption using the TPM.
+*   **Stage 4: Linux Ready (CIS Hardening):** Applies sysctl tuning, timezone sync, and CIS Level 2 security hardening.
+*   **Stage 5: Cluster Ready (NodeAgent Gating):** Node queries GDC Companion for configs, templates `/etc/hosts`, and starts the `node-agent`.
+*   **Stage 6: Cluster Turnup (Cluster Inception):** Initiates offline cluster creation (`bmctl create cluster`), pulling layers locally from the Nexus loopback.
+*   **Stage 7: Post Cluster (Validation):** Runs post-install sanity tests (Storage Classes, CoreDNS, MetalLB).
+*   **Stage 8: Upkeep (Drift Control):** Ongoing `ansible-pull` against local Gitea for drift correction, and headless USB sideload updates.
 
 ---
 
 ## Core Principles
 
-*   **Evolutionary Architecture:** System and platform architectures naturally evolve over time. To support long-term maintainability and adaptability, strict separation of interfaces from underlying implementations is required across all components. This abstraction allows individual modules, installers, and downstream providers to evolve or be swapped without breaking system boundaries or state contracts.
-*   **Private Mode as a First-Class Citizen:** While the majority of modern systems operate in loosely connected environments, `gdc-disk-provisioner` treats fully air-gapped ("Private Mode") operation as a primary, first-class citizen. For every system feature and capability, an explicit answer must exist for how it operates when completely disconnected. Even if accommodating Private Mode requires leveraging the Lowest Common Denominator (LCD) or results in certain GDC cloud-dependent features being reduced or non-applicable, this project will always define and deliver a clear, deterministic offline operation strategy.
-*   **Design for Operational Simplicity:** To reliably operate across thousands of distributed edge nodes at massive scale, operational simplicity is built into the foundation of the architecture. The system makes heavy use of declarative automation, desired state reconciliation engines (such as `ansible-pull`), eventual consistency models, and regular automated validation tests to ensure nodes autonomously converge on target states and remain healthy without human intervention.
+*   **Private Mode as a First-Class Citizen:** `gdc-disk-provisioner` treats fully air-gapped ("Private Mode") operation as the primary baseline. Every feature must have a deterministic offline operation strategy.
+*   **Evolutionary Architecture:** Strict separation of interfaces from underlying implementations. Installers and downstream providers can be swapped without breaking system boundaries.
+*   **Operational Simplicity:** Built for massive scale edge deployments using declarative automation, eventual consistency (`ansible-pull`), and automated validation to ensure nodes autonomously converge on healthy states without human intervention.
 
 ---
 
 ## Architecture & Directory Structure
 
-This project is organized as a spec-driven engineering effort:
-
-*   **`docs/specs/`**: Technical specification files describing the architecture, build workflows, and configurations.
-    *   `01-iso-build-pipeline.md`: The Infrastructure-as-Code (IaC) pipeline to remaster the base ISO using a reproducible `Makefile` and `xorriso`.
-    *   `02-baseline-installer.md`: The Subiquity Autoinstall configuration and GDC Bare Metal enterprise LVM partition map.
-    *   `03-ready-linux-provisioning.md`: The first-boot transition, local Gitea/Nexus persistence setup, local `ansible-pull` automation, TPM 2.0 configuration, CIS hardening, and the offline update/sideloading mechanics.
-*   **`docs/DISKS.md`**: Comprehensive breakdown of dynamic disk detection, single/dual-disk partitioning rules, enterprise LVM layout, and performance mount tunings.
-*   **`src/`**: Declarative playbooks, custom update utilities, and scripts.
+*   **`docs/specs/`**: Technical specification files describing architecture and configurations.
+*   **`docs/DISKS.md`**: Breakdown of dynamic disk detection, partition scaling, and enterprise LVM layout.
+*   **`src/build/`**: **[Start Here for Building]** Contains the Cloud Build automation, Makefile, and scripts to compile the custom ISO. See [src/build/README.md](src/build/README.md) for build instructions.
+*   **`src/ansible/`**: Declarative playbooks used by `ansible-pull` for node configuration and state progression.
 *   **`test/`**: Verification scripts, VM-based bootstrap tests, and pre-flight validation.
 
 ---
 
-## Storage & Partition Map
+## System Dependencies
 
-The installation process automates the dynamic partitioning of physical block devices into GDC-compliant enterprise LVM structures. For details on dynamic disk scanning, 1-disk vs 2-disk partition scaling, preservation of raw SDS block storage, and performance mount options, refer to:
-
-👉 **[docs/DISKS.md](docs/DISKS.md)**
-
----
-
-## Offline Sideloading Workflows
-
-Gitea and Nexus act as the local boundary endpoints for the target node. Operators can update the node entirely offline:
-
-1.  **Code Updates (Gitea):** `git push` new playbooks directly to Gitea from a tethered administrator workstation, or insert a USB drive containing a `.bundle` update. Local cron tasks automatically trigger `ansible-pull` from the local Gitea repo.
-2.  **Binary & Image Updates (Nexus):** Sideload new packages or containers using the Nexus HTTP API or a local `gdc-update` CLI tool directly from mounted USB drives.
-3.  **LLM Model Syncs (Nexus Raw):** Sideload Hugging Face models directly to Nexus raw stores. Inference clients fetch locally offline by targeting `HF_ENDPOINT=http://localhost:8081/repository/gdc-llm-raw/`.
-
-
-## 📦 System Dependencies
-
-### Required External Dependencies
-* **Smallstep CA (`step-ca`):** The zero-touch hardware attestation workflow absolutely requires a centralized `step-ca` server to be reachable by the bare-metal nodes during first boot. Google Cloud CAS and Certbot are explicitly unsupported for TPM hardware attestation in this architecture. By default, the nodes will attempt to communicate with `https://step-ca.ensor-labs.com`.
-* **Bootimus PXE Server (Highly Recommended):** If you are actively developing the custom ISO or require automated bare-metal PXE ingestion, a running Bootimus instance is required. The `bootimus.py` build script enforces synchronous non-interactive parameter locking across the Bootimus API.
-
----
-
-## 🛑 Air-Gapped / Fallback Scenarios (No GDC Companion)
-If the provisioning node cannot reach the GDC Companion (e.g., an entirely offline air-gapped deployment, or a network failure), the node falls back to a predefined offline configuration.
-
-This configuration is defined through environment variables in `src/build/build.env` (or overridden in `local.env`). See the **GDC COMPANION FALLBACK CONFIGURATION** group in `src/build/build.env`:
-*   `BOOTSTRAP_HOST_NAME`
-*   `FALLBACK_MACHINE_STATE_STOP_STAGE`
-*   `BOOTSTRAP_BMCTL_VERSION`
-*   `FALLBACK_CLUSTER_VLAN_ID`
-*   `FALLBACK_PEERS_JSON`
-*   `FALLBACK_GCP_PROJECT_ID`
-*   `FALLBACK_GCP_REGION`
-*   `FALLBACK_GCP_PRIMARY_GSA`
-
-During the ISO build process, these variables are baked into `/target/etc/gdc/fallback-config.json`. If Ansible fails to receive a configuration from the GDC Companion, it parses this fallback JSON file and continues configuring the machine.
+* **Smallstep CA (`step-ca`):** The zero-touch hardware attestation workflow absolutely requires a centralized `step-ca` server to be reachable by the bare-metal nodes during *first boot*. Google Cloud CAS and Certbot are explicitly unsupported for TPM hardware attestation in this architecture. By default, the nodes will attempt to communicate with `https://step-ca.ensor-labs.com`.

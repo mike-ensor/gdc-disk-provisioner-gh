@@ -208,54 +208,54 @@ Physical bare-metal deployments on AMD Ryzen Zen 4 (AM5) chipsets mandate dual-c
 
 ---
 
-## 3. GDC Deterministic Stage-Gate Bootstrap Architecture
+## 3. GDC Deterministic Installation Gate Architecture
 
-To eliminate temporal race conditions arising from hardware timing deviations (such as DRAM-less NVMe flush latencies or CPU clock scaling), the provisioner enforces a **Stage-Gate Execution Pattern with Barrier Blocking**.
+To eliminate temporal race conditions arising from hardware timing deviations (such as DRAM-less NVMe flush latencies or CPU clock scaling), the provisioner enforces a **Stage-Gate Execution Pattern with Barrier Blocking** during the initial LiveCD installation.
 
-The installation and bootstrapping process is divided into **7 Discrete Stages**. The system is strictly barred from proceeding from Stage $N$ to Stage $N+1$ until all entry/exit qualifications are successfully met. Each stage utilizes an explicit **Polling Loop with a Counter-based Timeout Ceiling** to avoid indefinite hangs.
+The installation and bootstrapping process is divided into **7 Discrete Installation Gates**. The system is strictly barred from proceeding from Gate $N$ to Gate $N+1$ until all entry/exit qualifications are successfully met. Each gate utilizes an explicit **Polling Loop with a Counter-based Timeout Ceiling** to avoid indefinite hangs.
 
 ```
 +---------------------------------------+
-|  Stage 1: HARDWARE_SETTLING           |
+|  Gate 1: HARDWARE_SETTLING            |
 +---------------------------------------+
                    | (Disks stable, TPM, NICs present)
                    v
 +---------------------------------------+
-|  Stage 2: DISK_SANITIZATION           |
+|  Gate 2: DISK_SANITIZATION            |
 +---------------------------------------+
                    | (Wipefs done, mapper empty)
                    v
 +---------------------------------------+
-|  Stage 3: NAMESPACE_SYNC              |
+|  Gate 3: NAMESPACE_SYNC               |
 +---------------------------------------+
                    | (Write loopback matches host)
                    v
 +---------------------------------------+
-|  Stage 4: STORAGE_LAYOUT              |
+|  Gate 4: STORAGE_LAYOUT               |
 +---------------------------------------+
                    | (LVM created, LUKS container open)
                    v
 +---------------------------------------+
-|  Stage 5: OS_PAYLOAD                  |
+|  Gate 5: OS_PAYLOAD                   |
 +---------------------------------------+
                    | (/target populated, GRUB in EFI)
                    v
 +---------------------------------------+
-|  Stage 6: TPM_SEALING                 |
+|  Gate 6: TPM_SEALING                  |
 +---------------------------------------+
                    | (LUKS bound, temp key wiped)
                    v
 +---------------------------------------+
-|  Stage 7: BOUNDARY_HUB_TURNUP         |
+|  Gate 7: BOUNDARY_HUB_TURNUP          |
 +---------------------------------------+
                    | (Gitea/Nexus up, Ansible pull OK)
 ```
 
 ---
 
-### Detailed Stage-Gate Specifications
+### Detailed Installation Gate Specifications
 
-#### Stage 1: Hardware Bus Settling & Enumeration (`HARDWARE_SETTLING`)
+#### Gate 1: Hardware Bus Settling & Enumeration (`HARDWARE_SETTLING`)
 *   **Description:** Wait until physical controllers (PCI, USB, Storage, and TPM) have negotiated links and registered proper interfaces in the system bus.
 *   **Entry Qualifications:** Linux Kernel successfully booted (initramfs loaded).
 *   **Exit Qualifications:**
@@ -264,34 +264,34 @@ The installation and bootstrapping process is divided into **7 Discrete Stages**
     *   Primary physical NIC (e.g., `enp1s0`) is registered and active.
 *   **Error / Failure Handling:** If assertions fail after 30 seconds (30 polls of 1.0s), abort installation and drop to the `crash-cart` debug console.
 
-#### Stage 2: Disk Sanitization & Interface Purge (`DISK_SANITIZATION`)
+#### Gate 2: Disk Sanitization & Interface Purge (`DISK_SANITIZATION`)
 *   **Description:** Clear the installation drive of residual partitions, signatures, logical volumes, or encrypted mappings that might conflict with partition maps.
-*   **Entry Qualifications:** Stage 1 (`HARDWARE_SETTLING`) successfully completed.
+*   **Entry Qualifications:** Gate 1 (`HARDWARE_SETTLING`) successfully completed.
 *   **Exit Qualifications:**
     *   `wipefs` returns zero active signatures on the block device.
     *   Device-mapper directories (`/dev/mapper/*`) contain no active system logical volumes or conflicting crypt tunnels.
     *   `/proc/mdstat` indicates no software RAID layers are bound to the disk.
 *   **Error / Failure Handling:** If drive sanitization or volume close fails after 15 seconds (15 polls of 1.0s), mark partition layout as `FAILED` and log trace.
 
-#### Stage 3: Cross-Namespace Integrity Verification (`NAMESPACE_SYNC`)
+#### Gate 3: Cross-Namespace Integrity Verification (`NAMESPACE_SYNC`)
 *   **Description:** Mitigate snap-to-host mount namespace write propagation delays.
-*   **Entry Qualifications:** Stage 2 (`DISK_SANITIZATION`) successfully completed.
+*   **Entry Qualifications:** Gate 2 (`DISK_SANITIZATION`) successfully completed.
 *   **Exit Qualifications:**
     *   A test string written inside the Subiquity/Snap private namespace successfully appears in the host overlayfs with matching cryptographic hash within 5.0 seconds (50 polls of 0.1s).
     *   The staging key file is verified as non-empty (size $> 0$) and readable in both namespaces.
 *   **Error / Failure Handling:** If file propagation times out, halt installation immediately to prevent formatting with an empty (0-byte) key.
 
-#### Stage 4: Storage Structure & Partitioning (`STORAGE_LAYOUT`)
+#### Gate 4: Storage Structure & Partitioning (`STORAGE_LAYOUT`)
 *   **Description:** Partition disks, initialize LUKS2 containers, and configure the LVM volume group.
-*   **Entry Qualifications:** Stage 3 (`NAMESPACE_SYNC`) successfully completed.
+*   **Entry Qualifications:** Gate 3 (`NAMESPACE_SYNC`) successfully completed.
 *   **Exit Qualifications:**
     *   `cryptsetup` successfully formats and maps `/dev/mapper/crypt-system` using the valid staging key.
     *   Volume group `vg_system` and all 11 required logical volumes are queryable and show expected sizes.
 *   **Error / Failure Handling:** If `cryptsetup` formats using a fallback or empty key, or if partition offsets fail to align, abort and write a core installer crash dump.
 
-#### Stage 5: OS Payload Injection & Bootloader Stage (`OS_PAYLOAD`)
+#### Gate 5: OS Payload Injection & Bootloader Stage (`OS_PAYLOAD`)
 *   **Description:** Write base OS filesystem payload, mount essential paths, configure EFI bootloader settings, and compile the systemd-based initramfs using native initramfs-tools.
-*   **Entry Qualifications:** Stage 4 (`STORAGE_LAYOUT`) successfully completed.
+*   **Entry Qualifications:** Gate 4 (`STORAGE_LAYOUT`) successfully completed.
 *   **Exit Qualifications:**
     *   System structures mounted under `/target` match target specifications.
     *   UEFI GRUB bootloader successfully written to partition 1 with the module blacklist `modprobe.blacklist=pcie_mp2_amd,amd_sfh` and `tpm_tis.interrupts=0` appended to the kernel cmdline to prevent early fTPM deadlocks on AMD platforms.
@@ -304,17 +304,17 @@ The installation and bootstrapping process is divided into **7 Discrete Stages**
         5. Absolute exclusion of fTPM-deadlocking drivers (`pcie_mp2_amd` and `amd_sfh`).
 *   **Error / Failure Handling:** If GRUB fails to write, or if any of the five pre-reboot initramfs assertions fail, the installer halts execution immediately, writes the exit status to `/dev/ttyS0`, and reports the error to GDC Companion, blocking reboot to prevent silent black-screen hangs.
 
-#### Stage 6: First-Boot Security Sealing & Key Sanitization (`TPM_SEALING`)
+#### Gate 6: First-Boot Security Sealing & Key Sanitization (`TPM_SEALING`)
 *   **Description:** Bind the LUKS volume encryption to the physical TPM 2.0 PCR registers and wipe transient keys.
-*   **Entry Qualifications:** First boot of the target OS initiated; Stage 5 completed.
+*   **Entry Qualifications:** First boot of the target OS initiated; Gate 5 completed.
 *   **Exit Qualifications:**
     *   `systemd-cryptenroll` binds the key to PCRs `0+7` on `/dev/tpmrm0`.
     *   The temporary boot keyfile `/boot/temp_key.key` is cryptographically shredded (via `shred -u`) and its keyslot is cleared.
 *   **Error / Failure Handling:** If TPM enrollment fails, keep the fallback recovery key and register a critical warning with the diagnostics subsystem to block standalone cluster enrollment.
 
-#### Stage 7: Local Boundary Hubs & Playbook Execution (`BOUNDARY_HUB_TURNUP`)
+#### Gate 7: Local Boundary Hubs & Playbook Execution (`BOUNDARY_HUB_TURNUP`)
 *   **Description:** Initialize the local offline caches (Gitea and Nexus) and run the local `ansible-pull` playbooks.
-*   **Entry Qualifications:** Node booted, Stage 6 (`TPM_SEALING`) successfully verified.
+*   **Entry Qualifications:** Node booted, Gate 6 (`TPM_SEALING`) successfully verified.
 *   **Exit Qualifications:**
     *   Ports `3000` (Gitea) and `8081` (Nexus) respond with successful HTTP handshakes.
     *   `ansible-pull` completes execution with exit code `0`.
@@ -323,8 +323,8 @@ The installation and bootstrapping process is divided into **7 Discrete Stages**
 ---
 
 ### Progress Tracking & Verification Evidence
-To enable real-time tracking of node state transitions in the **GDC Companion** application, the `collect-diagnostics.sh` script automatically records and transmits the current completed stage. The status payload includes:
-1.  **Stage ID:** Current active stage string (e.g., `NAMESPACE_SYNC`).
+To enable real-time tracking of node state transitions in the **GDC Companion** application, the `collect-diagnostics.sh` script automatically records and transmits the current completed gate. The status payload includes:
+1.  **Gate ID:** Current active gate string (e.g., `NAMESPACE_SYNC`).
 2.  **State Status:** `PENDING`, `IN_PROGRESS`, `COMPLETED`, or `FAILED`.
 3.  **Verification Evidence:** Specific telemetry readings (e.g., MAC, disk sizes, partition mounts, socket statuses) acting as proof of transition.
 
