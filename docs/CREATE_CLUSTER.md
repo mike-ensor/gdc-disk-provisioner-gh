@@ -1,6 +1,6 @@
 # Creating a GDC Software-Only Cluster
 
-This document outlines the steps and common pitfalls when creating a Google Distributed Cloud (GDC) Software-Only (bare-metal) cluster. 
+This document outlines the steps and common pitfalls when creating a Google Distributed Cloud (GDC) Software-Only (bare-metal) cluster.
 
 ## Overview
 
@@ -12,7 +12,7 @@ When using **Fleet Workload Identity Federation** (configured via the `baremetal
 
 When using Workload Identity Federation, the most common reason a cluster stalls in the `Provisioning` state is missing Google Cloud IAM permissions for the orchestrator's principal.
 
-For a cluster named `gdc-test-241` in project `anthos-bare-metal-lab-1`, the principal making the API calls is:
+For a cluster named `gdc-default` in project `anthos-bare-metal-lab-1`, the principal making the API calls is:
 `serviceAccount:anthos-bare-metal-lab-1.svc.id.goog[kube-system/anthos-cluster-operator]`
 
 ### 1. Image Pull Secret Failure
@@ -46,6 +46,128 @@ gcloud projects add-iam-policy-binding anthos-bare-metal-lab-1 \
 
 ## Important Notes on Propagation
 
-After applying IAM policy bindings, you must account for **IAM Propagation Delay**. Google Cloud IAM changes, especially those involving Workload Identity Federation, can take **3 to 7 minutes** to fully propagate across global caches. 
+After applying IAM policy bindings, you must account for **IAM Propagation Delay**. Google Cloud IAM changes, especially those involving Workload Identity Federation, can take **3 to 7 minutes** to fully propagate across global caches.
 
 During this time, the operator's backoff loops may generate new `403 Permission Denied` errors. **Do not apply further changes or restart operators.** Wait for the backoff loops to naturally succeed once the permissions propagate.
+
+---
+
+## Static Manual Cluster Creation (WIP)
+
+> **Note:** This section describes the current static, manual method to orchestrate a cluster. Eventually, this process will be fully automated through the GDC Companion and Ansible state machine, **but not yet**.
+
+### 1. Configure SSH Access
+The `bmctl` orchestrator requires SSH key-pair access to the target nodes, even for single-node standalone clusters. 
+
+Generate a new key-pair and authorize it locally:
+```bash
+# Generate the SSH key
+ssh-keygen -t ed25519 -C "gdc-admin@local" -N "" -f /home/gdc-admin/.ssh/id_ed25519
+
+# Authorize the public key
+cat /home/gdc-admin/.ssh/id_ed25519.pub >> /home/gdc-admin/.ssh/authorized_keys
+
+# Secure permissions
+chown -R gdc-admin:gdc-admin /home/gdc-admin/.ssh/
+chmod 700 /home/gdc-admin/.ssh/
+chmod 600 /home/gdc-admin/.ssh/authorized_keys
+chmod 600 /home/gdc-admin/.ssh/id_ed25519.pub
+```
+
+### 2. Generate the Cluster Configuration
+Use `bmctl` to scaffold the initial cluster configuration file. Be sure to define non-overlapping CIDRs for the bootstrap KIND cluster to prevent networking collisions.
+
+```bash
+cd /var/gdc-install
+export CLUSTER_NAME="gdc-default"
+
+# Export GCP credentials for GKE Connect / Fleet registration
+export GCP_ACCESS_TOKEN=$(gcloud auth application-default print-access-token)
+
+# Scaffold the configuration file
+bmctl create config -c "${CLUSTER_NAME}" \
+  --bootstrap-cluster-pod-cidr="10.200.10.0/16" \
+  --bootstrap-cluster-service-cidr="100.200.20.0/24"
+```
+
+### 3. Modify the Cluster Spec
+Open the generated configuration file at `/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}/${CLUSTER_NAME}.yaml` and modify it to match your target environment. 
+
+Below is a reference configuration for an Edge-profile standalone cluster using Workload Identity Federation:
+
+```yaml
+---
+gcrKeyPath: /bmctl/fake.json # Fake path required when using Workload Identity
+sshPrivateKeyPath: /home/gdc-admin/.ssh/id_ed25519
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: "gdc-default" # Must match ${CLUSTER_NAME}
+---
+apiVersion: baremetal.cluster.gke.io/v1
+kind: Cluster
+metadata:
+  name: "gdc-default" # Must match ${CLUSTER_NAME}
+  namespace: "gdc-default" # Must match ${CLUSTER_NAME}
+  annotations:
+    baremetal.cluster.gke.io/enable-workload-identity-cluster-authentication: "true"
+spec:
+  type: standalone
+  profile: edge
+  anthosBareMetalVersion: 1.35.300-gke.87
+  gkeConnect:
+    projectID: anthos-bare-metal-lab-1
+  controlPlane:
+    nodePoolSpec:
+      nodes:
+        - address: 192.168.9.241 # Target Node IP
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+        - 10.200.0.0/16 # Non-overlapping pod network
+    services:
+      cidrBlocks:
+        - 10.201.0.0/16
+  loadBalancer:
+    mode: bundled
+    ports:
+      controlPlaneLBPort: 443
+    vips:
+      controlPlaneVIP: 192.168.9.143 # Outside the address pool
+      ingressVIP: 192.168.9.144 # Must be inside the address pool
+    addressPools:
+      - name: primary-load-balancer
+        addresses:
+          - 192.168.9.144-192.168.9.150
+  clusterOperations:
+    projectID: anthos-bare-metal-lab-1
+    location: us-west1
+  storage:
+    lvpNodeMounts:
+      path: /mnt/localpv-disk
+      storageClassName: local-disks
+    lvpShare:
+      path: /mnt/localpv-share
+      storageClassName: local-shared
+      numPVUnderSharedPath: 5
+  nodeConfig:
+    podDensity:
+      maxPodsPerNode: 250
+  gkeOnPremAPI:
+    enabled: false
+    location: us-west1
+  nodeAccess:
+    loginUser: gdc-admin # The SSH user authorized above
+```
+
+### 4. Preflight Check & Inception
+Once the configuration is finalized, validate the target machine and initiate the cluster build.
+
+```bash
+# Verify the target machine meets all GDC bare-metal prerequisites
+bmctl check preflight --cluster "${CLUSTER_NAME}"
+
+# Initiate cluster inception (this will take 15-30 minutes)
+bmctl create cluster -c "${CLUSTER_NAME}"
+```

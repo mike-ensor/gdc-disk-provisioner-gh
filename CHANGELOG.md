@@ -18,6 +18,7 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 - **Decoupled Bootimus Sockets:** Promoted Bootimus IP routing into dedicated, explicitly defined `PXE_SERVER_HOST` and `PXE_SERVER_PORT` variables in `build.env` and `LAB_SETUP.md`, decoupling it from hardcoded IP assumptions.
 
 ### Changed
+- **Static Cluster Creation Refinements:** Restructured `docs/CREATE_CLUSTER.md` to clearly mark the manual static process as temporary/WIP. Fixed broken list formatting, resolved the `gdc-admin` SSH user inconsistency between bash and YAML configs, and added the mandatory `gcrKeyPath: /bmctl/fake.json` required to bypass legacy JSON key validation when using Workload Identity Federation.
 - **GCS Sync Fallback Normalization:** Replaced hardcoded string declarations of `gs://gdc-disk-provisioner-isos` throughout Python scripts, Makefiles, and CloudBuild templates with a unified, standard environment variable `DEPENDENCY_CACHE_GCS_BUCKET` explicitly driven by `build.env`.
 
 ### Added
