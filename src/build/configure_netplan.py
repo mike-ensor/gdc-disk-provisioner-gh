@@ -60,7 +60,7 @@ def load_env_vars(env_path="/tmp/allocated_ips.env"):
                     env[k.strip()] = v.strip()
     else:
         log_info("Dynamic allocation state missing. Defaulting to fallback .14")
-        env["MACHINE_IP"] = "192.168.9.14"
+        env["MACHINE_IP"] = "192.168.4.14"
         env["K8S_IP"] = "192.168.109.14"
     return env
 
@@ -82,7 +82,7 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
     env_vars = load_env_vars(env_path)
     
     # Extract CIDR masks dynamically from template context or default
-    machine_cidr_raw = env_vars.get("MACHINE_IP_CIDR", "192.168.9.11/24")
+    machine_cidr_raw = env_vars.get("MACHINE_IP_CIDR", "192.168.4.11/24")
     machine_mask = machine_cidr_raw.split('/')[1] if '/' in machine_cidr_raw else "24"
     
     k8s_cidr_raw = env_vars.get("K8S_IP_CIDR", "192.168.109.10/29")
