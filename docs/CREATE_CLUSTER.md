@@ -57,9 +57,11 @@ During this time, the operator's backoff loops may generate new `403 Permission 
 > **Note:** This section describes the current static, manual method to orchestrate a cluster. Eventually, this process will be fully automated through the GDC Companion and Ansible state machine, **but not yet**.
 
 ### 1. Configure SSH Access
-The `bmctl` orchestrator requires SSH key-pair access to the target nodes, even for single-node standalone clusters. 
+
+The `bmctl` orchestrator requires SSH key-pair access to the target nodes, even for single-node standalone clusters.
 
 Generate a new key-pair and authorize it locally:
+
 ```bash
 # Generate the SSH key
 ssh-keygen -t ed25519 -C "gdc-admin@local" -N "" -f /home/gdc-admin/.ssh/id_ed25519
@@ -75,6 +77,7 @@ chmod 600 /home/gdc-admin/.ssh/id_ed25519.pub
 ```
 
 ### 2. Generate the Cluster Configuration
+
 Use `bmctl` to scaffold the initial cluster configuration file. Be sure to define non-overlapping CIDRs for the bootstrap KIND cluster to prevent networking collisions.
 
 ```bash
@@ -91,7 +94,8 @@ bmctl create config -c "${CLUSTER_NAME}" \
 ```
 
 ### 3. Modify the Cluster Spec
-Open the generated configuration file at `/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}/${CLUSTER_NAME}.yaml` and modify it to match your target environment. 
+
+Open the generated configuration file at `/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}/${CLUSTER_NAME}.yaml` and modify it to match your target environment.
 
 Below is a reference configuration for an Edge-profile standalone cluster using Workload Identity Federation:
 
@@ -162,6 +166,7 @@ spec:
 ```
 
 ### 4. Preflight Check & Inception
+
 Once the configuration is finalized, validate the target machine and initiate the cluster build.
 
 ```bash
@@ -170,4 +175,52 @@ bmctl check preflight --cluster "${CLUSTER_NAME}"
 
 # Initiate cluster inception (this will take 15-30 minutes)
 bmctl create cluster -c "${CLUSTER_NAME}"
+```
+
+### 5a. Setup a cluster-admin user
+
+One-line script **OR** create a file with multiple users. Unless using ConfigSync Primary Root Repo to create the ClusterRoleBinding, the RBAC needs to be created on the cluster.
+
+```shell
+sudo KUBECONFIG="/etc/kubernetes/admin.conf" \
+     USER_EMAIL="michael.d.ensor@gmail.com" \
+     kubectl apply -f - <<EOF
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gdc-primary-cluster-admins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: ${USER_EMAIL}
+EOF
+```
+
+### 5b. (OPTIONAL) Get Local Credentials
+
+Optionally setup local credentials when SSH'd into the box. Normal interaction is performed through gke-connect gateway
+
+1.  ```shell
+    # Get cluster-admin credentials to the bmctl-workspace/{cluster-name}/{cluster-name}-{date-time}-kubeconfig
+    sudo bmctl get credentials --cluster ${CLUSTER_NAME} --admin-kubeconfig /etc/kubernetes/admin.conf
+    sudo chown gdc-admin:gdc-admin "bmctl-workspace/${CLUSTER_NAME}/${CLUSTER_NAME}-kubeconfig"
+    export KUBECONFIG="/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}/${CLUSTER_NAME}-kubeconfig"
+    ```
+1.  Add the KUBECONFIG to the bash profile:
+
+```shell
+echo "export KUBECONFIG=\"/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}/${CLUSTER_NAME}-kubeconfig\"" >> ~/.bashrc
+```
+
+### 6. Get Remote Credentials using GKE Connect (PREFERRED)
+
+Performed from any internet connected computer/shell, use [gke-connect](https://docs.cloud.google.com/sdk/gcloud/reference/container/fleet/memberships/get-credentials)
+
+```shell
+# Get cluster-admin credentials to the bmctl-workspace/{cluster-name}/{cluster-name}-{date-time}-kubeconfig
+gcloud container fleet memberships get-credentials ${CLUSTER_NAME} --project "${PROJECT_ID}"
 ```
