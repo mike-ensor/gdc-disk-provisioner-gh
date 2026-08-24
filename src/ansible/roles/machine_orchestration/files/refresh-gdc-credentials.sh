@@ -20,7 +20,13 @@ chmod 755 /run/gdc-auth
 # step ca renew will only actually renew if the certificate has passed ~2/3rds of its lifetime,
 # but passing --force bypasses prompt/tty requirements.
 if command -v step >/dev/null 2>&1; then
-    step ca renew /var/gdc-install/keys/client.crt /var/gdc-install/keys/client.key --force >/dev/null 2>&1 || true
+    # We need STEPPATH explicitly set to ensure the CA config (defaults.json) is found if run by different users
+    export STEPPATH="/root/.step"
+    
+    if ! step ca renew /var/gdc-install/keys/client.crt /var/gdc-install/keys/client.key --force >/dev/null 2>&1; then
+        # If renewal fails, it might be due to a completely expired certificate.
+        echo "WARN: Failed to renew mTLS certificate. It may be expired." >&2
+    fi
 fi
 
 # RENEW GCLOUD OAUTH TOKEN VIA GDC COMPANION
