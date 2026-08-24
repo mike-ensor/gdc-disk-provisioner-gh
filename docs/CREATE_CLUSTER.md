@@ -182,9 +182,8 @@ bmctl create cluster -c "${CLUSTER_NAME}"
 One-line script **OR** create a file with multiple users. Unless using ConfigSync Primary Root Repo to create the ClusterRoleBinding, the RBAC needs to be created on the cluster.
 
 ```shell
-sudo KUBECONFIG="/etc/kubernetes/admin.conf" \
-     USER_EMAIL="michael.d.ensor@gmail.com" \
-     kubectl apply -f - <<EOF
+export ADMIN_USER_EMAIL="user@company.com"
+kubectl apply -f - <<EOF
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -196,7 +195,7 @@ roleRef:
 subjects:
 - apiGroup: rbac.authorization.k8s.io
   kind: User
-  name: ${USER_EMAIL}
+  name: ${ADMIN_USER_EMAIL}
 EOF
 ```
 
@@ -223,4 +222,24 @@ Performed from any internet connected computer/shell, use [gke-connect](https://
 ```shell
 # Get cluster-admin credentials to the bmctl-workspace/{cluster-name}/{cluster-name}-{date-time}-kubeconfig
 gcloud container fleet memberships get-credentials ${CLUSTER_NAME} --project "${PROJECT_ID}"
+```
+
+### AUX
+
+This is a "quick script" that is used for **NON-PRODUCTION** only. NOTE, this is NOT intended to be used as a comprehensive cluster creation process.
+
+```shell
+# On the new machine
+ADMIN_USER_EMAIL="[some-user-name]@[company].com" \
+	CLUSTER_VIP="192.168.4.100" \
+	CLUSTER_INGRESS="192.168.4.101" \
+	PRIMARY_LOAD_BALANCER="192.168.4.101-192.168.4.150" \
+	MACHINE_IP="192.168.4.11" \
+	CLUSTER_NAME="gdc-default-11" \
+	/usr/local/bin/create-cluster.sh
+```
+
+```shell
+# Get the new config via GKE Connect
+gcloud container fleet memberships get-credentials ${CLUSTER_NAME} --project ${PROJECT_ID}
 ```
