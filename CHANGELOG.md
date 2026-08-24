@@ -7,6 +7,24 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 
 
+## [Unreleased] - 2026-08-24
+
+### Added
+- **Idempotent Cluster Creation Script (`create_cluster.sh`):** Added a new, robust bash script designed to fully automate the creation of GDC standalone bare-metal clusters.
+  - Generates and authorizes `ed25519` SSH keys.
+  - Dynamically scaffolds and hydrates the `bmctl` YAML configuration file avoiding manual edits.
+  - Seeds a fake GCR JSON key to satisfy validation constraints when using Workload Identity Federation.
+  - Executes `bmctl check preflight` as a hard verification gate.
+  - Interactively requests a confirmation (`Y/n`) before creating the cluster and locking the terminal for 15-30 minutes.
+  - Features an `EXIT` trap that calculates and prints the exact runtime duration (e.g., `00h 15m 30s`) upon success or failure.
+  - Automatically provisions `ClusterRoleBinding` cluster-admin permissions if the `ADMIN_USER_EMAIL` environment variable is defined.
+- **Automated Script Deployment (CLUSTER_READY):** Upgraded `src/build/remaster.sh` to package the `create_cluster.sh` script onto the ISO. Integrated an Ansible task inside the `CLUSTER_READY` role (`machine_orchestration`) to automatically deploy the script to `/usr/local/bin/create_cluster.sh` with executable permissions on the target node.
+
+### Changed
+- **Gitea Expansion Architecture Review:** Created `docs/future/gitea-expansion-proposal.md` detailing the transition from bare filesystem-based Git syncing to a hardened, systemd-managed Gitea instance operating as a localized forge. Logged a future task in `PROGRESS.md` to review and plan the implementation of systemd jailing, `app.ini` lockdowns, and HTTP REST sync patterns.
+- **Removed Hardcoded Lab IP Boundaries:** Scrubbed legacy `.9.x` IP ranges (e.g. `192.168.9.14`) from `src/build/render_templates.py` and `src/build/configure_netplan.py`, replacing them with generic `192.168.4.x` fallback variables.
+- **Visualized Lab Setup:** Embedded a detailed architecture setup diagram (`lab-setup.svg`) straight into `docs/LAB_SETUP.md` providing clear networking and hardware flow illustrations.
+
 ## [Unreleased] - 2026-08-22
 
 ### Added
