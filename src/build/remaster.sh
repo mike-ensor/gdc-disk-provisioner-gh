@@ -138,6 +138,11 @@ fi
 chmod +x "${EXTRACT_DIR}/custom-data/tools/bmctl/bmctl"
 chmod +x "${EXTRACT_DIR}/custom-data/tools/node-agent/nodeagentd"
 
+echo "[-] Copying internal bin scripts..."
+mkdir -p "${EXTRACT_DIR}/custom-data/bin"
+cp "${PROJECT_ROOT}/bin/create_cluster.sh" "${EXTRACT_DIR}/custom-data/bin/create_cluster.sh"
+chmod +x "${EXTRACT_DIR}/custom-data/bin/create_cluster.sh"
+
 echo "[-] Copying pre-verified Smallstep CLI package..."
 cp "${BIN_CACHE_DIR}/${STEP_CLI_FILENAME}" "${EXTRACT_DIR}/custom-data/packages/"
 

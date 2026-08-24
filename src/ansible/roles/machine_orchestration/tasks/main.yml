@@ -480,3 +480,13 @@
     msg: "WAITING_ON_PEERS"
   when: peers_unreachable | default(false)
 
+- name: "GDC-ORCH | Ensure /usr/local/bin/create_cluster.sh is deployed"
+  ansible.builtin.copy:
+    src: "/var/gdc-install/iso-cache/bin/create_cluster.sh"
+    dest: "/usr/local/bin/create_cluster.sh"
+    owner: root
+    group: root
+    mode: '0755'
+    remote_src: yes
+  ignore_errors: true
+
