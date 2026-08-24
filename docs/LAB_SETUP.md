@@ -4,6 +4,10 @@
 
 This document outlines how to build a local GDC Bare Metal test lab from scratch. It guides you chronologically through hardware acquisition, network configuration, cloud dependencies, and local service spin-up required to successfully build, test, and deploy GDC Bare Metal nodes using the automated ISO provisioner.
 
+*Reference Diagram: [Lab Setup Architecture](https://link.excalidraw.com/l/Am9BEhX3AX3/94pMi8XMnvQ)*
+
+![Lab Setup Architecture](images/lab-setup.svg)
+
 ## 2. Hardware & Network Prerequisites
 
 ### 2.1 Target Machine Hardware
