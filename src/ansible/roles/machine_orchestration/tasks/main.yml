@@ -173,8 +173,8 @@
     mode: '0755'
 
 - name: "GDC-ORCH | Deploy GDC credentials refresh script"
-  ansible.builtin.copy:
-    src: refresh-gdc-credentials.sh
+  ansible.builtin.template:
+    src: refresh-gdc-credentials.sh.j2
     dest: /usr/local/bin/refresh-gdc-credentials.sh
     owner: root
     group: root
