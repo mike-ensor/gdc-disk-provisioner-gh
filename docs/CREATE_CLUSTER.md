@@ -229,14 +229,23 @@ gcloud container fleet memberships get-credentials ${CLUSTER_NAME} --project "${
 This is a "quick script" that is used for **NON-PRODUCTION** only. NOTE, this is NOT intended to be used as a comprehensive cluster creation process.
 
 ```shell
-# On the new machine
-ADMIN_USER_EMAIL="[some-user-name]@[company].com" \
-	CLUSTER_VIP="192.168.4.100" \
-	CLUSTER_INGRESS="192.168.4.101" \
-	PRIMARY_LOAD_BALANCER="192.168.4.101-192.168.4.150" \
-	MACHINE_IP="192.168.4.11" \
-	CLUSTER_NAME="gdc-default-11" \
-	/usr/local/bin/create-cluster.sh
+###################################################
+##############  192.168 4.241  ####################
+###################################################
+
+export PROJECT_ID="your-gcp-project-id"
+export REGION="${REGION:-us-west1}"
+
+export MACHINE_IP="${MACHINE_IP:-192.168.4.241}"
+export CLUSTER_NAME="${CLUSTER_NAME:-gdc-default-241}"
+export PROJECT_ID="${PROJECT_ID:-your-gcp-project-id}"
+
+export CLUSTER_VIP="${CLUSTER_VIP:-192.168.4.100}"
+export CLUSTER_INGRESS="${CLUSTER_INGRESS:-192.168.4.101}"
+export PRIMARY_LOAD_BALANCER="${PRIMARY_LOAD_BALANCER:-192.168.4.101-192.168.4.109}"
+
+export ADMIN_USER_EMAIL="${ADMIN_USER_EMAIL:-admin-user@company.com}"
+/usr/local/bin/create_cluster.sh 
 ```
 
 ```shell
