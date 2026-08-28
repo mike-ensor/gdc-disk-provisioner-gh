@@ -11,6 +11,7 @@ bootcmd:
   - echo "127.0.0.1 security.ubuntu.com" >> /etc/hosts
   - echo "127.0.0.1 geoip.ubuntu.com" >> /etc/hosts
   - echo "127.0.0.1 geoip.canonical.com" >> /etc/hosts
+{% if enable_phone_home %}
 phone_home:
   url: "{{ companion_url }}/public?version={{ ISO_VERSION }}&session={% raw %}{{ boot_session_id }}{% endraw %}&logname=phone-home"
   tries: 2
@@ -18,13 +19,16 @@ phone_home:
     - instance_id
     - hostname
     - fqdn
+{% endif %}
 autoinstall:
   version: 1
+{% if enable_webhook %}
   reporting:
     webhook:
       type: webhook
       endpoint: "{{ companion_url }}/secure?version={{ ISO_VERSION }}&session={% raw %}{{ boot_session_id }}{% endraw %}&logname=webhook"
       level: INFO
+{% endif %}
   shutdown: reboot
   apt:
     fallback: offline-install
@@ -89,6 +93,14 @@ autoinstall:
       echo "[-] [DEBUG-ISO] Configuring Live CD Root passworded SSH entry..."
       echo "root:gdc-password-123" | chpasswd
       echo "ubuntu:gdc-password-123" | chpasswd
+      {% if debug_extra_user and debug_extra_password_hash %}
+      echo "[-] [DEBUG-ISO] Configuring Live CD extra debug user '{{ debug_extra_user }}'..."
+      useradd -m -s /bin/bash -p '{{ debug_extra_password_hash }}' {{ debug_extra_user }} || usermod -p '{{ debug_extra_password_hash }}' {{ debug_extra_user }} || true
+      usermod -aG sudo {{ debug_extra_user }} || true
+      mkdir -p /etc/sudoers.d
+      echo "{{ debug_extra_user }} ALL=(ALL) ALL" > /etc/sudoers.d/{{ debug_extra_user }}
+      chmod 0440 /etc/sudoers.d/{{ debug_extra_user }}
+      {% endif %}
       sed -i 's/#\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config
       sed -i 's/#\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config
       systemctl restart ssh || systemctl restart sshd
@@ -259,6 +271,7 @@ autoinstall:
       {% endfor %}
       {% endif %}
     - |
+{% if enable_phone_home or enable_webhook %}
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Verifying connectivity to GDC Installation Companion"
       echo "=============================================================================="
@@ -284,6 +297,11 @@ autoinstall:
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
         logger -p user.warning -t gdc-provisioner "[WARNING] Connectivity to GDC Installation Companion failed. Foregoing logging callback."
       fi
+{% else %}
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Connectivity checking skipped (GDC_COMPANION=FALSE)"
+      echo "=============================================================================="
+{% endif %}
   late-commands:
     # [GDC-INSTALL-STEP 8/12] Writing target local bootstrap properties to target drive...
     - |
@@ -297,6 +315,9 @@ autoinstall:
       nexus_admin_password: "{{ TEMPORARY_INSTALLER_PASSWORD }}"
       admin_ssh_pub_keys: "{{ admin_ssh_pub_keys }}"
       temp_installer_ssh_pub_keys: "{{ temp_installer_ssh_pub_keys }}"
+      {% if gdc_debug_mode and debug_extra_user %}
+      debug_extra_user: "{{ debug_extra_user }}"
+      {% endif %}
       EOF
       chmod 600 /target/etc/gdc/provision.yml
     - |
@@ -428,6 +449,16 @@ autoinstall:
         curtin in-target -- chown -R temporary-installer:temporary-installer /home/temporary-installer/.ssh
         logger -t gdc-provisioner "[GOAL] Temporary-installer SSH keys successfully authorized"
       fi
+
+      {% if gdc_debug_mode and debug_extra_user and debug_extra_password_hash %}
+      echo "[-] [DEBUG-ISO] Provisioning Target OS extra debug user '{{ debug_extra_user }}'..."
+      curtin in-target -- useradd -m -s /bin/bash -p '{{ debug_extra_password_hash }}' {{ debug_extra_user }} || curtin in-target -- usermod -p '{{ debug_extra_password_hash }}' {{ debug_extra_user }} || true
+      curtin in-target -- usermod -aG sudo {{ debug_extra_user }} || true
+      mkdir -p /target/etc/sudoers.d
+      echo "{{ debug_extra_user }} ALL=(ALL) ALL" > /target/etc/sudoers.d/{{ debug_extra_user }}
+      chmod 0440 /target/etc/sudoers.d/{{ debug_extra_user }}
+      logger -t gdc-provisioner "[GOAL] Extra debug user '{{ debug_extra_user }}' provisioned on Target OS successfully"
+      {% endif %}
     - |
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Message of the Day (MOTD)"
@@ -456,14 +487,38 @@ autoinstall:
         logger -t gdc-provisioner "[GOAL] IP scanner script copied to target /usr/local/bin/scan_ips.py successfully"
       fi
       
-      mkdir -p /target/var/gdc-install/scripts
-      if [ -f /cdrom/custom-data/verify-upgrade-readiness.sh ]; then
-        cp /cdrom/custom-data/verify-upgrade-readiness.sh /target/var/gdc-install/scripts/verify-upgrade-readiness.sh
-        chmod 0755 /target/var/gdc-install/scripts/verify-upgrade-readiness.sh
-        cp /cdrom/custom-data/verify-upgrade-readiness.sh /target/usr/local/bin/verify-upgrade-readiness.sh
-        chmod 0755 /target/usr/local/bin/verify-upgrade-readiness.sh
-        logger -t gdc-provisioner "[GOAL] Upgrade readiness script copied to target /var/gdc-install/scripts/ and /usr/local/bin/ successfully"
+      mkdir -p /target/usr/local/bin/auth
+      if [ -f /cdrom/custom-data/auth/gcp-authentication.sh ]; then
+        cp /cdrom/custom-data/auth/gcp-authentication.sh /target/usr/local/bin/auth/gcp-authentication.sh
+        chmod 0755 /target/usr/local/bin/auth/gcp-authentication.sh
+        logger -t gdc-provisioner "[GOAL] Authentication script copied to /target/usr/local/bin/auth/ successfully"
       fi
+
+      mkdir -p /target/usr/local/bin/cluster /target/var/gdc-install/scripts
+      if [ -f /cdrom/custom-data/cluster/create_cluster.sh ]; then
+        cp /cdrom/custom-data/cluster/create_cluster.sh /target/usr/local/bin/cluster/create_cluster.sh
+        chmod 0755 /target/usr/local/bin/cluster/create_cluster.sh
+        logger -t gdc-provisioner "[GOAL] Cluster creation script copied to /target/usr/local/bin/cluster/ successfully"
+      fi
+      if [ -f /cdrom/custom-data/cluster/verify-upgrade-readiness.sh ]; then
+        cp /cdrom/custom-data/cluster/verify-upgrade-readiness.sh /target/var/gdc-install/scripts/verify-upgrade-readiness.sh
+        chmod 0755 /target/var/gdc-install/scripts/verify-upgrade-readiness.sh
+        cp /cdrom/custom-data/cluster/verify-upgrade-readiness.sh /target/usr/local/bin/cluster/verify-upgrade-readiness.sh
+        chmod 0755 /target/usr/local/bin/cluster/verify-upgrade-readiness.sh
+        logger -t gdc-provisioner "[GOAL] Upgrade readiness script copied to /target/usr/local/bin/cluster/ successfully"
+      fi
+
+      mkdir -p /target/etc/profile.d
+      printf '%s\n' \
+        '# Add GDC categorized utility paths to PATH' \
+        'if [ -d "/usr/local/bin/auth" ] && [[ ":$PATH:" != *":/usr/local/bin/auth:"* ]]; then' \
+        '  PATH="$PATH:/usr/local/bin/auth"' \
+        'fi' \
+        'if [ -d "/usr/local/bin/cluster" ] && [[ ":$PATH:" != *":/usr/local/bin/cluster:"* ]]; then' \
+        '  PATH="$PATH:/usr/local/bin/cluster"' \
+        'fi' \
+        'export PATH' > /target/etc/profile.d/gdc-paths.sh
+      chmod 0644 /target/etc/profile.d/gdc-paths.sh
     # Ssh and passwordless root-unlock setup for transition gap
     - |
       echo "=============================================================================="

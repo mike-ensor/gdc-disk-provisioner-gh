@@ -1,5 +1,10 @@
 # Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
 
+- name: "GDC-TIMING | Ensure SecondBoot start time is set"
+  ansible.builtin.set_fact:
+    second_boot_start_time: "{{ second_boot_start_time | default(now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')) }}"
+    second_boot_start_epoch: "{{ second_boot_start_epoch | default(now(utc=true).strftime('%s') | int) }}"
+
 - name: "GDC-STATE | Wait for Gitea and Nexus ports to become active"
   ansible.builtin.wait_for:
     host: 127.0.0.1
@@ -55,9 +60,19 @@
     msg: "Network Sanity Check failed. Cannot ping gateway for interface {{ gdc_primary_interface }}"
   when: gateway_ping.rc != 0
 
+- name: "GDC-TIMING | Calculate SecondBoot timing facts"
+  ansible.builtin.set_fact:
+    second_boot_end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    second_boot_duration_seconds: "{{ [(now(utc=true).strftime('%s') | int) - (second_boot_start_epoch | int), 0] | max }}"
+
 - name: "GDC-EVIDENCE | Set Second Boot Evidence"
   ansible.builtin.set_fact:
     second_boot_evidence:
+      timing:
+        start_time: "{{ second_boot_start_time }}"
+        end_time: "{{ second_boot_end_time }}"
+        duration_seconds: "{{ second_boot_duration_seconds | int }}"
+        overall_provisioning_start_time: "{{ provisioning_start_time | default(second_boot_start_time) }}"
       network_sanity: "Network Sanity Check [{{ gdc_primary_interface }}] = {{ 'True' if gateway_ping.rc is defined and gateway_ping.rc == 0 else 'False' }}"
 
 - name: "GDC-STATE | Write SecondBoot completion state"
@@ -70,7 +85,7 @@
       {
         "stage": "second-boot",
         "status": "completed",
-        "timestamp": "{{ ansible_date_time.iso8601 }}",
+        "timestamp": "{{ second_boot_end_time }}",
         "evidence": {{ second_boot_evidence | default({}) | to_json }}
       }
 

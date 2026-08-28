@@ -52,6 +52,9 @@ STEP_CLI_SHA256 := $(call get_env,STEP_CLI_SHA256)
 STEP_CLI_URL := $(call get_env,STEP_CLI_URL)
 
 TEMPORARY_INSTALLER_PASSWORD := $(call get_env,TEMPORARY_INSTALLER_PASSWORD)
+DEBUG_EXTRA_USER := $(call get_env,DEBUG_EXTRA_USER)
+DEBUG_EXTRA_PASSWORD := $(call get_env,DEBUG_EXTRA_PASSWORD)
+GDC_COMPANION := $(call get_env,GDC_COMPANION)
 GCLOUD_PRESENT := $(shell command -v gcloud &>/dev/null && echo "true" || echo "false")
 ANSIBLE_PLAYBOOK_HOME := $(call get_env,ANSIBLE_PLAYBOOK_HOME)
 GDC_RELEASE_USER_NAME := $(call get_env,GDC_RELEASE_USER_NAME)
@@ -72,10 +75,24 @@ START_TIME = @mkdir -p $(WORKSPACE) && echo "START_$(1)=$$(date +%s)" >> $(TIME_
 END_TIME = @echo "END_$(1)=$$(date +%s)" >> $(TIME_LOG)
 
 # Versioning and Output Target Names
-ifeq ($(GDC_DEBUG_MODE),true)
-FINAL_ISO_NAME := $(ISO_NAME_PREFIX)-v$(ISO_VERSION)-debug.iso
+ifeq ($(GDC_COMPANION),false)
+  COMPANION_SUFFIX := -no-comp
+else ifeq ($(GDC_COMPANION),FALSE)
+  COMPANION_SUFFIX := -no-comp
+else ifeq ($(GDC_COMPANION),0)
+  COMPANION_SUFFIX := -no-comp
+else ifeq ($(GDC_COMPANION),no)
+  COMPANION_SUFFIX := -no-comp
+else ifeq ($(GDC_COMPANION),NO)
+  COMPANION_SUFFIX := -no-comp
 else
-FINAL_ISO_NAME := $(ISO_NAME_PREFIX)-v$(ISO_VERSION).iso
+  COMPANION_SUFFIX :=
+endif
+
+ifeq ($(GDC_DEBUG_MODE),true)
+FINAL_ISO_NAME := $(ISO_NAME_PREFIX)-v$(ISO_VERSION)$(COMPANION_SUFFIX)-debug.iso
+else
+FINAL_ISO_NAME := $(ISO_NAME_PREFIX)-v$(ISO_VERSION)$(COMPANION_SUFFIX).iso
 endif
 FINAL_ISO_PATH := $(OUTPUT_DIR)/$(FINAL_ISO_NAME)
 PROVENANCE_MANIFEST := $(OUTPUT_DIR)/$(ISO_NAME_PREFIX)-v$(ISO_VERSION)-provenance.json
@@ -337,6 +354,9 @@ hydrate: $(VENV_DIR) extract
 	export BOOT_MODE="$${BOOT_MODE:-bios}"; \
 	export DISK1="$${DISK1:-nvme0n1}"; \
 	export DISK2="$${DISK2:-nvme1n1}"; \
+	export GDC_COMPANION="$${GDC_COMPANION:-TRUE}"; \
+	export DEBUG_EXTRA_USER="$(DEBUG_EXTRA_USER)"; \
+	export DEBUG_EXTRA_PASSWORD="$(DEBUG_EXTRA_PASSWORD)"; \
 	export OUTPUT_FILE="$(WORKSPACE)/autoinstall-storage.yaml"; \
 	$(VENV_DIR)/bin/python3 render_templates.py templates $(EXTRACT_DIR)
 	@echo "  [-] Packaging hydrated configurations into debug tarball..."
@@ -357,8 +377,8 @@ validate: $(VENV_DIR) hydrate
 	$(call START_TIME,validate)
 	@echo "[-] [Stage: validate-artifact] Running pre-flight validations and schema checks..."
 	@# 1. Verification script call
-	@if [ -f "../../bin/validate-hydrated-files.sh" ]; then \
-		../../bin/validate-hydrated-files.sh "$(EXTRACT_DIR)" || exit 1; \
+	@if [ -f "../../test/bin/validate-hydrated-files.sh" ]; then \
+		../../test/bin/validate-hydrated-files.sh "$(EXTRACT_DIR)" || exit 1; \
 	fi
 	@# 1b. GDC comprehensive artifacts static validation
 	@$(VENV_DIR)/bin/python3 ../../test/validate_artifacts.py "$(EXTRACT_DIR)" "$(WORKSPACE)" || exit 1
@@ -400,7 +420,7 @@ test-unit: $(VENV_DIR)
 
 test-static: assemble
 	$(call START_TIME,test-static)
-	@$(VENV_DIR)/bin/python3 ../../bin/run_all_tests.py
+	@$(VENV_DIR)/bin/python3 ../../test/bin/run_all_tests.py
 	$(call END_TIME,test-static)
 
 test-dynamic: test-static
@@ -553,7 +573,7 @@ publish:
 reports:
 	$(call START_TIME,reports)
 	@echo "[-] [Stage: compile-reports] Compiling canonical reports..."
-	@python3 ../../bin/generate_build_report.py \
+	@python3 ../../test/bin/generate_build_report.py \
 		--local \
 		--iso-version "$(ISO_VERSION)" \
 		--status "SUCCESS" \

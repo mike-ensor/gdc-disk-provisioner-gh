@@ -32,7 +32,7 @@ fi
 
 EXTRACT_DIR="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # Locate virtual environment Python bin for library access (PyYAML, Jinja2)
 PYTHON_BIN="${PROJECT_ROOT}/.venv/bin/python3"

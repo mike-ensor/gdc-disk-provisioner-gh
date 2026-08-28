@@ -28,7 +28,7 @@ import time
 import unittest
 import subprocess
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WORKSPACE = os.path.join(PROJECT_ROOT, "build-workspace")
 RESULTS_JSON = os.path.join(WORKSPACE, "test_results.json")
 

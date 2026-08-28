@@ -20,8 +20,9 @@ fi
 
 IP=$1
 KEY=$2
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REMOTE_COLLECTOR="/tmp/collect-forensics.sh"
-LOCAL_COLLECTOR="bin/collect-forensics.sh"
+LOCAL_COLLECTOR="${SCRIPT_DIR}/collect-forensics.sh"
 
 if [ ! -f "${LOCAL_COLLECTOR}" ]; then
     echo "[!] Error: Local collector script ${LOCAL_COLLECTOR} not found."

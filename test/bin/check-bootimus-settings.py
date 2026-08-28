@@ -29,7 +29,7 @@ import urllib.parse
 import json
 
 # Add project src to path so we can reuse bootimus module methods
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/build')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src/build')))
 from bootimus import BOOTIMUS_API_HOST, BOOTIMUS_API_PORT, API_BASE, get_bootimus_credentials, api_request, auto_heal_boot_params
 
 def main():

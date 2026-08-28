@@ -22,7 +22,7 @@ import importlib.util
 import importlib.machinery
 
 def load_scanner_module():
-    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../bin/crash-cart-scan-subnet.sh'))
+    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../bin/debug/crash-cart-scan-subnet.sh'))
     loader = importlib.machinery.SourceFileLoader("crash_cart_scanner", script_path)
     spec = importlib.util.spec_from_loader("crash_cart_scanner", loader)
     if spec is None or spec.loader is None:

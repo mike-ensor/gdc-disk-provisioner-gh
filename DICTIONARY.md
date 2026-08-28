@@ -125,19 +125,19 @@ Indicates a high-security machine that is exclusively off the internet. It does 
 
 #### 1. Crashed Provision
 
-A term used to identify that a remote system has tried to run the ISO self-installer, and there was a failure before a fully provisioned system during **Baseline Phase**. A system in this state will not have the default user (`gdc-installer`) or password. **IF** the ISO is a `DEBUG` build, then the `root` user with `gdc-password-123` should be available to use. If the ISO is **NOT** `DEBUG`, then we need to use the "Crash Cart" `bin/bootloader-crash-cart.sh` script, which will be run on the target system.
+A term used to identify that a remote system has tried to run the ISO self-installer, and there was a failure before a fully provisioned system during **Baseline Phase**. A system in this state will not have the default user (`gdc-installer`) or password. **IF** the ISO is a `DEBUG` build, then the `root` user with `gdc-password-123` should be available to use. If the ISO is **NOT** `DEBUG`, then we need to use the "Crash Cart" `bin/debug/bootloader-crash-cart.sh` script, which will be run on the target system.
 
 #### 2. Crash Cart
 
 ```shell
-bin/bootloader-crash-cart.sh
+bin/debug/bootloader-crash-cart.sh
 ```
 
 A script that is run on a remote machine that is in "Crashed Provision" state. The script is intended to be run from within the crashed shell. The script enables SSH, temporarily sets up a root password, and enables root to use SSH. Scripts or Agent/LLM tools can then be used to extract the failure reason. This script will enable `ssh` and setting `root` password and enabling root as an SSH user.
 
 #### 3. Network Scan
 
-Finding a "Crashed Provision" system on the network requires Network Console or subnet scanning (L2). `bin/crash-cart-scan-subnet.sh` script can be used to run a scan to identify possible machines in the subnet. Since DHCP is used in **Baseline Phase**, the range is dependent on the networking configuration. A list of IPs can be provided to automatically skip (not record) to avoid unnecssary identification of successful or non-GDC nodes.
+Finding a "Crashed Provision" system on the network requires Network Console or subnet scanning (L2). `bin/debug/crash-cart-scan-subnet.sh` script can be used to run a scan to identify possible machines in the subnet. Since DHCP is used in **Baseline Phase**, the range is dependent on the networking configuration. A list of IPs can be provided to automatically skip (not record) to avoid unnecssary identification of successful or non-GDC nodes.
 
 ---
 

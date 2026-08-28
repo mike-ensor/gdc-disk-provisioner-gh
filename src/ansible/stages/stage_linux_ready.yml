@@ -1,5 +1,10 @@
 # Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
 
+- name: "GDC-TIMING | Ensure LinuxReady start time is set"
+  ansible.builtin.set_fact:
+    linux_ready_start_time: "{{ linux_ready_start_time | default(now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')) }}"
+    linux_ready_start_epoch: "{{ linux_ready_start_epoch | default(now(utc=true).strftime('%s') | int) }}"
+
 - name: Run host_foundations role
   ansible.builtin.include_role:
     name: host_foundations
@@ -48,9 +53,19 @@
   ignore_errors: true
   changed_when: false
 
+- name: "GDC-TIMING | Calculate LinuxReady timing facts"
+  ansible.builtin.set_fact:
+    linux_ready_end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    linux_ready_duration_seconds: "{{ [(now(utc=true).strftime('%s') | int) - (linux_ready_start_epoch | int), 0] | max }}"
+
 - name: "GDC-EVIDENCE | Structure LinuxReady Evidence Facts"
   ansible.builtin.set_fact:
     linux_ready_evidence:
+      timing:
+        start_time: "{{ linux_ready_start_time }}"
+        end_time: "{{ linux_ready_end_time }}"
+        duration_seconds: "{{ linux_ready_duration_seconds | int }}"
+        overall_provisioning_start_time: "{{ provisioning_start_time | default(linux_ready_start_time) }}"
       bootloader_hardening:
         dracut_config_valid: "{{ dracut_check.rc == 0 }}"
         grub_params_injected: "{{ grub_check.rc == 0 }}"
@@ -71,7 +86,7 @@
       {
         "stage": "LINUX_READY",
         "status": "COMPLETED",
-        "timestamp": "{{ ansible_date_time.iso8601 }}",
+        "timestamp": "{{ linux_ready_end_time }}",
         "evidence": {{ linux_ready_evidence | to_json }}
       }
 

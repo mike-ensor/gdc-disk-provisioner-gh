@@ -59,6 +59,10 @@
     # ==============================================================================
     - name: "FIRST_BOOT | GDC-STATE | Run Stage 2"
       block:
+        - name: "FIRST_BOOT | GDC-TIMING | Record Stage Start"
+          ansible.builtin.set_fact:
+            first_boot_start_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+            first_boot_start_epoch: "{{ now(utc=true).strftime('%s') | int }}"
         - name: "FIRST_BOOT | GDC-STATE | Execute"
           ansible.builtin.import_tasks: stages/stage_first_boot.yml
       rescue:
@@ -71,11 +75,21 @@
             content: |
               {% set _evidence = first_boot_evidence | default({}) %}
               {% set _error_detail = ansible_failed_result | default({}) %}
-              {% set _ = _evidence.update({"error_details": _error_detail}) %}
+              {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
+              {% set _end_epoch = now(utc=true).strftime('%s') | int %}
+              {% set _start_epoch = first_boot_start_epoch | default(_end_epoch) | int %}
+              {% set _duration = [_end_epoch - _start_epoch, 0] | max %}
+              {% set _timing = {
+                "start_time": first_boot_start_time | default(_end_time),
+                "end_time": _end_time,
+                "duration_seconds": _duration,
+                "overall_provisioning_start_time": provisioning_start_time | default(first_boot_start_time | default(_end_time))
+              } %}
+              {% set _ = _evidence.update({"timing": _timing, "error_details": _error_detail}) %}
               {
                 "stage": "first-boot",
                 "status": "failed",
-                "timestamp": "{{ ansible_date_time.iso8601 }}",
+                "timestamp": "{{ _end_time }}",
                 "evidence": {{ _evidence | to_json }}
               }
         - name: "GDC-STATE | Fail the play on FirstBoot Setup"
@@ -115,6 +129,10 @@
     # ==============================================================================
     - name: "SECOND_BOOT | GDC-STATE | Run Stage 3"
       block:
+        - name: "SECOND_BOOT | GDC-TIMING | Record Stage Start"
+          ansible.builtin.set_fact:
+            second_boot_start_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+            second_boot_start_epoch: "{{ now(utc=true).strftime('%s') | int }}"
         - name: "SECOND_BOOT | GDC-STATE | Execute"
           ansible.builtin.import_tasks: stages/stage_second_boot.yml
       rescue:
@@ -127,11 +145,21 @@
             content: |
               {% set _evidence = second_boot_evidence | default({}) %}
               {% set _error_detail = ansible_failed_result | default({}) %}
-              {% set _ = _evidence.update({"error_details": _error_detail}) %}
+              {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
+              {% set _end_epoch = now(utc=true).strftime('%s') | int %}
+              {% set _start_epoch = second_boot_start_epoch | default(_end_epoch) | int %}
+              {% set _duration = [_end_epoch - _start_epoch, 0] | max %}
+              {% set _timing = {
+                "start_time": second_boot_start_time | default(_end_time),
+                "end_time": _end_time,
+                "duration_seconds": _duration,
+                "overall_provisioning_start_time": provisioning_start_time | default(second_boot_start_time | default(_end_time))
+              } %}
+              {% set _ = _evidence.update({"timing": _timing, "error_details": _error_detail}) %}
               {
                 "stage": "second-boot",
                 "status": "failed",
-                "timestamp": "{{ ansible_date_time.iso8601 }}",
+                "timestamp": "{{ _end_time }}",
                 "evidence": {{ _evidence | to_json }}
               }
         - name: "GDC-STATE | Fail the play on SecondBoot Verification"
@@ -173,6 +201,10 @@
     # ==============================================================================
     - name: "LINUX_READY | GDC-STATE | Run Stage 4"
       block:
+        - name: "LINUX_READY | GDC-TIMING | Record Stage Start"
+          ansible.builtin.set_fact:
+            linux_ready_start_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+            linux_ready_start_epoch: "{{ now(utc=true).strftime('%s') | int }}"
         - name: "LINUX_READY | GDC-STATE | Execute"
           ansible.builtin.import_tasks: stages/stage_linux_ready.yml
       rescue:
@@ -185,11 +217,21 @@
             content: |
               {% set _evidence = linux_ready_evidence | default({}) %}
               {% set _error_detail = ansible_failed_result | default({}) %}
-              {% set _ = _evidence.update({"error_details": _error_detail}) %}
+              {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
+              {% set _end_epoch = now(utc=true).strftime('%s') | int %}
+              {% set _start_epoch = linux_ready_start_epoch | default(_end_epoch) | int %}
+              {% set _duration = [_end_epoch - _start_epoch, 0] | max %}
+              {% set _timing = {
+                "start_time": linux_ready_start_time | default(_end_time),
+                "end_time": _end_time,
+                "duration_seconds": _duration,
+                "overall_provisioning_start_time": provisioning_start_time | default(linux_ready_start_time | default(_end_time))
+              } %}
+              {% set _ = _evidence.update({"timing": _timing, "error_details": _error_detail}) %}
               {
                 "stage": "LINUX_READY",
                 "status": "FAILED",
-                "timestamp": "{{ ansible_date_time.iso8601 }}",
+                "timestamp": "{{ _end_time }}",
                 "evidence": {{ _evidence | to_json }}
               }
         - name: "GDC-STATE | Fail the play on LinuxReady Hardening"
@@ -256,6 +298,10 @@
     # ==============================================================================
     - name: "CLUSTER_READY | GDC-STATE | Run Stage 5"
       block:
+        - name: "CLUSTER_READY | GDC-TIMING | Record Stage Start"
+          ansible.builtin.set_fact:
+            cluster_ready_start_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+            cluster_ready_start_epoch: "{{ now(utc=true).strftime('%s') | int }}"
         - name: "CLUSTER_READY | GDC-STATE | Execute"
           ansible.builtin.import_tasks: stages/stage_cluster_ready.yml
       rescue:
@@ -272,11 +318,21 @@
             content: |
               {% set _evidence = cluster_ready_evidence | default({}) %}
               {% set _error_detail = ansible_failed_result | default({}) %}
-              {% set _ = _evidence.update({"error_details": _error_detail}) %}
+              {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
+              {% set _end_epoch = now(utc=true).strftime('%s') | int %}
+              {% set _start_epoch = cluster_ready_start_epoch | default(_end_epoch) | int %}
+              {% set _duration = [_end_epoch - _start_epoch, 0] | max %}
+              {% set _timing = {
+                "start_time": cluster_ready_start_time | default(_end_time),
+                "end_time": _end_time,
+                "duration_seconds": _duration,
+                "overall_provisioning_start_time": provisioning_start_time | default(cluster_ready_start_time | default(_end_time))
+              } %}
+              {% set _ = _evidence.update({"timing": _timing, "error_details": _error_detail}) %}
               {
                 "stage": "CLUSTER_READY",
                 "status": "{{ 'IN_PROGRESS' if is_waiting else 'FAILED' }}",
-                "timestamp": "{{ ansible_date_time.iso8601 }}",
+                "timestamp": "{{ _end_time }}",
                 "evidence": {{ _evidence | to_json }}
               }
 

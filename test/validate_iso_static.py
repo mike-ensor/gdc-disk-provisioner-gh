@@ -98,7 +98,9 @@ def main():
     project_id = os.environ.get("PROJECT_ID") or build_env.get("PROJECT_ID") or envrc.get("PROJECT_ID") or "anthos-bare-metal-lab-1"
 
     # Find the target ISO path
-    target_iso_name = f"gdc-bootstrap-ubuntu-24.04-v{iso_version}-debug.iso"
+    companion_val = os.environ.get("GDC_COMPANION") or build_env.get("GDC_COMPANION") or envrc.get("GDC_COMPANION") or "TRUE"
+    comp_suffix = "-no-comp" if str(companion_val).strip().upper() in ("FALSE", "0", "NO", "NONE") else ""
+    target_iso_name = f"gdc-bootstrap-ubuntu-24.04-v{iso_version}{comp_suffix}-debug.iso"
     target_iso_path = os.path.join(project_root, "build-workspace/output", target_iso_name)
 
     if not os.path.exists(target_iso_path):
@@ -147,7 +149,7 @@ def main():
         "/custom-data/configure_netplan.py",
         "/custom-data/generate_storage_config.sh",
         "/custom-data/gdc-collector",
-        "/custom-data/verify-upgrade-readiness.sh",
+        "/custom-data/auth/gcp-authentication.sh",
         "/custom-data/gitea/gitea",
         "/custom-data/nexus/nexus-bin/bin/nexus",
         "/boot/grub/grub.cfg"
@@ -199,13 +201,31 @@ def main():
                 sys.exit(1)
             print("[x] Verified AMD Sensor Fusion Hub kernel blacklist is active in user-data.")
             
-            if "bootcmd:" not in user_data_content or "phone_home:" not in user_data_content:
-                log_error("bootcmd or phone_home sections are MISSING from user-data!")
-                sys.exit(1)
+            raw_companion = build_env.get("GDC_COMPANION", build_env.get("BOOT_LOGGING", "TRUE"))
+            companion_enabled = str(raw_companion).strip().upper() in ("TRUE", "1", "YES", "ALL", "BOTH")
+            
+            if companion_enabled:
+                if "bootcmd:" not in user_data_content or "phone_home:" not in user_data_content:
+                    log_error("bootcmd or phone_home sections are MISSING from user-data when GDC_COMPANION=TRUE!")
+                    sys.exit(1)
+                print("[x] Verified early-boot hosts mapping and phone_home are present and clean in user-data.")
+                if "reporting:" not in user_data_content or "webhook:" not in user_data_content:
+                    log_error("reporting or webhook sections are MISSING from user-data when GDC_COMPANION=TRUE!")
+                    sys.exit(1)
+                print("[x] Verified autoinstall webhook reporting is present and clean in user-data.")
+            else:
+                if "phone_home:" in user_data_content:
+                    log_error("phone_home section is present in user-data but GDC_COMPANION=FALSE disables it!")
+                    sys.exit(1)
+                print("[x] Verified phone_home is omitted from user-data per GDC_COMPANION policy.")
+                if "webhook:" in user_data_content:
+                    log_error("reporting webhook section is present in user-data but GDC_COMPANION=FALSE disables it!")
+                    sys.exit(1)
+                print("[x] Verified autoinstall webhook reporting is omitted from user-data per GDC_COMPANION policy.")
+                
             if "headers:" in user_data_content:
                 log_error("Detected invalid 'headers:' block inside user-data! This will trigger a Subiquity crash.")
                 sys.exit(1)
-            print("[x] Verified early-boot hosts mapping and phone_home are present and clean in user-data.")
 
         print("[-] Running comprehensive artifacts static validation suite on extracted ISO components...")
         

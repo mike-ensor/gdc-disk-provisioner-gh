@@ -31,10 +31,10 @@ cleanup_and_report() {
     local exit_code=$?
     if [[ "${exit_code}" -eq 0 ]]; then
         echo "[-] ISO Job completed successfully. Compiling local build report..."
-        python3 "${PROJECT_ROOT}/bin/generate_build_report.py" --local --status "SUCCESS" --iso-version "${ISO_VERSION:-1.0.0}" || true
+        python3 "${PROJECT_ROOT}/test/bin/generate_build_report.py" --local --status "SUCCESS" --iso-version "${ISO_VERSION:-1.0.0}" || true
     else
         echo "[!] ISO Job failed! Compiling local failure build report..." >&2
-        python3 "${PROJECT_ROOT}/bin/generate_build_report.py" --local --status "FAILED" --iso-version "${ISO_VERSION:-1.0.0}" || true
+        python3 "${PROJECT_ROOT}/test/bin/generate_build_report.py" --local --status "FAILED" --iso-version "${ISO_VERSION:-1.0.0}" || true
     fi
 }
 trap cleanup_and_report EXIT
@@ -142,17 +142,23 @@ else
     make -C "${PROJECT_ROOT}/src/build" all \
         ISO_VERSION="${ISO_VERSION}" \
         GDC_DEBUG_MODE="${GDC_DEBUG_MODE:-false}" \
-        ENABLE_GCS="false"
+        ENABLE_GCS="false" \
+        GDC_COMPANION="${GDC_COMPANION:-TRUE}"
 fi
 
 # Reload .envrc to capture the newly incremented ISO_VERSION written by compile step
 # shellcheck source=/dev/null
 source "${ENVRC_FILE}"
 
+COMPANION_SUFFIX=""
+if [[ "${GDC_COMPANION:-TRUE}" =~ ^([fF][aA][lL][sS][eE]|0|[nN][oO])$ ]]; then
+    COMPANION_SUFFIX="-no-comp"
+fi
+
 if [[ "${GDC_DEBUG_MODE:-false}" == "true" ]]; then
-    NEW_ISO_NAME="gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}-debug.iso"
+    NEW_ISO_NAME="gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}${COMPANION_SUFFIX}-debug.iso"
 else
-    NEW_ISO_NAME="gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}.iso"
+    NEW_ISO_NAME="gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}${COMPANION_SUFFIX}.iso"
 fi
 
 echo ""
@@ -176,7 +182,7 @@ echo "==========================================================================
 echo -e "\033[93m\033[1m[ISO-JOB] SEALING BOOTIMUS NON-INTERACTIVE COMPLIANCE AUDIT...\033[0m"
 echo "=============================================================================="
 # Verify and lock all Bootimus boot parameters into non-interactive mode
-python3 "${PROJECT_ROOT}/bin/check-bootimus-settings.py"
+python3 "${PROJECT_ROOT}/test/bin/check-bootimus-settings.py"
 
 # ==============================================================================
 # Step 5: Create final Bootimus Tree Readiness & Build Outputs Report
