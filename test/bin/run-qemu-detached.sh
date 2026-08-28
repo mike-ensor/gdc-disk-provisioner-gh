@@ -4,6 +4,10 @@
 
 set -x
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+cd "${PROJECT_ROOT}"
+
 pkill -f qemu-system-x86_64 || true
 pkill -f swtpm || true
 rm -rf /tmp/gdc-swtpm/ /tmp/gdc-qemu-*.qcow2 /tmp/gdc-qemu-serial.log

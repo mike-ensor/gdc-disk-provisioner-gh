@@ -2,6 +2,24 @@
 
 This document outlines the steps and common pitfalls when creating a Google Distributed Cloud (GDC) Software-Only (bare-metal) cluster.
 
+## QUICK START
+
+Refer to `bin/cluster/create_cluster.sh`
+
+```shell
+export MACHINE_IP="${MACHINE_IP:-192.168.9.224}"
+export CLUSTER_NAME="${CLUSTER_NAME:-gdc-default-224}"
+export PROJECT_ID="${PROJECT_ID:-anthos-bare-metal-lab-1}"
+
+export CLUSTER_VIP="${CLUSTER_VIP:-192.168.9.43}"
+export CLUSTER_INGRESS="${CLUSTER_INGRESS:-192.168.9.44}"
+export PRIMARY_LOAD_BALANCER="${PRIMARY_LOAD_BALANCER:-192.168.9.44-192.168.9.60}"
+
+export ADMIN_USER_EMAIL="${ADMIN_USER_EMAIL:-}"
+
+/usr/local/bin/cluster/create_cluster.sh # Only available on debug builds
+```
+
 ## Overview
 
 GDC Turnup relies on a temporary, local bootstrap cluster (KIND) on the admin workstation to orchestrate the build of the target cluster. The bootstrap cluster runs operators (like `anthos-cluster-operator`) that connect to the target nodes over SSH, install the required packages, and bootstrap Kubernetes.
@@ -101,7 +119,6 @@ Below is a reference configuration for an Edge-profile standalone cluster using 
 
 ```yaml
 ---
-gcrKeyPath: /bmctl/fake.json # Fake path required when using Workload Identity
 sshPrivateKeyPath: /home/gdc-admin/.ssh/id_ed25519
 ---
 apiVersion: v1
@@ -245,7 +262,7 @@ export CLUSTER_INGRESS="${CLUSTER_INGRESS:-192.168.4.101}"
 export PRIMARY_LOAD_BALANCER="${PRIMARY_LOAD_BALANCER:-192.168.4.101-192.168.4.109}"
 
 export ADMIN_USER_EMAIL="${ADMIN_USER_EMAIL:-admin-user@company.com}"
-/usr/local/bin/create_cluster.sh 
+/usr/local/bin/cluster/create_cluster.sh
 ```
 
 ```shell

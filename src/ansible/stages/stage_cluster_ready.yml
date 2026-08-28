@@ -1,8 +1,22 @@
 # Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
 
+- name: "GDC-TIMING | Ensure ClusterReady start time is set"
+  ansible.builtin.set_fact:
+    cluster_ready_start_time: "{{ cluster_ready_start_time | default(now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')) }}"
+    cluster_ready_start_epoch: "{{ cluster_ready_start_epoch | default(now(utc=true).strftime('%s') | int) }}"
+
 - name: Run machine_orchestration role
   ansible.builtin.include_role:
     name: machine_orchestration
+
+- name: "GDC-TIMING | Calculate ClusterReady timing facts"
+  ansible.builtin.set_fact:
+    cluster_ready_end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    cluster_ready_duration_seconds: "{{ [(now(utc=true).strftime('%s') | int) - (cluster_ready_start_epoch | int), 0] | max }}"
+
+- name: "GDC-EVIDENCE | Update ClusterReady Evidence Timing"
+  ansible.builtin.set_fact:
+    cluster_ready_evidence: "{{ (cluster_ready_evidence | default({})) | combine({'timing': {'start_time': cluster_ready_start_time, 'end_time': cluster_ready_end_time, 'duration_seconds': cluster_ready_duration_seconds | int, 'overall_provisioning_start_time': provisioning_start_time | default(cluster_ready_start_time)}}) }}"
 
 - name: "GDC-STATE | Write ClusterReady completion state"
   ansible.builtin.copy:
@@ -14,7 +28,7 @@
       {
         "stage": "CLUSTER_READY",
         "status": "COMPLETED",
-        "timestamp": "{{ ansible_date_time.iso8601 }}",
+        "timestamp": "{{ cluster_ready_end_time }}",
         "evidence": {{ cluster_ready_evidence | to_json }}
       }
 

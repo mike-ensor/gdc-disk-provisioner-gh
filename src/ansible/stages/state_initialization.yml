@@ -39,6 +39,46 @@
     group: root
     mode: '0755'
 
+- name: "GDC-TIMING | Check existing provisioning timing state"
+  ansible.builtin.stat:
+    path: /var/gdc-install/state/provisioning-timing.json
+  register: prov_timing_stat
+
+- name: "GDC-TIMING | Load existing provisioning timing state"
+  ansible.builtin.slurp:
+    src: /var/gdc-install/state/provisioning-timing.json
+  register: slurped_prov_timing
+  when: prov_timing_stat.stat.exists
+  ignore_errors: true
+  failed_when: false
+
+- name: "GDC-TIMING | Set provisioning timing facts from existing file"
+  ansible.builtin.set_fact:
+    provisioning_start_time: "{{ (slurped_prov_timing.content | b64decode | from_json).provisioning_start_time }}"
+    provisioning_start_epoch: "{{ (slurped_prov_timing.content | b64decode | from_json).provisioning_start_epoch | int }}"
+  when:
+    - prov_timing_stat.stat.exists
+    - slurped_prov_timing is defined and slurped_prov_timing.content is defined
+
+- name: "GDC-TIMING | Initialize new provisioning timing facts if first run"
+  ansible.builtin.set_fact:
+    provisioning_start_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    provisioning_start_epoch: "{{ now(utc=true).strftime('%s') | int }}"
+  when: not prov_timing_stat.stat.exists
+
+- name: "GDC-TIMING | Persist provisioning timing file"
+  ansible.builtin.copy:
+    dest: /var/gdc-install/state/provisioning-timing.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {
+        "provisioning_start_time": "{{ provisioning_start_time }}",
+        "provisioning_start_epoch": {{ provisioning_start_epoch }}
+      }
+  when: not prov_timing_stat.stat.exists
+
 - name: "GDC-STATE | Check existing state files"
   ansible.builtin.stat:
     path: "/var/gdc-install/state/{{ item }}.json"

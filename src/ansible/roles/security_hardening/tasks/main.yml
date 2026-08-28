@@ -133,14 +133,25 @@
     group: root
     mode: '0755'
   loop:
+    - "/var/gdc-install/iso-cache/cluster/verify-upgrade-readiness.sh"
     - "/var/gdc-install/iso-cache/verify-upgrade-readiness.sh"
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-12 | Ensure /usr/local/bin/cluster directory exists"
+  ansible.builtin.file:
+    path: /usr/local/bin/cluster
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
   ignore_errors: true
   tags: ["strictly-local"]
 
 - name: "GDC-TASK-12 | Create global symlink for verify-upgrade-readiness.sh"
   ansible.builtin.file:
     src: "{{ gdc_install_root }}/scripts/verify-upgrade-readiness.sh"
-    dest: "/usr/local/bin/verify-upgrade-readiness.sh"
+    dest: "/usr/local/bin/cluster/verify-upgrade-readiness.sh"
     owner: root
     group: root
     mode: '0755'

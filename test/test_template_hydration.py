@@ -116,7 +116,8 @@ class TestGgdTemplateHydration(unittest.TestCase):
         env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
         env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
         env['persist_add_hosts'] = False
-        env['add_hosts_lines'] = []
+        env['enable_phone_home'] = True
+        env['enable_webhook'] = True
         
         # storage config parameters
         env['single_disk'] = env.get('SINGLE_DISK') == 'true'
@@ -409,7 +410,9 @@ class TestGgdTemplateHydration(unittest.TestCase):
 
         # MANDATORY SWAP INTEGRITY GDC CHECK
         autoinstall = parsed.get("autoinstall", {})
-        self.assertIn("reporting", autoinstall, "The autoinstall config MUST have reporting defined")
+        raw_companion = ctx.get('GDC_COMPANION', ctx.get('BOOT_LOGGING', 'TRUE'))
+        if str(raw_companion).strip().upper() in ('TRUE', '1', 'YES', 'ALL', 'BOTH', 'WEBHOOK'):
+            self.assertIn("reporting", autoinstall, "The autoinstall config MUST have reporting defined")
         self.assertIn("storage", autoinstall, "The autoinstall config MUST have storage defined")
         
         storage = autoinstall.get("storage", {})
@@ -450,6 +453,31 @@ class TestGgdTemplateHydration(unittest.TestCase):
         self.assertIn('echo "5.6.7.8 baz.qux.com" >> /etc/hosts', rendered_persist)
         self.assertIn('echo "1.2.3.4 foo.bar.com" >> /target/etc/hosts', rendered_persist)
         self.assertIn('echo "5.6.7.8 baz.qux.com" >> /target/etc/hosts', rendered_persist)
+
+    def test_debug_extra_user_rendering(self):
+        """Validates that DEBUG_EXTRA_USER is correctly provisioned only when GDC_DEBUG_MODE=true."""
+        template = self.jinja_env.get_template('user-data.j2')
+        
+        # Case 1: Debug mode TRUE with debug extra user defined
+        ctx_debug = self.get_context({
+            'gdc_debug_mode': True,
+            'debug_extra_user': 'forge',
+            'debug_extra_password_hash': '$6$salt$hash'
+        })
+        rendered_debug = template.render(ctx_debug)
+        self.assertIn("useradd -m -s /bin/bash -p '$6$salt$hash' forge", rendered_debug)
+        self.assertIn("forge ALL=(ALL) ALL", rendered_debug)
+        self.assertNotIn("forge ALL=(ALL) NOPASSWD:ALL", rendered_debug)
+        
+        # Case 2: Debug mode FALSE (Production) with debug extra user defined
+        ctx_prod = self.get_context({
+            'gdc_debug_mode': False,
+            'debug_extra_user': 'forge',
+            'debug_extra_password_hash': '$6$salt$hash'
+        })
+        rendered_prod = template.render(ctx_prod)
+        self.assertNotIn("forge", rendered_prod)
+        self.assertNotIn("useradd -m -s /bin/bash -p '$6$salt$hash' forge", rendered_prod)
 
     # ==========================================================================
     # TEST SUITE 4: Netplan and python-driven runtime hydrator tests (Crossover)

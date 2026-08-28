@@ -111,7 +111,10 @@ steps:
           INSTALL_COMPANION_URL="${_INSTALL_COMPANION_URL}" \
           ADMIN_SSH_PUB_KEYS="${_ADMIN_SSH_PUB_KEYS}" \
           TEMPORARY_INSTALLER_SSH_PUB_KEYS="${_TEMPORARY_INSTALLER_SSH_PUB_KEYS}" \
-          TEMPORARY_INSTALLER_PASSWORD="${_TEMPORARY_INSTALLER_PASSWORD}"
+          TEMPORARY_INSTALLER_PASSWORD="${_TEMPORARY_INSTALLER_PASSWORD}" \
+          GDC_COMPANION="${_GDC_COMPANION}" \
+          DEBUG_EXTRA_USER="${_DEBUG_EXTRA_USER}" \
+          DEBUG_EXTRA_PASSWORD="${_DEBUG_EXTRA_PASSWORD}"
 
   # ==========================================
   # Step 3: Publish, Manifest, and Promote Release Artifacts
@@ -143,6 +146,7 @@ steps:
         make -C src/build deploy publish reports \
           ISO_VERSION="${_ISO_VERSION}" \
           GDC_DEBUG_MODE="${_GDC_DEBUG_MODE}" \
+          GDC_COMPANION="${_GDC_COMPANION}" \
           ENABLE_GCS="true" \
           GCS_BUCKET="gs://${_GCS_BUCKET_NAME}" \
           DEPENDENCY_CACHE_GCS_BUCKET="$${DEPENDENCY_CACHE_GCS_BUCKET}" \
@@ -193,6 +197,9 @@ substitutions:
   _ADMIN_SSH_PUB_KEYS: ''
   _TEMPORARY_INSTALLER_SSH_PUB_KEYS: ''
   _TEMPORARY_INSTALLER_PASSWORD: ''
+  _GDC_COMPANION: 'TRUE'
+  _DEBUG_EXTRA_USER: ''
+  _DEBUG_EXTRA_PASSWORD: ''
 
 # Extend timeout to 30 minutes in case of larger asset synchronization
 timeout: '1800s'

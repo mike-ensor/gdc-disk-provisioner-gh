@@ -13,11 +13,15 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
 
 ### Example 1: Full Pipeline Build
 **Prompt:** "Build and deploy the new custom GDC ISO to the PXE server."
-**Action:** The agent executes `./buildAll.sh` and tracks progress through each gate.
+**Action:** The agent executes `./build-iso.sh` and tracks progress through each gate.
 
 ### Example 2: Resume Asynchronous Build Check
 **Prompt:** "Is the custom GDC ISO build done yet?"
 **Action:** The agent reads `.cache/build-state.json` to fetch the active Build ID, queries `gcloud builds describe`, and proceeds to Bootimus deployment if successful.
+
+### Example 3: Build ISO without Companion Telemetry Webhooks
+**Prompt:** "Build a new ISO but disable all phone-home tracking."
+**Action:** The agent executes `./build.sh --companion FALSE` (or `GDC_COMPANION=FALSE ./build-iso.sh`).
 
 ## 3. Security Constraints
 - **Secrets Isolation:** Never print `BOOTIMUS_USER` or `BOOTIMUS_PASS` credentials to logs. Leverage the Infisical CLI automatically when credentials are not in the active environment.
@@ -45,7 +49,7 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
 
 ### State 3: Cloud Build Compilation & Async Handshake
 - [ ] NOTE: CloudBuild is the ONLY way to build an ISO that ends up published. Local builds are strictly for local testing.
-- [ ] Execute `./build.sh` to trigger the Google Cloud Build pipeline (this auto-increments the ISO version patch).
+- [ ] Execute `./build.sh` (optionally appending `--companion [TRUE|FALSE]` if modifying telemetry behavior) to trigger the Google Cloud Build pipeline (this auto-increments the ISO version patch).
 - [ ] **Async & Subagent Handoff Protocol:**
   - Save the GCP Build ID and current target version to `.cache/build-state.json`.
   - Check build status periodically using:
@@ -58,7 +62,7 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
 - [ ] Execute `./src/build/bootimus.py --list` to check the status of the current groups and images.
 - [ ] Only after the ISO shows up in Bootimus, deploy the compiled image: `./src/build/bootimus.py gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}.iso` (which enforces a 30s settling window right after trigger-scan).
 - [ ] The agent must monitor the progress of `bootimus.py` as it explodes the kernel, sets the type to Ubuntu, enables the ISO, and sets the boot parameters.
-- [ ] **MANDATORY BOOTIMUS COMPLETION GATE:** You MUST execute `python3 bin/check-bootimus-settings.py` after deploying the ISO and the 30s cool-off period.
+- [ ] **MANDATORY BOOTIMUS COMPLETION GATE:** You MUST execute `python3 test/bin/check-bootimus-settings.py` after deploying the ISO and the 30s cool-off period.
   - At NO TIME should there be a built `gdc-bootstrap-*` ISO that does not complete extraction in Bootimus.
   - The script asserts that the image is classified as `ubuntu`, extraction is `COMPLETE`, and Boot Parameters (autoinstall) are correctly set.
   - If extraction is still `PENDING` or `EXTRACTING`, you MUST wait and retry until `check-bootimus-settings.py` returns `SUCCESS`.

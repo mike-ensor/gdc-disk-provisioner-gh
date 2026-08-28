@@ -123,11 +123,11 @@ A Network Attached Storage (NAS) device is highly recommended. It can be used to
 
 ### 4.5 Automated Lab Auditing
 
-A Python verification script (`bin/check-lab-setup.py`) is included to dynamically audit your lab environment against the exact requirements outlined in this guide. 
+A Python verification script (`test/bin/check-lab-setup.py`) is included to dynamically audit your lab environment against the exact requirements outlined in this guide. 
 
 Before booting physical nodes, execute the pre-flight auditor from your workspace:
 ```bash
-./bin/check-lab-setup.py
+./test/bin/check-lab-setup.py
 ```
 
 The auditor dynamically tests:

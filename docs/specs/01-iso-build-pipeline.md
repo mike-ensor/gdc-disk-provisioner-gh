@@ -289,7 +289,7 @@ To establish 100% auditable traceability, every successful build publishes a sig
     "static_validation": {
       "status": "PASSED",
       "cloud_init_schema_check": "VALID",
-      "validator": "bin/validate-hydrated-files.sh"
+      "validator": "test/bin/validate-hydrated-files.sh"
     },
     "dynamic_integration_test": {
       "status": "PASSED",
@@ -317,4 +317,4 @@ At **NO TIME** should there be a built ISO deployed that does not fully complete
 2. **Distribution Classification:** Bootimus must correctly recognize the ISO as an `ubuntu` distribution family.
 3. **Autoinstall Boot Parameters:** The kernel boot parameters must be explicitly locked and injected with the non-interactive unattended installation string (`ds=nocloud;s=/cdrom/nocloud/`).
 
-These constraints are automatically enforced via the programmatic auditor script `bin/check-bootimus-settings.py`. Builds must not be declared successful until this script returns a clean `SUCCESS` exit code.
+These constraints are automatically enforced via the programmatic auditor script `test/bin/check-bootimus-settings.py`. Builds must not be declared successful until this script returns a clean `SUCCESS` exit code.

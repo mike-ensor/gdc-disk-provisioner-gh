@@ -62,6 +62,32 @@ def load_env_properties():
 def render_templates(template_dir, output_dir, env):
     jinja_env = Environment(loader=FileSystemLoader(template_dir))
     
+    # Process GDC_COMPANION flag if not already resolved in context
+    if 'enable_phone_home' not in env or 'enable_webhook' not in env:
+        raw_companion = env.get('GDC_COMPANION', env.get('BOOT_LOGGING', 'TRUE'))
+        companion_val = str(raw_companion).strip().upper()
+        if companion_val in ("TRUE", "1", "YES", "ALL", "BOTH"):
+            env['enable_phone_home'] = True
+            env['enable_webhook'] = True
+        elif companion_val in ("FALSE", "0", "NO", "NONE"):
+            env['enable_phone_home'] = False
+            env['enable_webhook'] = False
+        else:
+            raise ValueError(f"Invalid GDC_COMPANION value: '{raw_companion}'. Valid values: TRUE, FALSE.")
+            
+    # Process optional extra debug user
+    env['debug_extra_user'] = env.get('DEBUG_EXTRA_USER', env.get('debug_extra_user', '')).strip()
+    if 'debug_extra_password_hash' not in env or not env['debug_extra_password_hash']:
+        extra_pwd = env.get('DEBUG_EXTRA_PASSWORD', '')
+        if extra_pwd:
+            try:
+                import crypt
+                env['debug_extra_password_hash'] = crypt.crypt(extra_pwd, crypt.mksalt(crypt.METHOD_SHA512))
+            except Exception:
+                env['debug_extra_password_hash'] = ''
+        else:
+            env['debug_extra_password_hash'] = env.get('DEBUG_EXTRA_PASSWORD_HASH', '')
+    
     # Render storage first so we can inject it into user-data context
     storage_content = ""
     if 'SINGLE_DISK' in env:
@@ -282,12 +308,35 @@ if __name__ == "__main__":
     env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
     env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
     
+    # Process GDC_COMPANION flag
+    raw_companion = env.get('GDC_COMPANION', env.get('BOOT_LOGGING', 'TRUE'))
+    companion_val = str(raw_companion).strip().upper()
+    if companion_val in ("TRUE", "1", "YES", "ALL", "BOTH"):
+        env['enable_phone_home'] = True
+        env['enable_webhook'] = True
+    elif companion_val in ("FALSE", "0", "NO", "NONE"):
+        env['enable_phone_home'] = False
+        env['enable_webhook'] = False
+    else:
+        print(f"[!] ERROR: Pre-flight hydration failed! Invalid GDC_COMPANION value: '{raw_companion}'. Valid values: TRUE, FALSE.", file=sys.stderr)
+        sys.exit(1)
+    
     # Map and self-heal the temporary installer credential password hash
     env['password_hash'] = env.get('PASSWORD_HASH', '')
     if not env['password_hash'] and env.get('TEMPORARY_INSTALLER_PASSWORD'):
         try:
             import crypt
             env['password_hash'] = crypt.crypt(env['TEMPORARY_INSTALLER_PASSWORD'], crypt.mksalt(crypt.METHOD_SHA512))
+        except Exception:
+            pass
+
+    # Map optional debug extra user
+    env['debug_extra_user'] = env.get('DEBUG_EXTRA_USER', '').strip()
+    env['debug_extra_password_hash'] = env.get('DEBUG_EXTRA_PASSWORD_HASH', '')
+    if not env['debug_extra_password_hash'] and env.get('DEBUG_EXTRA_PASSWORD'):
+        try:
+            import crypt
+            env['debug_extra_password_hash'] = crypt.crypt(env['DEBUG_EXTRA_PASSWORD'], crypt.mksalt(crypt.METHOD_SHA512))
         except Exception:
             pass
             

@@ -9,7 +9,7 @@ description: Recover and repair nodes blocked by LUKS decryption failures, faile
 
 1. Boot into the GDC Live CD/ISO.
 2. Run the automated recovery script:
-   `sudo ./bin/recover-tpm-unseal.sh`
+   `sudo ./bin/debug/recover-tpm-unseal.sh`
 3. If it fails, open the container manually:
    `sudo cryptsetup luksOpen /dev/nvme0n1p3 crypt-system`
 

@@ -40,6 +40,18 @@
     host_foundations_debug_mode: "{{ (slurped_install_config.content | b64decode | from_json).gdc_debug_mode if (slurped_install_config is defined and slurped_install_config.content is defined and (slurped_install_config.content | b64decode | from_json).gdc_debug_mode is defined) else false }}"
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-04 | Check if provision.yml exists"
+  ansible.builtin.stat:
+    path: /etc/gdc/provision.yml
+  register: provision_yml_stat
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-04 | Load provision.yml variables"
+  ansible.builtin.include_vars:
+    file: /etc/gdc/provision.yml
+  when: provision_yml_stat.stat.exists
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-04 | Ensure administrative system group exists"
   ansible.builtin.group:
     name: "{{ gdc_admin_group }}"
@@ -95,6 +107,30 @@
   when: not (host_foundations_debug_mode | bool)
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-04 | Ensure standard sudo for debug_extra_user (DEBUG MODE ONLY)"
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ debug_extra_user }}"
+    owner: root
+    group: root
+    mode: '0440'
+    content: |
+      {{ debug_extra_user }} ALL=(ALL) ALL
+  when:
+    - host_foundations_debug_mode | bool
+    - debug_extra_user is defined
+    - debug_extra_user | length > 0
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-04 | Revoke sudo for debug_extra_user (PRODUCTION MODE)"
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ debug_extra_user }}"
+    state: absent
+  when:
+    - not (host_foundations_debug_mode | bool)
+    - debug_extra_user is defined
+    - debug_extra_user | length > 0
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-04 | Configure authorized SSH keys for gdc-admin"
   ansible.builtin.file:
     path: "/home/{{ gdc_admin_user }}/.ssh"
@@ -138,6 +174,23 @@
     group: "{{ gdc_admin_group }}"
     mode: '0755'
   loop: "{{ gdc_install_directories }}"
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-03 | Ensure GDC categorized utility paths are configured in system profile"
+  ansible.builtin.copy:
+    dest: /etc/profile.d/gdc-paths.sh
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Add GDC categorized utility paths to PATH
+      if [ -d "/usr/local/bin/auth" ] && [[ ":$PATH:" != *":/usr/local/bin/auth:"* ]]; then
+        PATH="$PATH:/usr/local/bin/auth"
+      fi
+      if [ -d "/usr/local/bin/cluster" ] && [[ ":$PATH:" != *":/usr/local/bin/cluster:"* ]]; then
+        PATH="$PATH:/usr/local/bin/cluster"
+      fi
+      export PATH
   tags: ["strictly-local"]
 
 # --------------------------------------------------------------------------

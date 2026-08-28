@@ -1,8 +1,27 @@
 # Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
 
+- name: "GDC-TIMING | Ensure FirstBoot start time is set"
+  ansible.builtin.set_fact:
+    first_boot_start_time: "{{ first_boot_start_time | default(now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')) }}"
+    first_boot_start_epoch: "{{ first_boot_start_epoch | default(now(utc=true).strftime('%s') | int) }}"
+
 - name: Run service_hubs role
   ansible.builtin.include_role:
     name: service_hubs
+
+- name: "GDC-TIMING | Calculate FirstBoot timing facts"
+  ansible.builtin.set_fact:
+    first_boot_end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    first_boot_duration_seconds: "{{ [(now(utc=true).strftime('%s') | int) - (first_boot_start_epoch | int), 0] | max }}"
+
+- name: "GDC-EVIDENCE | Structure FirstBoot Evidence Facts"
+  ansible.builtin.set_fact:
+    first_boot_evidence:
+      timing:
+        start_time: "{{ first_boot_start_time }}"
+        end_time: "{{ first_boot_end_time }}"
+        duration_seconds: "{{ first_boot_duration_seconds | int }}"
+        overall_provisioning_start_time: "{{ provisioning_start_time | default(first_boot_start_time) }}"
 
 - name: "GDC-STATE | Write FirstBoot completion state"
   ansible.builtin.copy:
@@ -14,7 +33,8 @@
       {
         "stage": "first-boot",
         "status": "completed",
-        "timestamp": "{{ ansible_date_time.iso8601 }}"
+        "timestamp": "{{ first_boot_end_time }}",
+        "evidence": {{ first_boot_evidence | to_json }}
       }
 
 - name: "GDC-STATE | Reboot to transition to SecondBoot verification stage"

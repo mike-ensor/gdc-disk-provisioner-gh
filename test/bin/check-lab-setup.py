@@ -23,8 +23,8 @@ It is designed to be executed from a central management server or a personal
 workstation inside the lab network.
 
 Usage:
-  ./bin/check-lab-setup.py          (Runs full standard audit)
-  ./bin/check-lab-setup.py --verbose (Shows detailed diagnostics)
+  ./test/bin/check-lab-setup.py          (Runs full standard audit)
+  ./test/bin/check-lab-setup.py --verbose (Shows detailed diagnostics)
 """
 
 import os
@@ -40,7 +40,7 @@ import subprocess
 from typing import Dict, Any, Tuple
 
 # Add src/build to path to parse env files
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src/build')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src/build')))
 try:
     from preseed_packages import parse_env_file
 except ImportError:
@@ -119,7 +119,7 @@ def load_environment():
     global LAB_CONFIG
     global LOCAL_CONFIG
     
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     build_env = parse_env_file(os.path.join(project_root, "src/build/build.env"))
     local_env = parse_env_file(os.path.join(project_root, "src/build/local.env"))
     

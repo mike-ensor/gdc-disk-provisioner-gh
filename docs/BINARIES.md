@@ -1,105 +1,130 @@
 # GDC Disk Provisioner - Administrative Binaries & Utilities
 
-This document outlines the administrative scripts, diagnostic tools, and operational utilities available in the `bin/` directory. These tools are designed to help operators manage, diagnose, and recover GDC bare-metal nodes throughout their lifecycle.
-
-## Environment Variables
-Many scripts in this directory share a common environment variable for targeting fleets of machines:
-*   `TARGET_TEST_MACHINES`: A comma-separated list, Python-style array, or space-separated list of target IPs. 
-    *   *Example:* `TARGET_TEST_MACHINES="192.168.9.241, 192.168.9.242"`
+This document outlines the administrative scripts, diagnostic tools, and operational utilities across the repository. Tools are categorized by functional domain and execution context (whether they run on the workstation or inside the deployed ISO).
 
 ---
 
-## Operations & Node Management
+## Directory & Lifecycle Layout
 
-### `reset-machines.sh`
-**Summary:** Remotely reboots target nodes into their PXE/Network boot option. It dynamically identifies the active network interface, maps it to the UEFI `efibootmgr` list, sets the `BootNext` variable, and issues a reboot.
-**Dependencies:** `ssh`, `efibootmgr` (on target node)
-**Parameters:**
-*   `TARGET_TEST_MACHINES` (Env Var): The IP(s) of the machine(s) to reset.
-**Outcome:** The targeted nodes will gracefully reboot and bypass local disk storage to boot directly into the Bootimus PXE environment.
-
-### `push-hotfix-playbook.sh`
-**Summary:** Bypasses the Gitea pull-sync mechanism to force-push a local, uncommitted Ansible playbook directly to a node for rapid prototyping and testing.
-**Dependencies:** `sshpass`, `scp`, `ssh`
-**Parameters:** 
-*   `$1`: Target Node IP Address
-**Outcome:** The local `src/ansible/` directory is copied to the remote node, and `ansible-pull` is executed locally on the node using the transferred files instead of the Git repository.
-
-### `generate-mock-certs.sh`
-**Summary:** Generates short-lived, self-signed mock mTLS certificates for testing the `CLUSTER_READY` validation gates when the Step-CA environment is unavailable.
-**Dependencies:** `openssl`
-**Outcome:** Drops temporary certificates into `/tmp/` or the specified directory mimicking the `gdc-release.gpg` format.
+| Functional Group | Base Folder | Target OS Path (In ISO) | Included in ISO? | Description |
+|---|---|---|---|---|
+| **Authentication/Authorization** | `bin/auth/` | `/usr/local/bin/auth/` | **Always (Debug: No)** | Credential configuration & offline registry auth utilities. |
+| **Cluster Operations** | `bin/cluster/` | `/usr/local/bin/cluster/` | **Only with Debug (Debug: Yes)** | Cluster turnup, verification, and upgrade readiness tools. |
+| **Node Operations** | `bin/node-ops/` | *N/A (Host Tool)* | **No** | Live playbook prototyping and remote PXE reboot triggers. |
+| **Node Debug** | `bin/debug/` | *N/A (Host/Rescue Tool)* | **No** | Serial crash-cart, TPM recovery, subnet scanning, & forensics. |
+| **Build Validation & Lab Utilities** | `test/bin/` | *N/A (CI/Build Tool)* | **No** | ISO linters, test runner, QEMU test harness, & lab auditors. |
 
 ---
 
-## Telemetry & Diagnostics
+## 1. Authentication / Authorization (`bin/auth/`)
 
-### `refresh-telemetry.sh`
-**Summary:** Forces an on-demand execution of the `gdc-collector` on target nodes, bypassing the daily 2 AM timer or Ansible stage transitions. Refreshes the Companion UI with the latest node state.
-**Dependencies:** `sshpass`, `ping`
-**Parameters:**
-*   `$1, $2, ...` (CLI Args): Space-separated list of IPs.
-*   `TARGET_TEST_MACHINES` (Env Var): Fallback if no CLI args are provided.
-**Outcome:** The collector script runs on the target nodes and uploads a fresh `report.json` and diagnostic tarball to the GDC Companion App.
-
-### `crash-cart-scan-subnet.sh`
-**Summary:** A high-performance, parallelized Python subnet scanner that identifies GDC nodes in a "Crashed Provision" state (e.g. reachable via ICMP/SSH but failed to fully bootstrap).
-**Dependencies:** `python3`, `ping`, `nmap` (optional)
-**Outcome:** Outputs a terminal report listing active nodes, unreachable nodes, and nodes exhibiting crash-cart symptoms on the targeted subnet.
-
-### `collect-forensics.sh` / `run-forensics-remote.sh`
-**Summary:** Extracts deeply embedded logs (`/var/log/syslog`, `journalctl`, `cloud-init-output.log`, `gdc-ansible-pull.log`) from a node and packages them into a local tarball for offline analysis.
-**Dependencies:** `ssh`, `tar`
-**Parameters:**
-*   `$1`: Target Node IP Address
-**Outcome:** Generates a compressed archive of logs in your local workspace.
-
-### `inspect-forensics.sh`
-**Summary:** A companion utility to `collect-forensics.sh` that automatically extracts the tarball and runs a series of `grep` and `awk` filters to highlight common failure signatures (e.g., TPM sealing errors, network timeouts).
-**Dependencies:** `tar`, `grep`, `awk`
-**Parameters:**
-*   `$1`: Path to the forensics tarball.
-**Outcome:** A color-coded terminal output summarizing the root cause of the failure based on the extracted logs.
+### `gcp-authentication.sh`
+* **Target OS Path:** `/usr/local/bin/auth/gcp-authentication.sh`
+* **Summary:** Seeds active Google Cloud credentials (`gcloud`) into containerd (`/etc/containerd/certs.d/gcr.io/hosts.toml`) and `/run/gdc-auth/access_token`.
+* **When to Use:** Used **IF** `GDC_COMPANION` is set to `FALSE` (or the Companion server is unreachable) and `gcloud` authentication was not automatically completed via mTLS during LiveBoot/FirstBoot. Allows `kubelet` and `containerd` to authenticate and pull Anthos images from `gcr.io`.
+* **Options:** Includes `--help` (`-h`) documenting full usage and prerequisite gcloud auth login commands.
+* **Dependencies:** `gcloud`, `containerd`, `systemctl`
 
 ---
 
-## Security & Recovery
+## 2. Cluster Operations (`bin/cluster/`)
 
-### `recover-tpm-unseal.sh`
-**Summary:** An emergency recovery script for nodes stuck in the initramfs `cryptsetup` prompt due to a failed TPM 2.0 unseal or corrupted PCR registers.
-**Dependencies:** `sshpass` (if dropbear is enabled in initramfs) or executed locally via Crash Cart.
-**Outcome:** Injects the fallback recovery key, wipes the corrupted `systemd-cryptenroll` slot, and reseals the LUKS volume to the current hardware state.
-
-### `bootloader-crash-cart.sh`
-**Summary:** Connects to a node stuck in a GRUB boot-loop or EFI shell to attempt automated recovery of the boot sector.
-**Dependencies:** `sshpass`, `ipmitool`
-**Outcome:** Rebuilds the `grub.cfg` and EFI variables to restore normal boot sequence.
-
----
-
-## Validation & Testing
-
-### `run_all_tests.py` / `run-qemu-detached.sh`
-**Summary:** Orchestrates the local testing environment. It launches a headless QEMU virtual machine utilizing the locally built ISO, attaches serial consoles for logging, and verifies the installation lifecycle.
-**Dependencies:** `qemu-system-x86_64`, `python3`
-**Outcome:** A simulated bare-metal installation run entirely on the local developer workstation, producing a pass/fail output matrix.
-
-### `validate-hydrated-files.sh`
-**Summary:** Evaluates the Jinja2 templates in the Ansible payload without applying them to a host, verifying that syntax, loops, and variables render correctly.
-**Dependencies:** `ansible-playbook`
-**Outcome:** Terminal output indicating template compilation success or syntax errors.
+### `create_cluster.sh`
+* **Target OS Path:** `/usr/local/bin/cluster/create_cluster.sh`
+* **Summary:** Provisions a Google Distributed Cloud (GDC) Bare Metal standalone cluster. Configures the cluster YAML, performs pre-flight assertions, and triggers `bmctl create cluster -c <name>`.
+* **When to Use:** Executed during the `ClusterReady` stage after `linux-ready` operating system foundations have completed. Idempotent (skips if the cluster is already active).
+* **Dependencies:** `bmctl`, `kubectl`, `gcloud`
 
 ### `verify-upgrade-readiness.sh`
-**Summary:** Runs pre-flight checks against a node to ensure it has enough disk space, memory, and valid repositories before triggering an OS or GDC component upgrade.
-**Dependencies:** `ssh`
-**Outcome:** A terminal report outlining if the node is safe to upgrade.
+* **Target OS Path:** `/usr/local/bin/cluster/verify-upgrade-readiness.sh`
+* **Summary:** Audits Dracut, GRUB, and cryptsetup configurations on the target node to ensure AMD fTPM blacklists, polling mode, and TPM unseal hooks are preserved before running package updates.
+* **When to Use:** Executed on a running GDC node prior to performing OS / kernel upgrades (`apt upgrade`).
+* **Dependencies:** `dracut`, `grub-probe`, `cryptsetup`
+
+---
+
+## 3. Node Operations (`bin/node-ops/`)
+
+### `push-hotfix-playbook.sh`
+* **Summary:** Rsyncs local development Ansible playbooks directly into the target node's local Gitea repository (`/var/lib/gitea/repos/gdc/bootstrap-playbooks.git`) and restarts the `gdc-provision` pull service.
+* **When to Use:** Used during rapid development/troubleshooting to test changes to Ansible roles on a live target node without rebuilding the ISO.
+* **Dependencies:** `sshpass`, `rsync`, `ssh`
+
+### `reset-machines.sh`
+* **Summary:** Connects to target nodes listed in `TARGET_TEST_MACHINES`, matches the active network MAC to the UEFI PXE boot entry via `efibootmgr`, sets `BootNext`, and initiates a reboot.
+* **When to Use:** Used to wipe and re-provision test machines from scratch over PXE/Bootimus.
+* **Dependencies:** `sshpass`, `efibootmgr` (on target node)
+
+---
+
+## 4. Node Debug (`bin/debug/`)
+
+### `bootloader-crash-cart.sh`
+* **Summary:** Outputs a self-contained shell snippet to restore root password login and enable SSH daemon access directly via serial console/IPMI.
+* **When to Use:** Used when a node fails early in the boot sequence before `cloud-init` starts or before the network becomes accessible.
+
+### `recover-tpm-unseal.sh`
+* **Summary:** Unlocks the LUKS encrypted system partition from a Live CD, chroots into the target OS, updates Dracut configuration, and rebuilds the initramfs with TPM 2.0 / TSS drivers.
+* **When to Use:** Used when a node is stuck at boot due to LUKS failing to auto-unseal via the motherboard TPM.
+* **Dependencies:** `tpm2-tools`, `cryptsetup`, `dracut`
+
+### `crash-cart-scan-subnet.sh`
+* **Summary:** Performs parallel ICMP and TCP port scans across a target subnet to discover active nodes in rescue/crash mode.
+* **When to Use:** Used when a machine boots into a rescue environment and its DHCP-assigned IP address is unknown.
+* **Dependencies:** `python3`, `ping`
+
+### `run-forensics-remote.sh` / `collect-forensics.sh`
+* **Summary:** Uploads `collect-forensics.sh` to a target IP, executes comprehensive log and hardware extraction, and downloads the compressed `.tar.gz` archive back to the local workstation.
+* **When to Use:** Remotely executed when an installation fails or stalls.
+* **Dependencies:** `ssh`, `scp`, `tar`
+
+### `inspect-forensics.sh`
+* **Summary:** Extracts a forensics tarball and parses error patterns in `subiquity-server-debug.log`, `cloud-init.log`, and `dmesg`.
+* **When to Use:** Run locally on the host workstation to inspect captured forensic bundles.
+* **Dependencies:** `tar`, `grep`, `awk`
+
+### `extract-installer-logs.sh`
+* **Summary:** Quick extraction of `/var/log/installer` and `/var/log/cloud-init.log` via `scp`.
+* **When to Use:** Used for rapid log retrieval when full hardware forensics are not required.
+* **Dependencies:** `scp`, `ssh`
+
+### `refresh-telemetry.sh`
+* **Summary:** Triggers `gdc-collector` on target nodes and forces an updated payload ingest into the GDC Companion API.
+* **When to Use:** Used when target node status appears stale in the Companion dashboard.
+* **Dependencies:** `sshpass`, `curl`
+
+---
+
+## 5. Build Validation & Lab Utilities (`test/bin/`)
+
+### `validate-hydrated-files.sh`
+* **Summary:** Statically lints and validates hydrated cloud-init, netplan, and systemd templates before ISO assembly.
+* **When to Use:** Invoked during `make validate` / `make build` or locally prior to image compilation.
 
 ### `generate_build_report.py`
-**Summary:** Parses the output of a Cloud Build execution to generate the `build-report-vX.X.X.json` schema artifact that is uploaded to the Companion app.
-**Dependencies:** `python3`
-**Outcome:** A structured JSON file summarizing the build.
+* **Summary:** Compiles pipeline execution details, external binary signatures, preseed package counts, and test outcomes into canonical JSON and Markdown After Action Reports.
+* **When to Use:** Invoked by `Makefile` and Cloud Build post-assembly.
+
+### `run_all_tests.py`
+* **Summary:** Dynamic test runner that discovers and executes all python unit tests and static validation scripts, exporting results to `build-workspace/test_results.json`.
+* **When to Use:** Invoked during `make test-static` and CI validation gates.
+
+### `run-qemu-detached.sh`
+* **Summary:** Launches a background headless QEMU virtual machine attached to a build ISO with forwarded SSH and serial console logging.
+* **When to Use:** Used for rapid local end-to-end ISO testing without physical bare-metal hardware.
+
+### `generate-mock-certs.sh`
+* **Summary:** Generates self-signed mock client certificates and keys in `custom-data/` for testing mTLS bypass workflows.
+* **When to Use:** Used during offline testing when Step-CA / Companion services are simulated.
+
+### `check-lab-setup.py`
+* **Summary:** Connects to critical infrastructure components (Step CA, GDC Companion, Bootimus, Nexus) to audit the local lab network.
+* **When to Use:** Pre-flight verification before running automated cluster installations.
+
+### `check-bootimus-settings.py`
+* **Summary:** Connects to the Bootimus PXE server and validates that registered Ubuntu images have autoinstall and nocloud parameters configured correctly.
+* **When to Use:** Post-deployment validation gate to verify PXE readiness.
 
 ### `audit-machine-states.py`
-**Summary:** Queries the Companion API to generate a summarized view of all nodes and their current lifecycle stage (e.g., `LIVECD`, `LINUX_READY`, `CLUSTER_READY`).
-**Dependencies:** `python3`, `requests`
-**Outcome:** A tabular terminal printout of the fleet status.
+* **Summary:** Queries local node state files in `/var/gdc-install/state/` to summarize the provisioning status of a machine.
+* **When to Use:** Quick terminal inspection of node lifecycle state transitions.

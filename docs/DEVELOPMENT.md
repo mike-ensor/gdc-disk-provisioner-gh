@@ -147,7 +147,7 @@ graph TD
     Step6 --> Step7[Trigger Google Cloud Build asynchronously using new iso-builder]
     Step7 --> Step8[Poll Cloud Build status until SUCCESS]
     Step8 --> Step9[Run bootimus.py to ingest, extract, & register ISO on PXE]
-    Step9 --> Step10[Run check-bootimus-settings.py to verify autoinstall compliance]
+    Step9 --> Step10[Run test/bin/check-bootimus-settings.py to verify autoinstall compliance]
     Step10 --> End([Finish: Environment Ready & Verified])
 
     style Step1 fill:#f9f,stroke:#333,stroke-width:2px
@@ -169,7 +169,7 @@ graph TD
     Step2 --> Step3[Trigger Google Cloud Build using existing cached iso-builder]
     Step3 --> Step4[Poll Cloud Build status until SUCCESS]
     Step4 --> Step5[Run bootimus.py to ingest, extract, & register ISO on PXE]
-    Step5 --> Step6[Run check-bootimus-settings.py to verify autoinstall compliance]
+    Step5 --> Step6[Run test/bin/check-bootimus-settings.py to verify autoinstall compliance]
     Step6 --> End([Finish: ISO Registered & Verified Non-Interactive])
 
     style Step1 fill:#bbf,stroke:#333,stroke-width:2px
@@ -179,13 +179,13 @@ graph TD
 ---
 
 ### Scenario C: Verify Bootimus (Standalone Verification)
-*   **Trigger:** `python3 bin/check-bootimus-settings.py`
+*   **Trigger:** `python3 test/bin/check-bootimus-settings.py`
 *   **Use Case:** Standalone verification audit. Connects directly to the Bootimus API to verify that all registered GDC target images are locked into secure, non-interactive autoinstall configurations, preventing any node from entering interactive console prompts.
 *   **Workflow:**
 
 ```mermaid
 graph TD
-    Start([Start: Verify Bootimus]) --> Step1[Run python3 bin/check-bootimus-settings.py]
+    Start([Start: Verify Bootimus]) --> Step1[Run python3 test/bin/check-bootimus-settings.py]
     Step1 --> Step2[Authenticate with Bootimus API using Infisical Creds]
     Step2 --> Step3[Retrieve all active images from /api/images]
     Step3 --> Step4[For each Ubuntu Image: Verify 'autoinstall' and 'ds=nocloud-net' in boot_params]

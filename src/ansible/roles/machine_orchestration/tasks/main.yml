@@ -429,6 +429,11 @@
 - name: "GDC-EVIDENCE | Structure Evidence Facts"
   ansible.builtin.set_fact:
     cluster_ready_evidence:
+      timing:
+        start_time: "{{ cluster_ready_start_time | default(ansible_date_time.iso8601) }}"
+        end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+        duration_seconds: "{{ [(now(utc=true).strftime('%s') | int) - (cluster_ready_start_epoch | default(now(utc=true).strftime('%s')) | int), 0] | max }}"
+        overall_provisioning_start_time: "{{ provisioning_start_time | default(cluster_ready_start_time | default(ansible_date_time.iso8601)) }}"
       network_sanity: "Network Sanity Check [{{ gdc_primary_interface }}] = {{ 'True' if gateway_ping.rc is defined and gateway_ping.rc == 0 else 'False' }}"
       mtls_checks:
         cert_exists: "{{ cert_stat_ev.stat.exists | bool }}"
@@ -480,13 +485,25 @@
     msg: "WAITING_ON_PEERS"
   when: peers_unreachable | default(false)
 
-- name: "GDC-ORCH | Ensure /usr/local/bin/create_cluster.sh is deployed"
+- name: "GDC-ORCH | Ensure /usr/local/bin/cluster directory exists"
+  ansible.builtin.file:
+    path: /usr/local/bin/cluster
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  ignore_errors: true
+
+- name: "GDC-ORCH | Ensure /usr/local/bin/cluster/create_cluster.sh is deployed"
   ansible.builtin.copy:
-    src: "/var/gdc-install/iso-cache/bin/create_cluster.sh"
-    dest: "/usr/local/bin/create_cluster.sh"
+    src: "{{ item }}"
+    dest: "/usr/local/bin/cluster/create_cluster.sh"
     owner: root
     group: root
     mode: '0755'
     remote_src: yes
+  loop:
+    - "/var/gdc-install/iso-cache/cluster/create_cluster.sh"
+    - "/var/gdc-install/iso-cache/bin/create_cluster.sh"
   ignore_errors: true
 

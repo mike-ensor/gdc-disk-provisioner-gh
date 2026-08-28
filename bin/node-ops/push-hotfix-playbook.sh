@@ -32,7 +32,7 @@
 set -eo pipefail
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
-PROJECT_ROOT=$(dirname "$SCRIPT_DIR")
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PYTHON_EXEC="${PROJECT_ROOT}/.venv/bin/python3"
 
 # Fallback to system python if venv isn't present

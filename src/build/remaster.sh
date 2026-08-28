@@ -91,10 +91,15 @@ OUTPUT_DIR="${WORKSPACE}/output"
 BIN_CACHE_DIR="${PROJECT_ROOT}/.cache/binaries"
 
 # Output versioned filename
+COMPANION_SUFFIX=""
+if [[ "${GDC_COMPANION:-TRUE}" =~ ^([fF][aA][lL][sS][eE]|0|[nN][oO])$ ]]; then
+    COMPANION_SUFFIX="-no-comp"
+fi
+
 if [[ "${GDC_DEBUG_MODE:-false}" == "true" ]]; then
-    FINAL_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}-debug.iso"
+    FINAL_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}${COMPANION_SUFFIX}-debug.iso"
 else
-    FINAL_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}.iso"
+    FINAL_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}${COMPANION_SUFFIX}.iso"
 fi
 FINAL_ISO_PATH="${OUTPUT_DIR}/${FINAL_ISO_NAME}"
 
@@ -138,10 +143,25 @@ fi
 chmod +x "${EXTRACT_DIR}/custom-data/tools/bmctl/bmctl"
 chmod +x "${EXTRACT_DIR}/custom-data/tools/node-agent/nodeagentd"
 
-echo "[-] Copying internal bin scripts..."
-mkdir -p "${EXTRACT_DIR}/custom-data/bin"
-cp "${PROJECT_ROOT}/bin/create_cluster.sh" "${EXTRACT_DIR}/custom-data/bin/create_cluster.sh"
-chmod +x "${EXTRACT_DIR}/custom-data/bin/create_cluster.sh"
+echo "[-] Copying authentication utilities (always included)..."
+mkdir -p "${EXTRACT_DIR}/custom-data/auth"
+if [[ -f "${PROJECT_ROOT}/bin/auth/gcp-authentication.sh" ]]; then
+    cp "${PROJECT_ROOT}/bin/auth/gcp-authentication.sh" "${EXTRACT_DIR}/custom-data/auth/gcp-authentication.sh"
+    chmod +x "${EXTRACT_DIR}/custom-data/auth/gcp-authentication.sh"
+fi
+
+if [ "${GDC_DEBUG_MODE}" = "true" ]; then
+    echo "[-] Copying cluster operation scripts (DEBUG mode enabled)..."
+    mkdir -p "${EXTRACT_DIR}/custom-data/cluster"
+    if [[ -f "${PROJECT_ROOT}/bin/cluster/create_cluster.sh" ]]; then
+        cp "${PROJECT_ROOT}/bin/cluster/create_cluster.sh" "${EXTRACT_DIR}/custom-data/cluster/create_cluster.sh"
+        chmod +x "${EXTRACT_DIR}/custom-data/cluster/create_cluster.sh"
+    fi
+    if [[ -f "${PROJECT_ROOT}/bin/cluster/verify-upgrade-readiness.sh" ]]; then
+        cp "${PROJECT_ROOT}/bin/cluster/verify-upgrade-readiness.sh" "${EXTRACT_DIR}/custom-data/cluster/verify-upgrade-readiness.sh"
+        chmod +x "${EXTRACT_DIR}/custom-data/cluster/verify-upgrade-readiness.sh"
+    fi
+fi
 
 echo "[-] Copying pre-verified Smallstep CLI package..."
 cp "${BIN_CACHE_DIR}/${STEP_CLI_FILENAME}" "${EXTRACT_DIR}/custom-data/packages/"
@@ -344,10 +364,6 @@ cp "${SCRIPT_DIR}/generate_storage_config.sh" "${EXTRACT_DIR}/custom-data/"
 chmod +x "${EXTRACT_DIR}/custom-data/generate_storage_config.sh"
 cp "${SCRIPT_DIR}/scan_ips.py" "${EXTRACT_DIR}/custom-data/"
 chmod +x "${EXTRACT_DIR}/custom-data/scan_ips.py"
-if [[ -f "${PROJECT_ROOT}/bin/verify-upgrade-readiness.sh" ]]; then
-    cp "${PROJECT_ROOT}/bin/verify-upgrade-readiness.sh" "${EXTRACT_DIR}/custom-data/"
-    chmod +x "${EXTRACT_DIR}/custom-data/verify-upgrade-readiness.sh"
-fi
 
 echo "[-] Obtaining gdc-collector..."
 CACHE_DIAG="${PROJECT_ROOT}/.cache/binaries/gdc-collector"

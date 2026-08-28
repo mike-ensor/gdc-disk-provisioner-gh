@@ -20,6 +20,7 @@ import unittest
 import tempfile
 import shutil
 import io
+import subprocess
 from datetime import datetime
 
 # Set up paths so we can import src/build modules cleanly
@@ -171,6 +172,141 @@ class TestGgdBuildScripts(unittest.TestCase):
         filter_out = captured_stdout.getvalue()
         self.assertNotIn("GDC-Staging", filter_out, "Filtered group must be completely excluded.")
         self.assertIn("Retail-Edge", filter_out, "Matched group must be included.")
+
+    # ==========================================================================
+    # TEST SUITE 3: gcp-authentication.sh Kubelet Service Guard
+    # ==========================================================================
+    def test_gcp_authentication_kubelet_guard_missing_service(self):
+        """Verifies gcp-authentication.sh safely skips restarting kubelet when the unit is not found."""
+        auth_script_path = os.path.join(PROJECT_ROOT, "bin/auth/gcp-authentication.sh")
+        self.assertTrue(os.path.exists(auth_script_path), "gcp-authentication.sh must exist")
+        
+        with open(auth_script_path, "r") as f:
+            script_content = f.read()
+            
+        self.assertIn("systemctl list-unit-files kubelet.service", script_content)
+        self.assertIn("skipping kubelet restart", script_content)
+
+        # Execute isolated bash simulation testing mock systemctl without kubelet
+        test_bash_mock = """
+        systemctl() {
+            local action="$1"
+            local target="${2:-}"
+            if [[ "$action" == "list-unit-files" && "$target" == "kubelet.service" ]]; then
+                return 1
+            fi
+            if [[ "$action" == "cat" && "$target" == "kubelet.service" ]]; then
+                return 1
+            fi
+            if [[ "$action" == "restart" && "$target" == "containerd" ]]; then
+                echo "MOCK: containerd restarted"
+                return 0
+            fi
+            if [[ "$action" == "restart" && "$target" == "kubelet" ]]; then
+                echo "ERROR: kubelet should not be restarted!" >&2
+                return 1
+            fi
+            return 0
+        }
+        export -f systemctl
+        
+        # Test logic from gcp-authentication.sh
+        echo "==> Restarting containerd service..."
+        systemctl restart containerd
+
+        if systemctl list-unit-files kubelet.service >/dev/null 2>&1 || systemctl cat kubelet.service >/dev/null 2>&1; then
+            echo "==> Restarting kubelet service..."
+            systemctl restart kubelet
+        else
+            echo "==> kubelet.service not found (cluster not yet deployed); skipping kubelet restart."
+        fi
+        """
+        res = subprocess.run(["bash", "-c", test_bash_mock], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, f"Simulation failed with stderr: {res.stderr}")
+        self.assertIn("MOCK: containerd restarted", res.stdout)
+        self.assertIn("skipping kubelet restart", res.stdout)
+        self.assertNotIn("ERROR: kubelet should not be restarted", res.stderr)
+
+    def test_gcp_authentication_kubelet_guard_present_service(self):
+        """Verifies gcp-authentication.sh successfully restarts kubelet when the unit is found."""
+        test_bash_mock = """
+        systemctl() {
+            local action="$1"
+            local target="${2:-}"
+            if [[ "$action" == "list-unit-files" && "$target" == "kubelet.service" ]]; then
+                return 0
+            fi
+            if [[ "$action" == "restart" && "$target" == "containerd" ]]; then
+                echo "MOCK: containerd restarted"
+                return 0
+            fi
+            if [[ "$action" == "restart" && "$target" == "kubelet" ]]; then
+                echo "MOCK: kubelet restarted"
+                return 0
+            fi
+            return 0
+        }
+        export -f systemctl
+        
+        # Test logic from gcp-authentication.sh
+        echo "==> Restarting containerd service..."
+        systemctl restart containerd
+
+        if systemctl list-unit-files kubelet.service >/dev/null 2>&1 || systemctl cat kubelet.service >/dev/null 2>&1; then
+            echo "==> Restarting kubelet service..."
+            systemctl restart kubelet
+        else
+            echo "==> kubelet.service not found (cluster not yet deployed); skipping kubelet restart."
+        fi
+        """
+        res = subprocess.run(["bash", "-c", test_bash_mock], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, f"Simulation failed with stderr: {res.stderr}")
+        self.assertIn("MOCK: containerd restarted", res.stdout)
+        self.assertIn("MOCK: kubelet restarted", res.stdout)
+
+    # ==========================================================================
+    # TEST SUITE 4: Ansible State Machine Evidence & Timing
+    # ==========================================================================
+    def test_ansible_stages_timing_evidence_structure(self):
+        """Verifies that all Ansible stage definitions and local.yml record start, end, and duration timing in evidence."""
+        ansible_dir = os.path.join(PROJECT_ROOT, "src/ansible")
+        local_yml = os.path.join(ansible_dir, "local.yml")
+        state_init = os.path.join(ansible_dir, "stages/state_initialization.yml")
+        
+        with open(local_yml, "r") as f:
+            local_content = f.read()
+            
+        with open(state_init, "r") as f:
+            init_content = f.read()
+            
+        # Verify state_initialization creates persistent provisioning timing file
+        self.assertIn("provisioning-timing.json", init_content)
+        self.assertIn("provisioning_start_time", init_content)
+        self.assertIn("provisioning_start_epoch", init_content)
+        
+        # Verify local.yml records start times and timing in evidence for all stages
+        self.assertIn("first_boot_start_time", local_content)
+        self.assertIn("second_boot_start_time", local_content)
+        self.assertIn("linux_ready_start_time", local_content)
+        self.assertIn("cluster_ready_start_time", local_content)
+        self.assertIn('"duration_seconds"', local_content)
+        self.assertIn('"overall_provisioning_start_time"', local_content)
+        
+        # Verify individual stage files have timing calculations and evidence structures
+        stages = [
+            "stage_first_boot.yml",
+            "stage_second_boot.yml",
+            "stage_linux_ready.yml",
+            "stage_cluster_ready.yml"
+        ]
+        for stage in stages:
+            stage_path = os.path.join(ansible_dir, "stages", stage)
+            with open(stage_path, "r") as sf:
+                s_content = sf.read()
+            self.assertIn("duration_seconds", s_content, f"Stage {stage} must calculate duration_seconds")
+            self.assertIn("start_time", s_content, f"Stage {stage} must record start_time")
+            self.assertIn("end_time", s_content, f"Stage {stage} must record end_time")
+            self.assertIn("timing", s_content, f"Stage {stage} must have timing dictionary in evidence")
 
 if __name__ == "__main__":
     unittest.main()

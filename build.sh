@@ -135,6 +135,9 @@ get_env() {
 GCS_BUCKET_DEFAULT=$(get_env GCS_BUCKET)
 SOURCE_ISO_DEFAULT=$(get_env SOURCE_ISO_FILENAME)
 INSTALL_COMPANION_URL_DEFAULT=$(get_env INSTALL_COMPANION_URL)
+GDC_COMPANION_DEFAULT=$(get_env GDC_COMPANION)
+DEBUG_EXTRA_USER_DEFAULT=$(get_env DEBUG_EXTRA_USER)
+DEBUG_EXTRA_PASSWORD_DEFAULT=$(get_env DEBUG_EXTRA_PASSWORD)
 
 
 
@@ -142,6 +145,9 @@ INSTALL_COMPANION_URL_DEFAULT=$(get_env INSTALL_COMPANION_URL)
 GCS_BUCKET="${GCS_BUCKET_DEFAULT}"
 SOURCE_ISO_FILENAME="${SOURCE_ISO_DEFAULT}"
 INSTALL_COMPANION_URL_VAL="${INSTALL_COMPANION_URL_DEFAULT}"
+GDC_COMPANION_VAL="${GDC_COMPANION_DEFAULT:-TRUE}"
+DEBUG_EXTRA_USER_VAL="${DEBUG_EXTRA_USER:-${DEBUG_EXTRA_USER_DEFAULT:-}}"
+DEBUG_EXTRA_PASSWORD_VAL="${DEBUG_EXTRA_PASSWORD:-${DEBUG_EXTRA_PASSWORD_DEFAULT:-}}"
 
 # ==========================================
 # 4. Help and Usage Menu
@@ -154,6 +160,7 @@ show_help() {
     echo "  -b, --bucket VALUE       GCS Bucket Name (default: ${GCS_BUCKET_DEFAULT:-None})"
     echo "  -f, --filename VALUE     Blessed Source ISO Filename (default: ${SOURCE_ISO_DEFAULT})"
     echo "  -c, --customer-assets VAL Customer-supplied assets tarball URI (GCS or HTTPS)"
+    echo "  -l, --companion VAL      GDC Companion telemetry control: TRUE, FALSE (default: ${GDC_COMPANION_DEFAULT:-TRUE})"
     echo "  -h, --help               Show this help menu"
     echo ""
     echo "Environment Variables (Enforced):"
@@ -183,6 +190,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -c|--customer-assets)
             CUSTOMER_ASSETS_URI="$2"
+            shift 2
+            ;;
+        -l|--companion|--gdc-companion|--boot-logging)
+            GDC_COMPANION_VAL="$2"
             shift 2
             ;;
         -h|--help)
@@ -220,7 +231,16 @@ fi
 # 8. Check for GCS Target Collision
 # ==========================================
 ISO_NAME_PREFIX="gdc-bootstrap-ubuntu-24.04"
-TARGET_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}.iso"
+COMPANION_SUFFIX=""
+if [[ "${GDC_COMPANION_VAL^^}" == "FALSE" || "${GDC_COMPANION_VAL}" == "0" || "${GDC_COMPANION_VAL^^}" == "NO" ]]; then
+    COMPANION_SUFFIX="-no-comp"
+fi
+
+if [[ "${GDC_DEBUG_MODE:-false}" == "true" ]]; then
+    TARGET_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}${COMPANION_SUFFIX}-debug.iso"
+else
+    TARGET_ISO_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}${COMPANION_SUFFIX}.iso"
+fi
 
 echo "[-] Checking GCS destination bucket for filename collisions..."
 if gcloud storage objects describe "gs://${GCS_BUCKET_NAME}/sync/${TARGET_ISO_NAME}" --project="${PROJECT_ID}" &>/dev/null; then
@@ -258,7 +278,7 @@ GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "N/A")
 BUILD_ID=$(gcloud builds submit "${PROJECT_ROOT}" \
     --config="${PROJECT_ROOT}/cloudbuild.yaml" \
     --project="${PROJECT_ID}" \
-    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME},_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false},_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI:-},_GIT_BRANCH=${GIT_BRANCH},_GIT_COMMIT=${GIT_COMMIT},_INSTALL_COMPANION_URL=${INSTALL_COMPANION_URL_VAL:-},_ADMIN_SSH_PUB_KEYS=${ADMIN_SSH_PUB_KEYS:-},_TEMPORARY_INSTALLER_SSH_PUB_KEYS=${TEMPORARY_INSTALLER_SSH_PUB_KEYS:-},_TEMPORARY_INSTALLER_PASSWORD=${TEMPORARY_INSTALLER_PASSWORD:-}" \
+    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME},_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false},_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI:-},_GIT_BRANCH=${GIT_BRANCH},_GIT_COMMIT=${GIT_COMMIT},_INSTALL_COMPANION_URL=${INSTALL_COMPANION_URL_VAL:-},_ADMIN_SSH_PUB_KEYS=${ADMIN_SSH_PUB_KEYS:-},_TEMPORARY_INSTALLER_SSH_PUB_KEYS=${TEMPORARY_INSTALLER_SSH_PUB_KEYS:-},_TEMPORARY_INSTALLER_PASSWORD=${TEMPORARY_INSTALLER_PASSWORD:-},_GDC_COMPANION=${GDC_COMPANION_VAL:-TRUE},_DEBUG_EXTRA_USER=${DEBUG_EXTRA_USER_VAL},_DEBUG_EXTRA_PASSWORD=${DEBUG_EXTRA_PASSWORD_VAL}" \
     --async --format="value(id)")
 
 echo "[+] Cloud Build job created with ID: ${BUILD_ID}"
@@ -280,7 +300,7 @@ for i in {1..80}; do
     echo "[-] Automatically streaming failure logs..." >&2
     gcloud builds log "${BUILD_ID}" --project="${PROJECT_ID}" || true
     echo "[-] Generating local failure build report..." >&2
-    python3 "${PROJECT_ROOT}/bin/generate_build_report.py" \
+    python3 "${PROJECT_ROOT}/test/bin/generate_build_report.py" \
       --build-id "${BUILD_ID}" \
       --project-id "${PROJECT_ID}" \
       --gcs-bucket "gs://${GCS_BUCKET_NAME}" \

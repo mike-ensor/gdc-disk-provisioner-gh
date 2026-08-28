@@ -82,6 +82,9 @@
       # Required by Google Distributed Cloud Node Requirements
       nf_tables
       br_netfilter
+      # Preloaded to prevent 'Invalid ELF header magic' loops during containerd/kubelet initialization on Ubuntu 24.04
+      iptable_filter
+      ip6table_filter
   register: kmod_deploy
   tags: ["strictly-local"]
 
@@ -90,6 +93,8 @@
   loop:
     - nf_tables
     - br_netfilter
+    - iptable_filter
+    - ip6table_filter
   when: kmod_deploy.changed
   tags: ["strictly-local"]
 
