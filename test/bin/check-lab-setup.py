@@ -381,7 +381,8 @@ def check_network_configs():
         "opsconfigmonitoring.googleapis.com",
         "serviceusage.googleapis.com",
         "stackdriver.googleapis.com",
-        "storage.googleapis.com"
+        "storage.googleapis.com",
+                "secretmanager.googleapis.com"
     ]
     
     failed_dns = []
@@ -495,7 +496,8 @@ def check_gcloud_config():
                 "opsconfigmonitoring.googleapis.com",
                 "serviceusage.googleapis.com",
                 "stackdriver.googleapis.com",
-                "storage.googleapis.com"
+                "storage.googleapis.com",
+                "secretmanager.googleapis.com"
             ]
             try:
                 api_res = subprocess.run(
@@ -541,6 +543,38 @@ def check_gcloud_config():
                 log_error(f"Failed to query Service Accounts: {e.stderr.strip()}")
                 issues += 1
                 
+
+            # 7. Check Regional Desired State Git Secret
+            try:
+                region = LOCAL_CONFIG.get("REGION", LAB_CONFIG.get("REGION"))
+                if not region:
+                    log_warn("REGION not defined; skipping regional Secret Manager audit.")
+                else:
+                    # Check existence
+                    sec_res = subprocess.run(
+                        ["gcloud", "secrets", "describe", "gdc-desired-state-git-key", f"--location={region}", f"--project={project}", "--format=value(name)"],
+                        capture_output=True, text=True
+                    )
+                    if sec_res.returncode != 0:
+                        log_error(f"Secret 'gdc-desired-state-git-key' missing in region {region}!")
+                        log_info("Create it via: gcloud secrets create gdc-desired-state-git-key --location=... --data-file=...")
+                        issues += 1
+                    else:
+                        # Check active versions
+                        ver_res = subprocess.run(
+                            ["gcloud", "secrets", "versions", "list", "gdc-desired-state-git-key", f"--location={region}", f"--project={project}", "--filter=state:ENABLED", "--format=value(name)"],
+                            capture_output=True, text=True
+                        )
+                        active_versions = [v for v in ver_res.stdout.split() if v.strip()]
+                        if len(active_versions) == 0:
+                            log_error(f"Secret 'gdc-desired-state-git-key' exists but has 0 ENABLED versions in {region}!")
+                            issues += 1
+                        else:
+                            log_success(f"Regional Secret Manager secret 'gdc-desired-state-git-key' exists in '{region}' with {len(active_versions)} active version(s).")
+            except Exception as e:
+                log_error(f"Failed to query Secret Manager: {str(e)}")
+                issues += 1
+
             # 5. Check IAM Permissions (Can we read builds?)
             if issues == 0:
                 try:

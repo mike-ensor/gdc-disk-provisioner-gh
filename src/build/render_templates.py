@@ -84,7 +84,14 @@ def render_templates(template_dir, output_dir, env):
                 import crypt
                 env['debug_extra_password_hash'] = crypt.crypt(extra_pwd, crypt.mksalt(crypt.METHOD_SHA512))
             except Exception:
-                env['debug_extra_password_hash'] = ''
+                try:
+                    import subprocess
+                    env['debug_extra_password_hash'] = subprocess.check_output(
+                        ['openssl', 'passwd', '-6', extra_pwd],
+                        text=True
+                    ).strip()
+                except Exception:
+                    env['debug_extra_password_hash'] = ''
         else:
             env['debug_extra_password_hash'] = env.get('DEBUG_EXTRA_PASSWORD_HASH', '')
     
@@ -143,7 +150,7 @@ def render_templates(template_dir, output_dir, env):
     systemd_dir = os.path.join(output_dir, 'custom-data', 'systemd')
     os.makedirs(systemd_dir, exist_ok=True)
     
-    for service in ['gitea.service', 'nexus.service', 'gdc-provision.service']:
+    for service in ['gitea.service', 'nexus.service', 'gdc-provision.service', 'gdc-desired-state.service']:
         template = jinja_env.get_template(f'{service}.j2')
         with open(os.path.join(systemd_dir, service), 'w') as f:
             f.write(template.render(env))
@@ -151,6 +158,10 @@ def render_templates(template_dir, output_dir, env):
     timer_template = jinja_env.get_template('gdc-provision.timer.j2')
     with open(os.path.join(systemd_dir, 'gdc-provision.timer'), 'w') as f:
         f.write(timer_template.render(env))
+        
+    ds_timer_template = jinja_env.get_template('gdc-desired-state.timer.j2')
+    with open(os.path.join(systemd_dir, 'gdc-desired-state.timer'), 'w') as f:
+        f.write(ds_timer_template.render(env))
 
     # Render Ansible Global Vars
     ansible_vars_dir = os.path.join(output_dir, 'custom-data', 'ansible', 'vars')
@@ -246,6 +257,8 @@ if __name__ == "__main__":
     env['git_branch'] = git_branch
     env['persist_add_hosts'] = env.get('PERSIST_ADD_HOSTS', 'false').lower() == 'true'
     env['ansible_pull_schedule'] = env.get('ANSIBLE_PULL_SCHEDULE', '02:00:00')
+    env['upstream_desired_state_repo'] = env.get('UPSTREAM_DESIRED_STATE_REPO', '')
+    env['desired_state_pull_schedule'] = env.get('DESIRED_STATE_PULL_SCHEDULE', '*:0/30')
     
     # Parse git-ignored add-hosts file for custom DNS mappings
     add_hosts_lines = []
@@ -328,7 +341,14 @@ if __name__ == "__main__":
             import crypt
             env['password_hash'] = crypt.crypt(env['TEMPORARY_INSTALLER_PASSWORD'], crypt.mksalt(crypt.METHOD_SHA512))
         except Exception:
-            pass
+            try:
+                import subprocess
+                env['password_hash'] = subprocess.check_output(
+                    ['openssl', 'passwd', '-6', env['TEMPORARY_INSTALLER_PASSWORD']],
+                    text=True
+                ).strip()
+            except Exception:
+                pass
 
     # Map optional debug extra user
     env['debug_extra_user'] = env.get('DEBUG_EXTRA_USER', '').strip()
@@ -338,6 +358,13 @@ if __name__ == "__main__":
             import crypt
             env['debug_extra_password_hash'] = crypt.crypt(env['DEBUG_EXTRA_PASSWORD'], crypt.mksalt(crypt.METHOD_SHA512))
         except Exception:
-            pass
+            try:
+                import subprocess
+                env['debug_extra_password_hash'] = subprocess.check_output(
+                    ['openssl', 'passwd', '-6', env['DEBUG_EXTRA_PASSWORD']],
+                    text=True
+                ).strip()
+            except Exception:
+                pass
             
     render_templates(sys.argv[1], sys.argv[2], env)

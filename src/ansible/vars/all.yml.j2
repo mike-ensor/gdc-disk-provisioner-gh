@@ -140,6 +140,18 @@ gdc_unattended_blacklist:
 deactivate_public_sources: true
 
 # ==============================================================================
+# GDC System Desired State Configurations
+# ==============================================================================
+desired_state_enabled: true
+desired_state_repo_name: "system-desired-state"
+desired_state_repo_path: "/var/lib/gitea/repos/gdc/system-desired-state.git"
+desired_state_upstream_url: "{{ upstream_desired_state_repo | default('') }}"
+desired_state_git_branch: "main"
+desired_state_playbook_entrypoint: "local.yml"
+desired_state_pull_schedule: "{{ desired_state_pull_schedule | default('*:0/30') }}"
+desired_state_log_path: "/var/gdc-install/logs/gdc-desired-state.log"
+
+# ==============================================================================
 # GDC Companion Global Variables (Hydrated at Build Time)
 # ==============================================================================
 gdc_companion_base_url: "{{ install_companion_base }}"

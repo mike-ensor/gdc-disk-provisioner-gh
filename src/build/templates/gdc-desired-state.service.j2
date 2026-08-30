@@ -1,0 +1,19 @@
+[Unit]
+Description=GDC System Desired State Sync
+After=network.target
+
+[Service]
+Type=oneshot
+Environment=HOME=/root
+Environment=PYTHONUNBUFFERED=1
+Environment=ANSIBLE_FORCE_COLOR=1
+StandardOutput=journal
+StandardError=journal
+ExecStartPre=/usr/bin/git config --system --add safe.directory /var/lib/gitea/repos/gdc/system-desired-state.git
+ExecStartPre=/bin/bash -c "mkdir -p /var/gdc-install/logs; ln -sf /var/gdc-install/logs/gdc-desired-state.log /var/log/gdc-desired-state.log || true"
+ExecStart=/bin/bash -c "flock -n /var/run/gdc-desired-state.lock /usr/bin/ansible-pull \
+  -U /var/lib/gitea/repos/gdc/system-desired-state.git \
+  -C main \
+  -i localhost, \
+  $ANSIBLE_PULL_FLAGS \
+  local.yml 2>&1 | tee -a /var/gdc-install/logs/gdc-desired-state.log"

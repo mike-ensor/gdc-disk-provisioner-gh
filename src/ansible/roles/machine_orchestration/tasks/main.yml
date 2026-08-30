@@ -72,6 +72,19 @@
     machine_config: "{{ slurped_fallback_config.content | b64decode | from_json }}"
   when: machine_config is not defined or machine_config == {} or 'error' in machine_config or 'hostname' not in machine_config
 
+- name: "GDC-ORCH | Apply Desired State Configuration Fallbacks"
+  ansible.builtin.set_fact:
+    # TODO: These values will be natively provided by the GDC Companion API /v1/machine-info endpoint in a future release.
+    # Until the API payload schema is updated to include them natively, we hardcode default fallbacks here 
+    # to support the new independent system-desired-state ansible pull pipeline.
+    machine_config: >-
+      {{
+        machine_config | combine({
+          'archetype': machine_config.archetype | default('single'),
+          'region': machine_config.region | default('us-east1'),
+          'site_id': machine_config.site_id | default('location-123456789')
+        })
+      }}
 - name: "GDC-ORCH | Install Smallstep CLI (step-cli) from ISO cache"
   ansible.builtin.apt:
     deb: "/var/gdc-install/iso-cache/packages/step-cli_0.26.1_amd64.deb"

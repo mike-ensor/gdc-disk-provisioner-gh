@@ -419,8 +419,8 @@ def main():
             if "_GDC_COMPANION" in subs:
                 companion_val = subs["_GDC_COMPANION"]
                 comp_suffix = "-no-comp" if str(companion_val).strip().upper() in ("FALSE", "0", "NO", "NONE") else ""
-            if "_GDC_DEBUG_MODE" in subs:
-                debug_mode = subs["_GDC_DEBUG_MODE"]
+                if "_GDC_DEBUG_MODE" in subs:
+                    debug_mode = subs["_GDC_DEBUG_MODE"]
             iso_name = f"gdc-bootstrap-ubuntu-24.04-v{iso_version}{comp_suffix}-debug.iso" if debug_mode.lower() == "true" else f"gdc-bootstrap-ubuntu-24.04-v{iso_version}{comp_suffix}.iso"
             local_iso_path = os.path.join(project_root, "build-workspace/output", iso_name)
             
@@ -433,14 +433,29 @@ def main():
                 duration = int((finish_dt - start_dt).total_seconds())
                 report["metadata"]["duration_seconds"] = duration
             
-            # Parse GCP Steps
+            # Extract stage timings from build steps if available
             gcb_steps = gcb_details.get("steps", [])
             failing_step_index = -1
             for idx, step in enumerate(gcb_steps):
                 step_status = step.get("status")
                 if step_status == "FAILURE":
                     failing_step_index = idx
-                    break
+                
+                # Attempt to extract duration for this step
+                step_start = step.get("startTime")
+                step_finish = step.get("finishTime")
+                step_dur = 0
+                if step_start and step_finish:
+                    try:
+                        s_dt = datetime.strptime(step_start.split(".")[0].replace("Z", ""), "%Y-%m-%dT%H:%M:%S")
+                        f_dt = datetime.strptime(step_finish.split(".")[0].replace("Z", ""), "%Y-%m-%dT%H:%M:%S")
+                        step_dur = int((f_dt - s_dt).total_seconds())
+                    except Exception:
+                        pass
+                
+                # Map step duration back to the stages list
+                if idx < len(stages_list):
+                    stages_list[idx]["duration_seconds"] = step_dur
 
             # Map the GCP steps to our detailed stages
             for idx, stage in enumerate(stages_list):

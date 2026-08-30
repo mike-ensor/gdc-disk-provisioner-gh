@@ -128,7 +128,7 @@ get_env() {
         [ -f src/dependencies.env ] && . src/dependencies.env &>/dev/null
         [ -f src/build/build.env ] && . src/build/build.env &>/dev/null
         [ -f src/build/local.env ] && . src/build/local.env &>/dev/null
-        if [ -n "$1" ]; then eval echo "\$$1"; fi
+        if [ -n "$1" ]; then eval echo "\${$1:-}"; fi
     )
 }
 
@@ -136,8 +136,8 @@ GCS_BUCKET_DEFAULT=$(get_env GCS_BUCKET)
 SOURCE_ISO_DEFAULT=$(get_env SOURCE_ISO_FILENAME)
 INSTALL_COMPANION_URL_DEFAULT=$(get_env INSTALL_COMPANION_URL)
 GDC_COMPANION_DEFAULT=$(get_env GDC_COMPANION)
-DEBUG_EXTRA_USER_DEFAULT=$(get_env DEBUG_EXTRA_USER)
-DEBUG_EXTRA_PASSWORD_DEFAULT=$(get_env DEBUG_EXTRA_PASSWORD)
+DEBUG_EXTRA_USER_DEFAULT=$(get_env "DEBUG_EXTRA_USER")
+DEBUG_EXTRA_PASSWORD_DEFAULT=$(get_env "DEBUG_EXTRA_PASSWORD")
 
 
 

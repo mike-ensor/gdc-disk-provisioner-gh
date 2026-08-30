@@ -21,7 +21,7 @@ if ! command -v ansible-pull &>/dev/null; then \
 fi; \
 git config --system --add safe.directory /var/lib/gitea/repos/gdc/bootstrap-playbooks.git || true; \
 git config --system --add safe.directory '*' || true; \
-/usr/bin/ansible-pull \
+flock -n /var/run/gdc-provision.lock /usr/bin/ansible-pull \
   -U /var/lib/gitea/repos/gdc/bootstrap-playbooks.git \
   -C {{ git_branch | default('main') }} \
   -i localhost, \
