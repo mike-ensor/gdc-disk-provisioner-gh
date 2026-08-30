@@ -348,13 +348,14 @@ hydrate: $(VENV_DIR) extract
 	$(call START_TIME,hydrate)
 	@echo "[-] [Stage: pre-artifact] Hydrating configurations and templates..."
 	@# Export dynamic crypt pass hash and environment parameters
-	@export PASSWORD_HASH=$$(python3 -c "import crypt; print(crypt.crypt('$(TEMPORARY_INSTALLER_PASSWORD)', crypt.mksalt(crypt.METHOD_SHA512)))"); \
+	@export PASSWORD_HASH=$$(python3 -c "import crypt; print(crypt.crypt('$(TEMPORARY_INSTALLER_PASSWORD)', crypt.mksalt(crypt.METHOD_SHA512)))" 2>/dev/null || openssl passwd -6 "$(TEMPORARY_INSTALLER_PASSWORD)"); \
 	export BUILD_TIMESTAMP=$$(date +%s); \
 	export SINGLE_DISK="$${SINGLE_DISK:-true}"; \
 	export BOOT_MODE="$${BOOT_MODE:-bios}"; \
 	export DISK1="$${DISK1:-nvme0n1}"; \
 	export DISK2="$${DISK2:-nvme1n1}"; \
 	export GDC_COMPANION="$${GDC_COMPANION:-TRUE}"; \
+	export GDC_DEBUG_MODE="$(GDC_DEBUG_MODE)"; \
 	export DEBUG_EXTRA_USER="$(DEBUG_EXTRA_USER)"; \
 	export DEBUG_EXTRA_PASSWORD="$(DEBUG_EXTRA_PASSWORD)"; \
 	export OUTPUT_FILE="$(WORKSPACE)/autoinstall-storage.yaml"; \

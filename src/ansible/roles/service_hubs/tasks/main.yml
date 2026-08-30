@@ -444,3 +444,90 @@
     - existing_repos is defined
     - "'gdc-raw-proxy' not in existing_repos"
   tags: ["strictly-local"]
+# --------------------------------------------------------------------------
+# Task 03: System Desired State Repository & Service Initialization
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-03 | Verify Gitea repository path exists for system-desired-state"
+  ansible.builtin.file:
+    path: "{{ desired_state_repo_path }}"
+    state: directory
+    owner: git
+    group: git
+    mode: '0755'
+  when: desired_state_enabled | bool
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-03 | Initialize bare Git repository if it does not exist"
+  ansible.builtin.command:
+    cmd: "git init --bare --initial-branch={{ desired_state_git_branch }}"
+    chdir: "{{ desired_state_repo_path }}"
+    creates: "{{ desired_state_repo_path }}/HEAD"
+  become_user: git
+  when: desired_state_enabled | bool
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-03 | Create minimal no-op local.yml skeleton in temporary staging"
+  ansible.builtin.copy:
+    dest: "/tmp/gdc-desired-state-skeleton.yml"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      ---
+      - name: "GDC System Desired State Enforcer"
+        hosts: localhost
+        connection: local
+        gather_facts: false
+        tasks:
+          - name: "Desired State Heartbeat"
+            ansible.builtin.debug:
+              msg: "System Desired State runner is active. No custom workloads configured."
+  when: desired_state_enabled | bool
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-03 | Seed bare repository with no-op skeleton if empty"
+  ansible.builtin.shell: |
+    # Only seed if the repository has no commits yet
+    if ! git -C "{{ desired_state_repo_path }}" rev-parse HEAD >/dev/null 2>&1; then
+      TEMP_DIR=$(mktemp -d)
+      git -C "$TEMP_DIR" init -b "{{ desired_state_git_branch }}"
+      git -C "$TEMP_DIR" config user.name "GDC Automation"
+      git -C "$TEMP_DIR" config user.email "gdc-automation@localhost"
+      cp /tmp/gdc-desired-state-skeleton.yml "$TEMP_DIR/{{ desired_state_playbook_entrypoint }}"
+      git -C "$TEMP_DIR" add "{{ desired_state_playbook_entrypoint }}"
+      git -C "$TEMP_DIR" commit -m "chore: initialize default system desired state skeleton"
+      git -C "$TEMP_DIR" push "{{ desired_state_repo_path }}" HEAD:"{{ desired_state_git_branch }}"
+      rm -rf "$TEMP_DIR"
+    fi
+  become_user: git
+  when: desired_state_enabled | bool
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-03 | Configure upstream remote for desired state sync"
+  ansible.builtin.command:
+    cmd: "git remote add origin {{ desired_state_upstream_url }}"
+    chdir: "{{ desired_state_repo_path }}"
+  become_user: git
+  when:
+    - desired_state_enabled | bool
+    - desired_state_upstream_url != ""
+  register: git_remote_add
+  failed_when: 
+    - git_remote_add.rc != 0
+    - "'already exists' not in git_remote_add.stderr"
+  changed_when: git_remote_add.rc == 0
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-03 | Reload systemd daemon to pick up desired-state units"
+  ansible.builtin.systemd:
+    daemon_reload: yes
+  when: desired_state_enabled | bool
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-03 | Enable and start system-desired-state timer"
+  ansible.builtin.systemd:
+    name: gdc-desired-state.timer
+    enabled: true
+    state: started
+  when: desired_state_enabled | bool
+  tags: ["strictly-local"]

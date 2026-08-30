@@ -4,20 +4,53 @@ This document outlines the steps and common pitfalls when creating a Google Dist
 
 ## QUICK START
 
-Refer to `bin/cluster/create_cluster.sh`
+This is a quick start script, for more details, refer to `bin/cluster/create_cluster.sh` and the lower sections of this document.
+
+:warning: NOTE: :warning: This `quick-script` assumes the GCP project has been configured with workload identity pools.
 
 ```shell
-export MACHINE_IP="${MACHINE_IP:-192.168.9.224}"
-export CLUSTER_NAME="${CLUSTER_NAME:-gdc-default-224}"
-export PROJECT_ID="${PROJECT_ID:-anthos-bare-metal-lab-1}"
+###################################################
+##############  192.168 4.241  ####################
+###################################################
 
-export CLUSTER_VIP="${CLUSTER_VIP:-192.168.9.43}"
-export CLUSTER_INGRESS="${CLUSTER_INGRESS:-192.168.9.44}"
-export PRIMARY_LOAD_BALANCER="${PRIMARY_LOAD_BALANCER:-192.168.9.44-192.168.9.60}"
+export PROJECT_ID="your-gcp-project-id"
+export REGION="us-west1"
 
-export ADMIN_USER_EMAIL="${ADMIN_USER_EMAIL:-}"
+export MACHINE_IP="192.168.4.241"
+export CLUSTER_NAME="gdc-default-241"
 
-/usr/local/bin/cluster/create_cluster.sh # Only available on debug builds
+export CLUSTER_VIP="192.168.4.100"
+export CLUSTER_INGRESS="192.168.4.101"
+export PRIMARY_LOAD_BALANCER="192.168.4.101-192.168.4.109"
+
+export ADMIN_USER_EMAIL="admin-user@company.com"
+
+# Create SSH for system admin user for passwordless SSH for Ansible
+ssh-keygen -t ed25519 -C "gdc-admin@local" -N "" -f /home/gdc-admin/.ssh/id_ed25519
+# Authorize the public key
+cat /home/gdc-admin/.ssh/id_ed25519.pub >> /home/gdc-admin/.ssh/authorized_keys
+
+# Secure permissions to only gdc-admin user
+chown -R gdc-admin:gdc-admin /home/gdc-admin/.ssh/
+chmod 700 /home/gdc-admin/.ssh/
+chmod 600 /home/gdc-admin/.ssh/authorized_keys
+chmod 600 /home/gdc-admin/.ssh/id_ed25519.pub
+
+## Remove existing cluster config (if exists)
+CLUSTER_CONFIG_FILE="/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}/${CLUSTER_NAME}.yaml"
+# Remove current Cluster Config runtime file
+if [[ -f "${CLUSTER_CONFIG_FILE}" ]]; then
+  # Question, do you want to remove the previous configuration?
+  read -p "Are you sure (Y/n)? " -n 1 -r
+  echo # new line for readability
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    rm -rf "${CLUSTER_CONFIG_FILE}"
+  else
+    echo "Keeping existing config file at '${CLUSTER_CONFIG_FILE}'"
+  fi
+fi
+
+/usr/local/bin/cluster/create_cluster.sh
 ```
 
 ## Overview
@@ -242,28 +275,6 @@ gcloud container fleet memberships get-credentials ${CLUSTER_NAME} --project "${
 ```
 
 ### AUX
-
-This is a "quick script" that is used for **NON-PRODUCTION** only. NOTE, this is NOT intended to be used as a comprehensive cluster creation process.
-
-```shell
-###################################################
-##############  192.168 4.241  ####################
-###################################################
-
-export PROJECT_ID="your-gcp-project-id"
-export REGION="${REGION:-us-west1}"
-
-export MACHINE_IP="${MACHINE_IP:-192.168.4.241}"
-export CLUSTER_NAME="${CLUSTER_NAME:-gdc-default-241}"
-export PROJECT_ID="${PROJECT_ID:-your-gcp-project-id}"
-
-export CLUSTER_VIP="${CLUSTER_VIP:-192.168.4.100}"
-export CLUSTER_INGRESS="${CLUSTER_INGRESS:-192.168.4.101}"
-export PRIMARY_LOAD_BALANCER="${PRIMARY_LOAD_BALANCER:-192.168.4.101-192.168.4.109}"
-
-export ADMIN_USER_EMAIL="${ADMIN_USER_EMAIL:-admin-user@company.com}"
-/usr/local/bin/cluster/create_cluster.sh
-```
 
 ```shell
 # Get the new config via GKE Connect

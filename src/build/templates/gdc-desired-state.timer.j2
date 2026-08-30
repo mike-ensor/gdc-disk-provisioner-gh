@@ -1,0 +1,9 @@
+[Unit]
+Description=GDC System Desired State Periodic Sync
+
+[Timer]
+OnCalendar=*-*-* {{ desired_state_pull_schedule }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

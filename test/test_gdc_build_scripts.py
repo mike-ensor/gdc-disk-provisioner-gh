@@ -291,6 +291,30 @@ class TestGgdBuildScripts(unittest.TestCase):
         self.assertIn("cluster_ready_start_time", local_content)
         self.assertIn('"duration_seconds"', local_content)
         self.assertIn('"overall_provisioning_start_time"', local_content)
+    # ==========================================================================
+    # TEST SUITE 5: System Desired State Sync Service Configuration
+    # ==========================================================================
+    def test_desired_state_systemd_templates_and_tasks(self):
+        """Verifies that the desired state systemd service, timer, and ansible orchestration tasks are properly hydrated."""
+        ansible_dir = os.path.join(PROJECT_ROOT, "src/ansible")
+        machine_orch_tasks = os.path.join(ansible_dir, "roles/service_hubs/tasks/main.yml")
+        vars_all = os.path.join(ansible_dir, "vars/all.yml.j2")
+        
+        # Verify default variables are declared
+        with open(vars_all, "r") as f:
+            vars_content = f.read()
+        self.assertIn("desired_state_enabled: true", vars_content)
+        self.assertIn('desired_state_repo_name: "system-desired-state"', vars_content)
+        self.assertIn("desired_state_pull_schedule", vars_content)
+        
+        # Verify the playbook initialization tasks exist
+        with open(machine_orch_tasks, "r") as f:
+            tasks_content = f.read()
+            
+        self.assertIn("GDC-TASK-03 | Verify Gitea repository path exists for system-desired-state", tasks_content)
+        self.assertIn("git init --bare", tasks_content)
+        self.assertIn("GDC-TASK-03 | Seed bare repository with no-op skeleton if empty", tasks_content)
+        self.assertIn("GDC-TASK-03 | Enable and start system-desired-state timer", tasks_content)
         
         # Verify individual stage files have timing calculations and evidence structures
         stages = [

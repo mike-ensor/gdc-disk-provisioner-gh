@@ -62,6 +62,80 @@ Update your DHCP server configuration (e.g., `dnsmasq`, `isc-dhcp-server`, or en
 dhcp-boot=bootimus.efi,,[TFTP_SERVER_IP]
 ```
 
+
+### 3.3 Secret Manager & Desired State Git Deploy Keys
+
+To allow nodes to securely pull desired state configurations from private Git repositories (e.g., GitLab or GitHub), we store a read-only SSH deploy key in Google Cloud Secret Manager. The node will fetch this key dynamically upon provisioning and subsequent credential rotations.
+
+#### 1. Generate a Read-Only SSH Deploy Key
+Generate a dedicated, unpassphrased ED25519 keypair for the desired state repository:
+```bash
+ssh-keygen -t ed25519 -C "gdc-desired-state-deploy-key" -f id_ed25519 -N ""
+```
+* Upload `id_ed25519.pub` to your GitLab/GitHub project as a **Deploy Key** with **Read-Only** permissions (`read_repository`).
+
+#### 2. Create the Regional Secret in Google Cloud Secret Manager
+Enable the API and upload the private key:
+```bash
+# Enable the Secret Manager API
+gcloud services enable secretmanager.googleapis.com --project="${PROJECT_ID}"
+
+# Create the regional secret and upload the initial version
+gcloud secrets create gdc-desired-state-git-key \
+    --location="${REGION}" \
+    --data-file=id_ed25519 \
+    --project="${PROJECT_ID}"
+```
+
+#### 3. Grant IAM Secret Accessor to the Node Service Account
+Grant the node's administrative service account (`admin-sa`) read-only access to fetch the secret:
+```bash
+gcloud secrets add-iam-policy-binding gdc-desired-state-git-key \
+    --location="${REGION}" \
+    --member="serviceAccount:admin-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project="${PROJECT_ID}"
+```
+
+#### 4. Zero-Downtime Secret Rotation Workflow
+To rotate the deployment secret without interrupting continuous Ansible synchronization across your fleet:
+
+1. **Generate Replacement Keypair & Authorize:**
+   ```bash
+   ssh-keygen -t ed25519 -C "gdc-desired-state-deploy-key-$(date +%Y%m%d)" -f id_ed25519_new -N ""
+   ```
+   * Add `id_ed25519_new.pub` as an *additional* valid deploy key in GitLab/GitHub (keeping the old public key active during the transition window).
+
+2. **Add New Version to Secret Manager:**
+   ```bash
+   gcloud secrets versions add gdc-desired-state-git-key \
+       --location="${REGION}" \
+       --data-file=id_ed25519_new \
+       --project="${PROJECT_ID}"
+   ```
+   * Node credential refresh daemons automatically resolve `--secret=gdc-desired-state-git-key` to the `latest` version on their next refresh interval.
+
+3. **Verify Active Versions:**
+   ```bash
+   gcloud secrets versions list gdc-desired-state-git-key \
+       --location="${REGION}" \
+       --project="${PROJECT_ID}"
+   ```
+
+4. **Clean Up Deprecated Versions:**
+   Once all edge nodes have refreshed (typically 15-30 minutes):
+   ```bash
+   gcloud secrets versions disable <OLD_VERSION_NUM> \
+       --secret=gdc-desired-state-git-key \
+       --location="${REGION}" \
+       --project="${PROJECT_ID}"
+
+   gcloud secrets versions destroy <OLD_VERSION_NUM> \
+       --secret=gdc-desired-state-git-key \
+       --location="${REGION}" \
+       --project="${PROJECT_ID}"
+   ```
+   * Delete the old public key from GitLab/GitHub.
 ## 4. Local Lab Services Setup
 
 ### 4.1 Step CA (mTLS Zero-Touch Provisioning)

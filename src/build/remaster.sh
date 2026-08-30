@@ -328,6 +328,31 @@ exit 1
 EOF
 chmod +x "${TARGET_BARE_REPO}/hooks/pre-receive"
 
+
+echo "[-] Pre-seeding Secondary Ansible Playbook Repository (system-desired-state)..."
+SECONDARY_REPOS_DIR="${EXTRACT_DIR}/custom-data/gitea/repos/gdc"
+SECONDARY_BARE_REPO="${SECONDARY_REPOS_DIR}/system-desired-state.git"
+
+mkdir -p "${SECONDARY_BARE_REPO}"
+
+if [[ -n "${UPSTREAM_DESIRED_STATE_REPO:-}" ]]; then
+    echo "  [-] Cloning upstream desired state repository: ${UPSTREAM_DESIRED_STATE_REPO}"
+    TEMP_SECONDARY_DIR=$(mktemp -d)
+    
+    if git clone --depth 1 "${UPSTREAM_DESIRED_STATE_REPO}" "${TEMP_SECONDARY_DIR}" &>/dev/null; then
+        git -C "${SECONDARY_BARE_REPO}" init --bare --initial-branch=main &>/dev/null
+        git -C "${TEMP_SECONDARY_DIR}" push "${SECONDARY_BARE_REPO}" HEAD:main &>/dev/null
+        echo "  [x] Successfully packaged upstream desired state playbooks."
+    else
+        echo "  [!] Failed to clone upstream repo. Initializing empty bare repository."
+        git init --bare "${SECONDARY_BARE_REPO}" &>/dev/null
+    fi
+    rm -rf "${TEMP_SECONDARY_DIR}"
+else
+    echo "  [-] No upstream specified. Initializing clean bare repository with no-op skeleton."
+    git init --bare -b main "${SECONDARY_BARE_REPO}" &>/dev/null
+fi
+
 # Package offline Ansible collections
 COLLECTIONS_DIR="${EXTRACT_DIR}/custom-data/ansible"
 CACHE_TAR="${PROJECT_ROOT}/.cache/binaries/community-general-8.6.0.tar.gz"
