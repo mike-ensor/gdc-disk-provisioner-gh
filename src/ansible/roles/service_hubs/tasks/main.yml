@@ -276,7 +276,7 @@
         blobStoreName: "default"
         strictContentTypeValidation: true
       proxy:
-        remoteUrl: "http://archive.ubuntu.com/ubuntu/"
+        remoteUrl: "{{ upstream_apt_mirror }}"
         contentMaxAge: 1440
         metadataMaxAge: 1440
       negativeCache:

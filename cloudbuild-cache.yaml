@@ -47,6 +47,7 @@ steps:
         export DEPENDENCY_CACHE_GCS_BUCKET="$${DEPENDENCY_CACHE_GCS_BUCKET}"
         export ENABLE_GCS="false"
         export TEST_ONLY="${_TEST_ONLY}"
+        export CACHE_SYSTEM_UPGRADES="true"
         
         ./src/build/preseed_packages.sh
 
@@ -73,7 +74,6 @@ steps:
 
 # Default substitutions for cache execution
 substitutions:
-  _GCS_BUCKET_NAME: 'gdc-disk-provisioner-isos'
   _TEST_ONLY: 'true'  # Set to false to seed the complete production GDC dependency set
 
 # 30 minutes timeout budget for downloading large binary sets

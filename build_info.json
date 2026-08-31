@@ -1,0 +1,151 @@
+{
+  "createTime": "2026-08-31T01:27:12.606726732Z",
+  "finishTime": "2026-08-31T01:34:06.353839Z",
+  "id": "cfb73557-8223-4164-9224-f5f489938c39",
+  "logUrl": "https://console.cloud.google.com/cloud-build/builds/cfb73557-8223-4164-9224-f5f489938c39?project=685813425367",
+  "name": "projects/685813425367/locations/global/builds/cfb73557-8223-4164-9224-f5f489938c39",
+  "options": {
+    "logging": "CLOUD_LOGGING_ONLY",
+    "pool": {}
+  },
+  "projectId": "anthos-bare-metal-lab-1",
+  "queueTtl": "3600s",
+  "results": {
+    "buildStepImages": [
+      "sha256:4f47bad1ea578551b24975fd7a3a3c53975b7e65fa0ded9265df149a7e912c98",
+      "sha256:f315092c00dcd0e0faab516be52e82020459a6172b26fefea1af870ab050bb71",
+      "sha256:4f47bad1ea578551b24975fd7a3a3c53975b7e65fa0ded9265df149a7e912c98"
+    ],
+    "buildStepOutputs": [
+      "",
+      "",
+      ""
+    ],
+    "buildStepResults": {
+      "build-and-validate-iso": {},
+      "publish-and-promote": {},
+      "pull-source-iso": {}
+    }
+  },
+  "source": {
+    "storageSource": {
+      "bucket": "anthos-bare-metal-lab-1_cloudbuild",
+      "generation": "1788139632054963",
+      "object": "source/1788139629.714767-007c94709a1f44b1ab2214acc4f2b904.tgz"
+    }
+  },
+  "sourceProvenance": {
+    "fileHashes": {
+      "gs://anthos-bare-metal-lab-1_cloudbuild/source/1788139629.714767-007c94709a1f44b1ab2214acc4f2b904.tgz#1788139632054963": {
+        "fileHash": [
+          {
+            "type": "MD5",
+            "value": "KseGLJzfskl5LNCJ5_eN9A=="
+          },
+          {
+            "type": "SHA256",
+            "value": "03Nr3bDViJbSkhs9D-VV8VIh_Jev5WTs3ipstqpF-1k="
+          }
+        ]
+      }
+    },
+    "resolvedStorageSource": {
+      "bucket": "anthos-bare-metal-lab-1_cloudbuild",
+      "generation": "1788139632054963",
+      "object": "source/1788139629.714767-007c94709a1f44b1ab2214acc4f2b904.tgz"
+    }
+  },
+  "startTime": "2026-08-31T01:27:13.154877358Z",
+  "status": "SUCCESS",
+  "steps": [
+    {
+      "args": [
+        "-c",
+        "echo \"[-] [CI Stage: deps] Creating local cache directory structure...\"\nmkdir -p .cache/isos\nmkdir -p .cache/binaries\n\n# Determine source bucket for the blessed ISO\nif [ -n \"gdc-disk-provisioner-blessed-isos\" ]; then\n  BLESSED_BUCKET=$(echo \"gdc-disk-provisioner-blessed-isos\" | sed 's/^gs:\\/\\///')\nelse\n  BLESSED_BUCKET=$(echo \"gdc-disk-provisioner-isos\" | sed 's/^gs:\\/\\///')\nfi\n\necho \"[-] Checking GCS for source ISO at gs://${BLESSED_BUCKET}/source/ubuntu-24.04-live-server-amd64.iso...\"\nif gcloud storage objects describe gs://${BLESSED_BUCKET}/source/ubuntu-24.04-live-server-amd64.iso &>/dev/null; then\n  echo \"[-] Downloading blessed ISO from GCS bucket...\"\n  gcloud storage cp gs://${BLESSED_BUCKET}/source/ubuntu-24.04-live-server-amd64.iso .cache/isos/ubuntu-24.04-live-server-amd64.iso\n  echo \"[-] Download complete.\"\nelse\n  echo \"[!] Error: Source ISO not found at gs://${BLESSED_BUCKET}/source/ubuntu-24.04-live-server-amd64.iso.\" >&2\n  echo \"[!] Please upload the blessed ISO to your bucket first to avoid heavy internet downloads.\" >&2\n  exit 1\nfi\n\necho \"[-] Pulling cached GGD binaries from GCS binaries/ prefix...\"\nsource src/dependencies.env\nsource src/build/build.env\n\n# Clean the gs:// prefix for local string manipulation if needed\nDEP_BUCKET_NAME=$(echo \"${DEPENDENCY_CACHE_GCS_BUCKET}\" | sed 's/^gs:\\/\\///')\n\nfor file in ${CACHED_BINARY_FILES}; do\n  gcs_path=\"gs://${DEP_BUCKET_NAME}/binaries/$file\"\n  local_path=\".cache/binaries/$file\"\n  if [ ! -f \"$local_path\" ]; then\n    if gcloud storage objects describe \"$gcs_path\" &>/dev/null; then\n      echo \"  [x] Downloading $file from GCS cache...\"\n      gcloud storage cp \"$gcs_path\" \"$local_path\"\n    else\n      echo \"  [!] $file not found in GCS. Fallback to public curl will apply in compile step.\"\n    fi\n  fi\ndone\n\necho \"[-] Pulling cached GGD Debian packages from GCS packages/ prefix...\"\nmkdir -p .cache/packages\nif gcloud storage ls \"gs://${DEP_BUCKET_NAME}/packages/*.deb\" &>/dev/null; then\n  gcloud storage cp \"gs://${DEP_BUCKET_NAME}/packages/*.deb\" \".cache/packages/\"\n  echo \"  [x] Successfully synchronized cached packages from GCS.\"\nelse\n  echo \"  [!] No cached packages found in gs://${DEP_BUCKET_NAME}/packages/.\"\nfi\n"
+      ],
+      "entrypoint": "bash",
+      "id": "pull-source-iso",
+      "name": "gcr.io/cloud-builders/gcloud",
+      "pullTiming": {
+        "endTime": "2026-08-31T01:27:18.716543594Z",
+        "startTime": "2026-08-31T01:27:18.708524495Z"
+      },
+      "status": "SUCCESS",
+      "timing": {
+        "endTime": "2026-08-31T01:28:36.371619129Z",
+        "startTime": "2026-08-31T01:27:18.708524495Z"
+      }
+    },
+    {
+      "args": [
+        "-c",
+        "echo \"[-] [CI Stage: compile] Triggering Stage-Gate compilation for version: 0.4.26...\"\n\nsource src/build/build.env\n\n# Build the targets sequentially using GNU Make dependencies\nmake -C src/build test-static \\\n  ISO_VERSION=\"0.4.26\" \\\n  SOURCE_ISO_FILENAME=\"ubuntu-24.04-live-server-amd64.iso\" \\\n  GDC_DEBUG_MODE=\"true\" \\\n  ENABLE_GCS=\"true\" \\\n  GCS_BUCKET=\"gs://gdc-disk-provisioner-isos\" \\\n  DEPENDENCY_CACHE_GCS_BUCKET=\"${DEPENDENCY_CACHE_GCS_BUCKET}\" \\\n  _CUSTOMER_ASSETS_URI=\"\" \\\n  AUTO_APPROVE=\"true\" \\\n  INSTALL_COMPANION_URL=\"https://gdc-companion.ensor-labs.com/v1/install-logs\" \\\n  ADMIN_SSH_PUB_KEYS=\"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII5qAYdMqylY+PYFPdBsp6e9zuVkJnd5eCsRKpYkO+B5 gdc-disk-provisioner\" \\\n  TEMPORARY_INSTALLER_SSH_PUB_KEYS=\"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII5qAYdMqylY+PYFPdBsp6e9zuVkJnd5eCsRKpYkO+B5 gdc-disk-provisioner\" \\\n  TEMPORARY_INSTALLER_PASSWORD=\"default-password-123\" \\\n  GDC_COMPANION=\"TRUE\" \\\n  DEBUG_EXTRA_USER=\"forge\" \\\n  DEBUG_EXTRA_PASSWORD=\"forge\"\n"
+      ],
+      "entrypoint": "bash",
+      "id": "build-and-validate-iso",
+      "name": "us-west1-docker.pkg.dev/anthos-bare-metal-lab-1/gdc-build-images/iso-builder:0.0.89",
+      "pullTiming": {
+        "endTime": "2026-08-31T01:29:10.223254120Z",
+        "startTime": "2026-08-31T01:28:36.371895031Z"
+      },
+      "status": "SUCCESS",
+      "timing": {
+        "endTime": "2026-08-31T01:31:29.097308104Z",
+        "startTime": "2026-08-31T01:28:36.371895031Z"
+      }
+    },
+    {
+      "args": [
+        "-c",
+        "BUILD_META=\"build-workspace/build_meta.env\"\nif [ ! -f \"${BUILD_META}\" ]; then\n  echo \"[!] Error: Compilation metadata file not found at ${BUILD_META}.\" >&2\n  exit 1\nfi\n\n# Write git branch and commit to local file for report generator\nmkdir -p build-workspace\necho \"GIT_BRANCH=feature/update-packages-cache\" > build-workspace/git_info.env\necho \"GIT_COMMIT=5977364\" >> build-workspace/git_info.env\n\n# Import variables from the compilation metadata\nsource \"${BUILD_META}\"\necho \"[-] Found compiled ISO: ${ISO_OUTPUT_NAME} at ${ISO_OUTPUT_PATH}\"\n\n# Trigger deploy, publish, and reports gates via Make\nmake -C src/build deploy publish reports \\\n  ISO_VERSION=\"0.4.26\" \\\n  GDC_DEBUG_MODE=\"true\" \\\n  GDC_COMPANION=\"TRUE\" \\\n  ENABLE_GCS=\"true\" \\\n  GCS_BUCKET=\"gs://gdc-disk-provisioner-isos\" \\\n  DEPENDENCY_CACHE_GCS_BUCKET=\"${DEPENDENCY_CACHE_GCS_BUCKET}\" \\\n  _CUSTOMER_ASSETS_URI=\"\"\n\nBUCKET_NAME=$(echo \"gdc-disk-provisioner-isos\" | sed 's/^gs:\\/\\///')\n\necho \"[-] Performing bucket retention cleanup (keeping last 5 ISOs in sync/)...\"\n# List all ISOs in the sync/ directory of the bucket, sorted naturally by semantic version\nISO_LIST=$(gcloud storage ls \"gs://${BUCKET_NAME}/sync/*.iso\" 2>/dev/null | sort -V || true)\n\nif [ -n \"${ISO_LIST}\" ]; then\n  ISO_COUNT=$(echo \"${ISO_LIST}\" | wc -l)\n  echo \"[-] Found ${ISO_COUNT} ISOs in the sync/ folder.\"\n  \n  if [ \"${ISO_COUNT}\" -gt 5 ]; then\n    ARCHIVE_COUNT=$((ISO_COUNT - 5))\n    echo \"[-] Archiving ${ARCHIVE_COUNT} older ISOs to the archived/ folder...\"\n    ARCHIVE_LIST=$(echo \"${ISO_LIST}\" | head -n \"${ARCHIVE_COUNT}\")\n    \n    while IFS= read -r iso_path; do\n      if [ -n \"${iso_path}\" ]; then\n        filename=$(basename \"${iso_path}\")\n        echo \"[-] Archiving: ${filename} -> gs://${BUCKET_NAME}/archived/${filename}\"\n        gcloud storage mv \"${iso_path}\" \"gs://${BUCKET_NAME}/archived/${filename}\"\n      fi\n    done <<< \"${ARCHIVE_LIST}\"\n    echo \"[-] Retention cleanup complete.\"\n  else\n    echo \"[-] ISO count (${ISO_COUNT}) is <= 5. No archiving needed in sync/.\"\n  fi\nfi\n"
+      ],
+      "entrypoint": "bash",
+      "id": "publish-and-promote",
+      "name": "gcr.io/cloud-builders/gcloud",
+      "pullTiming": {
+        "endTime": "2026-08-31T01:31:29.117469059Z",
+        "startTime": "2026-08-31T01:31:29.099593365Z"
+      },
+      "status": "SUCCESS",
+      "timing": {
+        "endTime": "2026-08-31T01:34:05.738797475Z",
+        "startTime": "2026-08-31T01:31:29.099593365Z"
+      }
+    }
+  ],
+  "substitutions": {
+    "_ADMIN_SSH_PUB_KEYS": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII5qAYdMqylY+PYFPdBsp6e9zuVkJnd5eCsRKpYkO+B5 gdc-disk-provisioner",
+    "_BUILD_VERSION": "0.0.89",
+    "_CUSTOMER_ASSETS_URI": "",
+    "_DEBUG_EXTRA_PASSWORD": "forge",
+    "_DEBUG_EXTRA_USER": "forge",
+    "_GCS_BUCKET_NAME": "gdc-disk-provisioner-isos",
+    "_GDC_COMPANION": "TRUE",
+    "_GDC_DEBUG_MODE": "true",
+    "_GIT_BRANCH": "feature/update-packages-cache",
+    "_GIT_COMMIT": "5977364",
+    "_INSTALL_COMPANION_URL": "https://gdc-companion.ensor-labs.com/v1/install-logs",
+    "_ISO_BLESSED_GCS_BUCKET": "gdc-disk-provisioner-blessed-isos",
+    "_ISO_VERSION": "0.4.26",
+    "_PROJECT_ID": "anthos-bare-metal-lab-1",
+    "_REGION": "us-west1",
+    "_SOURCE_ISO_FILENAME": "ubuntu-24.04-live-server-amd64.iso",
+    "_TEMPORARY_INSTALLER_PASSWORD": "default-password-123",
+    "_TEMPORARY_INSTALLER_SSH_PUB_KEYS": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII5qAYdMqylY+PYFPdBsp6e9zuVkJnd5eCsRKpYkO+B5 gdc-disk-provisioner"
+  },
+  "timeout": "1800s",
+  "timing": {
+    "BUILD": {
+      "endTime": "2026-08-31T01:34:05.740267267Z",
+      "startTime": "2026-08-31T01:27:18.075228580Z"
+    },
+    "FETCHSOURCE": {
+      "endTime": "2026-08-31T01:27:18.075023837Z",
+      "startTime": "2026-08-31T01:27:14.865466099Z"
+    },
+    "STORAGE_SOURCE": {
+      "endTime": "2026-08-31T01:27:18.075023837Z",
+      "startTime": "2026-08-31T01:27:14.865466099Z"
+    }
+  }
+}

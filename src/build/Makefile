@@ -117,6 +117,7 @@ help:
 	@echo "  test-dynamic  Launches headless QEMU E2E test VM and executes SSH assertions."
 	@echo "  deploy        Publishes candidate ISO back to regional GCS buckets or NFS mounts."
 	@echo "  publish       Generates JSON Provenance Manifest and promotes atomic verified symlinks."
+	@echo "  update-packages-cache Re-calculates and downloads the latest OS system upgrades to the local cache."
 	@echo "  clean         Cleans active extraction and output workspaces."
 	@echo "=============================================================================="
 	@echo "Active Configuration:"
@@ -581,6 +582,21 @@ reports:
 		--gcs-bucket "$(GCS_BUCKET)" \
 		--upload
 	$(call END_TIME,reports)
+
+# ==========================================
+# Caching Tools
+# ==========================================
+update-packages-cache:
+	@echo "[-] [Stage: update-packages] Spinning up isolated Ubuntu 24.04 container to pull fresh .deb caches..."
+	@mkdir -p $(CACHE_DIR)/packages
+	@docker run --rm -v $(shell pwd)/../../.cache:/workspace/.cache \
+		-v $(shell pwd)/../../src:/workspace/src \
+		-w /workspace \
+		-e ENABLE_GCS="false" \
+		-e TEST_ONLY="false" \
+		-e CACHE_SYSTEM_UPGRADES="true" \
+		ubuntu:24.04 bash -c "apt-get update -qq && apt-get install -y -qq curl python3 python3-yaml sudo && ./src/build/preseed_packages.sh"
+	@echo "[-] [Stage: update-packages] Successfully injected latest Debian patches into local cache."
 
 # ==========================================
 # Cleanup
