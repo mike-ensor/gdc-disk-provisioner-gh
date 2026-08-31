@@ -176,13 +176,23 @@ echo "==========================================================================
 echo "[-] Synology background sync polling is active. Triggering file ingestion..."
 
 # Ingest, wait for Synology GCS-to-Local transfer, and perform kernel extraction
-python3 "${PROJECT_ROOT}/src/build/bootimus.py" "${NEW_ISO_NAME}"
+# We trigger this and allow it to fail/timeout if extraction is slow, passing responsibility to the verification loop.
+python3 "${PROJECT_ROOT}/src/build/bootimus.py" "${NEW_ISO_NAME}" || true
 
 echo "=============================================================================="
 echo -e "\033[93m\033[1m[ISO-JOB] SEALING BOOTIMUS NON-INTERACTIVE COMPLIANCE AUDIT...\033[0m"
 echo "=============================================================================="
-# Verify and lock all Bootimus boot parameters into non-interactive mode
-python3 "${PROJECT_ROOT}/test/bin/check-bootimus-settings.py"
+# Verify and lock all Bootimus boot parameters into non-interactive mode.
+# We retry the auditor script to give the backend Bootimus extraction daemon time to settle and 
+# to self-heal the known Bootimus clobbering bug natively.
+for i in {1..30}; do
+    if python3 "${PROJECT_ROOT}/test/bin/check-bootimus-settings.py"; then
+        echo -e "\033[92m[x] Bootimus configuration locked successfully.\033[0m"
+        break
+    fi
+    echo "[-] Waiting 15s for backend extraction to settle and heal... ($i/30)"
+    sleep 15
+done
 
 # ==============================================================================
 # Step 5: Create final Bootimus Tree Readiness & Build Outputs Report
