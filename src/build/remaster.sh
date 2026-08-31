@@ -351,6 +351,29 @@ if [[ -n "${UPSTREAM_DESIRED_STATE_REPO:-}" ]]; then
 else
     echo "  [-] No upstream specified. Initializing clean bare repository with no-op skeleton."
     git init --bare -b main "${SECONDARY_BARE_REPO}" &>/dev/null
+    
+    # Create a mock local.yml so ansible-pull completes successfully
+    TEMP_MOCK_DIR=$(mktemp -d)
+    git -C "${TEMP_MOCK_DIR}" init -b main &>/dev/null
+    git -C "${TEMP_MOCK_DIR}" config user.name "${GDC_RELEASE_USER_NAME:-GDC Release Builder}"
+    git -C "${TEMP_MOCK_DIR}" config user.email "${GDC_RELEASE_USER_EMAIL:-gdc-release@google.com}"
+    
+    cat <<EOF > "${TEMP_MOCK_DIR}/local.yml"
+---
+- name: GDC Desired State Baseline Fallback
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: "GDC-SDS | Debug: No customer desired state repository configured"
+      ansible.builtin.debug:
+        msg: "The node is operating successfully in standalone mode. To apply configurations, point the desired state repository to an upstream git remote."
+EOF
+    
+    git -C "${TEMP_MOCK_DIR}" add local.yml &>/dev/null
+    git -C "${TEMP_MOCK_DIR}" commit -m "chore: mock empty desired state playbook" &>/dev/null
+    git -C "${TEMP_MOCK_DIR}" push "${SECONDARY_BARE_REPO}" HEAD:main &>/dev/null
+    rm -rf "${TEMP_MOCK_DIR}"
 fi
 
 # Package offline Ansible collections

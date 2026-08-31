@@ -292,13 +292,13 @@
     mode: '0644'
     content: |
       Types: deb
-      URIs: http://archive.ubuntu.com/ubuntu/
+      URIs: {{ upstream_apt_mirror }}
       Suites: noble noble-updates noble-backports
       Components: main restricted universe multiverse
       Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
       Types: deb
-      URIs: http://security.ubuntu.com/ubuntu/
+      URIs: {{ upstream_security_mirror }}
       Suites: noble-security
       Components: main restricted universe multiverse
       Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg

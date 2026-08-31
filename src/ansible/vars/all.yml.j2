@@ -140,6 +140,12 @@ gdc_unattended_blacklist:
 deactivate_public_sources: true
 
 # ==============================================================================
+# Upstream APT Mirrors (Configurable for Corporate Proxies)
+# ==============================================================================
+upstream_apt_mirror: "{{ upstream_apt_mirror | default('http://archive.ubuntu.com/ubuntu/') }}"
+upstream_security_mirror: "{{ upstream_security_mirror | default('http://security.ubuntu.com/ubuntu/') }}"
+
+# ==============================================================================
 # GDC System Desired State Configurations
 # ==============================================================================
 desired_state_enabled: true

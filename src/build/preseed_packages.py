@@ -152,6 +152,7 @@ def main():
     gcs_bucket = os.environ.get("DEPENDENCY_CACHE_GCS_BUCKET") or local_env.get("DEPENDENCY_CACHE_GCS_BUCKET") or build_env.get("DEPENDENCY_CACHE_GCS_BUCKET") or "gs://gdc-disk-provisioner-isos"
     enable_gcs = os.environ.get("ENABLE_GCS") or local_env.get("ENABLE_GCS") or build_env.get("ENABLE_GCS") or "false"
     test_only = os.environ.get("TEST_ONLY") or local_env.get("TEST_ONLY") or build_env.get("TEST_ONLY") or "false"
+    cache_system_upgrades = os.environ.get("CACHE_SYSTEM_UPGRADES") or local_env.get("CACHE_SYSTEM_UPGRADES") or build_env.get("CACHE_SYSTEM_UPGRADES") or "false"
     ubuntu_override = os.environ.get("_UBUNTU_VERSION") or local_env.get("_UBUNTU_VERSION") or build_env.get("_UBUNTU_VERSION")
     
     # Load declarative YAML configuration
@@ -226,6 +227,31 @@ def main():
     except subprocess.SubprocessError as e:
         print(f"[!] Warning: Failed to refresh APT metadata: {e}", file=sys.stderr)
         
+    # Inject dynamically calculable system upgrades if enabled
+    if cache_system_upgrades.lower() == "true":
+        print("[-] CACHE_SYSTEM_UPGRADES=true: Calculating base-OS package delta...")
+        try:
+            # We run apt-get upgrade --simulate to get the list of packages that would be upgraded
+            # Grep parses the "Inst <pkg>" lines reliably without formatting noise
+            sim_res = subprocess.run(
+                ["apt-get", "upgrade", "--simulate", "-y"],
+                capture_output=True, text=True, check=True
+            )
+            upgradable_packages = []
+            for line in sim_res.stdout.splitlines():
+                if line.startswith("Inst "):
+                    pkg_name = line.split(" ")[1].strip()
+                    upgradable_packages.append(pkg_name)
+                    
+            if upgradable_packages:
+                print(f"  [+] Identified {len(upgradable_packages)} system packages with upstream updates.")
+                # Merge lists and deduplicate while maintaining order loosely
+                target_packages = sorted(list(set(target_packages + upgradable_packages)))
+            else:
+                print("  [-] System packages are already up-to-date. No dynamic delta required.")
+        except subprocess.SubprocessError as e:
+            print(f"[!] Warning: Failed to calculate system upgrades: {e}", file=sys.stderr)
+
     # Download primary packages
     print("[-] Downloading package binaries (.debs)...")
     downloaded_set = set()

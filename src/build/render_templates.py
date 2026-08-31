@@ -313,6 +313,8 @@ if __name__ == "__main__":
     env['bootstrap_host_name'] = env.get('BOOTSTRAP_HOST_NAME', 'gdc-default')
     env['fallback_machine_state_stop_stage'] = env.get('FALLBACK_MACHINE_STATE_STOP_STAGE', '')
     env['bootstrap_bmctl_version'] = env.get('BOOTSTRAP_BMCTL_VERSION', '1.35.300-gke.87')
+    env['upstream_apt_mirror'] = env.get('UPSTREAM_APT_MIRROR', 'http://archive.ubuntu.com/ubuntu/')
+    env['upstream_security_mirror'] = env.get('UPSTREAM_SECURITY_MIRROR', 'http://security.ubuntu.com/ubuntu/')
     env['fallback_cluster_vlan_id'] = env.get('FALLBACK_CLUSTER_VLAN_ID', '100')
     env['fallback_peers_json'] = env.get('FALLBACK_PEERS_JSON', '[]')
     env['fallback_gcp_project_id'] = env.get('FALLBACK_GCP_PROJECT_ID', '')
