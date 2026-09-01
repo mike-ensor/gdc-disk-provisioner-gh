@@ -3,7 +3,7 @@
 This document tracks the ongoing implementation and delivery of the GDC Offline Bootloader ISO process. It acts as an active checklist compared to our technical specification files (`docs/specs/`).
 
 > [!NOTE]
-> **Major Milestone:** We now have a **CLUSTER_READY** stage ISO in with `0.2.31-debug`!
+> **Major Milestone:** We have a stable, hardware-resilient **CLUSTER_READY** deployment via `v0.4.38-debug`! The ISO safely bypasses AMD NVMe Host Memory Buffer memory exhaustion limits and correctly scales up via dual parallel Cloud Builds.
 >
 > **Previous Milestone (2026-06-30):** The GDC Bootloader ISO has successfully achieved its first **absolute physical bare-metal boot to completion** under `v0.0.85-debug`! The installation loop completed flawlessly on physical UEFI single-disk nodes, and all local and remote service boundaries (Gitea and Nexus local caches) are fully integrated.
 

@@ -160,19 +160,32 @@ def auto_heal_boot_params(token):
             # Any GDC bootstrap image should use kernel boot method and correct autoinstall params
             is_gdc_image = filename and ("gdc-bootstrap" in filename or filename.startswith("sync/gdc-bootstrap"))
             
-            # We only heal fully extracted images
-            if is_gdc_image and extracted:
-                # Check if it is missing any of the required parameters or is in the wrong boot mode / disabled
+            if is_gdc_image:
                 has_correct_params = (
                     "autoinstall" in boot_params and 
                     "ds=nocloud-net" in boot_params and
                     "modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp" in boot_params and
                     "tpm_tis.interrupts=0" in boot_params and
                     "apparmor=0" in boot_params and
-                    "console=tty1 console=ttyS0" in boot_params
+                    "console=tty1 console=ttyS0" in boot_params and
+                    "ramdisk_size=7500000" in boot_params
                 )
-                
-                if boot_method != "kernel" or distro != "ubuntu" or not enabled or not has_correct_params:
+
+                if not extracted:
+                    # ISO is syncing or extracting. MUST be disabled to prevent dangerous premature PXE boots.
+                    if enabled:
+                        print(f"[-] Alert: GDC Image '{img.get('name')}' is still extracting but is currently ENABLED. Disabling to prevent premature boot...")
+                        disable_data = {
+                            "boot_method": boot_method,
+                            "distro": distro,
+                            "boot_params": boot_params,
+                            "enabled": False
+                        }
+                        update_url = f"{API_BASE}/images?filename={urllib.parse.quote(filename)}"
+                        img.update(disable_data)
+                        api_request(update_url, method="PUT", data=img, token=token)
+                        
+                elif boot_method != "kernel" or distro != "ubuntu" or not has_correct_params or not enabled:
                     print(f"[!] Alert: GDC Image '{img.get('name')}' configuration is missing or clobbered! Healing...")
                     
                     iso_name_no_ext = filename[:-4]
@@ -182,29 +195,30 @@ def auto_heal_boot_params(token):
                     fixed_params = (
                         f"boot=casper initrd=initrd ip=dhcp netboot=url "
                         f"url={iso_url} "
-                        f"root=/dev/ram0 ramdisk_size=4500000 autoinstall "
+                        f"root=/dev/ram0 ramdisk_size=7500000 autoinstall "
                         f"apparmor=0 console=tty1 console=ttyS0 "
                         f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp "
                         f"ds=nocloud-net;s={seed_url}"
                     )
                     
-                    update_data = {
+                    # Stage 1: Configure parameters but DO NOT ENABLE yet
+                    stage1_data = {
                         "boot_method": "kernel",
                         "distro": "ubuntu",
                         "boot_params": fixed_params,
-                        "enabled": True
+                        "enabled": False
                     }
                     update_url = f"{API_BASE}/images?filename={urllib.parse.quote(filename)}"
+                    
+                    print(f"    [-] Stage 1: Writing strict parameters to '{img.get('name')}' (keeping disabled)...")
+                    img.update(stage1_data)
+                    api_request(update_url, method="PUT", data=img, token=token)
                     
                     # Robust consecutive-success loop to defeat delayed Bootimus database clobbering
                     consecutive_verifications = 0
                     required_consecutive = 6  # Require 6 consecutive successful checks (30 seconds of stability)
                     max_attempts = 20
                     verified = False
-                    
-                    # Force write initially
-                    img.update(update_data)
-                    api_request(update_url, method="PUT", data=img, token=token)
                     
                     for verify_attempt in range(1, max_attempts + 1):
                         time.sleep(5)
@@ -220,23 +234,35 @@ def auto_heal_boot_params(token):
                                 is_correct = (
                                     current_params == fixed_params and 
                                     current_method == "kernel" and 
-                                    current_enabled is True
+                                    current_enabled is False
                                 )
                                 
                                 if is_correct:
                                     consecutive_verifications += 1
                                     if consecutive_verifications >= required_consecutive:
-                                        print(f"    [+] Successfully healed and locked '{img.get('name')}' (Attempt {verify_attempt}, stable)!")
+                                        print(f"    [+] Parameters verified stable! (Attempt {verify_attempt})")
                                         verified = True
                                         break
                                 else:
                                     consecutive_verifications = 0
-                                    current_img.update(update_data)
+                                    current_img.update(stage1_data)
                                     api_request(update_url, method="PUT", data=current_img, token=token)
+                                    
                     if not verified:
-                        print(f"    [!] Warning: Failed to permanently lock healed '{img.get('name')}' configuration. Forcing final write...")
-                        img.update(update_data)
-                        api_request(update_url, method="PUT", data=img, token=token)
+                        print(f"    [!] Warning: Failed to stabilize parameters for '{img.get('name')}'. Aborting healing.")
+                        continue
+                        
+                    # Stage 2: We are 100% extracted, ubuntu kernel, correct parameters, and stable. NOW we enable.
+                    print(f"    [-] Stage 2: Configuration locked. Setting ENABLED = True...")
+                    stage2_data = {
+                        "boot_method": "kernel",
+                        "distro": "ubuntu",
+                        "boot_params": fixed_params,
+                        "enabled": True
+                    }
+                    img.update(stage2_data)
+                    api_request(update_url, method="PUT", data=img, token=token)
+                    print(f"    [+] Successfully healed, locked, and enabled '{img.get('name')}'!")
     except Exception as e:
         print(f"[!] Warning: Self-healing audit encountered an error: {e}")
 
@@ -444,7 +470,7 @@ def main():
         try:
             # Bootimus API blocks on /extract until complete or timeout. We trigger it with a short timeout
             # and intentionally catch the timeout so we can move immediately to the polling loop.
-            api_request(f"{API_BASE}/images/extract?filename={urllib.parse.quote(filename)}", method="POST", token=token, timeout=5, retries=1)
+            api_request(f"{API_BASE}/images/extract?filename={urllib.parse.quote(filename)}", method="POST", token=token, timeout=2, retries=1)
         except Exception:
             print("[-] Extraction triggered (ignoring HTTP timeout due to Bootimus synchronous architecture)...")
             pass
@@ -466,7 +492,17 @@ def main():
                 progress = data
                 status = ""
             
+            try:
+                progress = int(progress)
+            except:
+                progress = 0
+                
             print(f"    [-] Progress (Attempt {attempts}): {progress}% - Status: {status or 'Running'}")
+            
+            # Failsafe abort to prevent infinite hangs
+            if attempts > 300:
+                print("[!] Extraction hung for over 20 minutes! Aborting.")
+                sys.exit(1)
             # If the status is "idle" but we just started, ignore it to let the extraction daemon spin up
             if status == "idle" and attempts <= 3 and progress < 100:
                 print("    [-] Ignoring initial 'idle' status to allow backend daemon to start...")
@@ -491,7 +527,7 @@ def main():
     boot_params = (
         f"boot=casper initrd=initrd ip=dhcp netboot=url "
         f"url={iso_url} "
-        f"root=/dev/ram0 ramdisk_size=4500000 autoinstall "
+        f"root=/dev/ram0 ramdisk_size=7500000 autoinstall "
         f"apparmor=0 console=tty1 console=ttyS0 "
         f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp "
         f"ds=nocloud-net;s={seed_url}"

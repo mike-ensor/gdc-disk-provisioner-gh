@@ -62,6 +62,7 @@
       # Blacklist AMD Sensor Fusion Hub drivers to prevent firmware/TPM conflicts and system freezes on AMD platforms
       blacklist pcie_mp2_amd
       blacklist amd_sfh
+  when: ansible_facts['processor_vendor'] is defined and ansible_facts['processor_vendor'] in ['AuthenticAMD', 'AMD']
   register: blacklist_deploy
   tags: ["strictly-local"]
 

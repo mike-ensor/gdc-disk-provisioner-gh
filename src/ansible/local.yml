@@ -39,6 +39,7 @@
   pre_tasks:
     - name: "GDC-PREFLIGHT | Load initial state to get gdc_primary_interface"
       ansible.builtin.import_tasks: stages/state_initialization.yml
+      tags: ["always"]
 
     - name: "GDC-PREFLIGHT | Assert gdc_primary_interface is defined and has MAC"
       ansible.builtin.assert:
@@ -49,10 +50,16 @@
           - ansible_facts[gdc_primary_interface]['macaddress'] | regex_search('^([0-9a-f]{2}:){5}[0-9a-f]{2}$')
         fail_msg: "Pre-flight failure: Primary interface {{ gdc_primary_interface | default('UNDEFINED') }} is missing or lacks a valid MAC address."
         success_msg: "Pre-flight passed: Primary interface is {{ gdc_primary_interface | default('UNDEFINED') }} with MAC {{ ansible_facts[gdc_primary_interface | default('')]['macaddress'] | default('UNKNOWN') }}"
+      tags: ["always"]
+
+    - name: "GDC-PREFLIGHT | Execute Environment Validation Checks"
+      ansible.builtin.import_tasks: stages/stage_preflight_checks.yml
+      tags: ["always"]
 
   tasks:
     - name: "GDC-STATE | Initialize and load state facts"
       ansible.builtin.import_tasks: stages/state_initialization.yml
+      tags: ["always"]
 
     # ==============================================================================
     # STAGE 2: FirstBoot (Service Hubs Setup)

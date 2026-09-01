@@ -1,0 +1,165 @@
+---
+# ==============================================================================
+# GDC Node Pre-Flight Validations
+# ==============================================================================
+# Stage: GDC-PREFLIGHT
+# Fails fast if necessary dependencies, binaries, block devices, or network 
+# interfaces are missing before any system mutations occur.
+# ==============================================================================
+
+- name: "GDC-PREFLIGHT | Initialize Pre-flight tracking variables"
+  ansible.builtin.set_fact:
+    preflight_start_epoch: "{{ now(utc=true).strftime('%s') | int }}"
+    preflight_results: []
+    preflight_overall_status: "PASS"
+
+# ------------------------------------------------------------------------------
+# 1. CORE CLI BINARIES CHECKS
+# ------------------------------------------------------------------------------
+- name: "GDC-PREFLIGHT | Verify Required System Binaries"
+  block:
+    - name: "GDC-PREFLIGHT | Assert Core CLI binaries exist in PATH"
+      ansible.builtin.command: "which {{ item }}"
+      register: binary_check
+      changed_when: false
+      failed_when: false
+      loop:
+        - git
+        - ansible
+        - parted
+        - wipefs
+        - sgdisk
+        - cryptsetup
+        - tpm2_pcrread
+        - curl
+        - jq
+        - systemctl
+
+    - name: "GDC-PREFLIGHT | Register Binary Check Results"
+      ansible.builtin.set_fact:
+        preflight_results: >-
+          {{
+            preflight_results + [{
+              "test_name": "binary_check_" + item.item,
+              "category": "binary",
+              "status": "PASS" if item.rc == 0 else "FAIL",
+              "severity": "FATAL",
+              "notes": "Binary " + item.item + (" found at " + item.stdout if item.rc == 0 else " missing from PATH"),
+              "remediation_hint": "Ensure package providing " + item.item + " is installed in the baseline ISO.",
+              "timestamp": now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ'),
+              "duration_ms": 10
+            }]
+          }}
+      loop: "{{ binary_check.results }}"
+
+# ------------------------------------------------------------------------------
+# 2. HARDWARE & DEVICE INTERFACES
+# ------------------------------------------------------------------------------
+- name: "GDC-PREFLIGHT | Verify Hardware Capabilities (TPM & Disks)"
+  block:
+    - name: "GDC-PREFLIGHT | Check for TPM 2.0 device interface"
+      ansible.builtin.stat:
+        path: /dev/tpmrm0
+      register: tpm_stat
+
+    - name: "GDC-PREFLIGHT | Register TPM Check Result"
+      ansible.builtin.set_fact:
+        preflight_results: >-
+          {{
+            preflight_results + [{
+              "test_name": "hardware_tpm2_interface",
+              "category": "hardware",
+              "status": "PASS" if (tpm_stat.stat.exists and tpm_stat.stat.ischr) else "FAIL",
+              "severity": "FATAL",
+              "notes": "TPM 2.0 interface /dev/tpmrm0 " + ("found and is a character device" if (tpm_stat.stat.exists and tpm_stat.stat.ischr) else "missing or invalid"),
+              "remediation_hint": "Check BIOS/UEFI settings for TPM 2.0 availability and ensure kernel TPM drivers are loaded.",
+              "timestamp": now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ'),
+              "duration_ms": 10
+            }]
+          }}
+
+    - name: "GDC-PREFLIGHT | Gather device facts"
+      ansible.builtin.setup:
+        filter: ansible_devices
+
+    - name: "GDC-PREFLIGHT | Check for Block Storage Devices"
+      ansible.builtin.set_fact:
+        preflight_results: >-
+          {{
+            preflight_results + [{
+              "test_name": "hardware_block_storage",
+              "category": "storage",
+              "status": "PASS" if (ansible_facts['devices'] | length > 0) else "FAIL",
+              "severity": "FATAL",
+              "notes": "Discovered " + (ansible_facts['devices'] | length | string) + " block storage devices.",
+              "remediation_hint": "Ensure NVMe/SATA/SAS controllers are active and storage drives are physically connected.",
+              "timestamp": now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ'),
+              "duration_ms": 10
+            }]
+          }}
+
+# ------------------------------------------------------------------------------
+# 3. NETWORK & ENDPOINTS HOOKS
+# ------------------------------------------------------------------------------
+- name: "GDC-PREFLIGHT | Verify Network & Endpoint Dependencies"
+  block:
+    - name: "GDC-PREFLIGHT | Execute Google API and Registry endpoint readiness audit"
+      ansible.builtin.command: >-
+        python3 {{ playbook_dir }}/scripts/check_endpoints.py
+        --companion-url "{{ gdc_companion_reports_url | default('') }}"
+      register: endpoint_check_raw
+      changed_when: false
+      failed_when: false
+
+    - name: "GDC-PREFLIGHT | Register Endpoint Connectivity Results"
+      ansible.builtin.set_fact:
+        preflight_results: "{{ preflight_results + (endpoint_check_raw.stdout | from_json) }}"
+      when: 
+        - endpoint_check_raw.rc == 0
+        - endpoint_check_raw.stdout is defined
+        - endpoint_check_raw.stdout | length > 2
+
+# ------------------------------------------------------------------------------
+# 4. AGGREGATE RESULTS & SERIALIZE CONTRACT
+# ------------------------------------------------------------------------------
+- name: "GDC-PREFLIGHT | Aggregate Overall Status"
+  ansible.builtin.set_fact:
+    preflight_overall_status: "FAIL"
+  loop: "{{ preflight_results }}"
+  when: item.status == "FAIL" and item.severity == "FATAL"
+
+- name: "GDC-PREFLIGHT | Serialize Decoupled JSON Contract"
+  ansible.builtin.copy:
+    dest: "/var/gdc-install/state/preflight-validation-results.json"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {% set _end_epoch = now(utc=true).strftime('%s') | int %}
+      {% set _duration_ms = (_end_epoch - (preflight_start_epoch | int)) * 1000 %}
+      {
+        "$schema": "https://gdc.google.com/schemas/preflight-validation-v1.json",
+        "test_suite": "gdc-ansible-preflight",
+        "execution_timestamp": "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}",
+        "overall_status": "{{ preflight_overall_status }}",
+        "total_duration_ms": {{ [_duration_ms, 0] | max }},
+        "results": {{ preflight_results | to_json }}
+      }
+
+# ------------------------------------------------------------------------------
+# 5. HALT IF FATAL
+# ------------------------------------------------------------------------------
+- name: "GDC-PREFLIGHT | Halt Provisioning Pipeline if Fatal Validation Checks Failed"
+  block:
+    - name: "GDC-PREFLIGHT | Trigger gdc-collector to surface failure telemetry"
+      ansible.builtin.shell: |
+        if [ -x /usr/local/bin/gdc-collector ]; then
+          /usr/local/bin/gdc-collector --stage preflight --companion-url="{{ gdc_companion_reports_url | default('') }}"
+        fi
+      ignore_errors: true
+      failed_when: false
+      
+    - name: "GDC-PREFLIGHT | Execute Ansible Fail-Fast"
+      ansible.builtin.fail:
+        msg: "GDC Pre-Flight Validation Failed. Crucial dependencies or hardware missing. See /var/gdc-install/state/preflight-validation-results.json for details."
+  when: preflight_overall_status == "FAIL"

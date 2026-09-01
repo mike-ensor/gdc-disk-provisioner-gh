@@ -12,6 +12,7 @@ StandardError=journal
 ExecStartPre=/usr/bin/git config --system --add safe.directory /var/lib/gitea/repos/gdc/system-desired-state.git
 ExecStartPre=/bin/bash -c "mkdir -p /var/gdc-install/logs; ln -sf /var/gdc-install/logs/gdc-desired-state.log /var/log/gdc-desired-state.log || true"
 ExecStart=/bin/bash -c "flock -n /var/run/gdc-desired-state.lock /usr/bin/ansible-pull \
+  -d /var/gdc-install/playbooks/desired-state \
   -U /var/lib/gitea/repos/gdc/system-desired-state.git \
   -C main \
   -i localhost, \

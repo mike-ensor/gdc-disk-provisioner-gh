@@ -7,7 +7,21 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 
 
-## [Unreleased] - 2026-08-24
+## [Unreleased] - 2026-09-01
+
+### Added
+- **Concurrent Dual ISO Orchestrator (`concurrent_build.sh`):** Engineered a new wrapper script to spawn and monitor two parallel Google Cloud Build pipelines, simultaneously compiling the standard GDC companion-enabled ISO and a completely offline, companion-less equivalent.
+- **Bootimus Network Polling Timeout Gate:** Upgraded the `bootimus.py` polling API with a forced hard-abort gate (300 attempts / ~20 minutes) to prevent infinite loops when the Synology REST extraction queue is saturated by overlapping builds.
+
+### Fixed
+- **HMB NVMe Cryptsetup Kernel Panics (DRAM-less SSDs):** Fixed a catastrophic memory exhaustion panic on AMD nodes with DRAM-less NVMe SSDs (like Kingston arrays). Injected a wrapper around `cryptsetup luksFormat` to forcefully demote the Key Derivation Function (KDF) from Ubuntu 24.04's default ~1GB `argon2id` down to the highly efficient `pbkdf2` algorithm (1000 iterations), preventing the hardware HMB buffer starvation that drove the AMD `ccp` cryptographic co-processor into a CPU-locking `irqs disabled` halt.
+- **Pre-Format AMD PSP Module Lockups:** Programmed the LiveCD `early-commands` to aggressively probe for `AuthenticAMD` and physically unload (`rmmod`) the `ccp`, `amd_sfh`, and `pcie_mp2_amd` hardware integration modules immediately prior to any storage manipulation.
+- **Udev Partition Racing (NotExclusiveError):** Reverted the sub-Logical Volume wiping standard back to `wipe: superblock` while retaining `wipe: superblock-recursive` strictly on the root disk. This stops Curtin's `zero_file_at_offsets` fallback from colliding with `udev` async device probing when wiping pre-existing LVM paths on dirty drives.
+- **ISO Ramdisk Fragmentation Limits:** Increased the LiveCD `ramdisk_size` parameter from `4.5GB` up to `7.5GB` to absorb larger offline package inclusions and avoid PXE rootfs fragmentation loops on ingestion.
+- **CloudBuild local.env Overwrite Scoping:** Fixed a critical bug in `concurrent_build.sh` by replacing the `source_env_safe()` evaluator with standard bash subshells so `src/build/local.env` strictly overrides base `build.env` defaults.
+- **Bootimus Extraction PXE Race Condition:** Reprogrammed Bootimus to aggressively disable unextracted ISO profiles (`enabled: False`) the instant they are detected, preventing the PXE engine from booting half-configured node requests before `bootimus.py` can lock the safe autoinstall parameters into the database.
+
+## [0.4.0] - 2026-08-24
 
 ### Added
 - **Idempotent Cluster Creation Script (`create_cluster.sh`):** Added a new, robust bash script designed to fully automate the creation of GDC standalone bare-metal clusters.

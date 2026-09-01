@@ -468,9 +468,10 @@
     mode: '0644'
     content: |
       # Persistent GDC Dracut configuration
-      # Surgically prune blacklisted AMD deadlock drivers from target OS initramfs
-      # (ccp is omitted to prevent AMD PSP hardware deadlocks during early-boot LUKS unlocking)
+      {% if ansible_facts['processor_vendor'] is defined and ansible_facts['processor_vendor'] in ['AuthenticAMD', 'AMD'] %}
+      # Surgically prune blacklisted AMD deadlock drivers from target OS initramfs on AMD platforms
       omit_drivers+=" pcie_mp2_amd amd_sfh ccp "
+      {% endif %}
       
       # Forcefully pack logical volume, crypt, and tpm2-tss hooks (fixes NVMe-blind boot loops and guarantees TPM unseal across kernel upgrades)
       add_dracutmodules+=" crypt lvm tpm2-tss "

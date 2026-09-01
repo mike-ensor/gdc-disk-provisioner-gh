@@ -24,7 +24,12 @@
   changed_when: false
 
 - name: "GDC-EVIDENCE | Check GRUB parameters for TPM interrupts"
-  ansible.builtin.shell: grep -q 'tpm_tis.interrupts=0' /etc/default/grub
+  ansible.builtin.shell: |
+    if grep -qi "AuthenticAMD" /proc/cpuinfo; then
+      grep -q 'tpm_tis.interrupts=0' /etc/default/grub
+    else
+      exit 0
+    fi
   register: grub_check
   ignore_errors: true
   changed_when: false

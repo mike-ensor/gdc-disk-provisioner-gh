@@ -154,7 +154,7 @@ steps:
         
         BUCKET_NAME=$(echo "${_GCS_BUCKET_NAME}" | sed 's/^gs:\/\///')
         
-        echo "[-] Performing bucket retention cleanup (keeping last 5 ISOs in sync/)..."
+        echo "[-] Performing bucket retention cleanup (keeping last 6 ISOs in sync/)..."
         # List all ISOs in the sync/ directory of the bucket, sorted naturally by semantic version
         ISO_LIST=$(gcloud storage ls "gs://$${BUCKET_NAME}/sync/*.iso" 2>/dev/null | sort -V || true)
         
@@ -162,8 +162,8 @@ steps:
           ISO_COUNT=$(echo "$${ISO_LIST}" | wc -l)
           echo "[-] Found $${ISO_COUNT} ISOs in the sync/ folder."
           
-          if [ "$${ISO_COUNT}" -gt 5 ]; then
-            ARCHIVE_COUNT=$((ISO_COUNT - 5))
+          if [ "$${ISO_COUNT}" -gt 6 ]; then
+            ARCHIVE_COUNT=$((ISO_COUNT - 6))
             echo "[-] Archiving $${ARCHIVE_COUNT} older ISOs to the archived/ folder..."
             ARCHIVE_LIST=$(echo "$${ISO_LIST}" | head -n "$${ARCHIVE_COUNT}")
             
@@ -176,7 +176,7 @@ steps:
             done <<< "$${ARCHIVE_LIST}"
             echo "[-] Retention cleanup complete."
           else
-            echo "[-] ISO count ($${ISO_COUNT}) is <= 5. No archiving needed in sync/."
+            echo "[-] ISO count ($${ISO_COUNT}) is <= 6. No archiving needed in sync/."
           fi
         fi
 
