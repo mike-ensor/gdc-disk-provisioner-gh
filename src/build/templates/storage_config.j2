@@ -24,14 +24,14 @@ config:
   
   # Scaled Logical Volumes for Single Disk
   - {type: lvm_partition, id: lv-root, volgroup: vg-system, name: lv_root, size: 15G}
-  - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 15G}
+  - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 25G}
   - {type: lvm_partition, id: lv-varlog, volgroup: vg-system, name: lv_var_log, size: 15G}
   - {type: lvm_partition, id: lv-metrics, volgroup: vg-system, name: lv_var_opt_metrics, size: 10G}
   - {type: lvm_partition, id: lv-containerd, volgroup: vg-system, name: lv_containerd, size: 30G}
   - {type: lvm_partition, id: lv-etcd, volgroup: vg-system, name: lv_etcd, size: 20G}
   - {type: lvm_partition, id: lv-etcd-events, volgroup: vg-system, name: lv_etcd_events, size: 5G}
   - {type: lvm_partition, id: lv-gitea, volgroup: vg-system, name: lv_gitea, size: 15G}
-  - {type: lvm_partition, id: lv-nexus, volgroup: vg-system, name: lv_nexus, size: 60G}
+  - {type: lvm_partition, id: lv-nexus, volgroup: vg-system, name: lv_nexus, size: 50G}
   - {type: lvm_partition, id: lv-localdisk, volgroup: vg-system, name: lv_local_disk, size: 25G}
   - {type: lvm_partition, id: lv-sds, volgroup: vg-system, name: lv_sds, size: -1} 
   {% else %}
@@ -65,7 +65,7 @@ config:
   
   # LVs System
   - {type: lvm_partition, id: lv-root, volgroup: vg-system, name: lv_root, size: 20G}
-  - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 20G}
+  - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 25G}
   - {type: lvm_partition, id: lv-varlog, volgroup: vg-system, name: lv_var_log, size: 15G}
   - {type: lvm_partition, id: lv-metrics, volgroup: vg-system, name: lv_var_opt_metrics, size: 10G}
   - {type: lvm_partition, id: lv-containerd, volgroup: vg-system, name: lv_containerd, size: 30G}

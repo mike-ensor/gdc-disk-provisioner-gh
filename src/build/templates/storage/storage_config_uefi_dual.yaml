@@ -19,7 +19,7 @@
 
     # OS Logical Volumes on Disk 1 (Fits cleanly on 250G drive)
     - {type: lvm_partition, id: lv-root, volgroup: vg-system, name: lv_root, size: 20G}
-    - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 20G}
+    - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 25G}
     - {type: lvm_partition, id: lv-varlog, volgroup: vg-system, name: lv_var_log, size: 15G}
     - {type: lvm_partition, id: lv-metrics, volgroup: vg-system, name: lv_var_opt_metrics, size: 12G}
     - {type: lvm_partition, id: lv-containerd, volgroup: vg-system, name: lv_containerd, size: 33G}
