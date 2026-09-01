@@ -1,10 +1,7 @@
 ## template: jinja
 #cloud-config
 
-{% raw %}
-# {# Generate an 8-character hex session ID at boot time for log correlation #}
-# {% set boot_session_id = "%08x" | format(range(10000000, 2147483647) | random) %}
-{% endraw %}
+{% set boot_session_id = range(10000000, 99999999) | random %}
 
 bootcmd:
   - echo "{{ companion_ip }} {{ companion_host }}" >> /etc/hosts
@@ -13,7 +10,7 @@ bootcmd:
   - echo "127.0.0.1 geoip.canonical.com" >> /etc/hosts
 {% if enable_phone_home %}
 phone_home:
-  url: "{{ companion_url }}/public?version={{ ISO_VERSION }}&session={% raw %}{{ boot_session_id }}{% endraw %}&logname=phone-home"
+  url: "{{ companion_url }}/public?version={{ ISO_VERSION }}&session={{ boot_session_id }}&logname=phone-home"
   tries: 2
   post:
     - instance_id
@@ -26,7 +23,7 @@ autoinstall:
   reporting:
     webhook:
       type: webhook
-      endpoint: "{{ companion_url }}/secure?version={{ ISO_VERSION }}&session={% raw %}{{ boot_session_id }}{% endraw %}&logname=webhook"
+      endpoint: "{{ companion_url }}/secure?version={{ ISO_VERSION }}&session={{ boot_session_id }}&logname=webhook"
       level: INFO
 {% endif %}
   shutdown: reboot
@@ -88,6 +85,17 @@ autoinstall:
       touch /var/log/installer/subiquity-server-debug.log
       tail -f /var/log/installer/subiquity-server-debug.log > /dev/ttyS0 2>/dev/null &
     - |
+      # [GDC-INSTALL-STEP 1.5/12] Force unload AMD CCP/SFH to prevent cryptsetup panics on the Live ISO
+      if grep -qi "AuthenticAMD" /proc/cpuinfo; then
+        echo "[-] AMD Platform detected: Forcefully unloading ccp, amd_sfh, pcie_mp2_amd modules..."
+        modprobe -r ccp 2>/dev/null || true
+        rmmod ccp 2>/dev/null || true
+        modprobe -r amd_sfh 2>/dev/null || true
+        rmmod amd_sfh 2>/dev/null || true
+        modprobe -r pcie_mp2_amd 2>/dev/null || true
+        rmmod pcie_mp2_amd 2>/dev/null || true
+      fi
+    - |
       # [GDC-INSTALL-STEP 2/12] Configuring Live CD root password & registering diagnostics...
       {% if gdc_debug_mode %}
       echo "[-] [DEBUG-ISO] Configuring Live CD Root passworded SSH entry..."
@@ -143,9 +151,9 @@ autoinstall:
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Performing defensive block device sanitization & cache flushes"
       # A. Wipe all signatures on any existing partitions first before destroying partition table!
-      for p in /dev/nvme*p* /dev/sd*[0-9]; do
+      for p in /dev/nvme*p* /dev/nvme* /dev/sd* /dev/mapper/*; do
         if [ -b "${p}" ]; then
-          echo "   -> Wiping existing signatures on partition: ${p}"
+          echo "   -> Wiping existing signatures on: ${p}"
           wipefs --all --force "${p}" 2>/dev/null || true
         fi
       done
@@ -156,20 +164,19 @@ autoinstall:
         vgchange -an --force 2>/dev/null || true
         # Close any open dm mappings
         dmsetup remove_all --force || true
-        # Attempt hardware-level blkdiscard to instantly reset the SSD/NVMe drive to baseline factory state
+        # Attempt hardware-level blkdiscard to reset the SSD/NVMe drive
         echo "   -> Attempting hardware-level blkdiscard on: /dev/${d}"
-        if blkdiscard --force "/dev/${d}" 2>/dev/null; then
-          echo "   -> [SUCCESS] Hardware-level blkdiscard reset completed successfully."
-        else
-          echo "   -> [FALLBACK] blkdiscard not supported. Running sector-level wiping..."
-          # Zero out the LUKS header area (first 16MB) defensively to prevent kernel block caching conflicts
-          dd if=/dev/zero of="/dev/${d}" bs=1M count=16 oflag=direct status=none || true
-          # Also zero out the last 16MB of the disk to destroy the backup GPT header!
-          disk_size=$(blockdev --getsize64 "/dev/${d}" 2>/dev/null || echo "0")
-          if [ "${disk_size}" -gt 16777216 ]; then
-            seek_pos=$(( (disk_size - 16777216) / 1048576 ))
-            dd if=/dev/zero of="/dev/${d}" bs=1M count=16 seek="${seek_pos}" oflag=direct status=none || true
-          fi
+        blkdiscard --force "/dev/${d}" 2>/dev/null || true
+        
+        # Unconditionally zero out the partition table and first 100MB of the disk to destroy all stale LUKS headers
+        echo "   -> Zeroing out partition table and primary LUKS/GPT header region on: /dev/${d}"
+        dd if=/dev/zero of="/dev/${d}" bs=1M count=100 oflag=direct status=none || true
+        
+        # Also zero out the last 16MB of the disk to destroy the backup GPT header!
+        disk_size=$(blockdev --getsize64 "/dev/${d}" 2>/dev/null || echo "0")
+        if [ "${disk_size}" -gt 16777216 ]; then
+          seek_pos=$(( (disk_size - 16777216) / 1048576 ))
+          dd if=/dev/zero of="/dev/${d}" bs=1M count=16 seek="${seek_pos}" oflag=direct status=none || true
         fi
         
         # --- SYNCHRONIZATION AND FLUSHING ---
@@ -243,6 +250,33 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] Activating Live ISO network segment"
       PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
       
+    - |
+      # [GDC-INSTALL-STEP 4.5/12] Injecting cryptsetup wrapper to prevent argon2id OOM panics on HMB NVMe drives
+      echo "[-] Deploying cryptsetup memory-limit wrapper..."
+      cat << 'EOW' > /tmp/cryptsetup-wrapper
+      #!/bin/bash
+      if [[ "$*" == *"luksFormat"* ]]; then
+        # Force pbkdf2 and low iteration count for fast, low-memory bootstrapping
+        # This prevents 1GB argon2id allocations that crash DRAM-less NVMe HMB controllers
+        exec /tmp/cryptsetup.orig --pbkdf pbkdf2 --pbkdf-force-iterations 1000 "$@"
+      else
+        exec /tmp/cryptsetup.orig "$@"
+      fi
+      EOW
+      chmod +x /tmp/cryptsetup-wrapper
+      
+      # Backup the real binary
+      cp $(which cryptsetup) /tmp/cryptsetup.orig
+      
+      # Bind mount the wrapper over all cryptsetup instances (including inside the read-only snap!)
+      for cs in $(find /snap/subiquity -name cryptsetup -type f -executable 2>/dev/null); do
+        mount --bind /tmp/cryptsetup-wrapper "$cs" || true
+      done
+      for cs in /sbin/cryptsetup /usr/sbin/cryptsetup /bin/cryptsetup /usr/bin/cryptsetup; do
+        if [ -f "$cs" ]; then
+          mount --bind /tmp/cryptsetup-wrapper "$cs" || true
+        fi
+      done
       # [GDC-INSTALL-STEP 5/12] Activating Live ISO network segment...
       VLAN_ID="{{ machine_vlan }}"
       if [ -z "${VLAN_ID}" ] || [ "${VLAN_ID}" = "0" ]; then
@@ -682,25 +716,38 @@ autoinstall:
       echo "net.ipv4.udp_l3mdev_accept=1" >> /target/etc/sysctl.d/99-vrf.conf
       logger -t gdc-provisioner "[GOAL] VRF sysctl profiles configured successfully"
       
-      logger -t gdc-provisioner "[GOAL] Deploying kernel module blacklist to prevent AMD fTPM conflicts"
-      mkdir -p /target/etc/modprobe.d
-      echo "blacklist pcie_mp2_amd" > /target/etc/modprobe.d/gdc-blacklist.conf
-      echo "blacklist amd_sfh" >> /target/etc/modprobe.d/gdc-blacklist.conf
-      logger -t gdc-provisioner "[GOAL] Kernel module blacklist deployed successfully"
+      IS_AMD=false
+      if grep -qi "AuthenticAMD" /proc/cpuinfo; then
+        IS_AMD=true
+        logger -t gdc-provisioner "[GOAL] AMD platform detected: deploying kernel module blacklist to prevent fTPM conflicts"
+        mkdir -p /target/etc/modprobe.d
+        echo "blacklist pcie_mp2_amd" > /target/etc/modprobe.d/gdc-blacklist.conf
+        echo "blacklist amd_sfh" >> /target/etc/modprobe.d/gdc-blacklist.conf
+        echo "blacklist ccp" >> /target/etc/modprobe.d/gdc-blacklist.conf
+        logger -t gdc-provisioner "[GOAL] Kernel module blacklist deployed successfully"
+      else
+        logger -t gdc-provisioner "[GOAL] Non-AMD platform detected (Intel/Other): skipping AMD driver blacklist"
+        rm -f /target/etc/modprobe.d/gdc-blacklist.conf
+      fi
       
-      logger -t gdc-provisioner "[GOAL] Deploying kernel module blacklist and explicit dracut LUKS map to target GRUB configuration"
+      logger -t gdc-provisioner "[GOAL] Configuring target GRUB bootloader parameters"
       if [ -f /target/etc/default/grub ]; then
         # Dynamically extract the UUID of the physical LUKS partition to explicitly instruct dracut to unseal it
         # This resolves the issue where dracut systemd generators ignore encrypted volumes that contain the LVM root partition.
         LUKS_UUID=$(blkid -s UUID -o value -t TYPE=crypto_LUKS | head -n 1)
+        
+        PLATFORM_PARAMS=""
+        if [ "$IS_AMD" = "true" ]; then
+          PLATFORM_PARAMS="tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp"
+        fi
+        
+        TARGET_CMDLINE="console=tty1 console=ttyS0,115200 systemd.log_level=info ${PLATFORM_PARAMS} video=efifb:1280x1024"
         if [ -n "${LUKS_UUID}" ]; then
           echo "[-] Discovered primary LUKS partition UUID: ${LUKS_UUID}"
-          # Remove quiet splash and replace with extreme verbose, debug, serial redirects, and explicit rd.luks.uuid
-          sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=\".*\"/GRUB_CMDLINE_LINUX_DEFAULT=\"console=tty1 console=ttyS0,115200 systemd.log_level=debug systemd.log_target=console rd.debug rd.shell tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp video=efifb:1280x1024 rd.luks.uuid=luks-${LUKS_UUID}\"/g" /target/etc/default/grub
-        else
-          echo "[WARNING] Could not determine LUKS UUID. Falling back to default GRUB string."
-          sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=".*"/GRUB_CMDLINE_LINUX_DEFAULT="console=tty1 console=ttyS0,115200 systemd.log_level=debug systemd.log_target=console rd.debug rd.shell tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp video=efifb:1280x1024"/g' /target/etc/default/grub
+          TARGET_CMDLINE="${TARGET_CMDLINE} rd.luks.uuid=luks-${LUKS_UUID}"
         fi
+        
+        sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=\".*\"/GRUB_CMDLINE_LINUX_DEFAULT=\"${TARGET_CMDLINE}\"/g" /target/etc/default/grub
         
         # Enable GRUB boot menu interaction over serial console and configure 5s timeout with GDC branding
         sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT=5/g' /target/etc/default/grub
@@ -709,7 +756,7 @@ autoinstall:
         echo 'GRUB_TERMINAL="console serial"' >> /target/etc/default/grub
         echo 'GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"' >> /target/etc/default/grub
         curtin in-target -- update-grub || true
-        logger -t gdc-provisioner "[GOAL] Target GRUB command line updated successfully with extreme verbose debug, serial redirects, and LUKS UUIDs"
+        logger -t gdc-provisioner "[GOAL] Target GRUB command line updated successfully"
 
         # Apply standard GDC Boot Order Policy: set SSD as primary UEFI boot target after LiveCD installation
         logger -t gdc-provisioner "[GOAL] Applying standard UEFI boot re-ordering to prioritize local disk"
@@ -757,6 +804,11 @@ autoinstall:
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Rebuilding systemd-based initramfs"
       
+      IS_AMD=false
+      if grep -qi "AuthenticAMD" /proc/cpuinfo; then
+        IS_AMD=true
+      fi
+      
       # Bind mount virtual filesystems to allow chroot processes to access device maps and kernel interfaces
       mount -o bind /dev /target/dev || true
       mount -t proc none /target/proc || true
@@ -767,55 +819,67 @@ autoinstall:
       
       # Deploy persistent dracut configuration so future kernel upgrades (e.g. apt-get upgrade) retain mandatory GDC drivers and modules
       mkdir -p /target/etc/dracut.conf.d
-      printf '%s\n' \
-        '# Persistent GDC Dracut configuration' \
-        'omit_drivers+=" pcie_mp2_amd amd_sfh ccp "' \
-        'add_dracutmodules+=" crypt lvm tpm2-tss "' \
-        'add_drivers+=" tpm tpm_tis tpm_crb tpm_tis_core "' \
-        'hostonly="no"' \
-        > /target/etc/dracut.conf.d/gdc.conf
+      if [ "$IS_AMD" = "true" ]; then
+        printf '%s\n' \
+          '# Persistent GDC Dracut configuration (AMD Platform)' \
+          'omit_drivers+=" pcie_mp2_amd amd_sfh ccp "' \
+          'add_dracutmodules+=" crypt lvm tpm2-tss "' \
+          'add_drivers+=" tpm tpm_tis tpm_crb tpm_tis_core "' \
+          'hostonly="no"' \
+          > /target/etc/dracut.conf.d/gdc.conf
+      else
+        printf '%s\n' \
+          '# Persistent GDC Dracut configuration (Intel/Generic Platform)' \
+          'add_dracutmodules+=" crypt lvm tpm2-tss "' \
+          'add_drivers+=" tpm tpm_tis tpm_crb tpm_tis_core "' \
+          'hostonly="no"' \
+          > /target/etc/dracut.conf.d/gdc.conf
+      fi
       logger -t gdc-provisioner "[GOAL] Persistent dracut configuration deployed to /target/etc/dracut.conf.d/gdc.conf"
       
-      # Deploy the initramfs-tools hook to physically delete fTPM-deadlocking drivers from compilation staging
-      mkdir -p /target/etc/initramfs-tools/hooks
-      printf '%s\n' \
-        '#!/bin/sh' \
-        'PREREQ=""' \
-        'prereqs() {' \
-        '    echo "$PREREQ"' \
-        '}' \
-        'case "$1" in' \
-        '    prereqs)' \
-        '        prereqs' \
-        '        exit 0' \
-        '        ;;' \
-        'esac' \
-        '' \
-        '. /usr/share/initramfs-tools/hook-functions' \
-        '' \
-        '# Count matching files before pruning' \
-        'files_to_prune=$(find "${DESTDIR}" -name "*amd_sfh.ko*" -o -name "*pcie_mp2_amd.ko*")' \
-        'num_found=0' \
-        'if [ -n "${files_to_prune}" ]; then' \
-        '    num_found=$(echo "${files_to_prune}" | wc -l)' \
-        'fi' \
-        'echo "[-] Found ${num_found} blacklisted deadlock drivers in initramfs staging. Pruning..."' \
-        '' \
-        '# Perform the deletion sweep' \
-        'find "${DESTDIR}" -name "*amd_sfh.ko*" -delete' \
-        'find "${DESTDIR}" -name "*pcie_mp2_amd.ko*" -delete' \
-        '' \
-        '# Assert that no blacklisted drivers remain in the staging directory' \
-        'remaining_files=$(find "${DESTDIR}" -name "*amd_sfh.ko*" -o -name "*pcie_mp2_amd.ko*")' \
-        'if [ -n "${remaining_files}" ]; then' \
-        '    echo "[!] CRITICAL ERROR: Failed to prune deadlock drivers from initramfs staging directory!" >&2' \
-        '    echo "${remaining_files}" >&2' \
-        '    exit 1' \
-        'fi' \
-        'echo "[+] Verification successful: 0 blacklisted deadlock drivers remain in initramfs staging directory."' \
-        > /target/etc/initramfs-tools/hooks/zz-gdc-blacklist
-      chmod +x /target/etc/initramfs-tools/hooks/zz-gdc-blacklist
-      logger -t gdc-provisioner "[GOAL] Custom initramfs-tools hook deployed successfully to prune deadlock drivers"
+      # Deploy the initramfs-tools hook to physically delete fTPM-deadlocking drivers from compilation staging on AMD
+      if [ "$IS_AMD" = "true" ]; then
+        mkdir -p /target/etc/initramfs-tools/hooks
+        printf '%s\n' \
+          '#!/bin/sh' \
+          'PREREQ=""' \
+          'prereqs() {' \
+          '    echo "$PREREQ"' \
+          '}' \
+          'case "$1" in' \
+          '    prereqs)' \
+          '        prereqs' \
+          '        exit 0' \
+          '        ;;' \
+          'esac' \
+          '' \
+          '. /usr/share/initramfs-tools/hook-functions' \
+          '' \
+          '# Count matching files before pruning' \
+          'files_to_prune=$(find "${DESTDIR}" -name "*amd_sfh*" -o -name "*pcie_mp2_amd*" -o -name "*ccp*")' \
+          'num_found=0' \
+          'if [ -n "${files_to_prune}" ]; then' \
+          '    num_found=$(echo "${files_to_prune}" | wc -l)' \
+          'fi' \
+          'echo "[-] Found ${num_found} blacklisted deadlock drivers in initramfs staging. Pruning..."' \
+          '' \
+          '# Perform the deletion sweep' \
+          'find "${DESTDIR}" -name "*amd_sfh*" -delete' \
+          'find "${DESTDIR}" -name "*pcie_mp2_amd*" -delete' \
+          'find "${DESTDIR}" -name "*ccp*" -delete' \
+          '' \
+          '# Assert that no blacklisted drivers remain in the staging directory' \
+          'remaining_files=$(find "${DESTDIR}" -name "*amd_sfh*" -o -name "*pcie_mp2_amd*" -o -name "*ccp*")' \
+          'if [ -n "${remaining_files}" ]; then' \
+          '    echo "[!] CRITICAL ERROR: Failed to prune deadlock drivers from initramfs staging directory!" >&2' \
+          '    echo "${remaining_files}" >&2' \
+          '    exit 1' \
+          'fi' \
+          'echo "[+] Verification successful: 0 blacklisted deadlock drivers remain in initramfs staging directory."' \
+          > /target/etc/initramfs-tools/hooks/zz-gdc-blacklist
+        chmod +x /target/etc/initramfs-tools/hooks/zz-gdc-blacklist
+        logger -t gdc-provisioner "[GOAL] Custom initramfs-tools hook deployed successfully to prune deadlock drivers"
+      fi
       
       # Determine highest kernel version installed in /target
       TARGET_KERNEL=$(ls -1 /target/lib/modules | sort -V | tail -n 1)
@@ -888,13 +952,18 @@ autoinstall:
           exit 1
         fi
         
-        # Assertion 5: Deadlock drivers are omitted
-        if curtin in-target -- lsinitramfs "${INITRD_FILE#/target}" | grep -q -E "pcie_mp2_amd|amd_sfh"; then
-          echo "[GDC-INSTALL-FAIL] Critical Failure: Blacklisted AMD Sensor Fusion Hub drivers compiled into initrd!" >/dev/ttyS0
-          exit 1
+        # Assertion 5: Deadlock drivers are omitted on AMD platforms
+        if [ "$IS_AMD" = "true" ]; then
+          if curtin in-target -- lsinitramfs "${INITRD_FILE#/target}" | grep -q -E "pcie_mp2_amd|amd_sfh"; then
+            echo "[GDC-INSTALL-FAIL] Critical Failure: Blacklisted AMD Sensor Fusion Hub drivers compiled into initrd!" >/dev/ttyS0
+            exit 1
+          else
+            logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: Deadlock drivers omitted from initrd."
+            echo "    [+] Success: Deadlock drivers omitted from initrd."
+          fi
         else
-          logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: Deadlock drivers omitted from initrd."
-          echo "    [+] Success: Deadlock drivers omitted from initrd."
+          logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: Non-AMD platform (skipping AMD driver omission assertion)."
+          echo "    [+] Success: Non-AMD platform (skipping AMD driver omission assertion)."
         fi
       else
         echo "[GDC-INSTALL-FAIL] Critical Failure: No initrd file found in /target/boot/!" >/dev/ttyS0

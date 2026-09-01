@@ -22,6 +22,7 @@ fi; \
 git config --system --add safe.directory /var/lib/gitea/repos/gdc/bootstrap-playbooks.git || true; \
 git config --system --add safe.directory '*' || true; \
 flock -n /var/run/gdc-provision.lock /usr/bin/ansible-pull \
+  -d /var/gdc-install/playbooks/bootstrap \
   -U /var/lib/gitea/repos/gdc/bootstrap-playbooks.git \
   -C {{ git_branch | default('main') }} \
   -i localhost, \

@@ -3,8 +3,8 @@
 # Generated dynamically by GDC storage orchestrator (BIOS Dual Disk)
   config:
     # --- Physical Drives ---
-    - {type: disk, id: disk-system, path: /dev/${DISK_1}, ptable: gpt, grub_device: true, wipe: superblock-recursive}
-    - {type: disk, id: disk-data, path: /dev/${DISK_2}, ptable: gpt, wipe: superblock-recursive}
+    - {type: disk, id: disk-system, path: /dev/${DISK_1}, ptable: gpt, grub_device: true, wipe: superblock}
+    - {type: disk, id: disk-data, path: /dev/${DISK_2}, ptable: gpt, wipe: superblock}
     
     # --- Disk 1 System Partitioning (EFI, Boot, and Core OS Services) ---
     - {type: partition, id: partition-bios-grub, device: disk-system, size: 1048576, flag: bios_grub}

@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gdc.google.com/schemas/preflight-validation-v1.json",
+  "title": "GDC Preflight Validation Results",
+  "description": "Standardized contract for surfacing decoupled pre-provisioning hardware, software, and network readiness checks.",
+  "type": "object",
+  "required": [
+    "test_suite",
+    "execution_timestamp",
+    "overall_status",
+    "results"
+  ],
+  "properties": {
+    "test_suite": {
+      "type": "string",
+      "description": "The name of the test runner or suite generating this report (e.g., 'gdc-ansible-preflight')."
+    },
+    "execution_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC3339 timestamp of when the test suite completed execution."
+    },
+    "overall_status": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "WARN"],
+      "description": "Aggregated status of the entire test suite. FAIL indicates at least one FATAL test failed."
+    },
+    "total_duration_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total execution time of the test suite in milliseconds."
+    },
+    "results": {
+      "type": "array",
+      "description": "Collection of individual test case executions.",
+      "items": {
+        "type": "object",
+        "required": [
+          "test_name",
+          "category",
+          "status",
+          "severity",
+          "notes"
+        ],
+        "properties": {
+          "test_name": {
+            "type": "string",
+            "description": "Unique identifier or descriptive name for the individual test."
+          },
+          "category": {
+            "type": "string",
+            "enum": ["hardware", "network", "storage", "binary", "configuration", "service"],
+            "description": "The domain of the validation check."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["PASS", "FAIL", "SKIPPED", "WARN"],
+            "description": "The outcome of the test execution."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["FATAL", "WARNING", "INFO"],
+            "description": "The impact of a test failure. FATAL means provisioning cannot proceed."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Detailed output, error messages, or context regarding the test execution."
+          },
+          "remediation_hint": {
+            "type": "string",
+            "description": "Optional actionable advice for an operator to resolve a failure."
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 timestamp of when the specific test was executed."
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Execution time of the individual test in milliseconds."
+          },
+          "meta": {
+            "type": "object",
+            "description": "Optional arbitrary metadata associated with the test execution (e.g. resolved IPs, socket status)."
+          }
+        }
+      }
+    }
+  }
+}

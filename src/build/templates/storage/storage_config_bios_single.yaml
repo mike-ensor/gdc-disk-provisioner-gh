@@ -2,7 +2,7 @@
 
 # Generated dynamically by GDC storage orchestrator (BIOS Single Disk)
   config:
-    - {type: disk, id: disk-system, path: /dev/${DISK_1}, ptable: gpt, grub_device: true, wipe: superblock-recursive}
+    - {type: disk, id: disk-system, path: /dev/${DISK_1}, ptable: gpt, grub_device: true, wipe: superblock}
     - {type: partition, id: partition-bios-grub, device: disk-system, size: 1048576, flag: bios_grub}
     - {type: partition, id: partition-boot, device: disk-system, size: 2147483648}
     - {type: partition, id: partition-lvm, device: disk-system, size: -1, wipe: superblock}

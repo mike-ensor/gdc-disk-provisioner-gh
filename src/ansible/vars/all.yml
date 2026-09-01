@@ -1,0 +1,170 @@
+---
+# ==============================================================================
+# GDC Ready-Linux Central Configuration Variables
+# ==============================================================================
+
+# Core GDC OS packages from official Google package-server requirements
+# (Ref: https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/installing/package-server#needed_packages_and_their_dependencies)
+gdc_core_packages:
+  - "python3"
+  - "apt-transport-https"
+  - "ca-certificates"
+  - "conntrack"
+  - "curl"
+  - "software-properties-common"
+  - "gnupg2"
+  - "socat"
+  - "iproute2"
+  - "ebtables"
+  - "ethtool"
+  - "logrotate"
+  - "libseccomp-dev"
+  - "chrony"
+  - "docker-ce"
+  - "docker-ce-cli"
+  - "containerd.io"
+  - "tpm2-tools"
+  - "libtss2-tcti-device0t64"
+  - "cryptsetup"
+  - "cryptsetup-initramfs"
+  - "dracut"
+  - "dracut-core"
+  - "step-cli"
+  - "auditd"
+  - "rsyslog"
+  - "audispd-plugins"
+  - "unattended-upgrades" # Ensured for no-reboot security patching
+  - "net-tools"
+  - "arp-scan"
+  - "linux-generic-hwe-24.04"
+
+# Packages to purge for OS slimming & security reduction
+gdc_purge_packages:
+  - "snapd"
+  - "lxd"
+  - "x11-common"
+  - "ubuntu-server"
+  - "ubuntu-server-minimal"
+
+# Upstream Google NTP Server Sources
+ntp_upstream_servers:
+  - "time.google.com"
+  - "time1.google.com"
+  - "time2.google.com"
+  - "time3.google.com"
+  - "time4.google.com"
+
+# Broad-gap step parameters for chrony
+# - Allow stepping the clock on any update if the offset exceeds 1.0s (unlimited times)
+chrony_makestep_threshold: "1.0"
+chrony_makestep_limit: "-1"
+
+# Target system sysctl limits for kernel parameters
+gdc_sysctl_parameters:
+  - { name: "fs.inotify.max_user_instances", value: "8192" }
+  - { name: "fs.inotify.max_user_watches", value: "524288" }
+  - { name: "net.core.bpf_jit_enable", value: "1" }
+
+# Local Docker daemon registry-mirror address pointing to local Nexus Docker Group Port
+gdc_docker_registry_mirror: "http://nexus.gdc.local:5001"
+
+# Administrative user details
+gdc_admin_user: "gdc-admin"
+gdc_admin_group: "gdc-admin"
+gdc_admin_additional_groups:
+  - "sudo"
+  - "docker"
+
+# GDC Installation Artifact Directory Structure (under /var)
+gdc_install_root: "/var/gdc-install"
+gdc_install_directories:
+  - "logs"
+  - "packages"
+  - "config-sync-configs"
+  - "bmctl-workspace"
+  - "external-secrets"
+  - "keys"
+  - "kubeconfig"
+  - "scripts"
+  - "sds-configs"
+  - "snapshots"
+  - "tools"
+  - "tools/google-cloud-sdk"
+  - "tools/node-agent"
+  - "vmruntime-configs"
+
+# NodeAgent Configuration Settings
+gdc_nodeagent_install_dir: "/var/gdc-install/tools/node-agent"
+gdc_nodeagent_version: "1.33.0"
+# Local loopback GGD Nexus raw path or authenticated GCS bucket source
+gdc_nodeagent_binary_source_url: "http://nexus.gdc.local:8081/repository/gdc-raw-hosted/nodeagent/nodeagentd"
+
+# Google Cloud SDK Configuration (Non-apt setup)
+# (Ref: https://docs.cloud.google.com/sdk/docs/install-sdk#latest-version)
+gdc_gcloud_tarball_path: "/var/gdc-install/tools/google-cloud-cli-linux-x86_64.tar.gz"
+gdc_gcloud_install_dir: "/var/gdc-install/tools/google-cloud-sdk"
+
+# Google Cloud SDK components to install natively
+gdc_gcloud_components:
+  - { app: "nomos" }
+  - { app: "gsutil" }
+  - { app: "kubectl" }
+  - { app: "kubectl-oidc" }
+
+# Enforce system-wide UTC Timezone
+gdc_system_timezone: "Etc/UTC"
+
+# PCR registers to seal LUKS decryption keys to (PCR 0 = BIOS firmware, PCR 7 = Secure Boot state).
+gdc_tpm_pcrs: "0+7"
+
+# Service Update Scripts to deploy to /var/gdc-install/scripts/
+gdc_service_update_scripts:
+  - { name: "update-gitea.sh", service: "gitea" }
+  - { name: "update-nexus.sh", service: "nexus" }
+  - { name: "update-nodeagent.sh", service: "nodeagent" }
+  - { name: "update-docker.sh", service: "docker" }
+
+# Package Blacklist for Unattended Upgrades to prevent automatic node reboots
+gdc_unattended_blacklist:
+  - "linux-image-.*"
+  - "linux-headers-.*"
+  - "linux-modules-.*"
+  - "linux-modules-extra-.*"
+  - "intel-microcode"
+  - "amd64-microcode"
+  - "libc6"
+  - "libc6-dev"
+
+# Toggle to deactivate standard public Ubuntu apt repositories
+# (set to false for connected testing/development, true for strict air-gapped production)
+deactivate_public_sources: true
+
+# ==============================================================================
+# Upstream APT Mirrors (Configurable for Corporate Proxies)
+# ==============================================================================
+upstream_apt_mirror: "http://archive.ubuntu.com/ubuntu/"
+upstream_security_mirror: "http://security.ubuntu.com/ubuntu/"
+
+# ==============================================================================
+# GDC System Desired State Configurations
+# ==============================================================================
+desired_state_enabled: true
+desired_state_repo_name: "system-desired-state"
+desired_state_repo_path: "/var/lib/gitea/repos/gdc/system-desired-state.git"
+desired_state_upstream_url: ""
+desired_state_git_branch: "main"
+desired_state_playbook_entrypoint: "local.yml"
+desired_state_pull_schedule: "*:0/30"
+desired_state_log_path: "/var/gdc-install/logs/gdc-desired-state.log"
+
+# ==============================================================================
+# GDC Companion Global Variables (Hydrated at Build Time)
+# ==============================================================================
+gdc_companion_base_url: "https://gdc-companion.ensor-labs.com/"
+gdc_companion_api_key: "AOgIcFproZQpYgaqDJrsUOD1MfhxwFqBANp2JumB5wM="
+gdc_companion_ingest_url: "https://gdc-companion.ensor-labs.com/v1/install-logs"
+gdc_companion_reports_url: "https://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+gdc_step_ca_url: "https://step-ca.ensor-labs.com"
+gdc_step_provisioner_name: "admin"
+gdc_step_provisioner_password: "JvXiHJWZNKR2qqX2yXywmjvuDIvBMgig"
+gdc_step_ca_fingerprint: ""

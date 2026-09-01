@@ -396,19 +396,20 @@
 
 - name: "GDC-TASK-06 | Redefine core packages list for Ubuntu 24.04 (noble)"
   ansible.builtin.set_fact:
-    gdc_core_packages: "{{ gdc_core_packages | reject('equalto', 'systemd-initramfs') | list }}"
+    gdc_core_packages: "{{ (gdc_core_packages | default([])) | reject('equalto', 'systemd-initramfs') | list }}"
   when: ansible_distribution_release == 'noble'
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
 - name: "GDC-TASK-06 | Install GDC Configured Post-Install Packages"
   ansible.builtin.apt:
-    name: "{{ gdc_core_packages }}"
+    name: "{{ gdc_core_packages | default([]) }}"
     state: present
     update_cache: false
     allow_downgrades: true
   register: apt_install_result
   environment:
     NEEDRESTART_MODE: l
+  when: (gdc_core_packages | default([]) | length) > 0
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
 - name: "GDC-TASK-06 | Purge unneeded or conflicting packages for security and stability"
