@@ -48,11 +48,9 @@ gdc_purge_packages:
 
 # Upstream Google NTP Server Sources
 ntp_upstream_servers:
-  - "time.google.com"
-  - "time1.google.com"
-  - "time2.google.com"
-  - "time3.google.com"
-  - "time4.google.com"
+{% for server in ntp_upstream_servers %}
+  - "{{ server }}"
+{% endfor %}
 
 # Broad-gap step parameters for chrony
 # - Allow stepping the clock on any update if the offset exceeds 1.0s (unlimited times)

@@ -323,6 +323,10 @@ if __name__ == "__main__":
     env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
     env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
     
+    # Process NTP Upstream Servers
+    ntp_servers_raw = env.get('NTP_UPSTREAM_SERVERS', 'time.google.com, time1.google.com, time2.google.com, time3.google.com, time4.google.com')
+    env['ntp_upstream_servers'] = [s.strip() for s in ntp_servers_raw.split(',') if s.strip()]
+    
     # Process GDC_COMPANION flag
     raw_companion = env.get('GDC_COMPANION', env.get('BOOT_LOGGING', 'TRUE'))
     companion_val = str(raw_companion).strip().upper()

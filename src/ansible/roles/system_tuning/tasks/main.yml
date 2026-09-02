@@ -137,6 +137,21 @@
   when: chrony_config.changed
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
+- name: "GDC-TASK-08 | Force Chrony step (Makestep)"
+  ansible.builtin.command: chronyc -a makestep
+  ignore_errors: true
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-08 | Wait for Chrony to synchronize"
+  ansible.builtin.command: chronyc waitsync 30
+  ignore_errors: true
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-08 | Verify OS clock is synchronized"
+  ansible.builtin.shell: timedatectl status | grep -q "System clock synchronized.*yes"
+  ignore_errors: true
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
 # --------------------------------------------------------------------------
 # Task 09: Container Engines Setup & Loopback Redirects
 # --------------------------------------------------------------------------

@@ -46,6 +46,19 @@
     mode: '0644'
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-11 | Deploy noninteractive dpkg configuration to force defaults or keep old configs"
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/99noninteractive
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      Dpkg::Options {
+         "--force-confdef";
+         "--force-confold";
+      }
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-11 | Deploy persistent 20auto-upgrades config"
   ansible.builtin.copy:
     dest: /etc/apt/apt.conf.d/20auto-upgrades
