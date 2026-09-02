@@ -62,6 +62,26 @@ bash -c 'cat << EOF > /var/gdc-install/state/cluster-turnup.json
 }
 EOF'
 
+export ADMIN_GSA="admin-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+export GCR_GSA="baremetal-gcr@${PROJECT_ID}.iam.gserviceaccount.com"
+
+gcloud iam service-accounts add-iam-policy-binding \
+  "${GCR_GSA}" \
+  --member="serviceAccount:${ADMIN_GSA}" \
+  --role="roles/iam.serviceAccountTokenCreator" \
+  --project="${PROJECT_ID}"
+
+gcloud iam service-accounts add-iam-policy-binding "${GCR_GSA}" \
+  --member="serviceAccount:${ADMIN_GSA}" \
+  --role="roles/iam.serviceAccountTokenCreator" \
+  --project="${PROJECT_ID}"
+
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${PROJECT_ID}.svc.id.goog[kube-system/anthos-cluster-operator]" \
+  --role="roles/gkehub.admin" \
+  --project="${PROJECT_ID}"
+
+
 # 2. Create cluster
 /usr/local/bin/cluster/create_cluster.sh
 
