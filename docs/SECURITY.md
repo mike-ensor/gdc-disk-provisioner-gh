@@ -81,3 +81,34 @@ Once the post-install Ansible playbook executes successfully, the node transitio
 * **CIS Level 2 Benchmark Controls:** Applies rigorous operating system policies, including SSH connection limits, FIPS-compliant cryptographic ciphers, systemd audit rules (`auditd`), and strict `sysctl` kernel parameters.
 * **Snapd & Bloat Purging:** Explicitly purges Ubuntu's package daemon (`snapd`), unneeded compilers, development environments, and standard display interfaces, reducing the system attack surface and storage footprint.
 * **TPM SSH Host Keys:** Enslaves host SSH keys to the motherboard's secure cryptoprocessor using `ssh-tpm-agent`, ensuring the node's private SSH identity keys can never be cloned or exported.
+
+## 5. Keyless Profile Authentication (GCP / gcloud)
+
+To prevent baking static GCP Service Account JSON keys to disk (where they could be extracted from a compromised node), the GDC node uses a **Keyless Profile** for `gcloud` and Application Default Credentials (ADC). 
+
+During cluster turnup, the node securely requests a short-lived OAuth 2.0 access token from the GDC Companion over mTLS. A local STS (Security Token Service) Proxy running as a background service (`gdc-sts-proxy.service`) serves this volatile token to the GCP SDKs.
+
+### Manual Authentication (Disconnected Node)
+
+If a node does **not** have access to the GDC Companion to receive the dynamic bearer token (e.g., in an air-gapped lab or during a network outage), the automated STS proxy will fail, and GCP commands will return `403 Access Denied` or `No credentialed accounts`.
+
+To bypass the STS proxy and manually authenticate the machine using standard credentials, you must temporarily override the custom external account environment variables set in `/etc/profile.d/gdc-adc.sh`:
+
+1.  **Unset the custom ADC variables in your current shell:**
+    ```bash
+    unset GOOGLE_APPLICATION_CREDENTIALS
+    unset GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES
+    ```
+
+2.  **Authenticate the gcloud CLI (headless):**
+    ```bash
+    gcloud auth login --no-browser
+    ```
+    *(Follow the on-screen instructions to paste the verification URL into a local browser, authenticate, and paste the code back into the terminal).*
+
+3.  **Authenticate Application Default Credentials (ADC):**
+    ```bash
+    gcloud auth application-default login --no-browser
+    ```
+
+*(Note: The custom `GOOGLE_APPLICATION_CREDENTIALS` environment variables will be restored automatically upon the next SSH login or reboot, but your manual `~/.config/gcloud/` credentials will persist until explicitly revoked or wiped).*
