@@ -50,6 +50,18 @@ if [[ -f "${CLUSTER_CONFIG_FILE}" ]]; then
   fi
 fi
 
+## Progress the build state sequence (artificially)
+bash -c 'cat << EOF > /var/gdc-install/state/cluster-turnup.json
+{
+  "stage": "CLUSTER_TURNUP",
+  "status": "in_progress",
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "evidence": {
+    "override": "Manual cluster ingestion actively waiting on NodeAgent..."
+  }
+}
+EOF'
+
 /usr/local/bin/cluster/create_cluster.sh
 ```
 
