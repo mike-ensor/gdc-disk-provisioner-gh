@@ -95,9 +95,15 @@ If a node does **not** have access to the GDC Companion to receive the dynamic b
 To bypass the STS proxy and manually authenticate the machine using standard credentials, you must temporarily override the custom external account environment variables set in `/etc/profile.d/gdc-adc.sh`:
 
 1.  **Unset the custom ADC variables in your current shell:**
+    You can use the built-in alias to instantly unset them for your current session:
     ```bash
-    unset GOOGLE_APPLICATION_CREDENTIALS
-    unset GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES
+    gdc-adc-disable
+    ```
+    *(Alternatively, manually run `unset GOOGLE_APPLICATION_CREDENTIALS GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES`).*
+
+    **Permanent Override (Optional):** If you want to disable the STS proxy injection permanently across all logins, you can touch a flag file:
+    ```bash
+    sudo touch /etc/gdc/manual_adc_override
     ```
 
 2.  **Authenticate the gcloud CLI (headless):**

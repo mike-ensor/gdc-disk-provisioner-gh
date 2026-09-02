@@ -233,8 +233,13 @@
     group: root
     mode: '0644'
     content: |
-      export GOOGLE_APPLICATION_CREDENTIALS="/etc/gdc/application_default_credentials.json"
-      export GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1
+      if [ ! -f /etc/gdc/manual_adc_override ]; then
+        export GOOGLE_APPLICATION_CREDENTIALS="/etc/gdc/application_default_credentials.json"
+        export GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1
+      fi
+      
+      alias gdc-adc-disable='unset GOOGLE_APPLICATION_CREDENTIALS GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES'
+      alias gdc-adc-enable='export GOOGLE_APPLICATION_CREDENTIALS="/etc/gdc/application_default_credentials.json" GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1'
 
 - name: "GDC-ORCH | Authenticate gcloud using short-lived access token"
   ansible.builtin.shell: |
