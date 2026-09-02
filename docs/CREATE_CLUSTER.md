@@ -63,37 +63,48 @@ bash -c 'cat << EOF > /var/gdc-install/state/cluster-turnup.json
 EOF'
 
 # 2. Create cluster
-
 /usr/local/bin/cluster/create_cluster.sh
 
-# 3. Export Verified Kubeconfig
+# 3. Export Verified Kubeconfig and apply config-sync (NOTE: THIS IS NOT FULLY FUNCTIONAL AS-IS)
 if [[ ! -f "${KUBECONFIG_PATH}" ]]; then
   # Fallback if bmctl wrote flat kubeconfig in directory
-  if [[ -f "/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}/kubeconfig" ]]; then
-    KUBECONFIG_PATH="/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}/kubeconfig"
+  fallback_path="/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}/${CLUSTER_NAME}-kubeconfig"
+  if [[ -f "${fallback_path}" ]]; then
+    KUBECONFIG_PATH="${fallback_path}"
     export KUBECONFIG="${KUBECONFIG_PATH}"
 
-    # 4. Apply Fleet Config Management via Heredoc directly to gcloud
-    gcloud beta container fleet config-management apply \
-        --membership="${CLUSTER_NAME}" \
-        --config=/dev/stdin << EOF
-    applySpecVersion: 1
-    spec:
-      configSync:
-        enabled: true
-        sourceType: git
-        syncRepo: https://gitlab.com/gcp-solutions-public/retail-edge/customer-demos/dp-primary-root.git
-        syncBranch: main
-        secretType: none
-        policyDir: /config/${CLUSTER_NAME}/meta
-        preventDrift: false
-    EOF
+    # Generate isolated apply-spec.yaml manifest
+    SPEC_DIR="/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}"
+    SPEC_FILE="${SPEC_DIR}/apply-spec.yaml"
 
+    cat <<EOF > "${SPEC_FILE}"
+applySpecVersion: 1
+spec:
+  configSync:
+    enabled: true
+    sourceType: git
+    syncRepo: https://gitlab.com/gcp-solutions-public/retail-edge/customer-demos/dp-primary-root.git
+    syncBranch: main
+    secretType: none
+    policyDir: /config/${CLUSTER_NAME}/meta
+    preventDrift: false
+EOF
+
+    # Apply Fleet Config Management via written spec file
+    gcloud beta container fleet config-management apply \
+      --membership="${CLUSTER_NAME}" \
+      --config="${SPEC_FILE}"
+
+    echo "Success"
   else
     echo "ERROR: Kubeconfig not found for cluster ${CLUSTER_NAME}" >&2
+    exit 1
   fi
 fi
 
+nomos status --contexts="${CLUSTER_NAME}"
+# Or via gcloud fleet:
+gcloud beta container fleet config-management status --project="$(gcloud config get-value project)"
 ```
 
 ## Overview
