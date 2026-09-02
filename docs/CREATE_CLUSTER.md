@@ -62,7 +62,38 @@ bash -c 'cat << EOF > /var/gdc-install/state/cluster-turnup.json
 }
 EOF'
 
+# 2. Create cluster
+
 /usr/local/bin/cluster/create_cluster.sh
+
+# 3. Export Verified Kubeconfig
+if [[ ! -f "${KUBECONFIG_PATH}" ]]; then
+  # Fallback if bmctl wrote flat kubeconfig in directory
+  if [[ -f "/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}/kubeconfig" ]]; then
+    KUBECONFIG_PATH="/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}/kubeconfig"
+  else
+    echo "ERROR: Kubeconfig not found for cluster ${CLUSTER_NAME}" >&2
+    exit 1
+  fi
+fi
+export KUBECONFIG="${KUBECONFIG_PATH}"
+
+# 4. Apply Fleet Config Management via Heredoc directly to gcloud
+gcloud beta container fleet config-management apply \
+    --membership="${CLUSTER_NAME}" \
+    --config=/dev/stdin << EOF
+applySpecVersion: 1
+spec:
+  configSync:
+    enabled: true
+    sourceType: git
+    syncRepo: https://gitlab.com/gcp-solutions-public/retail-edge/customer-demos/dp-primary-root.git
+    syncBranch: main
+    secretType: none
+    policyDir: /config/${CLUSTER_NAME}/meta
+    preventDrift: false
+EOF
+
 ```
 
 ## Overview
