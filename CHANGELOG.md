@@ -7,7 +7,13 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 
 
-## [Unreleased] - 2026-09-01
+## [Unreleased] - 2026-09-04
+
+### Added
+- **Global gcloud Authentication Configuration:** Updated `machine_orchestration/tasks/main.yml` to apply the `gcloud` access token file configuration globally using the `--installation` flag. This allows any user (not just `root` and `gdc-admin`) to access the `gcloud` authentication token via `/run/gdc-auth/access_token` globally if needed.
+- **FAQ Documentation:** Created `FAQ.md` at the project root detailing how to configure gcloud authentication for non-admin users.
+
+## [0.4.38] - 2026-09-01
 
 ### Added
 - **Concurrent Dual ISO Orchestrator (`concurrent_build.sh`):** Engineered a new wrapper script to spawn and monitor two parallel Google Cloud Build pipelines, simultaneously compiling the standard GDC companion-enabled ISO and a completely offline, companion-less equivalent.
