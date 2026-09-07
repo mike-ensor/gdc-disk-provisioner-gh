@@ -1,6 +1,7 @@
 [Unit]
 Description=GDC Ready-Linux First Boot Provisioner
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
@@ -10,7 +11,9 @@ Environment=ANSIBLE_FORCE_COLOR=1
 EnvironmentFile=-/etc/default/gdc-provision
 StandardOutput=journal
 StandardError=journal
-ExecStart=/bin/bash -c " \
+Restart=on-failure
+RestartSec=20m
+ExecStart=/bin/bash -o pipefail -c " \
 mkdir -p /var/gdc-install/logs; \
 ln -sf /var/gdc-install/logs/gdc-ansible-pull.log /var/log/gdc-ansible-pull.log; \
 if ! command -v ansible-pull &>/dev/null; then \
