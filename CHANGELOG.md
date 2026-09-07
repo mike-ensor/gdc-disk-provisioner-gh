@@ -7,6 +7,16 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 
 
+## [0.7.1] - 2026-09-07
+
+### Added
+- **Self-Healing Provisioner Service (`gdc-provision.service`):** Configured the first-boot `ansible-pull` systemd service with `Restart=on-failure`, `RestartSec=20m`, and `StartLimitIntervalSec=0` to ensure headless bare-metal nodes automatically retry provisioning indefinitely upon failure without manual operator intervention.
+- **Pipeline Exit-Code Propagation (`pipefail`):** Added `-o pipefail` to the `gdc-provision.service` bash execution wrapper, preventing piped stdout logging via `tee` from masking `ansible-pull` failure exit codes as success.
+- **Dual Concurrent Cloud Build Release (v0.7.1):** Compiled and deployed v0.7.1 custom bootstrap ISOs (`gdc-bootstrap-ubuntu-24.04-v0.7.1-debug.iso` and `gdc-bootstrap-ubuntu-24.04-v0.7.1-no-comp-debug.iso`) to Bootimus with non-interactive autoinstall parameters locked.
+
+### Fixed
+- **Transient Cluster-Ready Gating Stalls:** Resolved an issue where transient network drops or SSL handshake EOF disconnects during GDC Companion token refreshes left nodes permanently halted in a failed `CLUSTER_READY` stage until the next 24-hour cron/timer sync window.
+
 ## [Unreleased] - 2026-09-07
 
 ### Added

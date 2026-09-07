@@ -3,7 +3,9 @@
 This document tracks the ongoing implementation and delivery of the GDC Offline Bootloader ISO process. It acts as an active checklist compared to our technical specification files (`docs/specs/`).
 
 > [!NOTE]
-> **Major Milestone:** We have a stable, hardware-resilient **CLUSTER_READY** deployment via `v0.4.38-debug`! The ISO safely bypasses AMD NVMe Host Memory Buffer memory exhaustion limits and correctly scales up via dual parallel Cloud Builds.
+> **Major Milestone (2026-09-07):** Released `v0.7.1-debug` with native CIS-CAT Assessor auditing during `LINUX_READY` and self-healing systemd retry loop on `gdc-provision.service` (recovering automatically from transient network/SSL drops into `CLUSTER_READY` completion).
+>
+> **Previous Milestone:** We have a stable, hardware-resilient **CLUSTER_READY** deployment via `v0.4.38-debug`! The ISO safely bypasses AMD NVMe Host Memory Buffer memory exhaustion limits and correctly scales up via dual parallel Cloud Builds.
 >
 > **Previous Milestone (2026-06-30):** The GDC Bootloader ISO has successfully achieved its first **absolute physical bare-metal boot to completion** under `v0.0.85-debug`! The installation loop completed flawlessly on physical UEFI single-disk nodes, and all local and remote service boundaries (Gitea and Nexus local caches) are fully integrated.
 
@@ -125,6 +127,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
   - [x] **Transition Gap 3.3:** Serial Console Logger Deadlocks
 - [x] **Ansible-Pull Bootstrap Automation**
   - [x] Create systemd `gdc-provision.service` to run `ansible-pull` on first boot
+  - [x] Configure self-healing retry loop on `gdc-provision.service` (`Restart=on-failure`, `RestartSec=20m`, `StartLimitIntervalSec=0`, `pipefail`)
   - [x] Configure environmental signed-commits toggles (`/etc/default/gdc-provision`)
   - [x] Configure persistent Gitea & Nexus persistent service states in playbook
   - [x] Execute safe offline system-wide upgrades (`apt-get upgrade`) in playbook
