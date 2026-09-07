@@ -407,6 +407,7 @@ class TestGgdTemplateHydration(unittest.TestCase):
         parsed = yaml.safe_load(rendered)
         self.assertEqual(parsed.get("autoinstall", {}).get("version"), 1)
         self.assertIn("python3 /cdrom/custom-data/configure_netplan.py", rendered)
+        self.assertIn("rsync -a /cdrom/custom-data/ /target/var/gdc-install/iso-cache/", rendered)
 
         # MANDATORY SWAP INTEGRITY GDC CHECK
         autoinstall = parsed.get("autoinstall", {})

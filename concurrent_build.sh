@@ -53,7 +53,7 @@ get_env() {
 # Enforce required variables
 export PROJECT_ID="${PROJECT_ID:-anthos-bare-metal-lab-1}"
 export REGION="${REGION:-us-west1}"
-export BUILD_VERSION="${BUILD_VERSION:-0.0.89}"
+export BUILD_VERSION="${BUILD_VERSION:-0.0.90}"
 export GCS_BUCKET_NAME="${ISO_OUTPUT_BUCKET#gs://}"
 export ISO_BLESSED_GCS_BUCKET_NAME="${ISO_BLESSED_GCS_BUCKET#gs://}"
 export SOURCE_ISO_FILENAME="${SOURCE_ISO_FILENAME:-ubuntu-24.04-live-server-amd64.iso}"
@@ -158,7 +158,7 @@ echo "==========================================================================
 
 for ISO_NAME in "${ISO_DEFAULT_NAME}" "${ISO_NOCOMP_NAME}"; do
     echo "[-] Processing Bootimus deployment for: ${ISO_NAME}"
-    python3 "${PROJECT_ROOT}/src/build/bootimus.py" "${ISO_NAME}" || true
+    timeout 120s python3 "${PROJECT_ROOT}/src/build/bootimus.py" "${ISO_NAME}" || true
 done
 
 echo "=============================================================================="

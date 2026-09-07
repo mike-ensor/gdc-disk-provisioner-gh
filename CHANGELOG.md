@@ -7,7 +7,23 @@ All notable changes to the `gdc-disk-provisioner` repository will be documented 
 
 
 
-## [Unreleased] - 2026-09-04
+## [Unreleased] - 2026-09-07
+
+### Added
+- **CIS Benchmarking Audit Integration:** Integrated the offline CIS-CAT Assessor into the `LINUX_READY` stage. A new Python script (`run_cis_benchmark.py`) parses native HTML/TXT reports, extracts compliance metrics (pass/fail/score), and exposes them as structured Ansible facts for upstream telemetry.
+- **CIS Benchmark Artifact Optimization:** Minimized CIS benchmark artifacts to prevent telemetry payload bloat.
+- **CIS Benchmark Audit Design Spec:** Added documentation for the CIS benchmark audit design.
+
+### Changed
+- **BMCTL Stage Relocation:** Moved `bmctl` installation to the `LINUX_READY` stage and accelerated chrony kernel sync.
+- **CI Pipeline:** Integrated strict `ansible-lint` into the build pipeline and published `iso-builder 0.0.90`.
+- **Companion URL Parameterization:** Replaced the hardcoded companion URL in the credentials script with a parameterized variable.
+
+### Fixed
+- **Machine Orchestration:** Added missing task names in `machine_orchestration` and improved handling of async Bootimus extraction.
+- **Docs:** Added warning comments regarding local `add-hosts` overrides when modifying companion domains.
+
+## [0.4.39] - 2026-09-04
 
 ### Added
 - **Global gcloud Authentication Configuration:** Updated `machine_orchestration/tasks/main.yml` to apply the `gcloud` access token file configuration globally using the `--installation` flag. This allows any user (not just `root` and `gdc-admin`) to access the `gcloud` authentication token via `/run/gdc-auth/access_token` globally if needed.

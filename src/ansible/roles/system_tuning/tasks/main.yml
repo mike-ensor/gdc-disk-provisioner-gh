@@ -142,6 +142,11 @@
   ignore_errors: true
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
+- name: "GDC-TASK-08 | Trigger Chrony burst to immediately sample sources"
+  ansible.builtin.command: chronyc "burst 4/4"
+  ignore_errors: true
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
 - name: "GDC-TASK-08 | Wait for Chrony to synchronize"
   ansible.builtin.command: chronyc waitsync 30
   ignore_errors: true
@@ -149,6 +154,10 @@
 
 - name: "GDC-TASK-08 | Verify OS clock is synchronized"
   ansible.builtin.shell: timedatectl status | grep -q "System clock synchronized.*yes"
+  register: timedatectl_check
+  retries: 10
+  delay: 2
+  until: timedatectl_check.rc == 0
   ignore_errors: true
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
@@ -358,3 +367,29 @@
   loop: "{{ gdc_gcloud_components }}"
   when: gcloud_available | bool
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10B | Ensure bmctl install directory exists"
+  ansible.builtin.file:
+    path: "/var/gdc-install/tools/bmctl"
+    state: directory
+    owner: gdc-admin
+    group: gdc-admin
+    mode: '0755'
+
+- name: "GDC-TASK-10B | Copy bmctl binary from ISO cache"
+  ansible.builtin.copy:
+    src: "/var/gdc-install/iso-cache/tools/bmctl/bmctl"
+    dest: "/var/gdc-install/tools/bmctl/bmctl"
+    owner: gdc-admin
+    group: gdc-admin
+    mode: '0755'
+    remote_src: yes
+  ignore_errors: true
+
+- name: "GDC-TASK-10B | Create symlink for bmctl in /usr/local/bin"
+  ansible.builtin.file:
+    src: "/var/gdc-install/tools/bmctl/bmctl"
+    dest: "/usr/local/bin/bmctl"
+    state: link
+    owner: root
+    group: root
