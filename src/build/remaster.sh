@@ -117,6 +117,7 @@ mkdir -p "${EXTRACT_DIR}/custom-data/systemd"
 mkdir -p "${EXTRACT_DIR}/custom-data/ansible/collections"
 mkdir -p "${EXTRACT_DIR}/custom-data/tools"
 mkdir -p "${EXTRACT_DIR}/custom-data/packages"
+mkdir -p "${EXTRACT_DIR}/custom-data/security"
 mkdir -p "${OUTPUT_DIR}"
 
 # ==========================================
@@ -128,6 +129,14 @@ chmod +x "${EXTRACT_DIR}/custom-data/gitea/gitea"
 
 echo "[-] Copying pre-verified Google Cloud SDK tarball..."
 cp "${BIN_CACHE_DIR}/${GCLOUD_SDK_FILENAME}" "${EXTRACT_DIR}/custom-data/tools/google-cloud-cli-linux-x86_64.tar.gz"
+
+echo "[-] Staging CIS Hardening and Assessment Archive..."
+if [[ -f "${BIN_CACHE_DIR}/${CIS_TARBALL_FILENAME}" ]]; then
+    cp "${BIN_CACHE_DIR}/${CIS_TARBALL_FILENAME}" "${EXTRACT_DIR}/custom-data/security/${CIS_TARBALL_FILENAME}"
+else
+    echo "  [!] ERROR: CIS tarball not found in cache! Ensure it is synced from GCS first." >&2
+    exit 1
+fi
 
 echo "[-] Fetching bmctl and nodeagentd version ${BOOTSTRAP_BMCTL_VERSION}..."
 mkdir -p "${EXTRACT_DIR}/custom-data/tools/bmctl"

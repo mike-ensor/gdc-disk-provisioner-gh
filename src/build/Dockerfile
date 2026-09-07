@@ -36,8 +36,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pylint \
     shellcheck \
     netplan.io \
+    ansible-lint \
     && rm -rf /var/lib/apt/lists/* \
-    && xorriso --version
+    && ansible-galaxy collection install ansible.posix -p /usr/share/ansible/collections \
+    && xorriso --version \
+    && ansible-lint --version
 
 # Set standard workspace directory matching Cloud Build structures
 WORKDIR /workspace

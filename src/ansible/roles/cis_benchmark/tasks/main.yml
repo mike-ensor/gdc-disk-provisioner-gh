@@ -1,0 +1,62 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "GDC-CIS | Ensure extracted tooling directory exists"
+  ansible.builtin.file:
+    path: /opt/cis-benchmark
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Unpack CIS tooling from iso-cache to /opt/cis-benchmark"
+  ansible.builtin.unarchive:
+    src: "/var/gdc-install/iso-cache/security/cis-hardening-amd64.tar.gz"
+    dest: /opt/cis-benchmark/
+    remote_src: true
+    owner: root
+    group: root
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Ensure Assessor CLI is executable"
+  ansible.builtin.file:
+    path: "/opt/cis-benchmark/cis-hardening-amd64/CIS-CAT-Assessor-Linux-jre-v4.61.0/Assessor/Assessor-CLI.sh"
+    mode: '0750'
+    owner: root
+    group: root
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Deploy run_cis_benchmark python runner"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/scripts/run_cis_benchmark.py"
+    dest: "/usr/local/bin/run-cis-benchmark"
+    mode: '0755'
+    owner: root
+    group: root
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Execute read-only CIS Benchmark Audit"
+  ansible.builtin.command: /usr/local/bin/run-cis-benchmark
+  changed_when: false
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Check if cis-benchmark.json was generated"
+  ansible.builtin.stat:
+    path: /var/gdc-install/state/cis-benchmark.json
+  register: cis_state_file
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Slurp cis-benchmark.json into facts"
+  ansible.builtin.slurp:
+    src: /var/gdc-install/state/cis-benchmark.json
+  register: slurped_cis_benchmark
+  when: cis_state_file.stat.exists
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Expose benchmark results as fact"
+  ansible.builtin.set_fact:
+    cis_benchmark_facts: "{{ (slurped_cis_benchmark.content | b64decode | from_json) if cis_state_file.stat.exists else {'status': 'NOT_EVALUATED'} }}"
+  tags: ["strictly-local"]

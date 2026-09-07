@@ -1,0 +1,20 @@
+# ==============================================================================
+# GDC Bare Metal - Ansible Lint Configuration
+# ==============================================================================
+profile: min
+
+exclude_paths:
+  - .cache/
+  - venv/
+  - build-workspace/
+  - .review/
+
+warn_list:
+  - line-length
+  - yaml
+  - no-changed-when
+  - ignore-errors
+  - risky-shell-pipe
+  - command-instead-of-module
+  - command-instead-of-shell
+  - key-order

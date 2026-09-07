@@ -149,6 +149,7 @@ def main():
         "/custom-data/configure_netplan.py",
         "/custom-data/generate_storage_config.sh",
         "/custom-data/gdc-collector",
+        "/custom-data/security/cis-hardening-amd64.tar.gz",
         "/custom-data/auth/gcp-authentication.sh",
         "/custom-data/gitea/gitea",
         "/custom-data/nexus/nexus-bin/bin/nexus",

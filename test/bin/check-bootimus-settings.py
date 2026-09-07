@@ -109,8 +109,8 @@ def main():
             if not extracted:
                 extraction_status = "IN-PROGRESS"
                 autoinstall_status = "PENDING"
-                # If extraction is in progress, it's not a failure yet
-                is_failed = False
+                # If extraction is in progress, it's considered a failure for the polling loop to wait
+                is_failed = True
             else:
                 extraction_status = "COMPLETE"
                 if has_autoinstall and has_ds:

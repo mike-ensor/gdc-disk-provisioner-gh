@@ -17,6 +17,10 @@
   ansible.builtin.include_role:
     name: security_hardening
 
+- name: Run cis_benchmark audit role
+  ansible.builtin.include_role:
+    name: cis_benchmark
+
 - name: "GDC-EVIDENCE | Check Dracut configuration for TPM modules"
   ansible.builtin.shell: grep -q 'add_dracutmodules+=.*tpm2-tss' /etc/dracut.conf.d/gdc.conf
   register: dracut_check
@@ -80,6 +84,7 @@
       fde_tpm_unlock:
         cryptenroll_success: "{{ luks_tpm_check.rc == 0 }}"
         luks_tpm_token_present: "{{ luks_tpm_check.rc == 0 }}"
+      cis_benchmarks: "{{ cis_benchmark_facts | default({'status': 'NOT_EVALUATED'}) }}"
 
 - name: "GDC-STATE | Write LinuxReady completion state"
   ansible.builtin.copy:

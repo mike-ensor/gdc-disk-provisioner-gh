@@ -181,7 +181,7 @@ deps:
 		echo "  [-] GCS cache active. Pulling artifacts from $(DEPENDENCY_CACHE_GCS_BUCKET)..."; \
 		BUCKET_NAME=$$(echo "$(DEPENDENCY_CACHE_GCS_BUCKET)" | sed 's/^gs:\/\///'); \
 		if [ -n "$$BUCKET_NAME" ]; then \
-			for file in "$(SOURCE_ISO_FILENAME)" "gdc-collector" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)"; do \
+			for file in "$(SOURCE_ISO_FILENAME)" "gdc-collector" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)" "$(CIS_TARBALL_FILENAME)"; do \
 				if [ "$$file" = "$(SOURCE_ISO_FILENAME)" ]; then \
 					local_path="$(CACHE_DIR)/isos/$$file"; \
 					gcs_path="gs://$$BUCKET_NAME/source/$$file"; \
@@ -258,7 +258,7 @@ deps:
 		echo "  [-] Synchronizing verified local cache back to GCS..."; \
 		BUCKET_NAME=$$(echo "$(DEPENDENCY_CACHE_GCS_BUCKET)" | sed 's/^gs:\/\///'); \
 		if [ -n "$$BUCKET_NAME" ]; then \
-			for file in "gdc-collector" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)"; do \
+			for file in "gdc-collector" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)" "$(CIS_TARBALL_FILENAME)"; do \
 				local_path="$(BIN_CACHE_DIR)/$$file"; \
 				gcs_path="gs://$$BUCKET_NAME/binaries/$$file"; \
 				if [ -f "$$local_path" ]; then \
@@ -397,6 +397,11 @@ validate: $(VENV_DIR) hydrate
 		shellcheck generate_storage_config.sh || (echo "[!] ERROR: generate_storage_config.sh shellcheck failed!" >&2; exit 1); \
 	else \
 		echo "  [!] Note: 'shellcheck' is not installed locally. Skipping bash script linting."; \
+	fi
+	@# 3b. Ansible playbook verification and linting
+	@if [ -f "../../test/verify_ansible.sh" ]; then \
+		echo "  [-] Running Ansible playbook verification and linting suite..."; \
+		../../test/verify_ansible.sh || (echo "[!] ERROR: Ansible playbook validation failed!" >&2; exit 1); \
 	fi
 	@echo "[-] [Stage: validate-artifact] All validation gates passed cleanly."
 	$(call END_TIME,validate)

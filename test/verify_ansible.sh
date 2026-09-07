@@ -42,8 +42,25 @@ echo "[-] Target Playbook:  ${PLAYBOOK_PATH}"
 ANSIBLE_PLAYBOOK_CMD="ansible-playbook"
 ANSIBLE_LINT_CMD="ansible-lint"
 
-ANSIBLE_AVAILABLE=true
+# Fallback to local virtual environments if CLI is not in system PATH
 if ! command -v "${ANSIBLE_PLAYBOOK_CMD}" &>/dev/null; then
+    if [[ -x "${PROJECT_ROOT}/venv/bin/ansible-playbook" ]]; then
+        ANSIBLE_PLAYBOOK_CMD="${PROJECT_ROOT}/venv/bin/ansible-playbook"
+    elif [[ -x "${PROJECT_ROOT}/src/build/.venv/bin/ansible-playbook" ]]; then
+        ANSIBLE_PLAYBOOK_CMD="${PROJECT_ROOT}/src/build/.venv/bin/ansible-playbook"
+    fi
+fi
+
+if ! command -v "${ANSIBLE_LINT_CMD}" &>/dev/null; then
+    if [[ -x "${PROJECT_ROOT}/venv/bin/ansible-lint" ]]; then
+        ANSIBLE_LINT_CMD="${PROJECT_ROOT}/venv/bin/ansible-lint"
+    elif [[ -x "${PROJECT_ROOT}/src/build/.venv/bin/ansible-lint" ]]; then
+        ANSIBLE_LINT_CMD="${PROJECT_ROOT}/src/build/.venv/bin/ansible-lint"
+    fi
+fi
+
+ANSIBLE_AVAILABLE=true
+if ! command -v "${ANSIBLE_PLAYBOOK_CMD}" &>/dev/null && [[ ! -x "${ANSIBLE_PLAYBOOK_CMD}" ]]; then
     ANSIBLE_AVAILABLE=false
 fi
 
@@ -63,7 +80,7 @@ if [[ "${ANSIBLE_AVAILABLE}" = "false" ]]; then
     echo "       --extra-vars 'enforce_signed_commits=false'"
     echo ""
     echo "3. Run Strict Ansible Best-Practice Linting Checks:"
-    echo "   $ ansible-lint ${PLAYBOOK_PATH}"
+    echo "   $ ansible-lint src/ansible/"
     echo "=============================================================================="
     echo "[+] DRY-RUN SUCCESS: Playbook testing parameters are syntactically aligned."
     echo "=============================================================================="
@@ -76,11 +93,11 @@ fi
 
 # Test A: Static Syntax Check
 echo "[-] Executing Test A: Static Syntax Validation..."
-if ansible-playbook --syntax-check "${PLAYBOOK_PATH}" &>/dev/null; then
+if "${ANSIBLE_PLAYBOOK_CMD}" --syntax-check "${PLAYBOOK_PATH}" &>/dev/null; then
     echo "[x] SUCCESS: Playbook syntax is clean."
 else
     echo "[!] CRITICAL ERROR: Playbook syntax check failed! Outputting dump:" >&2
-    ansible-playbook --syntax-check "${PLAYBOOK_PATH}" || true
+    "${ANSIBLE_PLAYBOOK_CMD}" --syntax-check "${PLAYBOOK_PATH}" || true
     exit 1
 fi
 
@@ -88,7 +105,7 @@ fi
 echo "[-] Executing Test B: Local Dry-Run Check-Mode (Check & Diff)..."
 set +e
 # We run the dry-run mock, overriding TPM variables or target commands that require root privilege
-ansible-playbook -i localhost, -c local --check --diff "${PLAYBOOK_PATH}" \
+"${ANSIBLE_PLAYBOOK_CMD}" -i localhost, -c local --check --diff "${PLAYBOOK_PATH}" \
   --extra-vars "enforce_signed_commits=false" &> /tmp/ansible_dry_run.log
 ANSIBLE_EXIT_CODE=$?
 set -e
@@ -102,17 +119,22 @@ else
     tail -n 30 /tmp/ansible_dry_run.log >&2
 fi
 
-# Test C: Ansible Linting (Optional, if installed)
-if command -v "${ANSIBLE_LINT_CMD}" &>/dev/null; then
-    echo "[-] Executing Test C: Best-Practice Linting Check..."
-    if ansible-lint "${PLAYBOOK_PATH}" &>/dev/null; then
-        echo "[x] SUCCESS: Playbook passes all lint checks."
+# Test C: Ansible Linting (Strict)
+if command -v "${ANSIBLE_LINT_CMD}" &>/dev/null || [[ -x "${ANSIBLE_LINT_CMD}" ]]; then
+    echo "[-] Executing Test C: Strict Best-Practice Linting Check..."
+    if "${ANSIBLE_LINT_CMD}" "${PROJECT_ROOT}/src/ansible/"; then
+        echo "[x] SUCCESS: Playbook and all roles pass ansible-lint checks."
     else
-        echo "[!] Warning: Playbook has minor lint violations."
-        ansible-lint "${PLAYBOOK_PATH}" || true
+        echo "[!] CRITICAL ERROR: ansible-lint check failed for src/ansible/!" >&2
+        exit 1
     fi
 else
-    echo "[-] Test C: 'ansible-lint' not installed. Skipping lint check."
+    if [[ "${REQUIRE_ANSIBLE_LINT:-false}" = "true" ]]; then
+        echo "[!] CRITICAL ERROR: 'ansible-lint' is mandatory but not installed!" >&2
+        exit 1
+    else
+        echo "[!] Warning: 'ansible-lint' is not installed locally. Skipping lint check."
+    fi
 fi
 
 echo "=============================================================================="

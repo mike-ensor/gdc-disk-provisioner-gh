@@ -272,6 +272,7 @@ This document tracks the ongoing implementation and delivery of the GDC Offline 
 
 ## 3. Unplanned & Future Reference
 
+- [x] **HIGH PRIORITY TODO:** Add `ansible-lint` to the docker builder (`src/build/Dockerfile` and build environment) so `ansible-lint` can be strictly executed during ISO compilation pre-flight validations (`test/verify_ansible.sh`). Built builder image `0.0.90`.
 - [ ] **GDC-SPEC-008: Non-LUKS Storage Provisioning Feature** (Enables compiling unencrypted target OS installations with a 'GDC_ENABLE_LUKS=false' build parameter to bypass specialized UEFI/TPM hardware blocks; Ref: `docs/specs/08-no-luks-feature-plan.md`)
 - [x] **URGENT:** Investigate ISO creation report and tests (gcloud SDK was not installed on target OS, potentially due to missing binaries during ISO creation phase)
 - [-] **Multi-LTS Target Compilation Architecture (Support for 22.04 Jammy & 26.06 Future LTS Options)**
