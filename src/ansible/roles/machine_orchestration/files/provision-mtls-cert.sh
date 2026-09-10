@@ -86,7 +86,7 @@ fi
 IDENTITY="${STEP_IDENTITY:-$NODE_MAC}"
 
 echo "[*] Bootstrapping trust with step-ca at ${CA_URL}..."
-EXTRA_ARGS=""
+EXTRA_ARGS=()
 
 # Verify if the CA_URL is serving a publicly trusted certificate (e.g. Let's Encrypt)
 # by checking if a standard curl succeeds without the -k (insecure) flag.
@@ -111,7 +111,7 @@ else
         if [[ ! -s "${CERT_DIR}/root_ca.crt" ]]; then
             echo "FAIL: Could not download root CA certificate from ${CA_URL}/roots.pem"
         else
-            EXTRA_ARGS="--ca-url=${CA_URL} --root=${CERT_DIR}/root_ca.crt"
+            EXTRA_ARGS=(--ca-url="${CA_URL}" --root="${CERT_DIR}/root_ca.crt")
         fi
     fi
 fi
@@ -125,20 +125,20 @@ if [[ -n "${STEP_PROVISIONER_PASSWORD:-}" ]]; then
     PASS_FILE=$(mktemp)
     echo -n "${STEP_PROVISIONER_PASSWORD}" > "${PASS_FILE}"
     
-    TOKEN=$(step ca token "${IDENTITY}" ${EXTRA_ARGS} --san="${NODE_MAC}" --provisioner="${PROVISIONER_NAME}" --password-file="${PASS_FILE}")
+    TOKEN=$(step ca token "${IDENTITY}" "${EXTRA_ARGS[@]}" --san="${NODE_MAC}" --provisioner="${PROVISIONER_NAME}" --password-file="${PASS_FILE}")
     rm -f "${PASS_FILE}"
     
     echo "[-] Token generated. Requesting certificate bound to TPM..."
-    if ! step ca certificate "${IDENTITY}" "${CLIENT_CRT}" "${CLIENT_KEY}" --token="${TOKEN}" --kms="tpmkms:name=node-key" --force 2>/dev/null; then
+    if ! step ca certificate "${IDENTITY}" "${CLIENT_CRT}" "${CLIENT_KEY}" --token="${TOKEN}" --kms="tpmkms:name=node-key" --force "${EXTRA_ARGS[@]}" 2>/dev/null; then
         echo "WARN: Hardware TPM attestation failed or EKCert rejected. Falling back to software-generated private key."
-        step ca certificate "${IDENTITY}" "${CLIENT_CRT}" "${CLIENT_KEY}" --token="${TOKEN}" --force
+        step ca certificate "${IDENTITY}" "${CLIENT_CRT}" "${CLIENT_KEY}" --san="${NODE_MAC}" --token="${TOKEN}" --force "${EXTRA_ARGS[@]}"
     fi
 else
     # Fallback to direct request (relies on ACME or interactive prompt)
     echo "[-] No provisioner password detected. Attempting direct certificate request..."
-    if ! step ca certificate "${IDENTITY}" "${CLIENT_CRT}" "${CLIENT_KEY}" --san="${NODE_MAC}" --provisioner="${PROVISIONER_NAME}" --kms="tpmkms:name=node-key" --force ${EXTRA_ARGS} 2>/dev/null; then
+    if ! step ca certificate "${IDENTITY}" "${CLIENT_CRT}" "${CLIENT_KEY}" --san="${NODE_MAC}" --provisioner="${PROVISIONER_NAME}" --kms="tpmkms:name=node-key" --force "${EXTRA_ARGS[@]}" 2>/dev/null; then
         echo "WARN: Hardware TPM attestation failed or EKCert rejected. Falling back to software-generated private key."
-        step ca certificate "${IDENTITY}" "${CLIENT_CRT}" "${CLIENT_KEY}" --san="${NODE_MAC}" --provisioner="${PROVISIONER_NAME}" --force ${EXTRA_ARGS}
+        step ca certificate "${IDENTITY}" "${CLIENT_CRT}" "${CLIENT_KEY}" --san="${NODE_MAC}" --provisioner="${PROVISIONER_NAME}" --force "${EXTRA_ARGS[@]}"
     fi
 fi
 

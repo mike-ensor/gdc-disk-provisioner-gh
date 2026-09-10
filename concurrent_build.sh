@@ -34,18 +34,20 @@ if [[ -f "${PROJECT_ROOT}/.envrc" ]]; then
 fi
 
 # Load ISO_VERSION from VERSION file
-export ISO_VERSION=$(tr -d '[:space:]' < "${PROJECT_ROOT}/VERSION")
+ISO_VERSION=$(tr -d '[:space:]' < "${PROJECT_ROOT}/VERSION")
+export ISO_VERSION
 
 # Sourcing helper
 BUILD_ENV="${PROJECT_ROOT}/src/build/build.env"
 LOCAL_ENV="${PROJECT_ROOT}/src/build/local.env"
+DEPS_ENV="${PROJECT_ROOT}/src/dependencies.env"
 
 get_env() {
     (
         set -a
-        [ -f src/dependencies.env ] && . src/dependencies.env &>/dev/null
-        [ -f src/build/build.env ] && . src/build/build.env &>/dev/null
-        [ -f src/build/local.env ] && . src/build/local.env &>/dev/null
+        [ -f "${DEPS_ENV}" ] && . "${DEPS_ENV}" &>/dev/null
+        [ -f "${BUILD_ENV}" ] && . "${BUILD_ENV}" &>/dev/null
+        [ -f "${LOCAL_ENV}" ] && . "${LOCAL_ENV}" &>/dev/null
         if [ -n "$1" ]; then eval echo "\${$1:-}"; fi
     )
 }
@@ -81,8 +83,11 @@ echo "  Blessed Source Bkt:   gs://${ISO_BLESSED_GCS_BUCKET_NAME}"
 echo "  Debug Mode (Both):    ${GDC_DEBUG_MODE}"
 echo "=============================================================================="
 
-ISO_DEFAULT_NAME="gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}-debug.iso"
-ISO_NOCOMP_NAME="gdc-bootstrap-ubuntu-24.04-v${ISO_VERSION}-no-comp-debug.iso"
+ISO_NAME_PREFIX_VAL=$(get_env ISO_NAME_PREFIX)
+ISO_NAME_PREFIX="${ISO_NAME_PREFIX_VAL:-gdc-bootstrap-ubuntu-24.04}"
+
+ISO_DEFAULT_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}-debug.iso"
+ISO_NOCOMP_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}-no-comp-debug.iso"
 
 # 1. Collision check
 echo "[-] Checking GCS destination bucket for collisions..."
