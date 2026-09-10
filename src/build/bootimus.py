@@ -157,8 +157,12 @@ def auto_heal_boot_params(token):
             enabled = img.get("enabled", False)
             extracted = img.get("extracted", False)
             
-            # Any GDC bootstrap image should use kernel boot method and correct autoinstall params
-            is_gdc_image = filename and ("gdc-bootstrap" in filename or filename.startswith("sync/gdc-bootstrap"))
+            # Any GDC/honeywell bootstrap image should use kernel boot method and correct autoinstall params
+            is_gdc_image = filename and (
+                "gdc-bootstrap" in filename or 
+                "honeywell" in filename or 
+                filename.startswith("sync/")
+            )
             
             if is_gdc_image:
                 has_correct_params = (
