@@ -65,13 +65,70 @@ fi
 # ==============================================================================
 log_goal "Scanning hardware block devices for GDC-compliant storage drives (>= 250 G)"
 
+# Detect active installer live media disks to prevent self-targeting/corruption
+INSTALLER_DISKS=()
+for mnt in /cdrom /isodevice /run/live/medium; do
+    if dev=$(findmnt -no SOURCE "${mnt}" 2>/dev/null) && [[ -n "${dev}" ]]; then
+        real_dev=$(readlink -f "${dev}" 2>/dev/null || echo "${dev}")
+        if [[ -b "${real_dev}" ]]; then
+            if [[ "${real_dev}" =~ loop[0-9]+ ]]; then
+                back_file=$(losetup -O BACK-FILE -n "${real_dev}" 2>/dev/null || true)
+                if [[ -n "${back_file}" ]]; then
+                    loop_src=$(findmnt -no SOURCE -T "${back_file}" 2>/dev/null || true)
+                    if [[ -n "${loop_src}" && -b "${loop_src}" ]]; then
+                        loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+                        INSTALLER_DISKS+=("${loop_pk:-$(basename "${loop_src}")}")
+                    fi
+                fi
+            else
+                pkname=$(lsblk -no PKNAME "${real_dev}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+                INSTALLER_DISKS+=("${pkname:-$(basename "${real_dev}")}")
+            fi
+        fi
+    fi
+done
+
+# Also detect block devices hosting iso9660 filesystem (hybrid ISO on USB)
+while read -r iso_dev; do
+    if [[ -n "${iso_dev}" && -b "${iso_dev}" ]]; then
+        real_dev=$(readlink -f "${iso_dev}" 2>/dev/null || echo "${iso_dev}")
+        pkname=$(lsblk -no PKNAME "${real_dev}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+        if [[ -n "${pkname}" ]]; then
+            INSTALLER_DISKS+=("${pkname}")
+        else
+            INSTALLER_DISKS+=("$(basename "${real_dev}")")
+        fi
+    fi
+done < <(blkid -t TYPE=iso9660 -o device 2>/dev/null || true)
+
 # Sort disks ascending by size so the smaller disk is always allocated to System
-RAW_DISKS=$(lsblk -dno NAME,TYPE,SIZE | grep disk | cut -d' ' -f1)
+RAW_DISKS=$(lsblk -dno NAME,TYPE | awk '$2 == "disk" {print $1}')
 DETECTED_DISKS=()
 
 for disk in ${RAW_DISKS}; do
-    # Skip loop and installer optical devices (sr0/cdrom)
-    if [[ "${disk}" =~ ^loop || "${disk}" =~ ^sr ]]; then
+    # Skip loop, installer optical devices (sr0/cdrom), and ram devices
+    if [[ "${disk}" =~ ^loop || "${disk}" =~ ^sr || "${disk}" =~ ^ram ]]; then
+        continue
+    fi
+
+    # Skip active installer live media disk (e.g. boot USB drive or ISO backing device)
+    is_installer=false
+    for inst_d in "${INSTALLER_DISKS[@]}"; do
+        if [[ "${disk}" == "${inst_d}" ]]; then
+            echo "[-] Skipping installer live media disk: /dev/${disk}" >&2
+            is_installer=true
+            break
+        fi
+    done
+    if [[ "${is_installer}" == "true" ]]; then
+        continue
+    fi
+
+    # Skip USB transport devices (USB flash drives, external USB enclosures)
+    TRAN=$(lsblk -dno TRAN "/dev/${disk}" 2>/dev/null || true)
+    SYSPATH=$(readlink -f "/sys/block/${disk}" 2>/dev/null || true)
+    if [[ "${TRAN}" == "usb" || "${SYSPATH}" =~ /usb[0-9]* ]]; then
+        echo "[-] Skipping USB storage device: /dev/${disk} (TRAN=${TRAN:-usb})" >&2
         continue
     fi
     
@@ -81,6 +138,8 @@ for disk in ${RAW_DISKS}; do
         # 240 GB = 503316480 sectors (512-byte blocks)
         if [[ ${SECTORS} -ge 503316480 ]]; then
             DETECTED_DISKS+=("${disk}")
+        else
+            echo "[-] Skipping undersized disk: /dev/${disk} (${SECTORS} sectors < 503316480)" >&2
         fi
     fi
 done

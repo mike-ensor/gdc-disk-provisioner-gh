@@ -29,7 +29,7 @@ GDC Bare Metal requires strict isolation of disk workloads to prevent resource c
 The dynamic disk analyzer script (`src/build/generate_storage_config.sh`) executes during the early stage of cloud-init boot. It scans block devices using the following heuristics:
 
 1. **Size Filtering:** Only devices with a capacity $\ge 240\text{ GiB}$ ($503,316,480$ sectors of 512 bytes) are registered as GDC-compliant target drives. Smaller storage targets are ignored.
-2. **Device Exclusion:** System loopback devices (`/dev/loop*`) and the installer's active bootable optical/CD-ROM media (`/dev/sr*`, `/dev/cdrom`) are explicitly filtered out.
+2. **Device Exclusion:** System loopback devices (`/dev/loop*`), active bootable installer live media (`/cdrom`, `/isodevice`, `iso9660` optical/USB drives), and all USB transport storage devices (`TRAN=usb` or `/sys/devices/.../usb*`) are explicitly excluded to prevent accidental self-erasure when booting from USB media.
 3. **Ascending Size Sorting:** Disks are sorted ascending by sector count. The smaller physical drive is always allocated as the **System Disk (Disk 1)**, while the larger drive is designated as the **Data Disk (Disk 2)**. This ensures optimal utilization of high-capacity storage on dense hardware platforms.
 
 ---

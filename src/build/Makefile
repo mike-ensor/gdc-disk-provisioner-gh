@@ -388,6 +388,8 @@ validate: $(VENV_DIR) hydrate
 	@$(VENV_DIR)/bin/python3 ../../test/test_template_hydration.py || (echo "[!] ERROR: Template hydration unit tests failed!" >&2; exit 1)
 	@# 1d. GDC core build script unit tests
 	@$(VENV_DIR)/bin/python3 ../../test/test_gdc_build_scripts.py || (echo "[!] ERROR: Build script unit tests failed!" >&2; exit 1)
+	@# 1e. GDC storage discovery and protection unit tests
+	@$(VENV_DIR)/bin/python3 ../../test/test_storage_discovery.py || (echo "[!] ERROR: Storage discovery unit tests failed!" >&2; exit 1)
 	@# 2. Python linter checks
 	@$(VENV_DIR)/bin/python3 -m py_compile render_templates.py || (echo "[!] ERROR: render_templates.py compilation check failed!" >&2; exit 1)
 	@$(VENV_DIR)/bin/python3 -m py_compile configure_netplan.py || (echo "[!] ERROR: configure_netplan.py compilation check failed!" >&2; exit 1)
@@ -424,6 +426,8 @@ test-unit: $(VENV_DIR)
 	@$(VENV_DIR)/bin/python3 ../../test/test_template_hydration.py
 	@echo "[-] Running GDC build script unit tests..."
 	@$(VENV_DIR)/bin/python3 ../../test/test_gdc_build_scripts.py
+	@echo "[-] Running GDC storage discovery unit tests..."
+	@$(VENV_DIR)/bin/python3 ../../test/test_storage_discovery.py
 
 test-static: assemble
 	$(call START_TIME,test-static)
