@@ -31,6 +31,11 @@ class TestStorageDiscovery(unittest.TestCase):
         os.makedirs(self.bin_dir, exist_ok=True)
         # Symlink templates directory so test scripts can locate templates/storage
         os.symlink(os.path.join(PROJECT_ROOT, "src/build/templates"), os.path.join(self.test_dir, "templates"))
+        # Mock logger to ensure tests succeed in containers without /dev/log
+        mock_logger = os.path.join(self.bin_dir, "logger")
+        with open(mock_logger, "w") as f:
+            f.write("#!/usr/bin/env bash\nexit 0\n")
+        os.chmod(mock_logger, 0o755)
 
     def tearDown(self):
         shutil.rmtree(self.test_dir)

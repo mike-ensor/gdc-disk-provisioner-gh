@@ -33,7 +33,7 @@ log_goal() {
     echo "=============================================================================="
     echo "[GDC-INSTALL-GOAL] Starting Task: ${goal_desc}"
     echo "=============================================================================="
-    logger -t gdc-provisioner "[GOAL] ${goal_desc}"
+    logger -t gdc-provisioner "[GOAL] ${goal_desc}" 2>/dev/null || true
 }
 
 # shellcheck disable=SC2317
@@ -44,7 +44,7 @@ log_fail() {
     echo "[GDC-INSTALL-FAIL] Critical Failure: ${fail_desc}" >&2
     echo "[GDC-INSTALL-FAIL] Diagnostic Details: ${error_msg}" >&2
     echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
-    logger -p user.err -t gdc-provisioner "[FAILURE] ${fail_desc} - Details: ${error_msg}"
+    logger -p user.err -t gdc-provisioner "[FAILURE] ${fail_desc} - Details: ${error_msg}" 2>/dev/null || true
 }
 
 # shellcheck disable=SC2317
