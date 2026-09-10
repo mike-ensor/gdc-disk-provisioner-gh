@@ -117,6 +117,32 @@ BUILD_ID_FALSE=$(gcloud builds submit "${PROJECT_ROOT}" \
     --async --format="value(id)")
 echo "  [+] Build 2 Launched! Build ID: ${BUILD_ID_FALSE}"
 
+# Save initial state to .cache/build-state.json
+mkdir -p "${PROJECT_ROOT}/.cache"
+cat << EOF > "${PROJECT_ROOT}/.cache/build-state.json"
+{
+  "iso_version": "${ISO_VERSION}",
+  "project_id": "${PROJECT_ID}",
+  "builds": [
+    {
+      "name": "${ISO_DEFAULT_NAME}",
+      "build_id": "${BUILD_ID_TRUE}",
+      "companion": "TRUE",
+      "status": "WORKING",
+      "gcs_uri": "gs://${GCS_BUCKET_NAME}/sync/${ISO_DEFAULT_NAME}"
+    },
+    {
+      "name": "${ISO_NOCOMP_NAME}",
+      "build_id": "${BUILD_ID_FALSE}",
+      "companion": "FALSE",
+      "status": "WORKING",
+      "gcs_uri": "gs://${GCS_BUCKET_NAME}/sync/${ISO_NOCOMP_NAME}"
+    }
+  ],
+  "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+
 echo "=============================================================================="
 echo "[-] Monitoring both concurrent Cloud Builds..."
 echo "=============================================================================="
@@ -150,6 +176,34 @@ for attempt in {1..90}; do
         echo "=============================================================================="
         echo " [x] SUCCESS: BOTH CONCURRENT CLOUD BUILDS COMPLETED CLEANLY!"
         echo "=============================================================================="
+        # Update .cache/build-state.json with final success state
+        cat << EOF > "${PROJECT_ROOT}/.cache/build-state.json"
+{
+  "iso_version": "${ISO_VERSION}",
+  "project_id": "${PROJECT_ID}",
+  "builds": [
+    {
+      "name": "${ISO_DEFAULT_NAME}",
+      "build_id": "${BUILD_ID_TRUE}",
+      "companion": "TRUE",
+      "status": "SUCCESS",
+      "gcs_uri": "gs://${GCS_BUCKET_NAME}/sync/${ISO_DEFAULT_NAME}"
+    },
+    {
+      "name": "${ISO_NOCOMP_NAME}",
+      "build_id": "${BUILD_ID_FALSE}",
+      "companion": "FALSE",
+      "status": "SUCCESS",
+      "gcs_uri": "gs://${GCS_BUCKET_NAME}/sync/${ISO_NOCOMP_NAME}"
+    }
+  ],
+  "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+        echo "[-] Downloading canonical build reports from GCS..."
+        mkdir -p "${PROJECT_ROOT}/build-workspace/output"
+        gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/build-report-v${ISO_VERSION}.json" "${PROJECT_ROOT}/build-workspace/output/" 2>/dev/null || true
+        gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/build-report-v${ISO_VERSION}.md" "${PROJECT_ROOT}/build-workspace/output/" 2>/dev/null || true
         break
     fi
 
