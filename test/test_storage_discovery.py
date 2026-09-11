@@ -208,38 +208,41 @@ chmod +x "{self.test_dir}/test_gen_dual.sh"
         self.assertIn("Dual Disk", res.stdout)
 
     def test_user_data_protection_function(self):
-        """Verifies the disk sanitization protection logic in user-data.j2."""
+        """Verifies the disk sanitization protection logic in user-data.j2 under POSIX sh."""
         user_data_j2_path = os.path.join(PROJECT_ROOT, "src/build/templates/user-data.j2")
         with open(user_data_j2_path, "r") as f:
             content = f.read()
 
         # Verify key protective safeguards exist in the template
         self.assertIn("is_protected_dev()", content)
-        self.assertIn("INSTALLER_DISKS=()", content)
+        self.assertIn('INSTALLER_DISKS=""', content)
         self.assertIn('tran=$(lsblk -dno TRAN "/dev/${root_disk}" 2>/dev/null || true)', content)
         self.assertIn('echo "   -> [PROTECT] Skipping protected installer/USB device: ${p}"', content)
         self.assertIn('echo "   -> [PROTECT] Preserving protected installer/USB storage disk: /dev/${d}"', content)
 
-        # Test execution of the protection logic in isolation
-        bash_test = """
-        INSTALLER_DISKS=("sda")
+        # Test execution of the protection logic in isolation using POSIX sh
+        sh_test = """
+        INSTALLER_DISKS="sda"
 
         is_protected_dev() {
-          local target_dev="$1"
-          local bname pkname root_disk tran syspath
+          target_dev="$1"
           bname=$(basename "${target_dev}")
           
-          # Mock pkname mapping
-          if [[ "${bname}" =~ ^sda[0-9]+ ]]; then
-            pkname="sda"
-          elif [[ "${bname}" =~ ^nvme0n1p[0-9]+ ]]; then
-            pkname="nvme0n1"
-          else
-            pkname=""
-          fi
+          # Mock pkname mapping using POSIX case
+          case "${bname}" in
+            sda*)
+              pkname="sda"
+              ;;
+            nvme0n1p*)
+              pkname="nvme0n1"
+              ;;
+            *)
+              pkname=""
+              ;;
+          esac
           root_disk="${pkname:-${bname}}"
 
-          for inst_d in "${INSTALLER_DISKS[@]}"; do
+          for inst_d in ${INSTALLER_DISKS}; do
             if [ "${root_disk}" = "${inst_d}" ] || [ "${bname}" = "${inst_d}" ]; then
               return 0
             fi
@@ -268,8 +271,8 @@ chmod +x "{self.test_dir}/test_gen_dual.sh"
 
         echo "PROTECTION_TEST_OK"
         """
-        res = subprocess.run(["bash", "-c", bash_test], capture_output=True, text=True)
-        self.assertEqual(res.returncode, 0, f"Bash test failed with code {res.returncode}: {res.stderr}")
+        res = subprocess.run(["sh", "-c", sh_test], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, f"POSIX sh test failed with code {res.returncode}: {res.stderr}")
         self.assertIn("PROTECTION_TEST_OK", res.stdout)
 
 if __name__ == "__main__":

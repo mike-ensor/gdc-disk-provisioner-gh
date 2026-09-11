@@ -152,41 +152,43 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] Performing defensive block device sanitization & cache flushes"
 
       # Discover installer live media disks to prevent self-erasure when booted from USB
-      INSTALLER_DISKS=()
+      INSTALLER_DISKS=""
       for mnt in /cdrom /isodevice /run/live/medium; do
         if dev=$(findmnt -no SOURCE "${mnt}" 2>/dev/null) && [ -n "${dev}" ]; then
           real_dev=$(readlink -f "${dev}" 2>/dev/null || echo "${dev}")
           if [ -b "${real_dev}" ]; then
-            if [[ "${real_dev}" =~ loop[0-9]+ ]]; then
-              back_file=$(losetup -O BACK-FILE -n "${real_dev}" 2>/dev/null || true)
-              if [ -n "${back_file}" ]; then
-                loop_src=$(findmnt -no SOURCE -T "${back_file}" 2>/dev/null || true)
-                if [ -n "${loop_src}" ] && [ -b "${loop_src}" ]; then
-                  loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
-                  INSTALLER_DISKS+=("${loop_pk:-$(basename "${loop_src}")}")
+            case "${real_dev}" in
+              *loop[0-9]*)
+                back_file=$(losetup -O BACK-FILE -n "${real_dev}" 2>/dev/null || true)
+                if [ -n "${back_file}" ]; then
+                  loop_src=$(findmnt -no SOURCE -T "${back_file}" 2>/dev/null || true)
+                  if [ -n "${loop_src}" ] && [ -b "${loop_src}" ]; then
+                    loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+                    INSTALLER_DISKS="${INSTALLER_DISKS} ${loop_pk:-$(basename "${loop_src}")}"
+                  fi
                 fi
-              fi
-            else
-              pkname=$(lsblk -no PKNAME "${real_dev}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
-              INSTALLER_DISKS+=("${pkname:-$(basename "${real_dev}")}")
-            fi
+                ;;
+              *)
+                pkname=$(lsblk -no PKNAME "${real_dev}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+                INSTALLER_DISKS="${INSTALLER_DISKS} ${pkname:-$(basename "${real_dev}")}"
+                ;;
+            esac
           fi
         fi
       done
 
       # Also detect any block devices hosting iso9660 filesystem
-      while read -r iso_dev; do
+      for iso_dev in $(blkid -t TYPE=iso9660 -o device 2>/dev/null || true); do
         if [ -n "${iso_dev}" ] && [ -b "${iso_dev}" ]; then
           real_dev=$(readlink -f "${iso_dev}" 2>/dev/null || echo "${iso_dev}")
           pkname=$(lsblk -no PKNAME "${real_dev}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
-          INSTALLER_DISKS+=("${pkname:-$(basename "${real_dev}")}")
+          INSTALLER_DISKS="${INSTALLER_DISKS} ${pkname:-$(basename "${real_dev}")}"
         fi
-      done < <(blkid -t TYPE=iso9660 -o device 2>/dev/null || true)
+      done
 
       is_protected_dev() {
-        local target_dev="$1"
+        target_dev="$1"
         [ -b "${target_dev}" ] || return 1
-        local bname pkname root_disk tran syspath
         bname=$(basename "${target_dev}")
         pkname=$(lsblk -no PKNAME "${target_dev}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
         if [ -n "${pkname}" ]; then
@@ -198,7 +200,7 @@ autoinstall:
         fi
 
         # Protect all known installer disks
-        for inst_d in "${INSTALLER_DISKS[@]}"; do
+        for inst_d in ${INSTALLER_DISKS}; do
           if [ "${root_disk}" = "${inst_d}" ] || [ "${bname}" = "${inst_d}" ]; then
             return 0
           fi

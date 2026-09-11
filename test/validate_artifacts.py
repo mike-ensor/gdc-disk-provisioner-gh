@@ -201,10 +201,14 @@ def validate_user_data_commands(user_data_path):
                     # list of tokens, convert to space-separated command
                     scripts.append(" ".join(shlex.quote(t) for t in item))
                     
-    # Validate each script block
+    # Validate each script block for command option flags and POSIX sh syntax
     for script in scripts:
+        # Check POSIX sh syntax
+        sh_syntax_res = subprocess.run(["sh", "-n", "-c", script], capture_output=True, text=True)
+        if sh_syntax_res.returncode != 0:
+            raise ValueError(f"POSIX sh Syntax Audit Failed in user-data: {sh_syntax_res.stderr.strip()}")
         validate_commands_in_script(script)
-    log_success("Static Command Option Auditor: All command-line options successfully verified against compiled utilities.")
+    log_success("Static Command Option & POSIX sh Auditor: All commands and syntax verified.")
 
 def log_success(msg):
     print(f"[x] {msg}")
