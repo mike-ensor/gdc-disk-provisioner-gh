@@ -27,6 +27,21 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Parse Command Line Arguments
+SKIP_PXE="false"
+for arg in "$@"; do
+    case "${arg}" in
+        --skip-pxe)
+            SKIP_PXE="true"
+            ;;
+        --help|-h)
+            echo "Usage: $0 [--skip-pxe]"
+            echo "  --skip-pxe    Build and verify ISOs on GCS without triggering Bootimus PXE ingestion"
+            exit 0
+            ;;
+    esac
+done
+
 # Source .envrc
 if [[ -f "${PROJECT_ROOT}/.envrc" ]]; then
     # shellcheck source=/dev/null
@@ -81,6 +96,7 @@ echo "  Builder Image Tag:    ${BUILD_VERSION}"
 echo "  Destination Bucket:   gs://${GCS_BUCKET_NAME}"
 echo "  Blessed Source Bkt:   gs://${ISO_BLESSED_GCS_BUCKET_NAME}"
 echo "  Debug Mode (Both):    ${GDC_DEBUG_MODE}"
+echo "  Deploy to PXE:        $([ "${SKIP_PXE}" = "true" ] && echo "DISABLED (--skip-pxe)" || echo "ENABLED")"
 echo "=============================================================================="
 
 ISO_NAME_PREFIX_VAL=$(get_env ISO_NAME_PREFIX)
@@ -210,31 +226,39 @@ EOF
     sleep 15
 done
 
-# 4. Deploy both ISOs to Bootimus
-echo "=============================================================================="
-echo " STEP 4: INGESTING AND PROVISIONING BOTH ISOS ON BOOTIMUS"
-echo "=============================================================================="
+# 4. Deploy both ISOs to Bootimus (optional via --skip-pxe)
+if [[ "${SKIP_PXE}" == "false" ]]; then
+    echo "=============================================================================="
+    echo " STEP 4: INGESTING AND PROVISIONING BOTH ISOS ON BOOTIMUS"
+    echo "=============================================================================="
 
-for ISO_NAME in "${ISO_DEFAULT_NAME}" "${ISO_NOCOMP_NAME}"; do
-    echo "[-] Processing Bootimus deployment for: ${ISO_NAME}"
-    timeout 120s python3 "${PROJECT_ROOT}/src/build/bootimus.py" "${ISO_NAME}" || true
-done
+    for ISO_NAME in "${ISO_DEFAULT_NAME}" "${ISO_NOCOMP_NAME}"; do
+        echo "[-] Processing Bootimus deployment for: ${ISO_NAME}"
+        timeout 120s python3 "${PROJECT_ROOT}/src/build/bootimus.py" "${ISO_NAME}" || true
+    done
 
-echo "=============================================================================="
-echo " STEP 5: RUNNING BOOTIMUS STABILITY AUDITOR & HEALER"
-echo "=============================================================================="
-for i in {1..30}; do
-    if python3 "${PROJECT_ROOT}/test/bin/check-bootimus-settings.py"; then
-        echo -e "\033[92m[x] Bootimus configuration locked successfully for all images.\033[0m"
-        break
-    fi
-    echo "[-] Waiting 15s for Bootimus extraction and healing loop... ($i/30)"
-    sleep 15
-done
+    echo "=============================================================================="
+    echo " STEP 5: RUNNING BOOTIMUS STABILITY AUDITOR & HEALER"
+    echo "=============================================================================="
+    for i in {1..30}; do
+        if python3 "${PROJECT_ROOT}/test/bin/check-bootimus-settings.py"; then
+            echo -e "\033[92m[x] Bootimus configuration locked successfully for all images.\033[0m"
+            break
+        fi
+        echo "[-] Waiting 15s for Bootimus extraction and healing loop... ($i/30)"
+        sleep 15
+    done
 
-# Display final tree
-python3 "${PROJECT_ROOT}/src/build/bootimus.py" --list
+    # Display final tree
+    python3 "${PROJECT_ROOT}/src/build/bootimus.py" --list
 
-echo "=============================================================================="
-echo -e "\033[92m\033[1m[x] DUAL ISO BUILD & BOOTIMUS DEPLOYMENT COMPLETED SUCCESSFULLY FOR v${ISO_VERSION}!\033[0m"
-echo "=============================================================================="
+    echo "=============================================================================="
+    echo -e "\033[92m\033[1m[x] DUAL ISO BUILD & BOOTIMUS DEPLOYMENT COMPLETED SUCCESSFULLY FOR v${ISO_VERSION}!\033[0m"
+    echo "=============================================================================="
+else
+    echo "=============================================================================="
+    echo " [-] SKIPPING BOOTIMUS PXE DEPLOYMENT & AUDIT (--skip-pxe active)"
+    echo "=============================================================================="
+    echo -e "\033[92m\033[1m[x] DUAL ISO BUILD & GCS SYNC COMPLETED SUCCESSFULLY FOR v${ISO_VERSION}!\033[0m"
+    echo "=============================================================================="
+fi
