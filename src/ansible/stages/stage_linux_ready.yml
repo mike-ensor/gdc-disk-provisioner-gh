@@ -95,7 +95,7 @@
     content: |
       {
         "stage": "LINUX_READY",
-        "status": "COMPLETED",
+        "status": "completed",
         "timestamp": "{{ linux_ready_end_time }}",
         "evidence": {{ linux_ready_evidence | to_json }}
       }

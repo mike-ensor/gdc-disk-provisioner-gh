@@ -27,7 +27,7 @@
     content: |
       {
         "stage": "CLUSTER_READY",
-        "status": "COMPLETED",
+        "status": "completed",
         "timestamp": "{{ cluster_ready_end_time }}",
         "evidence": {{ cluster_ready_evidence | to_json }}
       }

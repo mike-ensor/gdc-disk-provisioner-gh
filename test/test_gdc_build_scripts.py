@@ -331,6 +331,7 @@ class TestGgdBuildScripts(unittest.TestCase):
             self.assertIn("start_time", s_content, f"Stage {stage} must record start_time")
             self.assertIn("end_time", s_content, f"Stage {stage} must record end_time")
             self.assertIn("timing", s_content, f"Stage {stage} must have timing dictionary in evidence")
+            self.assertIn('"status": "completed"', s_content, f"Stage {stage} must record status")
 
 if __name__ == "__main__":
     unittest.main()
