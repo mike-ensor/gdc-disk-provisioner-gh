@@ -52,6 +52,39 @@ fi
 ISO_VERSION=$(tr -d '[:space:]' < "${PROJECT_ROOT}/VERSION")
 export ISO_VERSION
 
+# ==========================================
+# Auto-Increment ISO_VERSION Patch in VERSION and .envrc
+# ==========================================
+if [[ "${SKIP_INCREMENT:-false}" != "true" && "${ISO_VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    MAJOR="${BASH_REMATCH[1]}"
+    MINOR="${BASH_REMATCH[2]}"
+    PATCH="${BASH_REMATCH[3]}"
+    NEW_PATCH=$((PATCH + 1))
+    NEW_ISO_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+    
+    echo "[-] Auto-incrementing ISO_VERSION: ${ISO_VERSION} -> ${NEW_ISO_VERSION}"
+    
+    # Update VERSION file
+    echo "${NEW_ISO_VERSION}" > "${PROJECT_ROOT}/VERSION"
+    echo "[-] Successfully updated VERSION file to ${NEW_ISO_VERSION}."
+    
+    # Update .envrc on disk
+    ENVRC_FILE="${PROJECT_ROOT}/.envrc"
+    if [[ -f "${ENVRC_FILE}" ]]; then
+        # Use standard sed to replace the ISO_VERSION line
+        sed -i "s/export ISO_VERSION=.*/export ISO_VERSION=\"${NEW_ISO_VERSION}\"/g" "${ENVRC_FILE}"
+        echo "[-] Successfully updated ${ENVRC_FILE}."
+    else
+        echo "[!] Warning: .envrc file not found at ${ENVRC_FILE}. Skipping disk update." >&2
+    fi
+    
+    # Update our runtime variable to use the newly incremented version
+    ISO_VERSION="${NEW_ISO_VERSION}"
+    export ISO_VERSION
+else
+    echo "[!] Warning: ISO_VERSION '${ISO_VERSION}' does not match semver format. Skipping auto-increment." >&2
+fi
+
 # Sourcing helper
 BUILD_ENV="${PROJECT_ROOT}/src/build/build.env"
 LOCAL_ENV="${PROJECT_ROOT}/src/build/local.env"
