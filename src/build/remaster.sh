@@ -433,6 +433,16 @@ else
 fi
 chmod +x "${EXTRACT_DIR}/custom-data/gdc-collector"
 
+echo "[-] Obtaining gdc-companion..."
+CACHE_COMPANION="${PROJECT_ROOT}/.cache/binaries/gdc-companion"
+if [[ -f "${CACHE_COMPANION}" ]]; then
+    echo "  [x] Using cached gdc-companion."
+    cp "${CACHE_COMPANION}" "${EXTRACT_DIR}/custom-data/gdc-companion"
+    chmod +x "${EXTRACT_DIR}/custom-data/gdc-companion"
+else
+    echo "  [!] WARNING: gdc-companion not found in cache. Skipping." >&2
+fi
+
 echo "[-] Generating dynamic Message of the Day (MOTD) banner..."
 "${SCRIPT_DIR}/generate_banner.py" "${EXTRACT_DIR}/custom-data/boot-banner.txt" "${ISO_VERSION}"
 

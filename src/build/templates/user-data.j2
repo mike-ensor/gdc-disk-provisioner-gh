@@ -120,6 +120,13 @@ autoinstall:
         chmod +x /usr/local/bin/gdc-collector
         echo "[-] Diagnostics tool registered as globally executable: 'gdc-collector'"
       fi
+      
+      # Register the Companion binary as a globally executable utility on the Live CD
+      if [ -f /cdrom/custom-data/gdc-companion ]; then
+        cp /cdrom/custom-data/gdc-companion /usr/local/bin/gdc-companion
+        chmod +x /usr/local/bin/gdc-companion
+        echo "[-] Companion tool registered as globally executable: 'gdc-companion'"
+      fi
     - |
       # [GDC-INSTALL-STEP 3/12] Dynamically compiling local LVM layout...
       echo "=============================================================================="
@@ -595,6 +602,12 @@ autoinstall:
         cp /cdrom/custom-data/gdc-collector /target/usr/local/bin/gdc-collector
         chmod +x /target/usr/local/bin/gdc-collector
         logger -t gdc-provisioner "[GOAL] Diagnostics collector tool copied to target /usr/local/bin/gdc-collector successfully"
+      fi
+
+      if [ -f /cdrom/custom-data/gdc-companion ]; then
+        cp /cdrom/custom-data/gdc-companion /target/usr/local/bin/gdc-companion
+        chmod +x /target/usr/local/bin/gdc-companion
+        logger -t gdc-provisioner "[GOAL] Companion tool copied to target /usr/local/bin/gdc-companion successfully"
       fi
       
       if [ -f /cdrom/custom-data/scan_ips.py ]; then

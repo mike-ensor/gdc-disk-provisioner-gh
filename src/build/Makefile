@@ -200,6 +200,21 @@ deps:
 					fi; \
 				fi; \
 			done; \
+			echo "    [-] Checking GCS for latest gdc-companion binary..."; \
+			LATEST_COMPANION=$$(gcloud storage objects list "gs://$$BUCKET_NAME/binaries/gdc-companion-*" --format="value(name)" --sort-by="~timeCreated" --limit=1 2>/dev/null || true); \
+			if [ -n "$$LATEST_COMPANION" ]; then \
+				echo "    [x] Found latest companion on GCS: $$LATEST_COMPANION"; \
+				if [ ! -f "$(BIN_CACHE_DIR)/gdc-companion" ] || [ "$$(cat $(CACHE_DIR)/latest_companion_name.txt 2>/dev/null)" != "$$LATEST_COMPANION" ]; then \
+					echo "    [-] Downloading latest gdc-companion from GCS..."; \
+					gcloud storage cp "gs://$$BUCKET_NAME/$$LATEST_COMPANION" "$(BIN_CACHE_DIR)/gdc-companion"; \
+					echo "$$LATEST_COMPANION" > $(CACHE_DIR)/latest_companion_name.txt; \
+					python3 -c "import json, os; f='$(CACHE_DIR)/binary_sources.json'; d=json.load(open(f)) if os.path.exists(f) else {}; d['gdc-companion']='GCS Cache'; json.dump(d, open(f, 'w'))" 2>/dev/null; \
+				else \
+					echo "    [x] Local cache already has the latest gdc-companion."; \
+				fi; \
+			else \
+				echo "    [!] Warning: No gdc-companion-* binary found in GCS bucket gs://$$BUCKET_NAME/binaries/"; \
+			fi; \
 		fi; \
 	fi
 	@# 1. Base OS ISO
