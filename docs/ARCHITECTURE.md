@@ -10,7 +10,7 @@ The provisioning sequence is divided into four distinct stages:
 1. **Stage 1 (ISO Creation):** Code and environment variables are compiled into a bootable, self-contained ISO containing pre-seeded Ansible playbooks, dependent collections, and local repositories.
 2. **Stage 2 (Publish & Deploy):** The compiled ISO is uploaded to versioned Google Cloud Storage (GCS) or a local corporate NFS mount.
 3. **Stage 3 (PXE Ingestion):** Bootimus (the PXE engine) pulls the ISO and configures local iPXE menus.
-4. **Stage 4 (Bare-Metal Provisioning):** The physical node boots, performs a dynamic DHCP discovery install, transitions to local static VRF networking, and starts daily drift-correction.
+4. **Stage 4 (Bare-Metal Provisioning):** The physical node boots, performs a dynamic DHCP discovery install, transitions to local static VLAN networking, and starts daily drift-correction.
 
 ```mermaid
 sequenceDiagram
@@ -73,7 +73,7 @@ sequenceDiagram
     Node->>Node: Deploy & Enable gdc-provision.timer
     Node->>Node: Reboot into Hardened OS
     
-    Note over Node,Comp: Stage 2: Static VRF Active
+    Note over Node,Comp: Stage 2: Static VLAN Active
     Node->>Node: systemd starts gitea.service (Port 3000)
     Node->>Node: gdc-provision.service runs local ansible-pull
     Node->>Node: Daily at 2AM, gdc-provision.timer triggers drift correction
@@ -190,7 +190,7 @@ The GDC node transitions through an integrated, sequential state machine to ensu
 
 ### Transition of Network Stages
 * **Bootstrap Phase (Stage 1):** The Subiquity installer boots with native DHCP to establish a reliable connection to the `install-companion` log monitoring webhook.
-* **Production Phase (Stage 2):** On the first reboot of the completed installation, systemd activates the segmented VRF (Virtual Routing and Forwarding) tables, mapping `Table 10` for "Machine" management interfaces and `Table 20` for "Kubernetes" container network interfaces natively or over tagged VLAN boundaries.
+* **Production Phase (Stage 2):** On the first reboot of the completed installation, systemd activates the configured network interfaces, establishing standard host management networking natively and segmenting the Kubernetes container network over tagged VLAN boundaries.
 
 ### Automated Drift Management
 To prevent runtime configuration skew, the installer registers and starts a standard `gdc-provision.timer` systemd unit. Daily at the specified schedule (configured via `ANSIBLE_PULL_SCHEDULE`), this timer triggers `ansible-pull` to query the local Gitea instance and align the physical server with the declared git-state.

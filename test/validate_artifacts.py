@@ -249,7 +249,9 @@ def validate_netplan_template(netplan_template_path):
             .replace("__MGMT_IFACE__", "eth0")
             .replace("__PHYS_IFACE__", "eth1")
             .replace("__BOOTSTRAP_MACHINE_IP_CIDR__", "192.168.120.15/24")
-            .replace("__BOOTSTRAP_K8S_IP_CIDR__", "192.168.109.15/24")
+            .replace("__BOOTSTRAP_K8S_IP_CIDR__", "172.31.250.15/24")
+            .replace("__MACHINE_IP_CIDR__", "192.168.120.15/24")
+            .replace("__K8S_IP_CIDR__", "172.31.250.15/24")
         )
         
         with open(sandbox_file, 'w') as f:

@@ -28,8 +28,8 @@ $ curl -s -X GET "https://gdc-companion.ensor-labs.com/v1/machine-info/00:00:01:
     "cluster_network": {
       "vlan_id": 109,
       "dhcp_v4": false,
-      "ip_cidr": "192.168.109.12/24",
-      "gateway": "192.168.109.1",
+      "ip_cidr": "172.31.250.12/24",
+      "gateway": "172.31.250.1",
       "dns_servers": ["8.8.8.8", "8.8.4.4"]
     }
   },
@@ -52,7 +52,7 @@ $ tar -xzf /tmp/gdc-node-242.tar.gz -C /tmp/gdc-diagnostics-analysis-242/
 **3. Inspect Evidence and Compare States**
 Examine `/tmp/gdc-diagnostics-analysis-242/<timestamp>/configs/api-lookup-status.json` to confirm the API was successfully reached.
 
-Check `/tmp/gdc-diagnostics-analysis-242/<timestamp>/configs/99-gdc-cluster-network.yaml`. If the `vlan` and `vrfs` sections are missing, it indicates the network variables were not properly hydrated by Ansible.
+Check `/tmp/gdc-diagnostics-analysis-242/<timestamp>/configs/99-gdc-cluster-network.yaml`. If the `vlan` section is missing, it indicates the network variables were not properly hydrated by Ansible.
 
 Examine `/tmp/gdc-diagnostics-analysis-242/<timestamp>/configs/gdc.fact` to see how Ansible parsed the API payload. If `network` is `null` but the IP CIDR is buried inside `variables.network`, this indicates a mapping deviation in the playbook.
 

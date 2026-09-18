@@ -46,18 +46,15 @@ network:
       id: {{ k8s_vlan }}
       link: {{ phys_iface }}
       addresses: [__K8S_IP_CIDR__]
+      {% if k8s_gateway and k8s_gateway != 'none' and k8s_gateway != '0.0.0.0' %}
       routes:
         - to: default
           via: {{ k8s_gateway }}
           metric: 200
+      {% if k8s_dns and k8s_dns != 'none' %}
       nameservers:
         addresses: [{{ k8s_dns }}]
+      {% endif %}
+      {% endif %}
     {% endif %}
-  {% endif %}
-  {% if k8s_vlan and k8s_vlan != '0' %}
-  vrfs:
-    vrf-k8s:
-      table: 20
-      interfaces: [{{ phys_iface }}.{{ k8s_vlan }}]
-      optional: true
   {% endif %}

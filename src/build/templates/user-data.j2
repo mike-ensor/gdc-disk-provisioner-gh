@@ -719,15 +719,15 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] SSH UseDNS configuration created successfully"
     - |
       echo "=============================================================================="
-      echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Production VRF Netplan configuration"
+      echo "[GDC-INSTALL-GOAL] Starting Task: Deploying GDC Production Netplan configuration"
       echo "=============================================================================="
-      logger -t gdc-provisioner "[GOAL] Deploying GDC Production VRF Netplan configuration"
+      logger -t gdc-provisioner "[GOAL] Deploying GDC Production Netplan configuration"
       
       # Invoke the safe structured Python network compiler
       mkdir -p /target/var/gdc-install/logs /target/var/log
       ln -sf /var/gdc-install/logs/netplan-hydration.log /target/var/log/netplan-hydration.log
       if python3 /cdrom/custom-data/configure_netplan.py >/target/var/gdc-install/logs/netplan-hydration.log 2>&1; then
-        logger -t gdc-provisioner "[GOAL] GDC Production VRF Netplan compiled and validated successfully."
+        logger -t gdc-provisioner "[GOAL] GDC Production Netplan compiled and validated successfully."
       else
         echo "[GDC-INSTALL-FAIL] Critical Failure: Programmatic Netplan compilation failed! Diagnostics written to /target/var/gdc-install/logs/netplan-hydration.log" >/dev/ttyS0
         cat /target/var/gdc-install/logs/netplan-hydration.log >/dev/ttyS0 || true
@@ -799,13 +799,13 @@ autoinstall:
       curtin in-target -- systemctl mask apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service || true
     - |
       echo "=============================================================================="
-      echo "[GDC-INSTALL-GOAL] Starting Task: Configuring VRF sysctl profiles"
+      echo "[GDC-INSTALL-GOAL] Starting Task: Configuring network sysctl profiles"
       echo "=============================================================================="
-      logger -t gdc-provisioner "[GOAL] Configuring VRF sysctl profiles"
+      logger -t gdc-provisioner "[GOAL] Configuring network sysctl profiles"
       mkdir -p /target/etc/sysctl.d
-      echo "net.ipv4.tcp_l3mdev_accept=1" > /target/etc/sysctl.d/99-vrf.conf
-      echo "net.ipv4.udp_l3mdev_accept=1" >> /target/etc/sysctl.d/99-vrf.conf
-      logger -t gdc-provisioner "[GOAL] VRF sysctl profiles configured successfully"
+      echo "net.ipv4.conf.all.arp_ignore=1" > /target/etc/sysctl.d/99-gdc-network.conf
+      echo "net.ipv4.conf.all.arp_announce=2" >> /target/etc/sysctl.d/99-gdc-network.conf
+      logger -t gdc-provisioner "[GOAL] ARP sysctl profiles configured successfully"
       
       IS_AMD=false
       if grep -qi "AuthenticAMD" /proc/cpuinfo; then

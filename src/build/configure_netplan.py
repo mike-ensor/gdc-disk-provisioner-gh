@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import os
+import re
 import sys
 
 def log_info(msg):
@@ -22,6 +23,46 @@ def log_info(msg):
 
 def log_error(msg):
     print(f"[!] [Netplan-Hydrator] ERROR: {msg}", file=sys.stderr)
+
+def remove_empty_sections(yaml_text, section_names=('vlans',)):
+    """
+    Removes section headers (like 'vlans:') ONLY if they have no children
+    (i.e. followed immediately by EOF, another section at equal/less indentation, or comments/blank lines).
+    Never removes a section header if it has indented child elements.
+    """
+    lines = yaml_text.splitlines()
+    result = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        matched = False
+        for sec in section_names:
+            m = re.match(r'^(\s*)' + re.escape(sec) + r':\s*$', line)
+            if m:
+                matched = True
+                indent = len(m.group(1))
+                # Check subsequent lines for children
+                has_children = False
+                j = i + 1
+                while j < len(lines):
+                    next_line = lines[j]
+                    stripped = next_line.strip()
+                    if stripped and not stripped.startswith('#'):
+                        next_indent = len(next_line) - len(next_line.lstrip())
+                        if next_indent > indent:
+                            has_children = True
+                        break
+                    j += 1
+                if has_children:
+                    result.append(line)
+                else:
+                    log_info(f"Purging empty/dangling '{sec}:' section from Netplan config.")
+                break
+        if not matched:
+            result.append(line)
+        i += 1
+    trailing_newline = '\n' if yaml_text.endswith('\n') else ''
+    return '\n'.join(result) + trailing_newline
 
 def get_physical_interfaces(sys_class_net='/sys/class/net'):
     try:
@@ -61,7 +102,7 @@ def load_env_vars(env_path="/tmp/allocated_ips.env"):
     else:
         log_info("Dynamic allocation state missing. Defaulting to fallback .14")
         env["MACHINE_IP"] = "192.168.4.14"
-        env["K8S_IP"] = "192.168.109.14"
+        env["K8S_IP"] = "172.31.250.10"
     return env
 
 def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', env_path='/tmp/allocated_ips.env', target_dir='/target'):
@@ -85,8 +126,8 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
     machine_cidr_raw = env_vars.get("MACHINE_IP_CIDR", "192.168.4.11/24")
     machine_mask = machine_cidr_raw.split('/')[1] if '/' in machine_cidr_raw else "24"
     
-    k8s_cidr_raw = env_vars.get("K8S_IP_CIDR", "192.168.109.10/29")
-    k8s_mask = k8s_cidr_raw.split('/')[1] if '/' in k8s_cidr_raw else "29"
+    k8s_cidr_raw = env_vars.get("K8S_IP_CIDR", "172.31.250.10/24")
+    k8s_mask = k8s_cidr_raw.split('/')[1] if '/' in k8s_cidr_raw else "24"
     
     # Construct complete CIDR addresses
     machine_ip_cidr = f"{env_vars.get('MACHINE_IP')}/{machine_mask}"
@@ -133,10 +174,8 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
         content = content.replace(placeholder, replacement)
         
     # 6b. Clean up dangling YAML keys resulting from empty Jinja evaluation
-    # If vrfs: is left dangling with no children, it crashes netplan generate
-    import re
-    content = re.sub(r'^\s*vrfs:\s*$', '', content, flags=re.MULTILINE)
-    content = re.sub(r'^\s*vlans:\s*$', '', content, flags=re.MULTILINE)
+    # If vlans: is left dangling with no children, it crashes netplan generate
+    content = remove_empty_sections(content, ('vlans',))
         
     # 7. Dynamically append any secondary and additional NICs as plain DHCP interfaces
     if len(ifaces) > 1:

@@ -70,12 +70,12 @@ Represents individual physical servers.
 * `cpu_cores` (integer, physical CPU core count)
 * `ram_gib` (integer, physical RAM in GiB)
 * `disks` (JSONB, representing a list of physical disks: `[{"disk_id": "/dev/sda", "size_gib": 500}, ...]`)
-* `vrf_machine_cidr` (varchar)
-* `vrf_machine_gateway` (varchar)
-* `vrf_machine_dns` (varchar[], defaulting to `{"8.8.8.8", "8.8.4.4"}`)
-* `vrf_k8s_cidr` (varchar)
-* `vrf_k8s_gateway` (varchar)
-* `vrf_k8s_dns` (varchar[], defaulting to `{"8.8.8.8", "8.8.4.4"}`)
+* `machine_cidr` (varchar)
+* `machine_gateway` (varchar)
+* `machine_dns` (varchar[], defaulting to `{"8.8.8.8", "8.8.4.4"}`)
+* `k8s_cidr` (varchar)
+* `k8s_gateway` (varchar)
+* `k8s_dns` (varchar[], defaulting to `{"8.8.8.8", "8.8.4.4"}`)
 * `fleet_id` (UUID, Foreign Key referencing `fleets(id)`)
 * `status` (varchar, `"PENDING"`, `"APPROVED"`, or `"INSTALLED"`)
 * `variables` (JSONB, node-specific variables overriding fleet/global keys)
@@ -299,12 +299,12 @@ pub struct MachineCreateDTO {
     pub cpu_cores: u32,
     pub ram_gib: u32,
     pub disks: Vec<DiskConfigDTO>,
-    pub vrf_machine_cidr: String,
-    pub vrf_machine_gateway: String,
-    pub vrf_machine_dns: Option<Vec<String>>,
-    pub vrf_k8s_cidr: String,
-    pub vrf_k8s_gateway: String,
-    pub vrf_k8s_dns: Option<Vec<String>>,
+    pub machine_cidr: String,
+    pub machine_gateway: String,
+    pub machine_dns: Option<Vec<String>>,
+    pub k8s_cidr: String,
+    pub k8s_gateway: String,
+    pub k8s_dns: Option<Vec<String>>,
     pub fleet_id: Uuid,
     pub variables: Value,
 }
@@ -320,12 +320,12 @@ pub struct ResolvedConfigurationDTO {
     pub cpu_cores: u32,
     pub ram_gib: u32,
     pub disks: Vec<DiskConfigDTO>,
-    pub vrf_machine_cidr: String,
-    pub vrf_machine_gateway: String,
-    pub vrf_machine_dns: Vec<String>,
-    pub vrf_k8s_cidr: String,
-    pub vrf_k8s_gateway: String,
-    pub vrf_k8s_dns: Vec<String>,
+    pub machine_cidr: String,
+    pub machine_gateway: String,
+    pub machine_dns: Vec<String>,
+    pub k8s_cidr: String,
+    pub k8s_gateway: String,
+    pub k8s_dns: Vec<String>,
     pub variables: Value, // Combined dynamic parameters derived via deep_merge
 }
 ```
