@@ -13,7 +13,7 @@ Before loading recovery skills, run the following deterministic diagnostic tools
 ### Tool A: Subnet Discovery Scanners
 If the node's IP or status is unknown, scan the subnets to locate active, offline, or crashed target systems:
 *   **Parallel SSH/Ping Probe:**
-    `python3 bin/debug/crash-cart-scan-subnet.sh --cidr 192.168.9.230/27`
+    `./bin/local/gdc-crash-cart.sh scan-subnet --cidr 192.168.9.230/27`
 *   **L2/ARP Hybrid Allocator:**
     `python3 src/build/scan_ips.py --interface eth0`
 

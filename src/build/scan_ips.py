@@ -76,12 +76,14 @@ def is_ip_taken(ip, interface):
 
     # 4. Check local neighbor cache table
     try:
-        neigh_out = subprocess.getoutput(f"ip neigh show dev {interface} 2>/dev/null")
-        for line in neigh_out.splitlines():
-            if ip in line:
-                if not any(state in line for state in ["FAILED", "INCOMPLETE"]):
-                    log_warn(f"IP {ip} is taken (active neighbor cache entry: {line.strip()})")
-                    return True
+        res = subprocess.run(["ip", "neigh", "show", "dev", interface], capture_output=True, text=True)
+        if res.returncode == 0:
+            for line in res.stdout.splitlines():
+                parts = line.split()
+                if parts and parts[0] == ip:
+                    if not any(state in line for state in ["FAILED", "INCOMPLETE"]):
+                        log_warn(f"IP {ip} is taken (active neighbor cache entry: {line.strip()})")
+                        return True
     except Exception:
         pass
 

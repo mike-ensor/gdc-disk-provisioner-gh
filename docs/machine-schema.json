@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$comment": "UPSTREAM OWNER: gdc-companion (docs/machine-schema.json). DO NOT EDIT DIRECTLY. This file is vendored from the gdc-companion repository to support hermetic, air-gapped CI and offline validation. Run bin/sync-schemas.sh to sync with upstream.",
+  "$comment": "UPSTREAM OWNER: gdc-companion (docs/machine-schema.json). DO NOT EDIT DIRECTLY. This file is vendored from the gdc-companion repository to support hermetic, air-gapped CI and offline validation. Run test/bin/sync-schemas.sh to sync with upstream.",
   "title": "GDC Bare-Metal Machine Config Schema",
   "description": "JSON schema for machine configuration objects served and ingested via /v1/machine-info/{mac-address}.",
   "type": "object",

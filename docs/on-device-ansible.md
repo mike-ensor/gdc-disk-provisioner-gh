@@ -105,7 +105,7 @@ All manual fact files must strictly adhere to the official schema:
 #### Method A: Automated Injection via Workstation Tool (Recommended)
 From your local workstation, run:
 ```bash
-./bin/node-ops/inject-manual-facts.sh --node 192.168.4.236 --facts path/to/gdc-fact-manual.json
+./bin/local/gdc-node-ops.sh push-facts --node 192.168.4.236 --facts path/to/gdc-fact-manual.json
 ```
 This script validates the JSON against `machine-schema.json`, uploads it to `/var/gdc-install/state/gdc-fact-manual.json`, deletes `/var/gdc-install/state/cluster-ready.json`, restarts `gdc-provision.service`, and tails the live journal.
 
@@ -146,7 +146,7 @@ If you have modified playbooks locally and want to test them completely integrat
 
 ```bash
 # Push updates and re-run linux-ready stage on target node
-./bin/node-ops/push-hotfix-playbook.sh --stage linux-ready 192.168.4.236
+./bin/local/gdc-node-ops.sh push-playbook --nodes 192.168.4.236 --resume-from linux-ready
 ```
 
 ### 3.2. Direct Test Runner (Interactive Debugging)

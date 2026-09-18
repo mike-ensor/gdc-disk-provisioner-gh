@@ -207,7 +207,7 @@ High-security operational mode for completely isolated nodes where all automated
 A failure state occurring when the automated Subiquity installer or early first-boot Ansible playbook crashes before provisioning administrative users (`gdc-admin`). In non-debug releases, the node is inaccessible via standard credentials.
 
 ### Crash Cart CLI (`bootloader-crash-cart.sh`)
-An emergency recovery script located at `bin/debug/bootloader-crash-cart.sh`. When executed from a crashed installation shell or serial console, it temporarily starts `ssh`, configures `/etc/ssh/sshd_config.d/99-root-ssh.conf` to permit root logins, and sets an ephemeral password so diagnostic logs can be extracted remotely.
+An emergency recovery utility provided via `bin/local/gdc-crash-cart.sh snippet`. When executed from a crashed installation shell or serial console, it temporarily starts `ssh`, configures `/etc/ssh/sshd_config.d/99-root-ssh.conf` to permit root logins, and sets an ephemeral password so diagnostic logs can be extracted remotely.
 
 ### TPM Recovery Utility (`recover-tpm-unseal.sh`)
 A diagnostic script located at `bin/recover-tpm-unseal.sh`. Designed to be executed from a LiveCD on a bricked node, it unseals the LUKS partition using the motherboard's TPM, mounts `/` and `/boot`, chroots into the environment, installs missing drivers, and rebuilds initramfs with systemd TPM2 TSS hooks.

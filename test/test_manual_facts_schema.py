@@ -85,12 +85,12 @@ class TestManualFactsSchema(unittest.TestCase):
             local_cmp,
             upstream_cmp,
             f"Local schema '{REPO_SCHEMA_PATH}' has diverged from upstream '{companion_schema}'! "
-            f"Run ./bin/sync-schemas.sh to synchronize."
+            f"Run ./test/bin/sync-schemas.sh to synchronize."
         )
 
     def test_sync_schemas_script(self):
-        """Tests bin/sync-schemas.sh --help and --check execution."""
-        sync_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "../bin/sync-schemas.sh"))
+        """Tests test/bin/sync-schemas.sh --help and --check execution."""
+        sync_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "bin/sync-schemas.sh"))
         self.assertTrue(os.path.exists(sync_script))
         self.assertTrue(os.access(sync_script, os.X_OK))
 
