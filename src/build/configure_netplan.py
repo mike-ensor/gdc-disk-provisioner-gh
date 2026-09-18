@@ -67,10 +67,13 @@ def remove_empty_sections(yaml_text, section_names=('vlans',)):
 def get_physical_interfaces(sys_class_net='/sys/class/net'):
     try:
         ifaces = os.listdir(sys_class_net)
-        # Filter: starts with 'e', does not contain '.', is not virtual/loopback
+        # Filter candidate ethernet interfaces: start with 'e' and do not contain '.'
+        ethernet_ifaces = [i for i in ifaces if i.startswith('e') and '.' not in i]
+        num_ethernet = len(ethernet_ifaces)
+
         phys = []
-        for i in ifaces:
-            if (i.startswith('e') and '.' not in i and i != 'eth0') or (i == 'eth0' and len(ifaces) == 1):
+        for i in ethernet_ifaces:
+            if (i != 'eth0') or (i == 'eth0' and num_ethernet == 1):
                 carrier_path = os.path.join(sys_class_net, i, 'carrier')
                 try:
                     with open(carrier_path, 'r') as f:
@@ -79,9 +82,9 @@ def get_physical_interfaces(sys_class_net='/sys/class/net'):
                 except Exception:
                     pass
         
-        # If no physically connected interfaces are found, fallback to the old behavior
+        # If no physically connected interfaces are found, fallback to candidate interfaces
         if not phys:
-            phys = [i for i in ifaces if i.startswith('e') and '.' not in i and i != 'eth0' or (i == 'eth0' and len(ifaces) == 1)]
+            phys = [i for i in ethernet_ifaces if (i != 'eth0') or (i == 'eth0' and num_ethernet == 1)]
             
         phys.sort()
         return phys

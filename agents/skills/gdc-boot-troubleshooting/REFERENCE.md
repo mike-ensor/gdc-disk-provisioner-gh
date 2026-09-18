@@ -48,7 +48,7 @@ If the target OS fails to boot due to broken initramfs, missing cryptsetup packa
 ### 2.1 Automated Recovery Utility
 Run the built-in GDC recovery utility to auto-mount, decrypt, and rebuild target initramfs:
 ```bash
-sudo ./bin/debug/recover-tpm-unseal.sh
+sudo ./bin/local/gdc-crash-cart.sh recover-tpm
 ```
 
 ### 2.2 Manual Recovery Step-by-Step

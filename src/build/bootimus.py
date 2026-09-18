@@ -31,13 +31,19 @@ import urllib.parse
 import urllib.error
 import subprocess
 
+def _get_int_env(key, default):
+    val = os.environ.get(key)
+    if val is not None and str(val).strip().isdigit():
+        return int(str(val).strip())
+    return default
+
 # Configurable Defaults (Can be overridden by environment variables)
 BOOTIMUS_API_HOST = os.environ.get("BOOTIMUS_API_HOST", "192.168.254.12")
-BOOTIMUS_API_PORT = int(os.environ.get("BOOTIMUS_API_PORT", 26000))
-BOOTIMUS_HTTP_PORT = int(os.environ.get("BOOTIMUS_HTTP_PORT", 16000))
+BOOTIMUS_API_PORT = _get_int_env("BOOTIMUS_API_PORT", 26000)
+BOOTIMUS_HTTP_PORT = _get_int_env("BOOTIMUS_HTTP_PORT", 16000)
 API_BASE = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_API_PORT}/api"
-BOOTIMUS_SCAN_RETRIES = int(os.environ.get("BOOTIMUS_SCAN_RETRIES", 24))
-BOOTIMUS_SCAN_DELAY = int(os.environ.get("BOOTIMUS_SCAN_DELAY", 15))
+BOOTIMUS_SCAN_RETRIES = _get_int_env("BOOTIMUS_SCAN_RETRIES", 24)
+BOOTIMUS_SCAN_DELAY = _get_int_env("BOOTIMUS_SCAN_DELAY", 15)
 
 def get_bootimus_credentials():
     """Retrieves credentials from environment or dynamically from Infisical."""

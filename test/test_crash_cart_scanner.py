@@ -22,7 +22,7 @@ import importlib.util
 import importlib.machinery
 
 def load_scanner_module():
-    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../bin/debug/crash-cart-scan-subnet.sh'))
+    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../bin/local/crash-cart-scan-subnet.py'))
     loader = importlib.machinery.SourceFileLoader("crash_cart_scanner", script_path)
     spec = importlib.util.spec_from_loader("crash_cart_scanner", loader)
     if spec is None or spec.loader is None:
@@ -87,7 +87,7 @@ class TestCrashCartScanner(unittest.TestCase):
         mock_run.return_value = MagicMock(returncode=0)
         self.assertTrue(scanner.is_ping_reachable("192.168.9.230", timeout=1.0))
         mock_run.assert_called_with(
-            ["ping", "-c", "2", "-W", "1.0", "192.168.9.230"],
+            ["ping", "-c", "1", "-W", "1", "192.168.9.230"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
@@ -145,15 +145,16 @@ class TestCrashCartScanner(unittest.TestCase):
         self.assertEqual(res.returncode, 0)
         self.assertEqual(res.stdout, "test-node\nUbuntu 24.04 LTS")
         
-        expected_cmd = (
-            "sshpass -p 'test-pass' ssh "
-            "-o StrictHostKeyChecking=no "
-            "-o UserKnownHostsFile=/dev/null "
-            "-o ConnectTimeout=3 "
-            "test-user@192.168.9.230 "
-            "'hostname && cat /etc/os-release | grep PRETTY_NAME'"
-        )
-        mock_run.assert_called_with(expected_cmd, shell=True, capture_output=True, text=True)
+        expected_cmd = [
+            "sshpass", "-p", "test-pass",
+            "ssh",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "ConnectTimeout=3",
+            "test-user@192.168.9.230",
+            "hostname && cat /etc/os-release | grep PRETTY_NAME"
+        ]
+        mock_run.assert_called_with(expected_cmd, shell=False, capture_output=True, text=True)
 
     @patch('sys.exit')
     @patch('sys.stdout')
@@ -162,7 +163,7 @@ class TestCrashCartScanner(unittest.TestCase):
         scanner = load_scanner_module()
         
         # Test invalid CIDR handling
-        test_args = ["crash-cart-scan-subnet.sh", "-c", "invalid_cidr"]
+        test_args = ["crash-cart-scan-subnet.py", "-c", "invalid_cidr"]
         with patch('sys.argv', test_args):
             scanner.main()
             mock_exit.assert_called_with(1)
@@ -183,7 +184,7 @@ class TestCrashCartScanner(unittest.TestCase):
             {"ip": "192.168.9.234", "ping": True, "ssh": False}
         ]
         
-        test_args = ["crash-cart-scan-subnet.sh", "-c", "192.168.9.230/30", "-e", "192.168.9.234"]
+        test_args = ["crash-cart-scan-subnet.py", "-c", "192.168.9.230/30", "-e", "192.168.9.234"]
         with patch('sys.argv', test_args), patch('crash_cart_scanner.run_diagnostics') as mock_diag:
             mock_diag.return_value = MagicMock(returncode=0, stdout="node-230\nPRETTY_NAME=\"Ubuntu 24.04 LTS\"")
             

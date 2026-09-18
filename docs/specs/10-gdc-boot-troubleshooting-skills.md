@@ -30,7 +30,7 @@ To prevent token bloating and maintain clean software engineering boundaries, we
         │                 TOOLS                    │◄── [Query network/nodes]
         ├──────────────────────────────────────────┤
         │ • src/build/scan_ips.py (L2 ARP)         │
-        │ • bin/debug/crash-cart-scan-subnet.sh    │
+        │ • bin/local/gdc-crash-cart.sh scan-subnet│
         │ • GDC Companion API (/v1/install-logs)   │
         └──────────────────────────────────────────┘
                               │
@@ -57,7 +57,7 @@ To prevent token bloating and maintain clean software engineering boundaries, we
 Tools represent executable binaries, scripts, or APIs within the codebase. They must perform deterministic inputs and outputs and are called by the agent to acquire system context:
 *   **IP Subnet Scanners:** 
     *   `src/build/scan_ips.py`: Standard hybrid L2/ARP/ICMP allocator.
-    *   `bin/debug/crash-cart-scan-subnet.sh`: Parallel ping/SSH prober.
+    *   `bin/local/gdc-crash-cart.sh scan-subnet`: Parallel ping/SSH prober.
 *   **Log Receivers:**
     *   `gdc-companion` API (`POST /v1/install-logs/public`): Live JSON logs populated by Curtin/Subiquity over the local network when SSH is completely unreachable.
 
@@ -90,7 +90,7 @@ Skills represent Markdown files (`SKILL.md`, `REFERENCE.md`, `EXAMPLES.md`) cont
 *   **Description:** "Recover filesystems locked by LUKS namespace race conditions, missing keys, or failed TPM 2.0 unseal triggers."
 *   **Checklist:**
     - [ ] Boot node into Live CD environment.
-    - [ ] Run `./bin/debug/recover-tpm-unseal.sh` to automate decryption and chroot repair.
+    - [ ] Run `./bin/local/gdc-crash-cart.sh recover-tpm` to automate decryption and chroot repair.
     - [ ] Verify Snap host-to-snap mount propagation by routing keyfiles through `/var/log/installer/`.
     - [ ] Inspect PCR registry values and Secure Boot profiles.
 

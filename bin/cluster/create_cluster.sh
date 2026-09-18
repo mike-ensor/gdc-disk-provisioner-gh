@@ -1,4 +1,18 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 set -euo pipefail
 
 # ==============================================================================
@@ -9,15 +23,96 @@ set -euo pipefail
 # it will safely skip the creation process.
 # ==============================================================================
 
-export MACHINE_IP="${MACHINE_IP:-192.168.9.241}"
-export CLUSTER_NAME="${CLUSTER_NAME:-gdc-default-241}"
-export PROJECT_ID="${PROJECT_ID:-anthos-bare-metal-lab-1}"
+MACHINE_IP="${MACHINE_IP:-192.168.9.241}"
+CLUSTER_NAME="${CLUSTER_NAME:-gdc-default-241}"
+PROJECT_ID="${PROJECT_ID:-anthos-bare-metal-lab-1}"
 
-export CLUSTER_VIP="${CLUSTER_VIP:-192.168.9.143}"
-export CLUSTER_INGRESS="${CLUSTER_INGRESS:-192.168.9.144}"
-export PRIMARY_LOAD_BALANCER="${PRIMARY_LOAD_BALANCER:-192.168.9.144-192.168.9.150}"
+CLUSTER_VIP="${CLUSTER_VIP:-192.168.9.143}"
+CLUSTER_INGRESS="${CLUSTER_INGRESS:-192.168.9.144}"
+PRIMARY_LOAD_BALANCER="${PRIMARY_LOAD_BALANCER:-192.168.9.144-192.168.9.150}"
 
-export ADMIN_USER_EMAIL="${ADMIN_USER_EMAIL:-}"
+ADMIN_USER_EMAIL="${ADMIN_USER_EMAIL:-}"
+AUTO_YES=false
+DRY_RUN=false
+RESPONSE="y"
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Provisions a Google Distributed Cloud (GDC) Bare Metal standalone cluster using bmctl.
+Idempotent: skips creation if the cluster is already running.
+
+Options:
+  --name <NAME>          Cluster name (default: ${CLUSTER_NAME})
+  --ip <IP>              Node machine IP (default: ${MACHINE_IP})
+  --project <PROJECT>    GCP Project ID (default: ${PROJECT_ID})
+  --vip <VIP>            Cluster Control Plane VIP (default: ${CLUSTER_VIP})
+  --ingress <INGRESS>    Cluster Ingress VIP (default: ${CLUSTER_INGRESS})
+  --lb-range <RANGE>     MetalLB pool address range (default: ${PRIMARY_LOAD_BALANCER})
+  --admin-email <EMAIL>  Administrator email for ClusterRoleBinding (optional)
+  --dry-run              Validate configuration and simulate inception without modifying system
+  -y, --yes              Skip confirmation prompt
+  -h, --help             Display this help message and exit
+EOF
+    exit "${1:-0}"
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --name)
+            CLUSTER_NAME="$2"
+            shift 2
+            ;;
+        --ip)
+            MACHINE_IP="$2"
+            shift 2
+            ;;
+        --project)
+            PROJECT_ID="$2"
+            shift 2
+            ;;
+        --vip)
+            CLUSTER_VIP="$2"
+            shift 2
+            ;;
+        --ingress)
+            CLUSTER_INGRESS="$2"
+            shift 2
+            ;;
+        --lb-range)
+            PRIMARY_LOAD_BALANCER="$2"
+            shift 2
+            ;;
+        --admin-email)
+            ADMIN_USER_EMAIL="$2"
+            shift 2
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        -y|--yes)
+            AUTO_YES=true
+            shift
+            ;;
+        -h|--help)
+            usage 0
+            ;;
+        *)
+            echo "Error: Unknown option '$1'" >&2
+            usage 1
+            ;;
+    esac
+done
+
+export MACHINE_IP
+export CLUSTER_NAME
+export PROJECT_ID
+export CLUSTER_VIP
+export CLUSTER_INGRESS
+export PRIMARY_LOAD_BALANCER
+export ADMIN_USER_EMAIL
 
 export BMCTL_WORKSPACE="/var/gdc-install/bmctl-workspace"
 export CLUSTER_CONFIG_DIR="${BMCTL_WORKSPACE}/${CLUSTER_NAME}"
@@ -61,11 +156,19 @@ echo "  Cluster Ingress:       ${CLUSTER_INGRESS}"
 echo "  Primary Load Balancer: ${PRIMARY_LOAD_BALANCER}"
 echo "=============================================================================="
 
-## Add check for "are you sure"
-read -r -p "Are you sure you want to run preflight and create cluster '${CLUSTER_NAME}'? (Y/n) " response
-if [[ ! "$response" =~ ^([yY][eE][sS]|[yY]|"")$ ]]; then
+if [[ "${AUTO_YES}" != "true" ]]; then
+    read -r -p "Are you sure you want to run preflight and create cluster '${CLUSTER_NAME}'? (Y/n) " RESPONSE
+fi
+if [[ ! "${RESPONSE}" =~ ^([yY][eE][sS]|[yY]|"")$ ]]; then
 	echo "Cluster creation aborted by user."
 	exit 0
+fi
+
+if [[ "${DRY_RUN}" == "true" ]]; then
+    echo "[DRY-RUN] Preflight and cluster scaffolding simulated successfully."
+    echo "[DRY-RUN] Target cluster config file: ${CLUSTER_CONFIG_FILE}"
+    echo "[DRY-RUN] Would execute bmctl check preflight and bmctl create cluster."
+    exit 0
 fi
 
 # 1. Check if the cluster is already running
@@ -84,7 +187,7 @@ if [ ! -f "$HOME/.ssh/id_ed25519" ]; then
 	ssh-keygen -t ed25519 -C "gdc-admin@local" -N "" -f "$HOME/.ssh/id_ed25519"
 fi
 
-if ! grep -q "$(cat "$HOME"/.ssh/id_ed25519.pub)" "$HOME/.ssh/authorized_keys" 2>/dev/null; then
+if ! grep -F -x -q "$(cat "$HOME"/.ssh/id_ed25519.pub)" "$HOME/.ssh/authorized_keys" 2>/dev/null; then
 	cat "$HOME/.ssh/id_ed25519.pub" >>"$HOME/.ssh/authorized_keys"
 fi
 

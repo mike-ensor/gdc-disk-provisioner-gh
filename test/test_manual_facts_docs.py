@@ -29,7 +29,8 @@ class TestManualFactsDocs(unittest.TestCase):
             content = f.read()
 
         self.assertIn("gdc-fact-manual.json", content)
-        self.assertIn("inject-manual-facts.sh", content)
+        self.assertIn("gdc-node-ops.sh", content)
+        self.assertIn("push-facts", content)
         self.assertIn("Share / Download JSON", content)
         self.assertIn("machine-schema.json", content)
         self.assertIn("/var/gdc-install/state/cluster-ready.json", content)

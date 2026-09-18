@@ -32,8 +32,9 @@ import ipaddress
 def is_ping_reachable(ip, timeout=1.0):
     """Checks if the target IP responds to standard ICMP pings."""
     try:
+        ping_timeout = str(max(1, int(round(timeout))))
         res = subprocess.run(
-            ["ping", "-c", "2", "-W", str(timeout), ip],
+            ["ping", "-c", "1", "-W", ping_timeout, ip],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
@@ -65,20 +66,23 @@ def check_ip_state(ip, timeout=1.0):
     return None
 
 def run_diagnostics(ip, ssh_user, ssh_pass):
-    """Attempts to run diagnostics via SSH using sshpass."""
-    ssh_cmd = (
-        f"sshpass -p '{ssh_pass}' ssh "
-        f"-o StrictHostKeyChecking=no "
-        f"-o UserKnownHostsFile=/dev/null "
-        f"-o ConnectTimeout=3 "
-        f"{ssh_user}@{ip} "
-        f"'hostname && cat /etc/os-release | grep PRETTY_NAME'"
-    )
-    res = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
+    """Attempts to run diagnostics via SSH using sshpass safely without shell=True."""
+    ssh_cmd = [
+        "sshpass", "-p", ssh_pass,
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "ConnectTimeout=3",
+        f"{ssh_user}@{ip}",
+        "hostname && cat /etc/os-release | grep PRETTY_NAME"
+    ]
+    res = subprocess.run(ssh_cmd, shell=False, capture_output=True, text=True)
     return res
 
 def main():
+    prog_name = "gdc-crash-cart.sh scan-subnet" if (len(sys.argv) > 0 and ("gdc-crash-cart" in sys.argv[0] or any("scan-subnet" in arg for arg in sys.argv))) else os.path.basename(sys.argv[0])
     parser = argparse.ArgumentParser(
+        prog=prog_name,
         description="GDC Crashed Node Network Discovery Subnet Scanner"
     )
     parser.add_argument(
@@ -130,12 +134,16 @@ def main():
     print(" GDC CRASHED NODE NETWORK DISCOVERY SCANNER")
     print("==============================================================================")
     print(f"[-] Scanning CIDR range: {args.cidr}")
-    print(f"[-] Subnet bounds: {list(network.hosts())[0]} to {list(network.hosts())[-1]}")
+    
+    hosts = list(network.hosts()) if network.num_addresses > 2 else [network.network_address]
+    first_host = hosts[0] if hosts else network.network_address
+    last_host = hosts[-1] if hosts else network.broadcast_address
+    print(f"[-] Subnet bounds: {first_host} to {last_host}")
     if exclusions:
         print(f"[-] Excluded active IPs: {', '.join(sorted(list(exclusions)))}")
     print("[-] Performing parallel subnet sweep...")
 
-    all_ips = [str(ip) for ip in network.hosts()]
+    all_ips = [str(ip) for ip in hosts]
     active_devices = []
 
     # Run checks in parallel using ThreadPool for maximum performance
