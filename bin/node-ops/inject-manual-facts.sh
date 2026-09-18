@@ -18,8 +18,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-DEFAULT_SCHEMA="/d/projects/google/gdc-companion/docs/machine-schema.json"
-FALLBACK_SCHEMA="$(cd "${REPO_ROOT}/../gdc-companion/docs" 2>/dev/null && pwd)/machine-schema.json"
+DEFAULT_SCHEMA="${REPO_ROOT}/docs/machine-schema.json"
+COMPANION_DOCS_DIR="$(cd "${REPO_ROOT}/../gdc-companion/docs" 2>/dev/null && pwd || true)"
+FALLBACK_SCHEMA="$([[ -n "${COMPANION_DOCS_DIR}" ]] && echo "${COMPANION_DOCS_DIR}/machine-schema.json" || echo "/d/projects/google/gdc-companion/docs/machine-schema.json")"
 SCHEMA_PATH="${GDC_SCHEMA_PATH:-$([[ -f "${DEFAULT_SCHEMA}" ]] && echo "${DEFAULT_SCHEMA}" || echo "${FALLBACK_SCHEMA}")}"
 
 NODE_IP=""

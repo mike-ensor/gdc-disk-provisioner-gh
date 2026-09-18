@@ -60,7 +60,7 @@ class TestInjectManualFactsCLI(unittest.TestCase):
 
     def test_custom_schema_flag(self):
         valid_path = os.path.join(os.path.dirname(__file__), "fixtures/valid-gdc-fact-manual.json")
-        schema_path = "/d/projects/google/gdc-companion/docs/machine-schema.json"
+        schema_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../docs/machine-schema.json"))
         result = subprocess.run(
             [SCRIPT_PATH, "--node", "192.168.4.10", "--facts", valid_path, "--schema", schema_path, "--dry-run"],
             capture_output=True, text=True

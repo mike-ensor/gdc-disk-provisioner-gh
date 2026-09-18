@@ -19,13 +19,18 @@ import os
 import unittest
 import jsonschema
 
+REPO_SCHEMA_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../docs/machine-schema.json")
+)
 DEFAULT_SCHEMA_PATH = "/d/projects/google/gdc-companion/docs/machine-schema.json"
 FALLBACK_SCHEMA_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../../gdc-companion/docs/machine-schema.json")
 )
 SCHEMA_PATH = os.environ.get(
     "GDC_SCHEMA_PATH",
-    DEFAULT_SCHEMA_PATH if os.path.exists(DEFAULT_SCHEMA_PATH) else FALLBACK_SCHEMA_PATH
+    REPO_SCHEMA_PATH if os.path.exists(REPO_SCHEMA_PATH) else (
+        DEFAULT_SCHEMA_PATH if os.path.exists(DEFAULT_SCHEMA_PATH) else FALLBACK_SCHEMA_PATH
+    )
 )
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 

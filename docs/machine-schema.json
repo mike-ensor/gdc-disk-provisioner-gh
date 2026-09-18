@@ -1,0 +1,195 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GDC Bare-Metal Machine Config Schema",
+  "description": "JSON schema for machine configuration objects served and ingested via /v1/machine-info/{mac-address}.",
+  "type": "object",
+  "required": [
+    "hostname",
+    "bmctl_version",
+    "network",
+    "gcp_info",
+    "cluster",
+    "peers"
+  ],
+  "properties": {
+    "hostname": {
+      "type": "string",
+      "description": "Target machine hostname."
+    },
+    "bmctl_version": {
+      "type": "string",
+      "description": "Version of bmctl / Anthos bare metal orchestration tool."
+    },
+    "network": {
+      "type": "object",
+      "description": "Network configurations for management and cluster interfaces.",
+      "required": [
+        "management_network",
+        "cluster_network"
+      ],
+      "properties": {
+        "management_network": {
+          "type": "object",
+          "description": "Management interface network settings.",
+          "required": [
+            "dhcp_v4",
+            "gateway",
+            "dns_servers"
+          ],
+          "properties": {
+            "dhcp_v4": {
+              "type": "boolean",
+              "description": "Whether IPv4 DHCP is enabled. If true, ip_cidr is optional."
+            },
+            "ip_cidr": {
+              "type": "string",
+              "description": "Static IPv4 address and CIDR prefix (e.g. 192.168.9.150/24)."
+            },
+            "gateway": {
+              "type": "string",
+              "description": "Default gateway IPv4 address."
+            },
+            "dns_servers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Array of DNS server IPv4 addresses."
+            }
+          }
+        },
+        "cluster_network": {
+          "type": "object",
+          "description": "Cluster VLAN interface network settings.",
+          "required": [
+            "vlan_id",
+            "dhcp_v4"
+          ],
+          "properties": {
+            "vlan_id": {
+              "type": "integer",
+              "description": "802.1Q VLAN ID for cluster network."
+            },
+            "dhcp_v4": {
+              "type": "boolean",
+              "description": "Whether IPv4 DHCP is enabled on cluster interface."
+            },
+            "ip_cidr": {
+              "type": "string",
+              "description": "Static IPv4 address and CIDR prefix on cluster interface (e.g. 192.168.109.12/24)."
+            },
+            "gateway": {
+              "type": "string",
+              "description": "Optional gateway IPv4 address on cluster network (falls back to management gateway if omitted)."
+            },
+            "dns_servers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Optional array of DNS server IPv4 addresses on cluster network."
+            }
+          }
+        }
+      }
+    },
+    "gcp_info": {
+      "type": "object",
+      "description": "Google Cloud Platform metadata and service account configuration.",
+      "required": [
+        "project_id",
+        "region",
+        "primary_gsa"
+      ],
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "GCP Project ID."
+        },
+        "region": {
+          "type": "string",
+          "description": "GCP Region name."
+        },
+        "primary_gsa": {
+          "type": "string",
+          "description": "Primary Google Service Account email address."
+        }
+      }
+    },
+    "cluster": {
+      "type": "object",
+      "description": "Target cluster configuration metadata.",
+      "required": [
+        "cluster_name",
+        "primary_root_repo",
+        "primary_root_repo_auth_secret",
+        "networking",
+        "fleet_cluster_labels"
+      ],
+      "properties": {
+        "cluster_name": {
+          "type": "string"
+        },
+        "primary_root_repo": {
+          "type": "string"
+        },
+        "primary_root_repo_auth_secret": {
+          "type": "string"
+        },
+        "networking": {
+          "type": "object",
+          "required": [
+            "cluster_vip",
+            "cluster_ingress",
+            "cluster_lb_range"
+          ],
+          "properties": {
+            "cluster_vip": {
+              "type": "string"
+            },
+            "cluster_ingress": {
+              "type": "string"
+            },
+            "cluster_lb_range": {
+              "type": "string"
+            }
+          }
+        },
+        "fleet_cluster_labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "peers": {
+      "type": "array",
+      "description": "Array of peer node definitions.",
+      "items": {
+        "type": "object",
+        "required": [
+          "hostname",
+          "ipv4"
+        ],
+        "properties": {
+          "hostname": {
+            "type": "string"
+          },
+          "ipv4": {
+            "type": "string"
+          },
+          "node_type": {
+            "type": "string"
+          },
+          "primary": {
+            "type": "boolean"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

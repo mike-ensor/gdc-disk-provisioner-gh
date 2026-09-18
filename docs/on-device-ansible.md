@@ -100,7 +100,7 @@ You can obtain a valid JSON configuration directly from `gdc-companion`:
     "https://<companion-host>/v1/machine-info/<MAC_ADDRESS>" > gdc-fact-manual.json
   ```
 All manual fact files must strictly adhere to the official schema:
-`/d/projects/google/gdc-companion/docs/machine-schema.json`.
+`docs/machine-schema.json` (also matching `gdc-companion/docs/machine-schema.json`).
 
 #### Method A: Automated Injection via Workstation Tool (Recommended)
 From your local workstation, run:
