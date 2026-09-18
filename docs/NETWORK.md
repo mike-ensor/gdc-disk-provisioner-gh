@@ -1,19 +1,18 @@
-# Google Distributed Cloud (GDC) Offline Network Architecture & VRF Segmentation
+# Google Distributed Cloud (GDC) Offline Network Architecture & VLAN Segmentation
 
-This document specifies the network architecture, communication boundaries, and Virtual Routing and Forwarding (VRF) network isolation mechanisms implemented by the GDC Offline Bootloader ISO and installer.
+This document specifies the network architecture, communication boundaries, and VLAN network isolation mechanisms implemented by the GDC Offline Bootloader ISO and installer.
 
 ---
 
 ## 1. Network Segmentation Strategy: Split-Plane Management
 
-To satisfy GDC's strict security and multi-tenancy requirements, edge nodes segment network traffic into two isolated routing domains:
+To satisfy GDC's strict security and multi-tenancy requirements, edge nodes segment network traffic into two isolated network domains:
 
 1. **The Host/Machine (Default) Network:**
    * **Purpose:** For node-level administrative tasks, SSH access, system log streaming (webhooks), GCS asset syncing, internet-facing queries, and host maintenance.
-   * **Configuration:** Standard IPv4 DHCP enabled natively in the `main` routing table. No VRF encapsulation is applied, ensuring standard administrative lookups, diagnostic pings, and DNS queries resolve instantly out-of-the-box.
+   * **Configuration:** Standard IPv4 DHCP enabled natively in the `main` routing table, ensuring standard administrative lookups, diagnostic pings, and DNS queries resolve instantly out-of-the-box.
 2. **The Kubernetes (Cluster) Network:**
    * **Purpose:** Dedicated exclusively to Kubernetes cluster operations, control plane traffic, etcd syncing, worker node cross-talk, and pod networks.
-   * **VRF Device:** `vrf-k8s` (mapped to Routing Table `20`)
    * **VLAN Tag:** `109` (attached as sub-interface `enp1s0.109` or local standard tag)
 
 This architecture guarantees that all Kubernetes resources are created and maintained within their own defined network, completely isolated from administrative or out-of-band host management interfaces, while keeping host diagnostics simple and failure-tolerant.
@@ -28,23 +27,20 @@ Below is the targeted, production-grade segmented interface specification design
 * **Physical Interface:** `enp1s0` (first NIC, native/untagged port)
 * **IP Address Allocation:** DHCP Enabled (`dhcp4: true`)
 * **IPv6 Configuration:** Disabled (`dhcp6: no`)
-* **VRF Association:** None *(runs natively in the default `main` routing table)*
 
 ### 2. Kubernetes Interface (Cluster Control Plane Segment)
 * **VLAN Interface:** `enp1s0.109` (VLAN tag `109` on the primary NIC)
-* **IP Address Allocation:** `192.168.109.14/24` *(widened from /29 to /24 to guarantee Layer 2 gateway reachability)*
-* **Gateway:** `192.168.109.1`
-* **DNS Nameservers:** `192.168.109.1` *(VLAN Gateway)*, `8.8.8.8`, and `8.8.4.4`
-* **VRF Association:** Bound to `vrf-k8s` (Routing Table `20`)
+* **IP Address Allocation:** `172.31.250.10/24` (or dynamically allocated within `172.31.250.0/24`)
+* **Gateway:** `none` (confined to local L2 switch domain by default) or `172.31.250.1`
+* **DNS Nameservers:** `none` (or designated cluster DNS servers)
 
 ### 3. Secondary/Additional Physical Interface (Administrative Fallback)
 * **Physical Interface:** `enp2s0` (second NIC, if present)
 * **Purpose:** Auxiliary fallback segment in the `main` routing table.
 * **IPv4 Configuration:** DHCP enabled (`dhcp4: true`)
 * **IPv6 Configuration:** Disabled (`dhcp6: no`)
-* **VRF Association:** None *(completely isolated from GDC routing constraints)*
 
-This setup guarantees that all core GDC workload traffic stays locked inside hardware-backed VRFs, while keeping host-level diagnostic lookups simple and failure-tolerant.
+This setup guarantees that all core GDC workload traffic stays segmented on dedicated VLANs, while keeping host-level diagnostic lookups simple and failure-tolerant.
 
 ```text
                              [ PHYSICAL PORT: enp1s0 ]
@@ -54,15 +50,15 @@ This setup guarantees that all core GDC workload traffic stays locked inside har
         [ Native IP: DHCP Enabled ]              [ VLAN Sub-interface: enp1s0.109 ]
                     │                                         │
                     ▼                                         ▼
-         [ Default / main Table ]                  [ VRF Master: vrf-k8s ]
-         • Standard Host shell                     • Routing Table: 20
-         • Default Outbound & DNS                  • Independent Gateway/DNS
+         [ Default / main Table ]                  [ Isolated VLAN Segment ]
+         • Standard Host shell                     • Dedicated 802.1Q Tag (109)
+         • Default Outbound & DNS                  • Confined L2 Domain / 172.31.250.0/24
          • Scoped: Host Admin & Webhooks           • Scoped: K8s / etcd / Pods
 ```
 
 ---
 
-## 2. Persistent Netplan VRF Configuration (Ubuntu 24.04 LTS)
+## 2. Persistent Netplan VLAN Configuration (Ubuntu 24.04 LTS)
 
 Ubuntu 24.04 LTS utilizes **Netplan** as its default network configuration renderer (backed by `systemd-networkd`). The initial networking configuration is declared inside our Subiquity autoinstall profile (`/nocloud/user-data`) and persistently written to `/etc/netplan/01-netcfg.yaml` upon installation.
 
@@ -86,21 +82,7 @@ network:
       id: 109
       link: enp1s0
       addresses:
-        - 192.168.109.14/24
-      routes:
-        - to: default
-          via: 192.168.109.1
-          metric: 200
-      nameservers:
-        addresses:
-          - 192.168.109.1
-          - 8.8.8.8
-          - 8.8.4.4
-  vrfs:
-    vrf-k8s:
-      table: 20
-      interfaces:
-        - enp1s0.109
+        - 172.31.250.10/24
 ```
 
 ---
@@ -111,45 +93,43 @@ During the Phase 1 ISO build stage, the target subnets, VLAN IDs, gateways, and 
 
 The build pipeline injects these parameters dynamically into the cloud-init network configuration block:
 
-| Parameter | Build Variable | Default Value | Scoped Routing Domain |
-| :--- | :--- | :--- | :--- |
-| **Machine IP / Subnet** | `BOOTSTRAP_MACHINE_IP_CIDR` | `192.168.10.5/24` | `vrf-machine` (Table 10) |
-| **Machine Gateway** | `BOOTSTRAP_MACHINE_GATEWAY` | `192.168.10.1` | `vrf-machine` (Table 10) |
-| **Machine VLAN ID** | `BOOTSTRAP_MACHINE_VLAN_ID` | `10` | Physical 802.1Q tag |
-| **Machine DNS** | `BOOTSTRAP_MACHINE_DNS` | `8.8.8.8, 8.8.4.4` | `vrf-machine` (Table 10) |
-| **Kubernetes IP / Subnet** | `BOOTSTRAP_K8S_IP_CIDR` | `192.168.20.5/24` | `vrf-k8s` (Table 20) |
-| **Kubernetes Gateway** | `BOOTSTRAP_K8S_GATEWAY` | `192.168.20.1` | `vrf-k8s` (Table 20) |
-| **Kubernetes VLAN ID** | `BOOTSTRAP_K8S_VLAN_ID` | `20` | Physical 802.1Q tag |
-| **Kubernetes DNS** | `BOOTSTRAP_K8S_DNS` | `1.1.1.1` | `vrf-k8s` (Table 20) |
+| Parameter | Build Variable | Default Value | Network Segment | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Machine IP / Subnet** | `BOOTSTRAP_MACHINE_IP_CIDR` | `192.168.4.11/24` | Management Network | Static IP fallback when DHCP is disabled |
+| **Machine Gateway** | `BOOTSTRAP_MACHINE_GATEWAY` | `192.168.4.1` | Management Network | Gateway for host management |
+| **Machine VLAN ID** | `BOOTSTRAP_MACHINE_VLAN_ID` | `0` | Physical 802.1Q tag | `0` = Flat, untagged native network (non-VLAN) |
+| **Machine DNS** | `BOOTSTRAP_MACHINE_DNS` | `192.168.4.1, 8.8.8.8, 8.8.4.4` | Management Network | Host nameservers |
+| **Kubernetes IP / Subnet** | `BOOTSTRAP_K8S_IP_CIDR` | `172.31.250.10/24` | Kubernetes Network (VLAN) | High-end RFC 1918 space (`172.31.250.0/24`) |
+| **Kubernetes Gateway** | `BOOTSTRAP_K8S_GATEWAY` | `none` | Kubernetes Network (VLAN) | `none` confines cluster VLAN to local L2 switch domain |
+| **Kubernetes VLAN ID** | `BOOTSTRAP_K8S_VLAN_ID` | `109` | Physical 802.1Q tag | Tagged 802.1Q VLAN (`0` disables VLAN tagging) |
+| **Kubernetes DNS** | `BOOTSTRAP_K8S_DNS` | `none` | Kubernetes Network (VLAN) | Nameservers for cluster segment (`none` if unrouted) |
+| **Fallback Cluster VLAN** | `FALLBACK_CLUSTER_VLAN_ID` | `0` | Standalone Fallback | `0` = Untagged flat network if Companion is unreachable |
 
 ---
 
-## 4. Verification and Routing Domain Control
+## 4. Verification and Routing Control
 
-To verify the setup or manually execute diagnostic queries inside a specific VRF routing domain, operators must prefix standard Linux network utility commands with `ip vrf exec`:
+To verify the setup or manually execute diagnostic queries, operators can use standard Linux network utilities:
 
 ```bash
-# 1. List active VRF devices and Table associations
-ip link show type vrf
+# 1. List active network devices and VLAN interfaces
+ip -d link show type vlan
 
-# 2. Query routes assigned to the Machine VRF
-ip route show table 10
+# 2. Query system routes
+ip route show
 
-# 3. Query routes assigned to the Kubernetes VRF
-ip route show table 20
+# 3. Perform an administrative outbound ping
+ping -c 3 8.8.8.8
 
-# 4. Perform an administrative outbound ping within the Machine VRF
-sudo ip vrf exec vrf-machine ping -c 3 8.8.8.8
-
-# 5. Perform a cluster control plane ping within the Kubernetes VRF
-sudo ip vrf exec vrf-k8s ping -c 3 192.168.20.1
+# 4. Perform a cluster control plane ping via the VLAN interface
+ping -I enp1s0.109 -c 3 172.31.250.10
 ```
 
 ---
 
 ## 5. Hub-and-Spoke Sideloading boundaries
 
-Even under active VRFs, the offline local service hubs bind to the loopback interface (`127.0.0.1`), allowing local system processes (like Kubelet or containerd) to fetch code, packages, and container images locally without cross-VRF routing leaks:
+The offline local service hubs bind to the loopback interface (`127.0.0.1`), allowing local system processes (like Kubelet or containerd) to fetch code, packages, and container images locally without external network exposure:
 
 * **Gitea Git Server (Port 3000):** Exposes configurations at `http://127.0.0.1:3000/gdc/bootstrap-playbooks.git`.
 * **Nexus APT Repository (Port 8081):** Exposes debian package mirrors at `http://127.0.0.1:8081/repository/gdc-apt-proxy/`.
@@ -163,7 +143,7 @@ Even under active VRFs, the offline local service hubs bind to the loopback inte
 Lifecycle modifications are pulled through two designated routes:
 
 * **Option A: Sideload Update (Offline Media):** Inserting a USB drive labeled `GDC-UPDATE-USB` triggers a custom `udev` rule, launching our headless update loop. The script verifies cryptographic signatures (`update.sig`), mounts the media, and pushes Git bundles and package assets to our local Gitea/Nexus servers on localhost.
-* **Option B: Connected Update (Reverse VPN):** Initiates an outbound-only WireGuard tunnel. Because the host routes WireGuard through the `vrf-machine` domain, the Gitea instance on the host pulls configuration updates from `UPSTREAM_PLAYBOOKS_REPO` without any access to the isolated `vrf-k8s` routing context.
+* **Option B: Connected Update (Reverse VPN):** Initiates an outbound-only WireGuard tunnel. The host routes WireGuard through the primary network domain, and the Gitea instance on the host pulls configuration updates from `UPSTREAM_PLAYBOOKS_REPO` without exposing the isolated cluster network.
 
 ---
 

@@ -321,7 +321,6 @@ if __name__ == "__main__":
     env['fallback_gcp_region'] = env.get('FALLBACK_GCP_REGION', '')
     env['fallback_gcp_primary_gsa'] = env.get('FALLBACK_GCP_PRIMARY_GSA', '')
     env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
-    env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
     
     # Process NTP Upstream Servers
     ntp_servers_raw = env.get('NTP_UPSTREAM_SERVERS', 'time.google.com, time1.google.com, time2.google.com, time3.google.com, time4.google.com')

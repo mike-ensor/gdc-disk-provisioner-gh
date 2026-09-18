@@ -47,9 +47,9 @@ class TestGgdTemplateHydration(unittest.TestCase):
             'BOOTSTRAP_MACHINE_IP_CIDR': '192.168.9.11/24',
             'BOOTSTRAP_MACHINE_GATEWAY': '192.168.9.1',
             'BOOTSTRAP_MACHINE_DNS': '192.168.1.1, 8.8.8.8',
-            'BOOTSTRAP_K8S_IP_CIDR': '192.168.109.10/29',
-            'BOOTSTRAP_K8S_GATEWAY': '192.168.109.1',
-            'BOOTSTRAP_K8S_DNS': '192.168.1.1, 8.8.8.8',
+            'BOOTSTRAP_K8S_IP_CIDR': '172.31.250.10/24',
+            'BOOTSTRAP_K8S_GATEWAY': 'none',
+            'BOOTSTRAP_K8S_DNS': 'none',
             'INSTALL_COMPANION_URL': 'http://gdc-companion.ensor-labs.com:8080/v1/install-logs',
             'GITEA_BINARY_FILENAME': 'gitea-1.22.1-linux-amd64',
             'NEXUS_PACKAGE_FILENAME': 'nexus-3.69.0-02-unix.tar.gz',
@@ -114,7 +114,6 @@ class TestGgdTemplateHydration(unittest.TestCase):
         env['k8s_gateway'] = env.get('BOOTSTRAP_K8S_GATEWAY', '')
         env['k8s_dns'] = env.get('BOOTSTRAP_K8S_DNS', '')
         env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
-        env['vrf_machine_interfaces'] = env.get('VRF_MACHINE_INTERFACES', "['__PHYS_IFACE__']")
         env['persist_add_hosts'] = False
         env['enable_phone_home'] = True
         env['enable_webhook'] = True
@@ -332,8 +331,8 @@ class TestGgdTemplateHydration(unittest.TestCase):
         self.assertEqual(parsed.get("local-hostname"), "gdc-standalone-node")
 
 
-    def test_ansible_netplan_vrf_inclusion(self):
-        """Asserts that the Ansible 50-gdc-network.yaml.j2 template includes the vrf-k8s declaration."""
+    def test_ansible_netplan_vlan_inclusion(self):
+        """Asserts that the Ansible 50-gdc-network.yaml.j2 template includes the vlan declaration and no VRFs."""
         import jinja2
         
         env = jinja2.Environment(loader=jinja2.FileSystemLoader(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../src/ansible/roles/machine_orchestration/templates')))
@@ -365,11 +364,11 @@ class TestGgdTemplateHydration(unittest.TestCase):
         )
         
         config = yaml.safe_load(rendered)
-        self.assertIn('vrfs', config['network'])
-        self.assertIn('vrf-k8s', config['network']['vrfs'])
-        self.assertEqual(config['network']['vrfs']['vrf-k8s']['table'], 20)
-        self.assertEqual(config['network']['vrfs']['vrf-k8s']['interfaces'], ['vlan109'])
-        self.assertEqual(config['network']['vrfs']['vrf-k8s']['optional'], True)
+        self.assertIn('vlans', config['network'])
+        self.assertIn('vlan109', config['network']['vlans'])
+        self.assertEqual(config['network']['vlans']['vlan109']['id'], 109)
+        self.assertEqual(config['network']['vlans']['vlan109']['link'], 'enp1s0')
+        self.assertNotIn('vrfs', config['network'])
 
 
     def test_env_loader_priority(self):
@@ -484,7 +483,7 @@ class TestGgdTemplateHydration(unittest.TestCase):
     # TEST SUITE 4: Netplan and python-driven runtime hydrator tests (Crossover)
     # ==========================================================================
     def test_netplan_flat_vs_tagged_combinations(self):
-        """Exercises netplan.j2 and configure_netplan.py combined across all VLAN/VRF combinations."""
+        """Exercises netplan.j2 and configure_netplan.py combined across all VLAN combinations."""
         combinations = [
             {'BOOTSTRAP_MACHINE_VLAN_ID': '0', 'BOOTSTRAP_K8S_VLAN_ID': '0', 'desc': 'flat'},
             {'BOOTSTRAP_MACHINE_VLAN_ID': '10', 'BOOTSTRAP_K8S_VLAN_ID': '0', 'desc': 'mgmt_tagged'},
@@ -533,12 +532,19 @@ class TestGgdTemplateHydration(unittest.TestCase):
             config = yaml.safe_load(hydrated_content)
             self.assertIn("network", config)
             
-            # Verify correct VRF-to-interface physical associations (on primary NIC ens3)
-            vrfs = config["network"].get("vrfs")
-            if vrfs and "vrf-k8s" in vrfs:
-                k8s_interfaces = vrfs["vrf-k8s"].get("interfaces", [])
-                if comb['BOOTSTRAP_K8S_VLAN_ID'] != '0':
-                    self.assertEqual(k8s_interfaces, [f"ens3.{comb['BOOTSTRAP_K8S_VLAN_ID']}"])
+            # Verify that VRFs are not present
+            self.assertNotIn("vrfs", config["network"], "VRFs should not be present in rendered netplan config.")
+
+            # Verify correct VLAN-to-interface associations
+            vlans = config["network"].get("vlans")
+            if comb['BOOTSTRAP_K8S_VLAN_ID'] != '0':
+                self.assertIsNotNone(vlans, f"Expected 'vlans' section when BOOTSTRAP_K8S_VLAN_ID is {comb['BOOTSTRAP_K8S_VLAN_ID']}")
+                self.assertIn(f"ens3.{comb['BOOTSTRAP_K8S_VLAN_ID']}", vlans)
+                self.assertEqual(vlans[f"ens3.{comb['BOOTSTRAP_K8S_VLAN_ID']}"]["id"], int(comb['BOOTSTRAP_K8S_VLAN_ID']))
+            if comb['BOOTSTRAP_MACHINE_VLAN_ID'] != '0':
+                self.assertIsNotNone(vlans, f"Expected 'vlans' section when BOOTSTRAP_MACHINE_VLAN_ID is {comb['BOOTSTRAP_MACHINE_VLAN_ID']}")
+                self.assertIn(f"ens3.{comb['BOOTSTRAP_MACHINE_VLAN_ID']}", vlans)
+                self.assertEqual(vlans[f"ens3.{comb['BOOTSTRAP_MACHINE_VLAN_ID']}"]["id"], int(comb['BOOTSTRAP_MACHINE_VLAN_ID']))
 
             # Verify secondary NIC is added as a plain DHCP interface
             ethernets = config["network"].get("ethernets", {})
@@ -555,10 +561,10 @@ class TestGgdTemplateHydration(unittest.TestCase):
         machine_gateway = "192.168.9.1"
         self.assertTrue(ipaddress.ip_address(machine_gateway) in ipaddress.ip_network(machine_cidr, strict=False))
         
-        # For K8s (This has the corrected E2E /24 subnet!)
-        k8s_ip = "192.168.109.8"
+        # For K8s (172.31.250.0/24 subnet)
+        k8s_ip = "172.31.250.10"
         k8s_cidr_ok = f"{k8s_ip}/24"
-        k8s_gateway = "192.168.109.1"
+        k8s_gateway = "172.31.250.1"
         
         is_valid = ipaddress.ip_address(k8s_gateway) in ipaddress.ip_network(k8s_cidr_ok, strict=False)
         self.assertTrue(is_valid, f"K8s Gateway {k8s_gateway} must be within the subnet of {k8s_cidr_ok}!")

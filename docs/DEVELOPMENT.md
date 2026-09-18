@@ -67,7 +67,7 @@ Handles the acquisition of dependencies and template rendering.
     Build variables from `build.env` and `local.env` are processed through `src/build/render_templates.py`. This hydrates clean templates:
     *   `nocloud/user-data` (Subiquity configuration)
     *   `nocloud/meta-data` (Hostname settings)
-    *   `custom-data/network-template.yaml` (VRF Netplan configurations)
+    *   `custom-data/network-template.yaml` (Netplan configurations)
     *   `custom-data/systemd/` (Service unit files)
 
     **Note on Binary Acquisition:** In Cloud Build CI/CD pipelines, the `.cache/` directory is excluded via `.gcloudignore` to prevent massive gigabyte uploads of raw ISOs and binaries from the local workstation. Instead, `cloudbuild.yaml` runs a sequence of `gcloud storage cp` commands during Step 1 to download the dependencies directly from the `gs://<bucket>/binaries/` and `gs://<bucket>/packages/` prefixes into the isolated Cloud Build worker `.cache` structure. 

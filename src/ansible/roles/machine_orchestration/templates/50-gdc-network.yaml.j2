@@ -35,16 +35,7 @@ network:
       routes:
         - to: default
           via: {{ machine_config.network.cluster_network.gateway }}
-          table: 20
+          metric: 200
 {% endif %}
-      routing-policy:
-        - from: {{ machine_config.network.cluster_network.ip_cidr | split('/') | first }}
-          table: 20
 {% endif %}
-
-  vrfs:
-    vrf-k8s:
-      table: 20
-      interfaces: [vlan{{ machine_config.network.cluster_network.vlan_id | default(109) }}]
-      optional: true
 {% endif %}

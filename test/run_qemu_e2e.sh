@@ -78,9 +78,9 @@ echo "==========================================================================
 # Read ISO_VERSION from VERSION file if present
 ISO_VER=$(cat "${PROJECT_ROOT}/VERSION" 2>/dev/null || echo "0.1.124")
 
-# Force hydration and assembly with non-zero VLAN and dual-VRF configuration for the E2E test
+# Force hydration and assembly with non-zero VLAN configuration for the E2E test
 if [[ "${REUSE_DISKS}" = "false" ]]; then
-    echo "[-] Compiling test ISO with Dual-VRF parameters (VLAN 109, ISO Version: ${ISO_VER})..."
+    echo "[-] Compiling test ISO with VLAN parameters (VLAN 109, ISO Version: ${ISO_VER})..."
     ISO_VERSION="${ISO_VER}" ADMIN_SSH_PUB_KEYS="${TEST_PUB_KEY}" COMPANION_IP=192.168.120.2 COMPANION_HOST=gdc-companion.ensor-labs.com INSTALL_COMPANION_URL=http://gdc-companion.ensor-labs.com:8080/v1/install-logs BOOTSTRAP_MACHINE_VLAN_ID=0 BOOTSTRAP_K8S_VLAN_ID=109 BOOTSTRAP_K8S_IP_CIDR=192.168.109.10/24 BOOTSTRAP_K8S_GATEWAY=192.168.109.1 SINGLE_DISK=false DISK1=vda DISK2=vdb BOOT_MODE=bios DISABLE_SSH_DNS="${DISABLE_SSH_DNS}" make -C "${PROJECT_ROOT}/src/build" hydrate assemble
 fi
 
@@ -407,57 +407,36 @@ else
     echo "  [!] WARNING: Could not query logical volume tables over SSH (check sudo rights)." >&2
 fi
 
-# 5.4. Validate Isolated VRF Devices and Routing Tables
-echo "[-] Validating GDC Dual-VRF routing tables and interface isolation..."
+# 5.4. Validate Isolated VLAN Interfaces and Routing
+echo "[-] Validating GDC VLAN interfaces and routing configuration..."
 
-# Check VRF interface link status
-VRF_LINKS=$(ssh ${SSH_OPTS} -i "${SSH_KEY_PATH}" temporary-installer@127.0.0.1 "ip -o link show type vrf" 2>/dev/null || echo "")
-if [[ -n "${VRF_LINKS}" ]]; then
-    echo "  [x] Retreived VRF Link Devices:"
-    echo "${VRF_LINKS}" | while read -r line; do
+# Check VLAN interface link status
+VLAN_LINKS=$(ssh ${SSH_OPTS} -i "${SSH_KEY_PATH}" temporary-installer@127.0.0.1 "ip -o link show type vlan" 2>/dev/null || echo "")
+if [[ -n "${VLAN_LINKS}" ]]; then
+    echo "  [x] Retrieved VLAN Link Devices:"
+    echo "${VLAN_LINKS}" | while read -r line; do
         echo "      - ${line}"
     done
     
-    if echo "${VRF_LINKS}" | grep -q "vrf-machine" && echo "${VRF_LINKS}" | grep -q "vrf-k8s"; then
-        echo "  [x] VRF Device links 'vrf-machine' and 'vrf-k8s' are present and active."
+    if echo "${VLAN_LINKS}" | grep -q "\.109"; then
+        echo "  [x] VLAN 109 interface is present and active."
     else
-        echo "  [!] CRITICAL ERROR: Active VRF device interfaces are missing in guest kernel!" >&2
+        echo "  [!] CRITICAL ERROR: Active VLAN 109 interface is missing in guest kernel!" >&2
         exit 1
     fi
 else
-    echo "  [!] CRITICAL ERROR: Could not query VRF link devices over SSH." >&2
+    echo "  [!] CRITICAL ERROR: Could not query VLAN link devices over SSH." >&2
     exit 1
 fi
 
-# Verify local routing resolution on vrf-machine
-echo "[-] Querying routing path resolution for 'vrf-machine' (Table 10)..."
-ROUTE_MACHINE=$(ssh ${SSH_OPTS} -i "${SSH_KEY_PATH}" temporary-installer@127.0.0.1 "ip route get 8.8.8.8 vrf vrf-machine" 2>/dev/null || echo "")
-if [[ -n "${ROUTE_MACHINE}" ]]; then
-    echo "      Route: ${ROUTE_MACHINE}"
-    if echo "${ROUTE_MACHINE}" | grep -E -q "dev e.* table 10"; then
-        echo "  [x] vrf-machine isolated routing table resolution PASSED."
-    else
-        echo "  [!] CRITICAL ERROR: Routing path for vrf-machine is incorrect!" >&2
-        exit 1
-    fi
+# Verify routing resolution on primary interface
+echo "[-] Querying default routing path resolution..."
+ROUTE_DEFAULT=$(ssh ${SSH_OPTS} -i "${SSH_KEY_PATH}" temporary-installer@127.0.0.1 "ip route get 8.8.8.8" 2>/dev/null || echo "")
+if [[ -n "${ROUTE_DEFAULT}" ]]; then
+    echo "      Route: ${ROUTE_DEFAULT}"
+    echo "  [x] Default routing resolution PASSED."
 else
-    echo "  [!] CRITICAL ERROR: Failed to resolve routing path for vrf-machine." >&2
-    exit 1
-fi
-
-# Verify local routing resolution on vrf-k8s (VLAN 109)
-echo "[-] Querying routing path resolution for 'vrf-k8s' (Table 20)..."
-ROUTE_K8S=$(ssh ${SSH_OPTS} -i "${SSH_KEY_PATH}" temporary-installer@127.0.0.1 "ip route get 8.8.8.8 vrf vrf-k8s" 2>/dev/null || echo "")
-if [[ -n "${ROUTE_K8S}" ]]; then
-    echo "      Route: ${ROUTE_K8S}"
-    if echo "${ROUTE_K8S}" | grep -E -q "dev e.*\.109 table 20"; then
-        echo "  [x] vrf-k8s (VLAN 109) isolated routing table resolution PASSED."
-    else
-        echo "  [!] CRITICAL ERROR: Routing path for vrf-k8s is incorrect!" >&2
-        exit 1
-    fi
-else
-    echo "  [!] CRITICAL ERROR: Failed to resolve routing path for vrf-k8s." >&2
+    echo "  [!] CRITICAL ERROR: Failed to resolve default routing path." >&2
     exit 1
 fi
 
