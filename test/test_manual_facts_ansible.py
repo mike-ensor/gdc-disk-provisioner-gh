@@ -60,5 +60,19 @@ class TestManualFactsAnsible(unittest.TestCase):
         self.assertLess(manual_idx, mock_idx, "manual_fact must precede legacy mock")
         self.assertLess(mock_idx, companion_idx, "mock must precede companion fetch")
 
+    def test_mock_stat_task_is_unconditional(self):
+        # mock stat task must not be skipped so mock_file_stat.stat is always defined
+        mock_stat_task = None
+        for task in self.tasks:
+            if not isinstance(task, dict):
+                continue
+            if "machine-info-mock.json exists" in task.get("name", ""):
+                mock_stat_task = task
+                break
+
+        self.assertIsNotNone(mock_stat_task)
+        assert mock_stat_task is not None
+        self.assertNotIn("when", mock_stat_task, "stat for machine-info-mock must be unconditional")
+
 if __name__ == "__main__":
     unittest.main()

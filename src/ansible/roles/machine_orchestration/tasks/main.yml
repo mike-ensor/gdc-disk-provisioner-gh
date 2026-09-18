@@ -39,7 +39,6 @@
   ansible.builtin.stat:
     path: /etc/gdc/machine-info-mock.json
   register: mock_file_stat
-  when: not manual_fact_stat.stat.exists
 
 - name: "GDC-ORCH | Fetch machine-info configuration from GDC Companion"
   ansible.builtin.uri:
@@ -51,23 +50,23 @@
     validate_certs: false
   register: api_response
   ignore_errors: true
-  when: not manual_fact_stat.stat.exists and not (mock_file_stat.stat.exists | default(false))
+  when: not manual_fact_stat.stat.exists and not mock_file_stat.stat.exists
 
 - name: "GDC-ORCH | Read local machine-info-mock.json if present"
   ansible.builtin.slurp:
     src: /etc/gdc/machine-info-mock.json
   register: slurped_mock
-  when: not manual_fact_stat.stat.exists and (mock_file_stat.stat.exists | default(false))
+  when: not manual_fact_stat.stat.exists and mock_file_stat.stat.exists
 
 - name: "GDC-ORCH | Parse and register configuration facts"
   ansible.builtin.set_fact:
     machine_config: >-
       {{
         (slurped_manual_fact.content | b64decode | from_json | combine({'is_fallback': false}))
-        if (manual_fact_stat.stat.exists | default(false))
+        if manual_fact_stat.stat.exists
         else (
           (slurped_mock.content | b64decode | from_json | combine({'is_fallback': false}))
-          if (mock_file_stat.stat.exists | default(false))
+          if mock_file_stat.stat.exists
           else (api_response.json.variables | default(api_response.json | default({})) | combine({'is_fallback': false}))
         )
       }}
@@ -123,7 +122,7 @@
     STEP_CA_FINGERPRINT: "{{ gdc_step_ca_fingerprint }}"
     STEP_PROVISIONER_NAME: "{{ gdc_step_provisioner_name }}"
     STEP_PROVISIONER_PASSWORD: "{{ gdc_step_provisioner_password }}"
-    STEP_MOCK_MTLS: "{{ 'true' if mock_file_stat.stat.exists else 'false' }}"
+    STEP_MOCK_MTLS: "{{ 'true' if (mock_file_stat.stat.exists or manual_fact_stat.stat.exists) else 'false' }}"
 
 - name: "GDC-ORCH | Check if mTLS client certs exist"
   ansible.builtin.stat:
