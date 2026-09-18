@@ -87,6 +87,47 @@ sudo rm -f /var/gdc-install/state/linux-ready.json
 sudo systemctl restart gdc-provision.service
 ```
 
+### 2.4. Bypassing GDC Companion with Manual Facts (`gdc-fact-manual.json`)
+
+During testing, network isolation, or when GDC Companion is unavailable, you can manually inject machine configuration facts for **Stage 5 (Cluster Ready)**. When `/var/gdc-install/state/gdc-fact-manual.json` is present on the node, Ansible slurps it directly, bypassing the Companion API lookup (`GET /v1/machine-info/{mac}`).
+
+#### Sourcing / Exporting Facts from GDC Companion
+You can obtain a valid JSON configuration directly from `gdc-companion`:
+* **Web UI:** Navigate to the Machine Inventory view, select your target machine, and click **"Share / Download JSON"** to export the exact JSON configuration.
+* **API / CLI:**
+  ```bash
+  curl -s -H "Authorization: Bearer <API_KEY>" \
+    "https://<companion-host>/v1/machine-info/<MAC_ADDRESS>" > gdc-fact-manual.json
+  ```
+All manual fact files must strictly adhere to the official schema:
+`/d/projects/google/gdc-companion/docs/machine-schema.json`.
+
+#### Method A: Automated Injection via Workstation Tool (Recommended)
+From your local workstation, run:
+```bash
+./bin/node-ops/inject-manual-facts.sh --node 192.168.4.236 --facts path/to/gdc-fact-manual.json
+```
+This script validates the JSON against `machine-schema.json`, uploads it to `/var/gdc-install/state/gdc-fact-manual.json`, deletes `/var/gdc-install/state/cluster-ready.json`, restarts `gdc-provision.service`, and tails the live journal.
+
+#### Method B: Manual Injection on the Target Node
+If executing commands directly on the target machine:
+```bash
+# 1. Place the facts file in the state directory
+sudo mkdir -p /var/gdc-install/state
+sudo cp gdc-fact-manual.json /var/gdc-install/state/gdc-fact-manual.json
+sudo chown root:root /var/gdc-install/state/gdc-fact-manual.json
+sudo chmod 0644 /var/gdc-install/state/gdc-fact-manual.json
+
+# 2. Wipe the cluster-ready state to force re-evaluation
+sudo rm -f /var/gdc-install/state/cluster-ready.json
+
+# 3. Restart the provisioner service
+sudo systemctl restart gdc-provision.service
+
+# 4. Monitor live progress
+sudo journalctl -u gdc-provision.service -f
+```
+
 ---
 
 ## 3. Workstation Operations & Remote Push Tools
