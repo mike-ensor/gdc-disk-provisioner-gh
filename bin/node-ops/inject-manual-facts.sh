@@ -27,6 +27,7 @@ FACTS_FILE=""
 SSH_USER="gdc-admin"
 SSH_KEY=""
 DRY_RUN=false
+FOLLOW_LOGS=true
 
 usage() {
     cat <<EOF
@@ -42,7 +43,9 @@ Required Arguments:
 Optional Arguments:
   --user <USER>      SSH user (default: gdc-admin)
   --key <KEY_PATH>   Path to SSH private key
+  --schema <PATH>    Path to machine-schema.json (defaults to companion schema)
   --dry-run          Validate facts and display actions without running SSH
+  --no-follow        Do not follow journalctl logs after restarting service
   -h, --help         Display this help message
 EOF
     exit "${1:-0}"
@@ -66,8 +69,16 @@ while [[ $# -gt 0 ]]; do
             SSH_KEY="$2"
             shift 2
             ;;
+        --schema)
+            SCHEMA_PATH="$2"
+            shift 2
+            ;;
         --dry-run)
             DRY_RUN=true
+            shift
+            ;;
+        --no-follow)
+            FOLLOW_LOGS=false
             shift
             ;;
         -h|--help)
@@ -91,25 +102,27 @@ if [[ ! -f "${FACTS_FILE}" ]]; then
 fi
 
 echo "[-] Validating '${FACTS_FILE}' syntax..."
-if ! jq . "${FACTS_FILE}" >/dev/null 2>&1; then
+if ! python3 -m json.tool "${FACTS_FILE}" >/dev/null 2>&1; then
     echo "Error: Facts file is not valid JSON." >&2
     exit 1
 fi
 
-# Schema validation if schema file exists and python3 jsonschema is available
+# Schema validation
 if [[ -f "${SCHEMA_PATH}" ]]; then
     echo "[-] Validating facts file against '${SCHEMA_PATH}'..."
     if ! python3 -c "
 import json, sys, jsonschema
-with open('${SCHEMA_PATH}', 'r') as sf, open('${FACTS_FILE}', 'r') as df:
+with open(sys.argv[1], 'r', encoding='utf-8') as sf, open(sys.argv[2], 'r', encoding='utf-8') as df:
     schema = json.load(sf)
     data = json.load(df)
     jsonschema.validate(instance=data, schema=schema)
-" 2>&1; then
+" "${SCHEMA_PATH}" "${FACTS_FILE}" 2>&1; then
         echo "Error: Facts file failed schema validation against ${SCHEMA_PATH}" >&2
         exit 1
     fi
     echo "  [x] Facts JSON conforms to machine-schema.json."
+else
+    echo "Warning: Schema file '${SCHEMA_PATH}' not found. Skipping schema validation." >&2
 fi
 
 SSH_OPTS=(-o "StrictHostKeyChecking=no" -o "UserKnownHostsFile=/dev/null")
@@ -125,10 +138,11 @@ if [[ "${DRY_RUN}" == "true" ]]; then
     echo "[!] DRY RUN MODE: No remote commands will be executed."
     echo "Would execute:"
     echo "  1. scp ${FACTS_FILE} ${SSH_USER}@${NODE_IP}:${REMOTE_TMP}"
-    echo "  2. ssh ${SSH_USER}@${NODE_IP} 'sudo mkdir -p /var/gdc-install/state && sudo mv ${REMOTE_TMP} ${TARGET_FILE} && sudo chown root:root ${TARGET_FILE} && sudo chmod 0644 ${TARGET_FILE}'"
-    echo "  3. ssh ${SSH_USER}@${NODE_IP} 'sudo rm -f ${TARGET_STATE}'"
-    echo "  4. ssh ${SSH_USER}@${NODE_IP} 'sudo systemctl restart gdc-provision.service'"
-    echo "  5. ssh -t ${SSH_USER}@${NODE_IP} 'sudo journalctl -u gdc-provision.service -f'"
+    echo "  2. ssh ${SSH_USER}@${NODE_IP} 'set -euo pipefail; sudo mkdir -p /var/gdc-install/state && sudo mv ${REMOTE_TMP} ${TARGET_FILE} && sudo chown root:root ${TARGET_FILE} && sudo chmod 0644 ${TARGET_FILE} && sudo rm -f ${TARGET_STATE}'"
+    echo "  3. ssh ${SSH_USER}@${NODE_IP} 'sudo systemctl restart gdc-provision.service'"
+    if [[ "${FOLLOW_LOGS}" == "true" ]]; then
+        echo "  4. ssh -t ${SSH_USER}@${NODE_IP} 'sudo journalctl -u gdc-provision.service -f'"
+    fi
     exit 0
 fi
 
@@ -136,16 +150,12 @@ echo "[-] Uploading facts file to ${NODE_IP}:${REMOTE_TMP}..."
 scp "${SSH_OPTS[@]}" "${FACTS_FILE}" "${SSH_USER}@${NODE_IP}:${REMOTE_TMP}"
 
 echo "[-] Staging manual fact file and resetting cluster-ready state..."
-ssh "${SSH_OPTS[@]}" "${SSH_USER}@${NODE_IP}" "
-    sudo mkdir -p /var/gdc-install/state
-    sudo mv '${REMOTE_TMP}' '${TARGET_FILE}'
-    sudo chown root:root '${TARGET_FILE}'
-    sudo chmod 0644 '${TARGET_FILE}'
-    sudo rm -f '${TARGET_STATE}'
-"
+ssh "${SSH_OPTS[@]}" "${SSH_USER}@${NODE_IP}" "set -euo pipefail; sudo mkdir -p /var/gdc-install/state && sudo mv '${REMOTE_TMP}' '${TARGET_FILE}' && sudo chown root:root '${TARGET_FILE}' && sudo chmod 0644 '${TARGET_FILE}' && sudo rm -f '${TARGET_STATE}'"
 
 echo "[-] Restarting gdc-provision.service..."
 ssh "${SSH_OPTS[@]}" "${SSH_USER}@${NODE_IP}" "sudo systemctl restart gdc-provision.service"
 
-echo "[-] Following gdc-provision.service logs (Ctrl+C to stop)..."
-ssh "${SSH_OPTS[@]}" -t "${SSH_USER}@${NODE_IP}" "sudo journalctl -u gdc-provision.service -f"
+if [[ "${FOLLOW_LOGS}" == "true" ]]; then
+    echo "[-] Following gdc-provision.service logs (Ctrl+C to stop)..."
+    ssh "${SSH_OPTS[@]}" -t "${SSH_USER}@${NODE_IP}" "sudo journalctl -u gdc-provision.service -f"
+fi
