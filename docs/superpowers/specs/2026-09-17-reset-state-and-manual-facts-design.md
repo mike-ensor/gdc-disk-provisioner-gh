@@ -29,33 +29,68 @@ In `src/ansible/roles/machine_orchestration/tasks/main.yml`, the machine configu
 
 Once `machine_config` is established, the role will naturally validate, configure `/etc/hosts` and Netplan, and persist the config downstream to `/etc/ansible/facts.d/gdc.fact`.
 
-### 2.2 Expected Schema for `gdc-fact-manual.json`
-The manual fact file represents the machine's desired network, identity, and peer topologies. It must adhere to the standard `machine_config` schema:
+### 2.2 Expected Schema & Sourcing from GDC Companion
+The manual fact file represents the machine's desired network, identity, and peer topologies.
 
+#### Exporting from GDC Companion
+Operators can obtain a valid fact file directly from `gdc-companion`:
+* **Via Web UI:** Navigate to the Machine Inventory view, select the target machine, and click **"Share / Download JSON"** (or use the download link) to save the exact JSON configuration.
+* **Via API / CLI:**
+  ```bash
+  curl -s -H "Authorization: Bearer <API_KEY>" \
+    "https://<companion-host>/v1/machine-info/<MAC_ADDRESS>" > gdc-fact-manual.json
+  ```
+
+#### Schema Compliance
+The generated or authored `gdc-fact-manual.json` must strictly conform to `/d/projects/google/gdc-companion/docs/machine-schema.json`. It requires:
+- `hostname` (string)
+- `bmctl_version` (string)
+- `network` (object with `management_network` and `cluster_network`)
+- `gcp_info` (object with `project_id`, `region`, and `primary_gsa`)
+- `cluster` (object with `cluster_name`, `primary_root_repo`, `primary_root_repo_auth_secret`, `networking`, `fleet_cluster_labels`)
+- `peers` (array of peer objects with `hostname` and `ipv4`)
+
+Example schema-compliant payload:
 ```json
 {
   "hostname": "gdc-node-01",
+  "bmctl_version": "1.29.0",
   "network": {
     "management_network": {
-      "dhcp_v4": true
+      "dhcp_v4": true,
+      "gateway": "192.168.4.1",
+      "dns_servers": ["192.168.4.1", "8.8.8.8"]
     },
     "cluster_network": {
       "vlan_id": 109,
-      "ip_cidr": "192.168.4.10/24",
-      "gateway": "192.168.4.1",
-      "dns": ["192.168.4.1", "8.8.8.8"]
+      "dhcp_v4": false,
+      "ip_cidr": "192.168.109.10/24",
+      "gateway": "192.168.109.1",
+      "dns_servers": ["192.168.109.1"]
     }
+  },
+  "gcp_info": {
+    "project_id": "gdc-edge-lab",
+    "region": "us-east1",
+    "primary_gsa": "gdc-node-sa@gdc-edge-lab.iam.gserviceaccount.com"
+  },
+  "cluster": {
+    "cluster_name": "edge-cluster-01",
+    "primary_root_repo": "git@github.com:example/repo.git",
+    "primary_root_repo_auth_secret": "repo-secret",
+    "networking": {
+      "cluster_vip": "192.168.109.100",
+      "cluster_ingress": "192.168.109.101",
+      "cluster_lb_range": "192.168.109.100-192.168.109.110"
+    },
+    "fleet_cluster_labels": ["env=lab", "location=edge"]
   },
   "peers": [
     {
       "hostname": "gdc-node-02",
-      "ip": "192.168.4.11"
+      "ipv4": "192.168.109.11"
     }
-  ],
-  "gcp_info": {
-    "project_id": "gdc-edge-lab",
-    "primary_gsa": "gdc-node-sa@gdc-edge-lab.iam.gserviceaccount.com"
-  }
+  ]
 }
 ```
 
@@ -90,12 +125,15 @@ Update Section 2 ("On-Device Execution & Stage Management"):
 
 ---
 
-## 3. Verification & Testing Plan
+## 3. Verification & Testing Plan (Test-Driven Development)
 
-1. **Syntax & Linting:**
+All functionality will be implemented following strict **Test-Driven Development (TDD)**:
+1. **Schema Validation Test (Python):**
+   - Create a test suite validating that example fixture `gdc-fact-manual.json` strictly adheres to `/d/projects/google/gdc-companion/docs/machine-schema.json` using `jsonschema`.
+2. **Workstation Helper Script Unit Tests (Bash/BATS or Python):**
+   - Write tests verifying argument parsing, `--help`, missing argument errors, and pre-validation failure when facts JSON is invalid or missing.
+3. **Ansible Task Precedence & Slurp Tests:**
+   - Add unit test in `test/test_manual_facts.py` or equivalent test suite verifying the template and task logic correctly prioritizes `/var/gdc-install/state/gdc-fact-manual.json`.
+4. **Syntax & Linting:**
    - Run `ansible-lint` on `src/ansible/roles/machine_orchestration/tasks/main.yml`.
    - Run `shellcheck` or `bash -n` on `bin/node-ops/inject-manual-facts.sh`.
-2. **Template & Playbook Validation:**
-   - Execute existing Ansible test harness `test/test_template_hydration.py` or unit tests to ensure no regressions.
-3. **Mock Fact Injection Simulation:**
-   - Verify that Ansible properly slurps `/var/gdc-install/state/gdc-fact-manual.json` when present.
