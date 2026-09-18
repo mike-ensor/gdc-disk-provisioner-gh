@@ -1,0 +1,40 @@
+{
+  "hostname": "gdc-node-01",
+  "bmctl_version": "1.29.0",
+  "network": {
+    "management_network": {
+      "dhcp_v4": true,
+      "gateway": "192.168.4.1",
+      "dns_servers": ["192.168.4.1", "8.8.8.8"]
+    },
+    "cluster_network": {
+      "vlan_id": 109,
+      "dhcp_v4": false,
+      "ip_cidr": "192.168.109.10/24",
+      "gateway": "192.168.109.1",
+      "dns_servers": ["192.168.109.1"]
+    }
+  },
+  "gcp_info": {
+    "project_id": "gdc-edge-lab",
+    "region": "us-east1",
+    "primary_gsa": "gdc-node-sa@gdc-edge-lab.iam.gserviceaccount.com"
+  },
+  "cluster": {
+    "cluster_name": "edge-cluster-01",
+    "primary_root_repo": "git@github.com:example/repo.git",
+    "primary_root_repo_auth_secret": "repo-secret",
+    "networking": {
+      "cluster_vip": "192.168.109.100",
+      "cluster_ingress": "192.168.109.101",
+      "cluster_lb_range": "192.168.109.100-192.168.109.110"
+    },
+    "fleet_cluster_labels": ["env=lab", "location=edge"]
+  },
+  "peers": [
+    {
+      "hostname": "gdc-node-02",
+      "ipv4": "192.168.109.11"
+    }
+  ]
+}
