@@ -21,11 +21,11 @@ To eliminate this vulnerability, the GDC provisioner utilizes **Zero-Touch Hardw
 │                                     THE PASSPORT ANALOGY                                    │
 │                                                                                             │
 │  1. The Birth Certificate   │ The physical TPM 2.0 chip has an Endorsement Key Certificate  │
-│     (EKCert)                │ (EKCert) permanently burned into its silicon at the factory. │
-│                             │ It proves the chip is genuine hardware, not a fake emulator. │
+│     (EKCert)                │ (EKCert) permanently burned into its silicon at the factory.  │
+│                             │ It proves the chip is genuine hardware, not a fake emulator.  │
 │                             │                                                               │
 │  2. The Passport Office     │ The server presents this hardware proof to our internal       │
-│     (Step CA)               │ Certificate Authority (Step CA). The CA verifies the birth   │
+│     (Step CA)               │ Certificate Authority (Step CA). The CA verifies the birth    │
 │                             │ certificate and issues an official "Digital Passport"         │
 │                             │ (an X.509 mTLS identity certificate).                         │
 │                             │                                                               │
