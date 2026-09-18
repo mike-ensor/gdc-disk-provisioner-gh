@@ -212,6 +212,7 @@ The table below maps project capabilities across **Functional Domains** (columns
   - [x] Safe DHCP fallbacks across generic hostnames (`gdc-default`) when Companion API lookups fail
   - [x] Standardize stage completion facts to lowercase (`ready-linux`, `linux-ready`)
   - [x] Dynamic companion binary fetch: pull latest binary from GCS bucket into `PATH`
+  - [x] Manual Fact Override & State Reset: upstream ingestion of `/var/gdc-install/state/gdc-fact-manual.json` bypassing Companion API, automated workstation operator script (`bin/node-ops/inject-manual-facts.sh`), and runbook in `docs/on-device-ansible.md`
 - [x] **Cluster Pre-Flight Automation**
   - [x] Pre-Flight Lab Dependency Auditor (`check-lab-setup.py`): validates Step CA mTLS, GCP IAM, 19 mandatory GDC APIs, Bootimus, and VRFs
   - [x] Cluster creation script (`create_cluster.sh`) packaging and deployment to `/usr/local/bin/create_cluster.sh`
