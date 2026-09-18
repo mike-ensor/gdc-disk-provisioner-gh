@@ -53,7 +53,7 @@ analysis_agent = Agent(
     Extract and parse the logs using extract_and_analyze_tarball.
     Identify any failures related to:
     - TPM 2.0 unsealing or missing keyfile.
-    - VRF Netplan routing or table exists conflicts.
+    - Netplan routing or subnet conflicts.
     - Sonatype Nexus JVM SIGABRT crashes during uploads.
     - Missing packages on noble targets (such as systemd-initramfs).
     Also, extract the booted GDC ISO Version and list all active SSH users and their authentication comments.

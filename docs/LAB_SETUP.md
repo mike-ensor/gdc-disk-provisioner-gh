@@ -207,7 +207,7 @@ Before booting physical nodes, execute the pre-flight auditor from your workspac
 ```
 
 The auditor dynamically tests:
-1. Local Network bindings (VRF collisions and Subnet configurations).
+1. Local Network bindings (VLAN and Subnet configurations).
 2. Step CA `mTLS` reachability and Subject Alternative Name (SAN) enforcement.
 3. Live `gdc-companion` API endpoints.
 4. GCloud context (checking GCP Project IDs, 19 Required API enablements, and necessary Service Accounts).

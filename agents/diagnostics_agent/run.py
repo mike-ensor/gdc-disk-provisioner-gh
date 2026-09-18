@@ -170,8 +170,8 @@ The diagnostics agent team has analyzed the node's bootstrap logs. The provision
         if "ROUTING" in fail:
             fixes.append((
                 "MEDIUM",
-                "Netplan VRF Overlapping Route Mitigation",
-                "Ensure that table 10 (Management) and table 20 (Kubernetes) routes do not intersect or overlap to prevent RTNETLINK answers: File exists errors."
+                "Netplan Overlapping Route Mitigation",
+                "Ensure that management and Kubernetes routes do not intersect or overlap to prevent RTNETLINK answers: File exists errors."
             ))
         if "LUKS_KEY_PROPAGATION" in fail:
             fixes.append((
