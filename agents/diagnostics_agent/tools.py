@@ -244,7 +244,7 @@ def extract_and_analyze_tarball(tarball_path: str) -> dict:
         except Exception as e:
             analysis["failures"].append(f"Failed to parse report.json: {e}")
 
-    # Correlate Logs (TPM / VRF / Nexus concurrency / unmet dependencies)
+    # Correlate Logs (TPM / Network / Nexus concurrency / unmet dependencies)
     logs_dir = None
     for root, dirs, files in os.walk(extract_dir):
         if os.path.basename(root) == "logs":
@@ -275,7 +275,7 @@ def extract_and_analyze_tarball(tarball_path: str) -> dict:
             with open(net_log, "r") as f:
                 net_content = f.read()
                 if "RTNETLINK answers: File exists" in net_content or "Failed to add route" in net_content:
-                    analysis["failures"].append("NETPLAN_ROUTING_CONFLICT: RTNETLINK route overlap or VRF loop detected.")
+                    analysis["failures"].append("NETPLAN_ROUTING_CONFLICT: RTNETLINK route overlap or routing loop detected.")
                     analysis["log_evidence"]["routing"] = "RTNETLINK answers: File exists / Overlapping subnet assignments"
 
         # 3. Curtin installer / LUKS key failures

@@ -346,19 +346,19 @@ def check_network_configs():
     issues = 0
     
     if not machine_ip or not machine_gw:
-        log_error("Machine (Table 10) network parameters are incomplete.")
+        log_error("Machine network parameters are incomplete.")
         issues += 1
     else:
         log_success(f"Machine network defined: {machine_ip} (Gateway: {machine_gw})")
         
     if not k8s_ip or not k8s_gw:
-        log_warn("Kubernetes (Table 20) network parameters are incomplete.")
+        log_warn("Kubernetes network parameters are incomplete.")
         issues += 1
     else:
         log_success(f"Kubernetes network defined: {k8s_ip} (Gateway: {k8s_gw})")
         
     if machine_ip and k8s_ip and machine_ip == k8s_ip:
-        log_error("Machine IP CIDR and K8s IP CIDR are identical. VRF tables will collide!")
+        log_error("Machine IP CIDR and K8s IP CIDR are identical. IP subnets will collide!")
         issues += 1
         
     # DNS Resolution checks for core GCP APIs

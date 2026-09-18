@@ -75,7 +75,7 @@ fi
 
 NODE_MAC="${STEP_NODE_MAC:-}"
 if [[ -z "${NODE_MAC}" ]]; then
-    NODE_MAC=$(ip -br link | awk '$1 !~ "lo|vir|wl|vrf|docker|veth" { print $3 }' | head -n 1 | tr '[:upper:]' '[:lower:]')
+    NODE_MAC=$(ip -br link | awk '$1 !~ "lo|vir|wl|docker|veth" { print $3 }' | head -n 1 | tr '[:upper:]' '[:lower:]')
 fi
 
 if [[ -z "${NODE_MAC}" ]]; then

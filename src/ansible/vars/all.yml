@@ -64,6 +64,8 @@ gdc_sysctl_parameters:
   - { name: "fs.inotify.max_user_instances", value: "8192" }
   - { name: "fs.inotify.max_user_watches", value: "524288" }
   - { name: "net.core.bpf_jit_enable", value: "1" }
+  - { name: "net.ipv4.conf.all.arp_ignore", value: "1" }
+  - { name: "net.ipv4.conf.all.arp_announce", value: "2" }
 
 # Local Docker daemon registry-mirror address pointing to local Nexus Docker Group Port
 gdc_docker_registry_mirror: "http://nexus.gdc.local:5001"

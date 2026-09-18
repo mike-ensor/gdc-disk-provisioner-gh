@@ -108,11 +108,11 @@ if [[ -f "${NETPLAN_TEMPLATE}" ]]; then
             SANDBOX_DIR=$(mktemp -d /tmp/netplan-sandbox.XXXXXX)
             mkdir -p "${SANDBOX_DIR}/etc/netplan"
             
-            # Replace placeholders including new VRF and management interfaces with mock values
+            # Replace placeholders including management interfaces with mock values
             sed -e "s/__PHYS_IFACE__/eth0/g" \
                 -e "s/__MGMT_IFACE__/eth1/g" \
                 -e "s|__MACHINE_IP_CIDR__|192.168.9.14/24|g" \
-                -e "s|__K8S_IP_CIDR__|192.168.109.14/24|g" \
+                -e "s|__K8S_IP_CIDR__|172.31.250.10/24|g" \
                 "${NETPLAN_TEMPLATE}" > "${SANDBOX_DIR}/etc/netplan/01-netcfg.yaml"
             
             netplan_success=true
