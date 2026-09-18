@@ -46,7 +46,7 @@ class TestManualFactsAnsible(unittest.TestCase):
             if not isinstance(task, dict):
                 continue
             name = task.get("name", "")
-            if "gdc-fact-manual.json" in name:
+            if "gdc-fact-manual.json" in name and manual_idx is None:
                 manual_idx = idx
             elif "machine-info-mock.json" in name and "exists" in name:
                 mock_idx = idx
