@@ -35,6 +35,9 @@ The service is fully containerized inside a minimal `scratch` or distroless imag
                                                   - `GET /v1/nodes/variables`
 ```
 
+> [!NOTE]
+> For the node-side client lifecycle, TPM EKCert hardware attestation, Step CA certificate issuance, and complete mTLS connection sequence to the Companion, refer to the consolidated guide in [`docs/TPM_ATTESTATION_AND_MTLS.md`](../TPM_ATTESTATION_AND_MTLS.md).
+
 ---
 
 ## 3. Relational Database Design & CloudNativePG

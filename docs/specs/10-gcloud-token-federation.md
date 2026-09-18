@@ -13,6 +13,8 @@ By leveraging the existing Mutual TLS (mTLS) trust established between the node 
 
 This architecture strictly adheres to the "Keyless Profile" outlined in `GDC-SPEC-005-TURNUP`.
 
+*(For the complete hardware attestation flow, EKCert verification, Step CA certificate issuance, and mTLS handshake sequence, see [`docs/TPM_ATTESTATION_AND_MTLS.md`](../TPM_ATTESTATION_AND_MTLS.md).)*
+
 ---
 
 ## 2. Dual-Application Requirements

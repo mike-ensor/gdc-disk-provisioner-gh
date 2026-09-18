@@ -11,6 +11,8 @@ This document specifies the technical and cryptographic requirements for the **G
 
 This prevents rogue nodes, software-emulated VMs, or compromised OS bootloads from obtaining cluster identity credentials.
 
+*(For the complete architectural walkthrough, sequence diagram, and mTLS integration covering EKCert attestation and Step CA certificate issuance, see [`docs/TPM_ATTESTATION_AND_MTLS.md`](TPM_ATTESTATION_AND_MTLS.md).)*
+
 ---
 
 ## 2. The Machine Database (Reference Store Schema)

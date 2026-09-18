@@ -89,6 +89,7 @@ For detailed specifications and transition triggers for each stage, refer to the
 
 *   **`docs/specs/`**: Technical specification files describing architecture and configurations.
 *   **`docs/DISKS.md`**: Breakdown of dynamic disk detection, partition scaling, and enterprise LVM layout.
+*   **`docs/TPM_ATTESTATION_AND_MTLS.md`**: Detailed guide on Zero-Touch TPM 2.0 hardware attestation, EKCert verification, and mTLS integration with GDC Companion.
 *   **`src/build/`**: **[Start Here for Building]** Contains the Cloud Build automation, Makefile, and scripts to compile the custom ISO. See [src/build/README.md](src/build/README.md) for build instructions.
 *   **`src/ansible/`**: Declarative playbooks used by `ansible-pull` for node configuration and state progression.
 *   **`test/`**: Verification scripts, VM-based bootstrap tests, and pre-flight validation.
@@ -97,4 +98,4 @@ For detailed specifications and transition triggers for each stage, refer to the
 
 ## System Dependencies
 
-* **Smallstep CA (`step-ca`):** The zero-touch hardware attestation workflow absolutely requires a centralized `step-ca` server to be reachable by the bare-metal nodes during *first boot*. Google Cloud CAS and Certbot are explicitly unsupported for TPM hardware attestation in this architecture. By default, the nodes will attempt to communicate with `https://step-ca.ensor-labs.com`.
+* **Smallstep CA (`step-ca`):** The zero-touch hardware attestation workflow absolutely requires a centralized `step-ca` server to be reachable by the bare-metal nodes during *first boot*. Google Cloud CAS and Certbot are explicitly unsupported for TPM hardware attestation in this architecture. By default, the nodes will attempt to communicate with `https://step-ca.ensor-labs.com`. For complete details on the hardware attestation, EKCert verification, and mTLS lifecycle, see [`docs/TPM_ATTESTATION_AND_MTLS.md`](docs/TPM_ATTESTATION_AND_MTLS.md).

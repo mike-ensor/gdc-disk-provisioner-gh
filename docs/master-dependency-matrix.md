@@ -96,7 +96,7 @@ Executed locally on the target server's first boot, orchestrated by the Ansible 
     *   `libtss2-tcti-device` (v4.0.1+): Low-level TPM driver communication libraries.
     *   `systemd-cryptenroll` (v255+): Native systemd utility used to seal LUKS keys to TPM PCR `0+7`.
     *   `ssh-tpm-agent` (v0.5.1+): Hardware-backed TPM SSH host-key agent.
-    *   `step-cli` (v0.24.4+): Step CA utility to enroll device identity certs via TPM CSRs.
+    *   `step-cli` (v0.24.4+): Step CA utility to enroll device identity certs via TPM CSRs. *(See [`docs/TPM_ATTESTATION_AND_MTLS.md`](TPM_ATTESTATION_AND_MTLS.md) for the end-to-end hardware attestation architecture.)*
 *   **Hardening & Slimming Packages:**
     *   `auditd` & `audispd-plugins` (v3.1.2+): System audit logging for CIS Level 2 rules.
     *   `snapd`, `unattended-upgrades`, `x11-common`: Purged and deleted from system.

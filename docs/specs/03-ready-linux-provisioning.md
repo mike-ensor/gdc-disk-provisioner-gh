@@ -183,6 +183,8 @@ To maximize idempotence and declarative engineering standards, the entire GDC po
 ### 5.8. GDC NodeAgent Pre-Installation & mTLS Trust Pre-Seeding (Zero-SSH ISO Strategy)
 To enable on-node health monitoring and automated lifecycle management right after cluster turnup, the **GDC NodeAgent** is pre-installed/staged during the Ready-Linux phase.
 
+*(For the foundational hardware attestation, TPM EKCert verification, and automated Step CA mTLS certificate issuance pipeline that generates these node credentials, see [`docs/TPM_ATTESTATION_AND_MTLS.md`](../TPM_ATTESTATION_AND_MTLS.md).)*
+
 If GGD's automated provisioning process (such as our custom ISO, Kickstart, or Cloud-Init) injects the NodeAgent binary, configures its systemd unit file, and starts the service automatically, **the deployment process can completely avoid SSH bootstrapping, but with one critical catch: Trust.**
 
 The GDC orchestration engine (`bmctl` or the cluster controller) does not strictly care *how* NodeAgent got onto the machine; it only cares that it can talk to it over port `9192`. However, because NodeAgent communicates strictly via **mutual TLS (mTLS)**, we must solve the **initial trust problem** during ISO provisioning.

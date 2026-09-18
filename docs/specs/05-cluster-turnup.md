@@ -33,6 +33,8 @@ Additionally, the GDC standalone cluster is configured to execute a **"Keyless" 
 
 By utilizing the GDC **NodeAgent** combined with TPM 2.0-bound host hardware attestation, we eliminate these static JSON keyfiles. The `cluster-config.yaml` is configured with all GSA key paths omitted, ensuring the cluster bootstraps with zero persistent cloud credential leakage risks on-disk.
 
+*(For the consolidated technical architecture and sequence diagrams on TPM 2.0 hardware attestation, EKCert verification, and mTLS certificate provisioning, see [`docs/TPM_ATTESTATION_AND_MTLS.md`](../TPM_ATTESTATION_AND_MTLS.md).)*
+
 ```yaml
 # cluster-config.yaml
 # --- GDC NODEAGENT mTLS SECURITY CREDENTIALS (TOP-LEVEL CONFIG) ---

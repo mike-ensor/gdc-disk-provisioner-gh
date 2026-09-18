@@ -142,6 +142,8 @@ To rotate the deployment secret without interrupting continuous Ansible synchron
 
 The GDC Disk Provisioner relies on a central Certificate Authority to attest and enroll nodes automatically upon first boot using their physical TPM 2.0 Endorsement Keys (EK). We use **Smallstep (Step CA)** for this purpose.
 
+*(For the complete architectural flow, security principles, sequence diagrams, and GDC Companion mTLS integration details, refer to the consolidated guide in [`docs/TPM_ATTESTATION_AND_MTLS.md`](TPM_ATTESTATION_AND_MTLS.md).)*
+
 #### Requirements
 
 * The Step CA server must be reachable over the network by the booting nodes.

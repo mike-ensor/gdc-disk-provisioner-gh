@@ -39,6 +39,8 @@ Once booted, the Ansible playbook executes `systemd-cryptenroll` to permanently 
 2. **Insecure Slot Purge:** The playbook updates `/etc/crypttab` with the flag `tpm2-device=auto,discard`, **permanently deletes the temporary key `/etc/keys/temp_key.key`**, and runs `systemd-cryptenroll --wipe-slot=password` to wipe the baseline installation password.
 3. **Security Outcome:** The system can now only boot on the original motherboard with an unmodified, untampered Secure Boot configuration. If the drive is stolen or Secure Boot is bypassed, the disk remains cryptographically locked.
 
+*(For a comprehensive, non-technical and technical walkthrough of TPM 2.0 hardware attestation, EKCert verification, and mTLS integration with GDC Companion, refer to [`docs/TPM_ATTESTATION_AND_MTLS.md`](TPM_ATTESTATION_AND_MTLS.md).)*
+
 ---
 
 ## 3. Cryptographic Sideload Verification
