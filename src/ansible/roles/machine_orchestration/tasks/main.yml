@@ -24,10 +24,22 @@
   ansible.builtin.set_fact:
     node_mac: "{{ ansible_facts[gdc_primary_interface]['macaddress'] | lower }}"
 
+- name: "GDC-ORCH | Check if /var/gdc-install/state/gdc-fact-manual.json exists"
+  ansible.builtin.stat:
+    path: /var/gdc-install/state/gdc-fact-manual.json
+  register: manual_fact_stat
+
+- name: "GDC-ORCH | Read /var/gdc-install/state/gdc-fact-manual.json if present"
+  ansible.builtin.slurp:
+    src: /var/gdc-install/state/gdc-fact-manual.json
+  register: slurped_manual_fact
+  when: manual_fact_stat.stat.exists
+
 - name: "GDC-ORCH | Check if local machine-info-mock.json exists"
   ansible.builtin.stat:
     path: /etc/gdc/machine-info-mock.json
   register: mock_file_stat
+  when: not manual_fact_stat.stat.exists
 
 - name: "GDC-ORCH | Fetch machine-info configuration from GDC Companion"
   ansible.builtin.uri:
@@ -39,21 +51,25 @@
     validate_certs: false
   register: api_response
   ignore_errors: true
-  when: not mock_file_stat.stat.exists
+  when: not manual_fact_stat.stat.exists and not (mock_file_stat.stat.exists | default(false))
 
 - name: "GDC-ORCH | Read local machine-info-mock.json if present"
   ansible.builtin.slurp:
     src: /etc/gdc/machine-info-mock.json
   register: slurped_mock
-  when: mock_file_stat.stat.exists
+  when: not manual_fact_stat.stat.exists and (mock_file_stat.stat.exists | default(false))
 
 - name: "GDC-ORCH | Parse and register configuration facts"
   ansible.builtin.set_fact:
     machine_config: >-
       {{
-        (slurped_mock.content | b64decode | from_json | combine({'is_fallback': false}))
-        if mock_file_stat.stat.exists
-        else (api_response.json.variables | default(api_response.json | default({})) | combine({'is_fallback': false}))
+        (slurped_manual_fact.content | b64decode | from_json | combine({'is_fallback': false}))
+        if (manual_fact_stat.stat.exists | default(false))
+        else (
+          (slurped_mock.content | b64decode | from_json | combine({'is_fallback': false}))
+          if (mock_file_stat.stat.exists | default(false))
+          else (api_response.json.variables | default(api_response.json | default({})) | combine({'is_fallback': false}))
+        )
       }}
 
 - name: "GDC-ORCH | Check if fallback-config.json exists"
