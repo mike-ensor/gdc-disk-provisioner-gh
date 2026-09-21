@@ -115,13 +115,14 @@ def http_get(url: str, headers: dict = None, timeout: int = 5, verify_ssl: bool 
         return False, 0, str(e)
 
 def load_environment():
-    """Loads variables from build.env and local.env."""
+    """Loads variables from build.env and environment override."""
     global LAB_CONFIG
     global LOCAL_CONFIG
     
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+    iso_env = os.environ.get("ISO_ENVIRONMENT", "local")
     build_env = parse_env_file(os.path.join(project_root, "src/build/build.env"))
-    local_env = parse_env_file(os.path.join(project_root, "src/build/local.env"))
+    local_env = parse_env_file(os.path.join(project_root, f"src/build/{iso_env}.env"))
     
     LOCAL_CONFIG = local_env.copy()
 

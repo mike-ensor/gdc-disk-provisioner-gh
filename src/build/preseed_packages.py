@@ -146,8 +146,9 @@ def main():
     
     # Load default build and local configuration files
     build_env = parse_env_file(os.path.join(script_dir, "build.env"))
-    local_env = parse_env_file(os.path.join(script_dir, "local.env"))
-    
+    iso_env = os.environ.get("ISO_ENVIRONMENT", "local")
+    local_env = parse_env_file(os.path.join(script_dir, f"{iso_env}.env"))
+
     # Combine configurations (priority: process environment > local.env > build.env)
     gcs_bucket = os.environ.get("DEPENDENCY_CACHE_GCS_BUCKET") or local_env.get("DEPENDENCY_CACHE_GCS_BUCKET") or build_env.get("DEPENDENCY_CACHE_GCS_BUCKET") or "gs://gdc-disk-provisioner-isos"
     enable_gcs = os.environ.get("ENABLE_GCS") or local_env.get("ENABLE_GCS") or build_env.get("ENABLE_GCS") or "false"

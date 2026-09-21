@@ -70,7 +70,8 @@ def main():
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     envrc_path = os.path.join(project_root, ".envrc")
     build_env_path = os.path.join(project_root, "src/build/build.env")
-    local_env_path = os.path.join(project_root, "src/build/local.env")
+    iso_env = os.environ.get("ISO_ENVIRONMENT", "local")
+    local_env_path = os.path.join(project_root, f"src/build/{iso_env}.env")
     dependencies_env_path = os.path.join(project_root, "src/dependencies.env")
 
     # Load version details from .envrc

@@ -977,10 +977,12 @@ EOF
             ssh_cmd=(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${user}@${ip}")
         fi
 
-        if "${ssh_cmd[@]}" "sudo /usr/local/bin/gdc-collector --companion-url='${companion_url}'" > /dev/null 2>&1; then
+        local output
+        if output=$("${ssh_cmd[@]}" "echo '$pass' | sudo -S /usr/local/bin/gdc-collector --companion-url='${companion_url}'" 2>&1); then
             echo -e "\033[32m[SUCCESS]\033[0m Telemetry Refreshed"
         else
             echo -e "\033[31m[FAILED]\033[0m (SSH or execution error)"
+            echo "    -> Reason: $(echo "$output" | tail -n 1)"
         fi
     done
     echo "====================================================="

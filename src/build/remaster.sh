@@ -58,7 +58,9 @@ load_env_file() {
 # Load environment configuration (dependencies, defaults, and overrides)
 load_env_file "${PROJECT_ROOT}/src/dependencies.env"
 load_env_file "${SCRIPT_DIR}/build.env"
-load_env_file "${SCRIPT_DIR}/local.env"
+
+ISO_ENVIRONMENT="${ISO_ENVIRONMENT:-local}"
+load_env_file "${SCRIPT_DIR}/${ISO_ENVIRONMENT}.env"
 
 AUTO_APPROVE=false
 for arg in "$@"; do

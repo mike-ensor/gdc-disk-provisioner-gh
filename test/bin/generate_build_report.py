@@ -279,8 +279,9 @@ def main():
     args = parser.parse_args()
 
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    iso_env = os.environ.get("ISO_ENVIRONMENT", "local")
     build_env = parse_env_file(os.path.join(project_root, "src/build/build.env"))
-    local_env = parse_env_file(os.path.join(project_root, "src/build/local.env"))
+    local_env = parse_env_file(os.path.join(project_root, f"src/build/{iso_env}.env"))
     dependencies_env = parse_env_file(os.path.join(project_root, "src/dependencies.env"))
 
     # Determine core identifiers
@@ -303,7 +304,8 @@ def main():
     debug_mode = os.environ.get("GDC_DEBUG_MODE") or local_env.get("GDC_DEBUG_MODE") or build_env.get("GDC_DEBUG_MODE") or "false"
     companion_val = os.environ.get("GDC_COMPANION") or local_env.get("GDC_COMPANION") or build_env.get("GDC_COMPANION") or "TRUE"
     comp_suffix = "-no-comp" if str(companion_val).strip().upper() in ("FALSE", "0", "NO", "NONE") else ""
-    iso_name = f"gdc-bootstrap-ubuntu-24.04-v{iso_version}{comp_suffix}-debug.iso" if debug_mode.lower() == "true" else f"gdc-bootstrap-ubuntu-24.04-v{iso_version}{comp_suffix}.iso"
+    iso_prefix = os.environ.get("ISO_NAME_PREFIX") or local_env.get("ISO_NAME_PREFIX") or build_env.get("ISO_NAME_PREFIX") or "gdc-bootstrap-ubuntu-24.04"
+    iso_name = f"{iso_prefix}-v{iso_version}{comp_suffix}-debug.iso" if debug_mode.lower() == "true" else f"{iso_prefix}-v{iso_version}{comp_suffix}.iso"
     local_iso_path = os.path.join(project_root, "build-workspace/output", iso_name)
     
     kvm_available = os.path.exists("/dev/kvm")
@@ -421,7 +423,8 @@ def main():
                 comp_suffix = "-no-comp" if str(companion_val).strip().upper() in ("FALSE", "0", "NO", "NONE") else ""
                 if "_GDC_DEBUG_MODE" in subs:
                     debug_mode = subs["_GDC_DEBUG_MODE"]
-            iso_name = f"gdc-bootstrap-ubuntu-24.04-v{iso_version}{comp_suffix}-debug.iso" if debug_mode.lower() == "true" else f"gdc-bootstrap-ubuntu-24.04-v{iso_version}{comp_suffix}.iso"
+            iso_prefix = os.environ.get("ISO_NAME_PREFIX") or local_env.get("ISO_NAME_PREFIX") or build_env.get("ISO_NAME_PREFIX") or "gdc-bootstrap-ubuntu-24.04"
+            iso_name = f"{iso_prefix}-v{iso_version}{comp_suffix}-debug.iso" if debug_mode.lower() == "true" else f"{iso_prefix}-v{iso_version}{comp_suffix}.iso"
             local_iso_path = os.path.join(project_root, "build-workspace/output", iso_name)
             
             # Extract duration & times
@@ -606,7 +609,8 @@ def main():
         report["deployment_verification"]["deployed_to_gcs"] = (os.environ.get("ENABLE_GCS", "false").lower() == "true" or args.build_id is not None)
         if report["deployment_verification"]["deployed_to_gcs"]:
             print(f"[-] Checking GCS destination bucket '{gcs_bucket_name}' to verify uploaded ISO...")
-            iso_name = f"gdc-bootstrap-ubuntu-24.04-v{iso_version}{comp_suffix}-debug.iso" if os.environ.get("GDC_DEBUG_MODE", "false").lower() == "true" else f"gdc-bootstrap-ubuntu-24.04-v{iso_version}{comp_suffix}.iso"
+            iso_prefix = os.environ.get("ISO_NAME_PREFIX") or local_env.get("ISO_NAME_PREFIX") or build_env.get("ISO_NAME_PREFIX") or "gdc-bootstrap-ubuntu-24.04"
+            iso_name = f"{iso_prefix}-v{iso_version}{comp_suffix}-debug.iso" if os.environ.get("GDC_DEBUG_MODE", "false").lower() == "true" else f"{iso_prefix}-v{iso_version}{comp_suffix}.iso"
             gcs_path = f"gs://{gcs_bucket_name}/sync/{iso_name}"
             report["deployment_verification"]["gcs_path"] = gcs_path
             

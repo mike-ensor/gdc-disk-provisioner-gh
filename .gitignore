@@ -48,10 +48,14 @@ skills/
 .env.*.local
 .env.schema
 .envrc
-local.env
 *.local.env
 add-hosts
 src/build/add-hosts
+
+## Build Environment Files
+*.env
+local.env
+!src/build/build.env
 
 # Local cache and workspace directories
 .cache/

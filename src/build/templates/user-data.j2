@@ -20,6 +20,17 @@ phone_home:
 autoinstall:
   version: 1
 {% if enable_webhook %}
+{% if enable_phone_home or enable_webhook %}
+  error-commands:
+    - |
+      echo "==============================================================================" >/dev/ttyS0
+      echo "[GDC-INSTALL-FAIL] CRITICAL INSTALLATION FAILURE DETECTED" >/dev/ttyS0
+      echo "==============================================================================" >/dev/ttyS0
+      if [ -x /usr/local/bin/gdc-collector ]; then
+        echo "[-] Triggering final diagnostics collection before halt..." >/dev/ttyS0
+        timeout 120s /usr/local/bin/gdc-collector --stage crash --companion-url="{{ companion_url }}" >/dev/ttyS0 2>&1 || true
+      fi
+{% endif %}
   reporting:
     webhook:
       type: webhook
@@ -388,6 +399,36 @@ autoinstall:
       {% for line in add_hosts_lines %}
       echo "{{ line }}" >> /etc/hosts
       {% endfor %}
+      {% endif %}
+    - |
+      echo "=============================================================================="
+      echo "[GDC-INSTALL-GOAL] Starting Task: Verifying connectivity to Step CA Endpoint"
+      echo "=============================================================================="
+      logger -t gdc-provisioner "[GOAL] Verifying connectivity to Step CA Endpoint"
+      {% if MOCK_MTLS == "true" or MOCK_MTLS == true %}
+      echo "[-] Connectivity checking to Step CA skipped (MOCK_MTLS=true)"
+      {% else %}
+      CA_URL="{{ step_ca_url }}"
+      SUCCESS=false
+      for i in 1 2 3; do
+        echo "[-] Attempt $i of 3: Connecting to Step CA at ${CA_URL}..."
+        if curl -s -I -m 5 "${CA_URL}/health" &>/dev/null; then
+          echo "[-] Connection to Step CA established successfully!"
+          SUCCESS=true
+          break
+        fi
+        if [ "$i" -lt 3 ]; then
+          echo "[!] Connection failed. Retrying in 5 seconds..."
+          sleep 5
+        fi
+      done
+      if [ "${SUCCESS}" = "false" ]; then
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Cannot resolve or reach Step CA at ${CA_URL}. Please verify DNS/add-hosts configuration." >/dev/ttyS0
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0
+        logger -p user.err -t gdc-provisioner "[CRITICAL] Connectivity to Step CA failed. Halting installation."
+        exit 1
+      fi
       {% endif %}
     - |
 {% if enable_phone_home or enable_webhook %}

@@ -388,7 +388,7 @@ class TestGgdTemplateHydration(unittest.TestCase):
         with mock.patch('render_templates.os.path.dirname', return_value=test_workspace):
             with mock.patch('os.path.abspath', return_value=os.path.join(test_workspace, 'render_templates.py')):
                 # Temporarily wipe os.environ matching keys so they don't override our test files
-                with mock.patch.dict('os.environ', {}, clear=True):
+                with mock.patch.dict('os.environ', {'ISO_ENVIRONMENT': 'local'}, clear=True):
                     env = render_templates.load_env_properties()
                     
                     self.assertEqual(env.get('INSTALL_COMPANION_URL'), 'http://gdc-companion.override.local/v1/install-logs')

@@ -114,7 +114,9 @@ steps:
           TEMPORARY_INSTALLER_PASSWORD="${_TEMPORARY_INSTALLER_PASSWORD}" \
           GDC_COMPANION="${_GDC_COMPANION}" \
           DEBUG_EXTRA_USER="${_DEBUG_EXTRA_USER}" \
-          DEBUG_EXTRA_PASSWORD="${_DEBUG_EXTRA_PASSWORD}"
+          DEBUG_EXTRA_PASSWORD="${_DEBUG_EXTRA_PASSWORD}" \
+          ISO_ENVIRONMENT="${_ISO_ENVIRONMENT}" \
+          ISO_NAME_PREFIX="${_ISO_NAME_PREFIX}"
 
   # ==========================================
   # Step 3: Publish, Manifest, and Promote Release Artifacts
@@ -150,13 +152,15 @@ steps:
           ENABLE_GCS="true" \
           GCS_BUCKET="gs://${_GCS_BUCKET_NAME}" \
           DEPENDENCY_CACHE_GCS_BUCKET="$${DEPENDENCY_CACHE_GCS_BUCKET}" \
-          _CUSTOMER_ASSETS_URI="${_CUSTOMER_ASSETS_URI}"
+          _CUSTOMER_ASSETS_URI="${_CUSTOMER_ASSETS_URI}" \
+          ISO_ENVIRONMENT="${_ISO_ENVIRONMENT}" \
+          ISO_NAME_PREFIX="${_ISO_NAME_PREFIX}"
         
         BUCKET_NAME=$(echo "${_GCS_BUCKET_NAME}" | sed 's/^gs:\/\///')
         
         echo "[-] Performing bucket retention cleanup (keeping last 6 ISOs in sync/)..."
         # List all ISOs in the sync/ directory of the bucket, sorted naturally by semantic version
-        ISO_LIST=$(gcloud storage ls "gs://$${BUCKET_NAME}/sync/*.iso" 2>/dev/null | sort -V || true)
+        ISO_LIST=$(gcloud storage ls "gs://$${BUCKET_NAME}/sync/${_ISO_NAME_PREFIX:-gdc-bootstrap-ubuntu-24.04}*.iso" 2>/dev/null | sort -V || true)
         
         if [ -n "$${ISO_LIST}" ]; then
           ISO_COUNT=$(echo "$${ISO_LIST}" | wc -l)
@@ -200,6 +204,8 @@ substitutions:
   _GDC_COMPANION: 'TRUE'
   _DEBUG_EXTRA_USER: ''
   _DEBUG_EXTRA_PASSWORD: ''
+  _ISO_ENVIRONMENT: 'local'
+  _ISO_NAME_PREFIX: 'gdc-bootstrap-ubuntu-24.04'
 
 # Extend timeout to 30 minutes in case of larger asset synchronization
 timeout: '1800s'
