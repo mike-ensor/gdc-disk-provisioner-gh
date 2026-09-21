@@ -11,12 +11,14 @@ SHELL := /usr/bin/env bash
 # Export all make variables to child processes by default
 .EXPORT_ALL_VARIABLES:
 
+ISO_ENVIRONMENT ?= local
+
 # Robust Helper to extract variables from build.env and local.env safely
 get_env = $(shell \
 	set -a; \
 	[ -f ../dependencies.env ] && . ../dependencies.env &>/dev/null; \
 	[ -f ./build.env ] && . ./build.env &>/dev/null; \
-	[ -f ./local.env ] && . ./local.env &>/dev/null; \
+	[ -f ./$(ISO_ENVIRONMENT).env ] && . ./$(ISO_ENVIRONMENT).env &>/dev/null; \
 	if [ -n "$(1)" ]; then echo "$${$(1)}"; fi \
 )
 
@@ -547,7 +549,7 @@ publish:
 	echo "  }," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "  \"compilation_and_iso_tools\": {" >> "$(PROVENANCE_MANIFEST)"; \
 	echo "    \"xorriso\": \"$${XORRISO_VERSION}\"," >> "$(PROVENANCE_MANIFEST)"; \
-	echo "    \"rsync\": \"$$(rsync --version | head -n 1 || echo 'rsync 3.2.7')\"," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "    \"rsync\": \"$$((rsync --version 2>/dev/null || echo 'rsync 3.2.7') | head -n 1)\"," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "    \"python\": \"$${PYTHON_VERSION}\"," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "    \"jinja2\": \"$${JINJA_VERSION}\"" >> "$(PROVENANCE_MANIFEST)"; \
 	echo "  }," >> "$(PROVENANCE_MANIFEST)"; \

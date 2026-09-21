@@ -46,9 +46,11 @@ def load_env_properties():
     # 2. Load dependencies manifest, standard defaults, then local overrides
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_src_dir = os.path.dirname(script_dir)
+    iso_env = os.environ.get("ISO_ENVIRONMENT", "local")
+    
     parse_file(os.path.join(project_src_dir, 'dependencies.env'))
     parse_file(os.path.join(script_dir, 'build.env'))
-    parse_file(os.path.join(script_dir, 'local.env'))
+    parse_file(os.path.join(script_dir, f'{iso_env}.env'))
     
     # 3. Active system environment variables take absolute precedence
     for key, val in os.environ.items():

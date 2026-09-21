@@ -33,11 +33,14 @@ if [[ -f "${PROJECT_ROOT}/VERSION" ]]; then
     echo "[-] Loaded ISO_VERSION from VERSION file: ${ISO_VERSION}"
 fi
 
+# Initialize environment variable
+ISO_ENVIRONMENT="${ISO_ENVIRONMENT:-local}"
+
 # ==============================================================================
 # Load Additional Build Variables (GDC override pattern)
 # ==============================================================================
 BUILD_ENV="${PROJECT_ROOT}/src/build/build.env"
-LOCAL_ENV="${PROJECT_ROOT}/src/build/local.env"
+LOCAL_ENV="${PROJECT_ROOT}/src/build/${ISO_ENVIRONMENT}.env"
 
 source_env_safe() {
     local env_file="$1"
@@ -127,7 +130,7 @@ get_env() {
         set -a
         [ -f src/dependencies.env ] && . src/dependencies.env &>/dev/null
         [ -f src/build/build.env ] && . src/build/build.env &>/dev/null
-        [ -f src/build/local.env ] && . src/build/local.env &>/dev/null
+        [ -f "src/build/${ISO_ENVIRONMENT}.env" ] && . "src/build/${ISO_ENVIRONMENT}.env" &>/dev/null
         if [ -n "$1" ]; then eval echo "\${$1:-}"; fi
     )
 }
@@ -230,7 +233,8 @@ fi
 # ==========================================
 # 8. Check for GCS Target Collision
 # ==========================================
-ISO_NAME_PREFIX="gdc-bootstrap-ubuntu-24.04"
+ISO_NAME_PREFIX_VAL=$(get_env ISO_NAME_PREFIX)
+ISO_NAME_PREFIX="${ISO_NAME_PREFIX_VAL:-gdc-bootstrap-ubuntu-24.04}"
 COMPANION_SUFFIX=""
 if [[ "${GDC_COMPANION_VAL^^}" == "FALSE" || "${GDC_COMPANION_VAL}" == "0" || "${GDC_COMPANION_VAL^^}" == "NO" ]]; then
     COMPANION_SUFFIX="-no-comp"
@@ -262,6 +266,7 @@ echo "  GCP Region:      ${REGION}"
 echo "  Debug ISO:       ${GDC_DEBUG_MODE:-false}"
 echo "  Builder Version: ${BUILD_VERSION}"
 echo "  Target ISO Ver:  ${ISO_VERSION}"
+echo "  Target ISO Name: ${TARGET_ISO_NAME}"
 echo "  Dest GCS Bucket: gs://${GCS_BUCKET_NAME}"
 if [[ -n "${ISO_BLESSED_GCS_BUCKET_NAME}" ]]; then
 echo "  Source GCS Bkt:  gs://${ISO_BLESSED_GCS_BUCKET_NAME}"
@@ -278,7 +283,7 @@ GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "N/A")
 BUILD_ID=$(gcloud builds submit "${PROJECT_ROOT}" \
     --config="${PROJECT_ROOT}/cloudbuild.yaml" \
     --project="${PROJECT_ID}" \
-    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME},_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false},_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI:-},_GIT_BRANCH=${GIT_BRANCH},_GIT_COMMIT=${GIT_COMMIT},_INSTALL_COMPANION_URL=${INSTALL_COMPANION_URL_VAL:-},_ADMIN_SSH_PUB_KEYS=${ADMIN_SSH_PUB_KEYS:-},_TEMPORARY_INSTALLER_SSH_PUB_KEYS=${TEMPORARY_INSTALLER_SSH_PUB_KEYS:-},_TEMPORARY_INSTALLER_PASSWORD=${TEMPORARY_INSTALLER_PASSWORD:-},_GDC_COMPANION=${GDC_COMPANION_VAL:-TRUE},_DEBUG_EXTRA_USER=${DEBUG_EXTRA_USER_VAL},_DEBUG_EXTRA_PASSWORD=${DEBUG_EXTRA_PASSWORD_VAL}" \
+    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME},_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false},_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI:-},_GIT_BRANCH=${GIT_BRANCH},_GIT_COMMIT=${GIT_COMMIT},_INSTALL_COMPANION_URL=${INSTALL_COMPANION_URL_VAL:-},_ADMIN_SSH_PUB_KEYS=${ADMIN_SSH_PUB_KEYS:-},_TEMPORARY_INSTALLER_SSH_PUB_KEYS=${TEMPORARY_INSTALLER_SSH_PUB_KEYS:-},_TEMPORARY_INSTALLER_PASSWORD=${TEMPORARY_INSTALLER_PASSWORD:-},_GDC_COMPANION=${GDC_COMPANION_VAL:-TRUE},_DEBUG_EXTRA_USER=${DEBUG_EXTRA_USER_VAL},_DEBUG_EXTRA_PASSWORD=${DEBUG_EXTRA_PASSWORD_VAL},_ISO_ENVIRONMENT=${ISO_ENVIRONMENT},_ISO_NAME_PREFIX=${ISO_NAME_PREFIX}" \
     --async --format="value(id)")
 
 echo "[+] Cloud Build job created with ID: ${BUILD_ID}"

@@ -110,6 +110,7 @@ else
         curl -sk "${CA_URL}/roots.pem" -o "${CERT_DIR}/root_ca.crt" || true
         if [[ ! -s "${CERT_DIR}/root_ca.crt" ]]; then
             echo "FAIL: Could not download root CA certificate from ${CA_URL}/roots.pem"
+            exit 1
         else
             EXTRA_ARGS=(--ca-url="${CA_URL}" --root="${CERT_DIR}/root_ca.crt")
         fi

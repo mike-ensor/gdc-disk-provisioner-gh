@@ -46,7 +46,8 @@ def probe_node_state(ip: str) -> dict:
     """
     Probes SSH port 22 and attempts connection using candidates to determine state.
     """
-    local_env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src/build/local.env"))
+    iso_env = os.environ.get("ISO_ENVIRONMENT", "local")
+    local_env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), f"../../src/build/{iso_env}.env"))
     build_env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../src/build/build.env"))
     
     password = "default-password-123"
