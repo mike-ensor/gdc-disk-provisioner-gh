@@ -45,7 +45,7 @@ cmd_push_facts() {
     local companion_docs_dir
     companion_docs_dir="$(cd "${REPO_ROOT}/../gdc-companion/docs" 2>/dev/null && pwd || true)"
     local fallback_schema
-    fallback_schema="$([[ -n "${companion_docs_dir}" ]] && echo "${companion_docs_dir}/machine-schema.json" || echo "/d/projects/google/gdc-companion/docs/machine-schema.json")"
+    fallback_schema="$([[ -n "${companion_docs_dir}" ]] && echo "${companion_docs_dir}/machine-schema.json" || echo "")"
     local schema_path="${GDC_SCHEMA_PATH:-$([[ -f "${default_schema}" ]] && echo "${default_schema}" || echo "${fallback_schema}")}"
 
     local node_ip=""
