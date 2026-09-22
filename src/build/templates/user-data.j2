@@ -1,16 +1,27 @@
 ## template: jinja
 #cloud-config
 
-{% set boot_session_id = range(10000000, 99999999) | random %}
-
 bootcmd:
   - echo "{{ companion_ip }} {{ companion_host }}" >> /etc/hosts
   - echo "127.0.0.1 security.ubuntu.com" >> /etc/hosts
   - echo "127.0.0.1 geoip.ubuntu.com" >> /etc/hosts
   - echo "127.0.0.1 geoip.canonical.com" >> /etc/hosts
+  - |
+    # Intercept ephemeral kernel boot_id and primary MAC before Subiquity or cloud-final start
+    BOOT_ID=$(cat /proc/sys/kernel/random/boot_id | tr -d '-')
+    echo "$BOOT_ID" > /tmp/boot_id
+    PRIMARY_MAC=$(ip -br link | awk '$1 !~ /^(lo|docker|veth)/ {print $3; exit}' | tr -d ':')
+    echo "$PRIMARY_MAC" > /tmp/primary_mac
+
+    # Inject dynamic values into cloud-init combined config and instance cache
+    for f in /run/cloud-init/combined-cloud-config.json /var/lib/cloud/instances/*/cloud-config.txt /var/lib/cloud/instances/*/user-data.txt; do
+      if [ -f "$f" ]; then
+        sed -i "s/@@BUILD_ID@@/${BOOT_ID}/g; s/@@PRIMARY_MAC@@/${PRIMARY_MAC}/g" "$f" 2>/dev/null || true
+      fi
+    done
 {% if enable_phone_home %}
 phone_home:
-  url: "{{ companion_url }}/public?version={{ ISO_VERSION }}&session={{ boot_session_id }}&logname=phone-home"
+  url: "{{ companion_url }}/public?version={{ ISO_VERSION }}&build_id=@@BUILD_ID@@&mac=@@PRIMARY_MAC@@&logname=phone-home"
   tries: 2
   post:
     - instance_id
@@ -34,7 +45,7 @@ autoinstall:
   reporting:
     webhook:
       type: webhook
-      endpoint: "{{ companion_url }}/secure?version={{ ISO_VERSION }}&session={{ boot_session_id }}&logname=webhook"
+      endpoint: "{{ companion_url }}/secure?version={{ ISO_VERSION }}&build_id=@@BUILD_ID@@&mac=@@PRIMARY_MAC@@&logname=webhook"
       level: INFO
 {% endif %}
   shutdown: reboot
@@ -76,6 +87,20 @@ autoinstall:
       - "{{ temp_installer_ssh_pub_keys }}"
     {% endif %}
   early-commands:
+    - |
+      # [GDC-INSTALL-STEP] Grab kernel boot_id and primary MAC (fallback to device if not in tmp)
+      BOOT_ID=$( [ -s /tmp/boot_id ] && cat /tmp/boot_id || cat /proc/sys/kernel/random/boot_id | tr -d '-' )
+      PRIMARY_MAC=$( [ -s /tmp/primary_mac ] && cat /tmp/primary_mac || ip -br link | awk '$1 !~ /^(lo|docker|veth)/ {print $3; exit}' | tr -d ':' )
+      
+      # Safety net injection for Subiquity configs
+      sed -i "s/@@BUILD_ID@@/${BOOT_ID}/g; s/@@PRIMARY_MAC@@/${PRIMARY_MAC}/g" /run/installer/autoinstall-user-data /autoinstall.yaml 2>/dev/null || true
+
+{% if enable_phone_home %}
+      # Dispatch JSON-compatible phone-home event directly to companion
+      curl -s --connect-timeout 5 -m 10 -X POST "{{ companion_url }}/public?version={{ ISO_VERSION }}&build_id=${BOOT_ID}&mac=${PRIMARY_MAC}&logname=phone-home" \
+        -H "Content-Type: application/json" \
+        -d "{\"origin\": \"cloud-init-phone-home\", \"hostname\": \"$(hostname)\"}" 2>/dev/null || true
+{% endif %}
     - |
       # [GDC-INSTALL-STEP] Injecting mock companion data if present
       if [ -x /cdrom/custom-data/gdc/inject-mock.sh ]; then
@@ -149,7 +174,7 @@ autoinstall:
         chmod +x /tmp/generate_storage_config.sh
         if /tmp/generate_storage_config.sh; then
           echo "[-] Storage configuration generated successfully."
-          if python3 -c "import os, yaml; bp = '/run/installer/autoinstall-user-data' if os.path.exists('/run/installer/autoinstall-user-data') else '/cdrom/nocloud/user-data'; c = yaml.safe_load(open(bp)); s = yaml.safe_load(open('/run/autoinstall-storage.yaml')); c['autoinstall']['storage'] = s['storage']; yaml.safe_dump({'autoinstall': c['autoinstall']}, open('/autoinstall.yaml', 'w')); os.makedirs('/run/installer', exist_ok=True); yaml.safe_dump(c, open('/run/installer/autoinstall-user-data', 'w'))"; then
+          if python3 -c "import os, yaml; bp = '/autoinstall.yaml' if os.path.exists('/autoinstall.yaml') else ('/run/installer/autoinstall-user-data' if os.path.exists('/run/installer/autoinstall-user-data') else '/cdrom/nocloud/user-data'); c = yaml.safe_load(open(bp)); s = yaml.safe_load(open('/run/autoinstall-storage.yaml')); ai = c['autoinstall'] if 'autoinstall' in c else c; ai['storage'] = s['storage']; yaml.safe_dump({'autoinstall': ai}, open('/autoinstall.yaml', 'w')); os.makedirs('/run/installer', exist_ok=True); yaml.safe_dump(c if 'autoinstall' in c else {'autoinstall': c}, open('/run/installer/autoinstall-user-data', 'w'))"; then
             logger -t gdc-provisioner "[GOAL] LVM storage layout merged dynamically successfully."
           else
             echo "[GDC-INSTALL-FAIL] Critical Failure: Dynamic storage config merger failed!" >/dev/ttyS0

@@ -85,6 +85,7 @@ The table below maps project capabilities across **Functional Domains** (columns
   - [-] **Multi-LTS Target Compilation Architecture:** Parameterize Docker builder and GCS cache prefixes to build both 22.04 Jammy and 26.04 Noble/Plucky targets
   - [ ] **GCS Cache Retention Sweeper:** Automated pruning of older ISO builds in `gs://gdc-disk-provisioner-isos/sync/` and `/archived/`
   - [ ] **Static Boot Banner:** Replace dynamic `generate_banner.py` execution with static `boot-banner.txt` template
+  - [ ] **Automated GCS Package Cache via Cloud Build (`GDC-SPEC-012`):** Implement `cloudbuild-packages.yaml` and un-hardcode `ENABLE_GCS` to automate cache updates using native IAM context.
 
 ---
 
@@ -286,5 +287,6 @@ The table below maps project capabilities across **Functional Domains** (columns
 | **GDC-SPEC-009** | Temporary Installer Removal Plan (`09-temporary-installer-removal.md`) | `Stage 6: Cluster Up` | Planned |
 | **GDC-SPEC-010** | GCloud Token Federation & ADC Bypass (`10-gcloud-token-federation.md`) | `Stage 4: Linux Ready` | Approved / Implemented |
 | **GDC-SPEC-011** | PXE Netboot Optimization & Deduplication (`11-pxe-netboot-optimization-and-deduplication.md`) | `Stage 0: Build` | Approved / In Progress |
+| **GDC-SPEC-012** | Automated GCS Package Cache via Cloud Build (`12-cloudbuild-package-cache.md`) | `Stage 0: Build` | Planned |
 | **GDC-SPEC-DEP-001** | GDC Master Dependency Matrix | `All Stages` | Approved / Implemented |
 | **GDC-SPEC-READY-LINUX**| GDC Ready-Linux & Idempotent Post-Install Plan | `Stages 2–4` | Approved / Implemented |

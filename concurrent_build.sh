@@ -29,15 +29,29 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Parse Command Line Arguments
 SKIP_PXE="false"
-for arg in "$@"; do
-    case "${arg}" in
+ISO_NAME_PREFIX_ARG=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --skip-pxe)
             SKIP_PXE="true"
+            shift
+            ;;
+        --prefix)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --prefix requires a value" >&2
+                exit 1
+            fi
+            ISO_NAME_PREFIX_ARG="$2"
+            shift 2
             ;;
         --help|-h)
-            echo "Usage: $0 [--skip-pxe]"
-            echo "  --skip-pxe    Build and verify ISOs on GCS without triggering Bootimus PXE ingestion"
+            echo "Usage: $0 [--skip-pxe] [--prefix <name>]"
+            echo "  --skip-pxe         Build and verify ISOs on GCS without triggering Bootimus PXE ingestion"
+            echo "  --prefix <name>    Override ISO name prefix (e.g. honeywell, barn, gdc-labs-24.04)"
             exit 0
+            ;;
+        *)
+            shift
             ;;
     esac
 done
@@ -136,7 +150,7 @@ echo "  Deploy to PXE:        $([ "${SKIP_PXE}" = "true" ] && echo "DISABLED (--
 echo "=============================================================================="
 
 ISO_NAME_PREFIX_VAL=$(get_env ISO_NAME_PREFIX)
-ISO_NAME_PREFIX="${ISO_NAME_PREFIX_VAL:-gdc-bootstrap-ubuntu-24.04}"
+ISO_NAME_PREFIX="${ISO_NAME_PREFIX_ARG:-${ISO_NAME_PREFIX:-${ISO_NAME_PREFIX_VAL:-gdc-bootstrap-ubuntu-24.04}}}"
 
 ISO_DEFAULT_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}-debug.iso"
 ISO_NOCOMP_NAME="${ISO_NAME_PREFIX}-v${ISO_VERSION}-no-comp-debug.iso"

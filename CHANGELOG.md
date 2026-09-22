@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased] (v0.8.x)
 
 ### Added
+- **Dynamic Boot ID and Primary MAC Telemetry Resolution**: Implemented dynamic ephemeral kernel `boot_id` and node `PRIMARY_MAC` parameter injection into Live ISO `user-data` for correlation of installation sessions by physical machine and boot attempt.
 - **Dynamic Companion Binary Fetch**: Dynamically pulls the latest `gdc-companion` binary from Google Cloud Storage into system `PATH` during build and provisioning.
 - **Concurrent Build Flags & Telemetry**: Added `--skip-pxe` flag, auto-increment versioning logic, and build-state tracking to `concurrent_build.sh`.
 - **PXE Netboot Optimization Spec (`docs/specs/`)**: Authored architecture specifications covering dynamic ISO prefixes (e.g., `honeywell`), mTLS security hardening, and netboot transfer optimization.

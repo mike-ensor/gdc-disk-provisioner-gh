@@ -199,6 +199,14 @@ while [[ $# -gt 0 ]]; do
             GDC_COMPANION_VAL="$2"
             shift 2
             ;;
+        -p|--prefix)
+            if [[ $# -lt 2 ]]; then
+                echo "[!] Error: --prefix requires a value" >&2
+                exit 1
+            fi
+            ISO_NAME_PREFIX_ARG="$2"
+            shift 2
+            ;;
         -h|--help)
             show_help
             ;;
@@ -234,7 +242,8 @@ fi
 # 8. Check for GCS Target Collision
 # ==========================================
 ISO_NAME_PREFIX_VAL=$(get_env ISO_NAME_PREFIX)
-ISO_NAME_PREFIX="${ISO_NAME_PREFIX_VAL:-gdc-bootstrap-ubuntu-24.04}"
+ISO_NAME_PREFIX_ARG="${ISO_NAME_PREFIX_ARG:-}"
+ISO_NAME_PREFIX="${ISO_NAME_PREFIX_ARG:-${ISO_NAME_PREFIX:-${ISO_NAME_PREFIX_VAL:-gdc-bootstrap-ubuntu-24.04}}}"
 COMPANION_SUFFIX=""
 if [[ "${GDC_COMPANION_VAL^^}" == "FALSE" || "${GDC_COMPANION_VAL}" == "0" || "${GDC_COMPANION_VAL^^}" == "NO" ]]; then
     COMPANION_SUFFIX="-no-comp"
