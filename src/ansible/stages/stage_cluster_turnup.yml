@@ -1,0 +1,37 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
+- name: "GDC-TIMING | Ensure ClusterTurnup start time is set"
+  ansible.builtin.set_fact:
+    cluster_turnup_start_time: "{{ cluster_turnup_start_time | default(now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')) }}"
+    cluster_turnup_start_epoch: "{{ cluster_turnup_start_epoch | default(now(utc=true).strftime('%s') | int) }}"
+
+- name: Run cluster_turnup role
+  ansible.builtin.include_role:
+    name: cluster_turnup
+
+- name: "GDC-TIMING | Calculate ClusterTurnup timing facts"
+  ansible.builtin.set_fact:
+    cluster_turnup_end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    cluster_turnup_duration_seconds: "{{ [(now(utc=true).strftime('%s') | int) - (cluster_turnup_start_epoch | int), 0] | max }}"
+
+- name: "GDC-EVIDENCE | Update ClusterTurnup Evidence Timing"
+  ansible.builtin.set_fact:
+    cluster_turnup_evidence: "{{ (cluster_turnup_evidence | default({})) | combine({'timing': {'start_time': cluster_turnup_start_time, 'end_time': cluster_turnup_end_time, 'duration_seconds': cluster_turnup_duration_seconds | int, 'overall_provisioning_start_time': provisioning_start_time | default(cluster_turnup_start_time)}}) }}"
+
+- name: "GDC-STATE | Write ClusterTurnup completion state"
+  ansible.builtin.copy:
+    dest: /var/gdc-install/state/cluster-turnup.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {
+        "stage": "CLUSTER_TURNUP",
+        "status": "completed",
+        "timestamp": "{{ cluster_turnup_end_time }}",
+        "evidence": {{ cluster_turnup_evidence | to_json }}
+      }
+
+- name: "GDC-STATE | Update ClusterTurnup fact in-memory"
+  ansible.builtin.set_fact:
+    cluster_turnup_state: { "status": "completed" }

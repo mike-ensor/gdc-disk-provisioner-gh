@@ -28,11 +28,12 @@ Ansible pulls its instructions directly from the internal Gitea instance on `loc
     *   **Purpose:** Pre-seeded collections (such as `community.general`) extracted during ISO late-commands.
 
 ### 1.3. Persistent State Machine
-Ansible executes idempotently through a five-stage state machine driven by `/var/gdc-install/state/*.json` tracker files:
+Ansible executes idempotently through a six-stage state machine driven by `/var/gdc-install/state/*.json` tracker files:
 *   `first-boot`: Establishes service hubs and schedules the initial security reboot.
 *   `second-boot`: Unseals LUKS using TPM and validates network reachability.
 *   `linux-ready`: Executes core Linux hardening, kernel tuning, and security baseline controls.
 *   `cluster-ready`: Orchestrates multi-node Kubernetes networking and generates cluster certificates.
+*   `cluster-turnup`: Executes automated offline standalone cluster inception using `bmctl` and `create_cluster.sh`.
 
 Whenever a stage completes, its start/end timings and evidence metrics are committed to its corresponding JSON file. If the playbook runs again, it automatically **skips** any stage that has marked itself as `completed`.
 
@@ -51,7 +52,7 @@ The `gdc-provision.service` enforces the following execution sequence during eve
 5. **State-Driven Execution (`local.yml`):**
    * Reads `/var/gdc-install/state/provisioning-timing.json` to preserve global provisioning start time.
    * Checks `/var/gdc-install/state/*.json` to skip any stages already marked `completed`.
-   * Executes the next pending stage (`first-boot` $\rightarrow$ `second-boot` $\rightarrow$ `linux-ready` $\rightarrow$ `cluster-ready`).
+   * Executes the next pending stage (`first-boot` $\rightarrow$ `second-boot` $\rightarrow$ `linux-ready` $\rightarrow$ `cluster-ready` $\rightarrow$ `cluster-turnup`).
    * Writes the completion state, error details (if failed), and start/end timing metrics to `/var/gdc-install/state/<stage>.json`.
    * Calls `/usr/local/bin/gdc-collector` in the `always` block to compile `report.json` and upload diagnostic telemetry.
 6. **Transition / Reboot Handshake:** If the stage completed an unsealing phase or installed an HWE kernel requiring a reboot, it initiates a clean system restart before continuing to the subsequent stage.

@@ -18,6 +18,8 @@ set -euo pipefail
 # ==============================================================================
 # GDC Standalone Cluster Creation Script (Idempotent)
 # ==============================================================================
+# GDC Standalone Cluster Creation Script (Idempotent)
+# ==============================================================================
 # This script provisions a Google Distributed Cloud (GDC) Bare Metal standalone
 # cluster. It is designed to be idempotent: if the cluster is already running,
 # it will safely skip the creation process.
@@ -26,12 +28,24 @@ set -euo pipefail
 MACHINE_IP="${MACHINE_IP:-192.168.9.241}"
 CLUSTER_NAME="${CLUSTER_NAME:-gdc-default-241}"
 PROJECT_ID="${PROJECT_ID:-anthos-bare-metal-lab-1}"
+REGION="${REGION:-us-west1}"
 
 CLUSTER_VIP="${CLUSTER_VIP:-192.168.9.143}"
 CLUSTER_INGRESS="${CLUSTER_INGRESS:-192.168.9.144}"
 PRIMARY_LOAD_BALANCER="${PRIMARY_LOAD_BALANCER:-192.168.9.144-192.168.9.150}"
 
 ADMIN_USER_EMAIL="${ADMIN_USER_EMAIL:-}"
+FACTS_FILE="${FACTS_FILE:-}"
+
+CLI_CLUSTER_NAME=""
+CLI_MACHINE_IP=""
+CLI_PROJECT_ID=""
+CLI_REGION=""
+CLI_CLUSTER_VIP=""
+CLI_CLUSTER_INGRESS=""
+CLI_PRIMARY_LOAD_BALANCER=""
+CLI_ADMIN_USER_EMAIL=""
+
 AUTO_YES=false
 DRY_RUN=false
 RESPONSE="y"
@@ -44,9 +58,11 @@ Provisions a Google Distributed Cloud (GDC) Bare Metal standalone cluster using 
 Idempotent: skips creation if the cluster is already running.
 
 Options:
+  --facts <FILE>         Path to JSON facts file (default: auto-detects from state/facts.d)
   --name <NAME>          Cluster name (default: ${CLUSTER_NAME})
   --ip <IP>              Node machine IP (default: ${MACHINE_IP})
   --project <PROJECT>    GCP Project ID (default: ${PROJECT_ID})
+  --region <REGION>      GCP Region (default: ${REGION})
   --vip <VIP>            Cluster Control Plane VIP (default: ${CLUSTER_VIP})
   --ingress <INGRESS>    Cluster Ingress VIP (default: ${CLUSTER_INGRESS})
   --lb-range <RANGE>     MetalLB pool address range (default: ${PRIMARY_LOAD_BALANCER})
@@ -60,32 +76,40 @@ EOF
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --facts)
+            FACTS_FILE="$2"
+            shift 2
+            ;;
         --name)
-            CLUSTER_NAME="$2"
+            CLI_CLUSTER_NAME="$2"
             shift 2
             ;;
         --ip)
-            MACHINE_IP="$2"
+            CLI_MACHINE_IP="$2"
             shift 2
             ;;
         --project)
-            PROJECT_ID="$2"
+            CLI_PROJECT_ID="$2"
+            shift 2
+            ;;
+        --region)
+            CLI_REGION="$2"
             shift 2
             ;;
         --vip)
-            CLUSTER_VIP="$2"
+            CLI_CLUSTER_VIP="$2"
             shift 2
             ;;
         --ingress)
-            CLUSTER_INGRESS="$2"
+            CLI_CLUSTER_INGRESS="$2"
             shift 2
             ;;
         --lb-range)
-            PRIMARY_LOAD_BALANCER="$2"
+            CLI_PRIMARY_LOAD_BALANCER="$2"
             shift 2
             ;;
         --admin-email)
-            ADMIN_USER_EMAIL="$2"
+            CLI_ADMIN_USER_EMAIL="$2"
             shift 2
             ;;
         --dry-run)
@@ -106,9 +130,92 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+get_json_val() {
+    local file="$1"
+    local jsonpath="$2"
+    if [[ ! -f "$file" ]]; then
+        return
+    fi
+    if command -v jq >/dev/null 2>&1; then
+        local val
+        val=$(jq -r "${jsonpath} // empty" "$file" 2>/dev/null || true)
+        if [[ "$val" != "null" && -n "$val" ]]; then
+            echo "$val"
+        fi
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c "
+import json, sys
+try:
+    with open('$file') as f:
+        data = json.load(f)
+    keys = '$jsonpath'.strip('.').split('.')
+    val = data
+    for k in keys:
+        if val is None or not isinstance(val, dict):
+            val = None
+            break
+        val = val.get(k)
+    if val is not None and not isinstance(val, (dict, list)):
+        print(val)
+except Exception:
+    pass
+" 2>/dev/null || true
+    fi
+}
+
+# Auto-detect facts file if not explicitly supplied
+if [[ -z "${FACTS_FILE}" ]]; then
+    for candidate in \
+        "/var/gdc-install/state/gdc-fact-manual.json" \
+        "/var/gdc-install/state/gdc-machine-facts-manual.json" \
+        "/var/gdc-install/stage/gdc-fact-manual.json" \
+        "/var/gdc-install/stage/gdc-machine-facts-manual.json" \
+        "/var/gdc-install/stage/machine-info.json" \
+        "/etc/ansible/facts.d/gdc.fact" \
+        "/etc/gdc/machine-info-mock.json" \
+        "/etc/gdc/fallback-config.json"; do
+        if [[ -f "${candidate}" ]]; then
+            FACTS_FILE="${candidate}"
+            break
+        fi
+    done
+fi
+
+if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
+    echo "[-] Sourcing cluster parameters from facts: ${FACTS_FILE}"
+    FACT_CLUSTER_NAME=$(get_json_val "${FACTS_FILE}" ".cluster.cluster_name")
+    FACT_PROJECT_ID=$(get_json_val "${FACTS_FILE}" ".gcp_info.project_id")
+    FACT_REGION=$(get_json_val "${FACTS_FILE}" ".gcp_info.region")
+    FACT_CLUSTER_VIP=$(get_json_val "${FACTS_FILE}" ".cluster.networking.cluster_vip")
+    FACT_CLUSTER_INGRESS=$(get_json_val "${FACTS_FILE}" ".cluster.networking.cluster_ingress")
+    FACT_PRIMARY_LOAD_BALANCER=$(get_json_val "${FACTS_FILE}" ".cluster.networking.cluster_lb_range")
+    FACT_IP_CIDR=$(get_json_val "${FACTS_FILE}" ".network.cluster_network.ip_cidr")
+    FACT_ADMIN_USER_EMAIL=$(get_json_val "${FACTS_FILE}" ".cluster.admin_user_email")
+
+    if [[ -n "${FACT_CLUSTER_NAME}" ]]; then CLUSTER_NAME="${FACT_CLUSTER_NAME}"; fi
+    if [[ -n "${FACT_PROJECT_ID}" ]]; then PROJECT_ID="${FACT_PROJECT_ID}"; fi
+    if [[ -n "${FACT_REGION}" ]]; then REGION="${FACT_REGION}"; fi
+    if [[ -n "${FACT_CLUSTER_VIP}" ]]; then CLUSTER_VIP="${FACT_CLUSTER_VIP}"; fi
+    if [[ -n "${FACT_CLUSTER_INGRESS}" ]]; then CLUSTER_INGRESS="${FACT_CLUSTER_INGRESS}"; fi
+    if [[ -n "${FACT_PRIMARY_LOAD_BALANCER}" ]]; then PRIMARY_LOAD_BALANCER="${FACT_PRIMARY_LOAD_BALANCER}"; fi
+    if [[ -n "${FACT_IP_CIDR}" ]]; then MACHINE_IP="${FACT_IP_CIDR%%/*}"; fi
+    if [[ -n "${FACT_ADMIN_USER_EMAIL}" ]]; then ADMIN_USER_EMAIL="${FACT_ADMIN_USER_EMAIL}"; fi
+fi
+
+# Explicit CLI arguments take highest precedence
+if [[ -n "${CLI_CLUSTER_NAME}" ]]; then CLUSTER_NAME="${CLI_CLUSTER_NAME}"; fi
+if [[ -n "${CLI_MACHINE_IP}" ]]; then MACHINE_IP="${CLI_MACHINE_IP}"; fi
+if [[ -n "${CLI_PROJECT_ID}" ]]; then PROJECT_ID="${CLI_PROJECT_ID}"; fi
+if [[ -n "${CLI_REGION}" ]]; then REGION="${CLI_REGION}"; fi
+if [[ -n "${CLI_CLUSTER_VIP}" ]]; then CLUSTER_VIP="${CLI_CLUSTER_VIP}"; fi
+if [[ -n "${CLI_CLUSTER_INGRESS}" ]]; then CLUSTER_INGRESS="${CLI_CLUSTER_INGRESS}"; fi
+if [[ -n "${CLI_PRIMARY_LOAD_BALANCER}" ]]; then PRIMARY_LOAD_BALANCER="${CLI_PRIMARY_LOAD_BALANCER}"; fi
+if [[ -n "${CLI_ADMIN_USER_EMAIL}" ]]; then ADMIN_USER_EMAIL="${CLI_ADMIN_USER_EMAIL}"; fi
+
 export MACHINE_IP
 export CLUSTER_NAME
 export PROJECT_ID
+export REGION
 export CLUSTER_VIP
 export CLUSTER_INGRESS
 export PRIMARY_LOAD_BALANCER
@@ -259,7 +366,7 @@ spec:
           - ${PRIMARY_LOAD_BALANCER}
   clusterOperations:
     projectID: ${PROJECT_ID}
-    location: us-west1
+    location: ${REGION}
   storage:
     lvpNodeMounts:
       path: /mnt/localpv-disk
@@ -273,7 +380,7 @@ spec:
       maxPodsPerNode: 250
   gkeOnPremAPI:
     enabled: false
-    location: us-west1
+    location: ${REGION}
   nodeAccess:
     loginUser: ${USER}
 EOF

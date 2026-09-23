@@ -87,6 +87,7 @@
     - "second-boot"
     - "linux-ready"
     - "cluster-ready"
+    - "cluster-turnup"
   register: state_files_stat
 
 - name: "GDC-STATE | Initialize default state facts"
@@ -95,6 +96,7 @@
     second_boot_state: { "status": "pending" }
     linux_ready_state: { "status": "pending" }
     cluster_ready_state: { "status": "pending" }
+    cluster_turnup_state: { "status": "pending" }
 
 - name: "GDC-ORCH | Check if fallback-config.json exists"
   ansible.builtin.stat:
@@ -176,3 +178,18 @@
   when:
     - state_files_stat.results[3].stat.exists
     - slurped_cluster_ready is defined and slurped_cluster_ready.content is defined
+
+- name: "GDC-STATE | Load ClusterTurnup State if exists"
+  ansible.builtin.slurp:
+    src: /var/gdc-install/state/cluster-turnup.json
+  register: slurped_cluster_turnup
+  when: state_files_stat.results[4].stat.exists
+  ignore_errors: true
+  failed_when: false
+
+- name: "GDC-STATE | Set ClusterTurnup State fact"
+  ansible.builtin.set_fact:
+    cluster_turnup_state: "{{ slurped_cluster_turnup.content | b64decode | from_json }}"
+  when:
+    - state_files_stat.results[4].stat.exists
+    - slurped_cluster_turnup is defined and slurped_cluster_turnup.content is defined
