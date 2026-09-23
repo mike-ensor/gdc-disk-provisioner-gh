@@ -1,40 +1,90 @@
 {
-  "hostname": "gdc-node-01",
-  "bmctl_version": "1.29.0",
+  "bmctl_version": "1.35.300-gke.87",
+  "hostname": "gdc-extreme-242",
   "network": {
     "management_network": {
       "dhcp_v4": true,
-      "gateway": "192.168.4.1",
-      "dns_servers": ["192.168.4.1", "8.8.8.8"]
+      "dns_servers": [
+        "8.8.8.8",
+        "8.8.4.4"
+      ]
     },
     "cluster_network": {
       "vlan_id": 109,
       "dhcp_v4": false,
-      "ip_cidr": "192.168.109.10/24",
+      "ip_cidr": "192.168.109.12/24",
       "gateway": "192.168.109.1",
-      "dns_servers": ["192.168.109.1"]
+      "dns_servers": [
+        "8.8.8.8",
+        "8.8.4.4"
+      ]
     }
   },
   "gcp_info": {
-    "project_id": "gdc-edge-lab",
-    "region": "us-east1",
-    "primary_gsa": "gdc-node-sa@gdc-edge-lab.iam.gserviceaccount.com"
+    "project_id": "anthos-bare-metal-lab-1",
+    "region": "us-central1",
+    "primary_gsa": "sa-companion@anthos-bare-metal-lab-1.iam.gserviceaccount.com"
   },
   "cluster": {
-    "cluster_name": "edge-cluster-01",
-    "primary_root_repo": "git@github.com:example/repo.git",
-    "primary_root_repo_auth_secret": "repo-secret",
+    "cluster_name": "gdc-extreme-1",
+    "primary_root_repo": "https://gitlab.com/gcp-solutions-public/retail-edge/customer-demos/dp-primary-root.git",
+    "primary_root_repo_auth_secret": "git-creds",
     "networking": {
-      "cluster_vip": "192.168.109.100",
-      "cluster_ingress": "192.168.109.101",
-      "cluster_lb_range": "192.168.109.100-192.168.109.110"
+      "cluster_vip": "192.168.109.2",
+      "cluster_ingress": "192.168.109.100",
+      "cluster_lb_range": "192.168.109.100-192.168.109.150"
     },
-    "fleet_cluster_labels": ["env=lab", "location=edge"]
+    "fleet_cluster_labels": [
+      "type=development",
+      "location=stanwood",
+      "country=usa",
+      "earlyaccess=false"
+    ]
   },
-  "peers": [
-    {
-      "hostname": "gdc-node-02",
-      "ipv4": "192.168.109.11"
-    }
-  ]
+  "peers": [],
+  "variables": {
+    "bmctl_version": "1.35.300-gke.87",
+    "cluster": {
+      "cluster_name": "gdc-extreme-1",
+      "fleet_cluster_labels": [
+        "type=development",
+        "location=stanwood",
+        "country=usa",
+        "earlyaccess=false"
+      ],
+      "networking": {
+        "cluster_ingress": "192.168.109.100",
+        "cluster_lb_range": "192.168.109.100-192.168.109.150",
+        "cluster_vip": "192.168.109.2"
+      },
+      "primary_root_repo": "https://gitlab.com/gcp-solutions-public/retail-edge/customer-demos/dp-primary-root.git",
+      "primary_root_repo_auth_secret": "git-creds"
+    },
+    "gcp_info": {
+      "primary_gsa": "sa-companion@anthos-bare-metal-lab-1.iam.gserviceaccount.com",
+      "project_id": "anthos-bare-metal-lab-1",
+      "region": "us-central1"
+    },
+    "hostname": "gdc-extreme-242",
+    "network": {
+      "cluster_network": {
+        "dhcp_v4": false,
+        "dns_servers": [
+          "8.8.8.8",
+          "8.8.4.4"
+        ],
+        "gateway": "192.168.109.1",
+        "ip_cidr": "192.168.109.12/24",
+        "vlan_id": 109
+      },
+      "management_network": {
+        "dhcp_v4": true,
+        "dns_servers": [
+          "8.8.8.8",
+          "8.8.4.4"
+        ]
+      }
+    },
+    "peers": []
+  }
 }

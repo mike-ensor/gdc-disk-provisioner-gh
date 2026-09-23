@@ -30,49 +30,107 @@ STATE_INIT_PATH = os.path.join(PROJECT_ROOT, "src/ansible/stages/state_initializ
 
 
 class TestClusterTurnupScript(unittest.TestCase):
-    """Verifies that create_cluster.sh accurately parses facts and CLI parameters."""
+    """Verifies that create_cluster.sh accurately parses facts, ENV variables, and CLI parameters."""
 
-    def test_default_dry_run(self):
+    def test_manual_env_execution(self):
         result = subprocess.run(
             [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run"],
             capture_output=True, text=True,
-            env={**os.environ, "CLUSTER_NAME": "gdc-default-241"}
+            env={
+                **os.environ,
+                "CLUSTER_NAME": "gdc-manual-241",
+                "PROJECT_ID": "anthos-bare-metal-lab-1",
+                "MACHINE_IP": "192.168.9.241",
+                "CLUSTER_VIP": "192.168.9.143",
+                "CLUSTER_INGRESS": "192.168.9.144",
+                "PRIMARY_LOAD_BALANCER": "192.168.9.144-192.168.9.150",
+            }
         )
         self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
         self.assertIn("Starting GDC Cluster Creation Process", result.stdout)
-        self.assertIn("Cluster Name:                       gdc-default-241", result.stdout)
+        self.assertIn("Cluster Name:                       gdc-manual-241", result.stdout)
+        self.assertIn("Project ID:                         anthos-bare-metal-lab-1", result.stdout)
+        self.assertIn("Machine IP:                         192.168.9.241", result.stdout)
         self.assertIn("[DRY-RUN]", result.stdout)
 
+    def test_manual_missing_env_fails(self):
+        # When run without facts and with missing required ENV variables, script must fail fast
+        clean_env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": os.environ.get("HOME", ""),
+            "CLUSTER_NAME": "test-cluster",
+            # Missing PROJECT_ID, MACHINE_IP, CLUSTER_VIP, CLUSTER_INGRESS, PRIMARY_LOAD_BALANCER
+        }
+        result = subprocess.run(
+            [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run"],
+            capture_output=True, text=True,
+            env=clean_env
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ERROR: Missing required cluster configuration parameter(s):", result.stderr)
+        self.assertIn("MACHINE_IP", result.stderr)
+        self.assertIn("CLUSTER_VIP", result.stderr)
+
     def test_facts_file_dynamic_sourcing(self):
+        # Automated run via facts file without requiring pre-set ENV variables
+        clean_env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": os.environ.get("HOME", ""),
+        }
         result = subprocess.run(
             [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run", "--facts", VALID_FACTS_FILE],
-            capture_output=True, text=True
+            capture_output=True, text=True,
+            env=clean_env
         )
         self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
         self.assertIn(f"Sourcing cluster parameters from facts: {VALID_FACTS_FILE}", result.stdout)
-        self.assertIn("Cluster Name:                       edge-cluster-01", result.stdout)
-        self.assertIn("Project ID:                         gdc-edge-lab", result.stdout)
-        self.assertIn("Machine IP:                         192.168.109.10", result.stdout)
-        self.assertIn("Cluster VIP:                        192.168.109.100", result.stdout)
-        self.assertIn("Cluster Ingress:                    192.168.109.101", result.stdout)
-        self.assertIn("Primary Load Balancer:              192.168.109.100-192.168.109.110", result.stdout)
+        self.assertIn("Cluster Name:                       gdc-extreme-1", result.stdout)
+        self.assertIn("Project ID:                         anthos-bare-metal-lab-1", result.stdout)
+        self.assertIn("Machine IP:                         192.168.109.12", result.stdout)
+        self.assertIn("Cluster VIP:                        192.168.109.2", result.stdout)
+        self.assertIn("Cluster Ingress:                    192.168.109.100", result.stdout)
+        self.assertIn("Primary Load Balancer:              192.168.109.100-192.168.109.150", result.stdout)
+        self.assertIn("Primary Root Repo:                  https://gitlab.com/gcp-solutions-public/retail-edge/customer-demos/dp-primary-root.git", result.stdout)
 
-    def test_cli_overrides_facts_file(self):
+    def test_env_overrides_facts_file(self):
+        # Operator ENV variables take precedence over facts file
+        result = subprocess.run(
+            [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run", "--facts", VALID_FACTS_FILE],
+            capture_output=True, text=True,
+            env={
+                **os.environ,
+                "CLUSTER_NAME": "env-override-cluster",
+                "CLUSTER_VIP": "10.0.0.99",
+            }
+        )
+        self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+        self.assertIn("Cluster Name:                       env-override-cluster", result.stdout)
+        self.assertIn("Cluster VIP:                        10.0.0.99", result.stdout)
+        # Non-overridden fields still source from facts file
+        self.assertIn("Machine IP:                         192.168.109.12", result.stdout)
+        self.assertIn("Cluster Ingress:                    192.168.109.100", result.stdout)
+
+    def test_cli_overrides_env_and_facts_file(self):
+        # CLI options take top precedence over both ENV and facts file
         result = subprocess.run(
             [
                 CREATE_CLUSTER_SCRIPT, "-y", "--dry-run",
                 "--facts", VALID_FACTS_FILE,
-                "--name", "custom-edge-99",
+                "--name", "cli-edge-99",
                 "--vip", "10.0.0.50"
             ],
-            capture_output=True, text=True
+            capture_output=True, text=True,
+            env={
+                **os.environ,
+                "CLUSTER_NAME": "env-cluster",
+                "CLUSTER_VIP": "10.0.0.25",
+            }
         )
         self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
-        self.assertIn("Cluster Name:                       custom-edge-99", result.stdout)
+        self.assertIn("Cluster Name:                       cli-edge-99", result.stdout)
         self.assertIn("Cluster VIP:                        10.0.0.50", result.stdout)
         # Non-overridden fields still source from facts file
-        self.assertIn("Project ID:                         gdc-edge-lab", result.stdout)
-        self.assertIn("Machine IP:                         192.168.109.10", result.stdout)
+        self.assertIn("Machine IP:                         192.168.109.12", result.stdout)
 
 
 class TestClusterTurnupAnsibleIntegration(unittest.TestCase):
