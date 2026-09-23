@@ -35,7 +35,8 @@ class TestClusterTurnupScript(unittest.TestCase):
     def test_default_dry_run(self):
         result = subprocess.run(
             [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run"],
-            capture_output=True, text=True
+            capture_output=True, text=True,
+            env={**os.environ, "CLUSTER_NAME": "gdc-default-241"}
         )
         self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
         self.assertIn("Starting GDC Cluster Creation Process", result.stdout)

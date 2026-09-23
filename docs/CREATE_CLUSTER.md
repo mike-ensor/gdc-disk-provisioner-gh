@@ -17,7 +17,7 @@ export PROJECT_ID="your-gcp-project-id"
 export REGION="us-west1"
 
 export MACHINE_IP="192.168.4.241"
-export CLUSTER_NAME="gdc-default-241"
+export CLUSTER_NAME="my-cluster-name"
 
 export CLUSTER_VIP="192.168.4.100"
 export CLUSTER_INGRESS="192.168.4.101"
@@ -137,7 +137,7 @@ When using **Fleet Workload Identity Federation** (configured via the `baremetal
 
 When using Workload Identity Federation, the most common reason a cluster stalls in the `Provisioning` state is missing Google Cloud IAM permissions for the orchestrator's principal.
 
-For a cluster named `gdc-default` in project `anthos-bare-metal-lab-1`, the principal making the API calls is:
+For a cluster named `my-cluster-name` in project `anthos-bare-metal-lab-1`, the principal making the API calls is:
 `serviceAccount:anthos-bare-metal-lab-1.svc.id.goog[kube-system/anthos-cluster-operator]`
 
 ### 1. Image Pull Secret Failure
@@ -207,7 +207,7 @@ Use `bmctl` to scaffold the initial cluster configuration file. Be sure to defin
 
 ```bash
 cd /var/gdc-install
-export CLUSTER_NAME="gdc-default"
+export CLUSTER_NAME="my-cluster-name"
 
 # Export GCP credentials for GKE Connect / Fleet registration
 export GCP_ACCESS_TOKEN=$(gcloud auth application-default print-access-token)
@@ -231,13 +231,13 @@ sshPrivateKeyPath: /home/gdc-admin/.ssh/id_ed25519
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: "gdc-default" # Must match ${CLUSTER_NAME}
+  name: "my-cluster-name" # Must match ${CLUSTER_NAME}
 ---
 apiVersion: baremetal.cluster.gke.io/v1
 kind: Cluster
 metadata:
-  name: "gdc-default" # Must match ${CLUSTER_NAME}
-  namespace: "gdc-default" # Must match ${CLUSTER_NAME}
+  name: "my-cluster-name" # Must match ${CLUSTER_NAME}
+  namespace: "my-cluster-name" # Must match ${CLUSTER_NAME}
   annotations:
     baremetal.cluster.gke.io/enable-workload-identity-cluster-authentication: "true"
 spec:

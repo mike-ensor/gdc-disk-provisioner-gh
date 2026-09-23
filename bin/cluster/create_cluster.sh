@@ -26,7 +26,7 @@ set -euo pipefail
 # ==============================================================================
 
 MACHINE_IP="${MACHINE_IP:-192.168.9.241}"
-CLUSTER_NAME="${CLUSTER_NAME:-gdc-default-241}"
+CLUSTER_NAME="${CLUSTER_NAME:-}"
 PROJECT_ID="${PROJECT_ID:-anthos-bare-metal-lab-1}"
 REGION="${REGION:-us-west1}"
 
@@ -214,6 +214,16 @@ if [[ -n "${CLI_CLUSTER_VIP}" ]]; then CLUSTER_VIP="${CLI_CLUSTER_VIP}"; fi
 if [[ -n "${CLI_CLUSTER_INGRESS}" ]]; then CLUSTER_INGRESS="${CLI_CLUSTER_INGRESS}"; fi
 if [[ -n "${CLI_PRIMARY_LOAD_BALANCER}" ]]; then PRIMARY_LOAD_BALANCER="${CLI_PRIMARY_LOAD_BALANCER}"; fi
 if [[ -n "${CLI_ADMIN_USER_EMAIL}" ]]; then ADMIN_USER_EMAIL="${CLI_ADMIN_USER_EMAIL}"; fi
+
+# Fail fast if CLUSTER_NAME is not set or is empty
+if [[ -z "${CLUSTER_NAME:-}" ]]; then
+  echo "==============================================================================" >&2
+  echo "  ERROR: CLUSTER_NAME is not defined or is empty." >&2
+  echo "  Please set the CLUSTER_NAME environment variable (e.g. export CLUSTER_NAME=\"my-cluster\")" >&2
+  echo "  or provide it via the --name argument or a facts file." >&2
+  echo "==============================================================================" >&2
+  exit 1
+fi
 
 export MACHINE_IP
 export CLUSTER_NAME
