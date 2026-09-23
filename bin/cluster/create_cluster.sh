@@ -25,18 +25,16 @@ set -euo pipefail
 # it will safely skip the creation process.
 # ==============================================================================
 
-MACHINE_IP="${MACHINE_IP:-192.168.9.241}"
-CLUSTER_NAME="${CLUSTER_NAME:-}"
-PROJECT_ID="${PROJECT_ID:-anthos-bare-metal-lab-1}"
-REGION="${REGION:-us-west1}"
-
-CLUSTER_VIP="${CLUSTER_VIP:-192.168.9.143}"
-CLUSTER_INGRESS="${CLUSTER_INGRESS:-192.168.9.144}"
-PRIMARY_LOAD_BALANCER="${PRIMARY_LOAD_BALANCER:-192.168.9.144-192.168.9.150}"
-
-ADMIN_USER_EMAIL="${ADMIN_USER_EMAIL:-}"
+ENV_CLUSTER_NAME="${CLUSTER_NAME:-}"
+ENV_PROJECT_ID="${PROJECT_ID:-}"
+ENV_REGION="${REGION:-}"
+ENV_MACHINE_IP="${MACHINE_IP:-}"
+ENV_CLUSTER_VIP="${CLUSTER_VIP:-}"
+ENV_CLUSTER_INGRESS="${CLUSTER_INGRESS:-}"
+ENV_PRIMARY_LOAD_BALANCER="${PRIMARY_LOAD_BALANCER:-}"
+ENV_ADMIN_USER_EMAIL="${ADMIN_USER_EMAIL:-}"
+ENV_PRIMARY_ROOT_REPO="${PRIMARY_ROOT_REPO:-}"
 FACTS_FILE="${FACTS_FILE:-}"
-PRIMARY_ROOT_REPO="${PRIMARY_ROOT_REPO:-MISSING!!!}"
 
 CLI_CLUSTER_NAME=""
 CLI_MACHINE_IP=""
@@ -60,13 +58,13 @@ Idempotent: skips creation if the cluster is already running.
 
 Options:
   --facts <FILE>         Path to JSON facts file (default: auto-detects from state/facts.d)
-  --name <NAME>          Cluster name (default: ${CLUSTER_NAME})
-  --ip <IP>              Node machine IP (default: ${MACHINE_IP})
-  --project <PROJECT>    GCP Project ID (default: ${PROJECT_ID})
-  --region <REGION>      GCP Region (default: ${REGION})
-  --vip <VIP>            Cluster Control Plane VIP (default: ${CLUSTER_VIP})
-  --ingress <INGRESS>    Cluster Ingress VIP (default: ${CLUSTER_INGRESS})
-  --lb-range <RANGE>     MetalLB pool address range (default: ${PRIMARY_LOAD_BALANCER})
+  --name <NAME>          Cluster name (default: ${ENV_CLUSTER_NAME:-none})
+  --ip <IP>              Node machine IP (default: ${ENV_MACHINE_IP:-none})
+  --project <PROJECT>    GCP Project ID (default: ${ENV_PROJECT_ID:-none})
+  --region <REGION>      GCP Region (default: ${ENV_REGION:-us-west1})
+  --vip <VIP>            Cluster Control Plane VIP (default: ${ENV_CLUSTER_VIP:-none})
+  --ingress <INGRESS>    Cluster Ingress VIP (default: ${ENV_CLUSTER_INGRESS:-none})
+  --lb-range <RANGE>     MetalLB pool address range (default: ${ENV_PRIMARY_LOAD_BALANCER:-none})
   --admin-email <EMAIL>  Administrator email for ClusterRoleBinding (optional)
   --dry-run              Validate configuration and simulate inception without modifying system
   -y, --yes              Skip confirmation prompt
@@ -182,6 +180,16 @@ if [[ -z "${FACTS_FILE}" ]]; then
     done
 fi
 
+FACT_CLUSTER_NAME=""
+FACT_PROJECT_ID=""
+FACT_REGION=""
+FACT_CLUSTER_VIP=""
+FACT_CLUSTER_INGRESS=""
+FACT_PRIMARY_LOAD_BALANCER=""
+FACT_IP_CIDR=""
+FACT_ADMIN_USER_EMAIL=""
+FACT_PRIMARY_ROOT_REPO=""
+
 if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     echo "[-] Sourcing cluster parameters from facts: ${FACTS_FILE}"
     FACT_CLUSTER_NAME=$(get_json_val "${FACTS_FILE}" ".cluster.cluster_name")
@@ -191,36 +199,55 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     FACT_CLUSTER_INGRESS=$(get_json_val "${FACTS_FILE}" ".cluster.networking.cluster_ingress")
     FACT_PRIMARY_LOAD_BALANCER=$(get_json_val "${FACTS_FILE}" ".cluster.networking.cluster_lb_range")
     FACT_IP_CIDR=$(get_json_val "${FACTS_FILE}" ".network.cluster_network.ip_cidr")
+    if [[ -z "${FACT_IP_CIDR}" ]]; then
+        FACT_IP_CIDR=$(get_json_val "${FACTS_FILE}" ".network.management_network.ip_cidr")
+    fi
     FACT_ADMIN_USER_EMAIL=$(get_json_val "${FACTS_FILE}" ".cluster.admin_user_email")
     FACT_PRIMARY_ROOT_REPO=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo")
-
-    if [[ -n "${FACT_CLUSTER_NAME}" ]]; then CLUSTER_NAME="${FACT_CLUSTER_NAME}"; fi
-    if [[ -n "${FACT_PROJECT_ID}" ]]; then PROJECT_ID="${FACT_PROJECT_ID}"; fi
-    if [[ -n "${FACT_REGION}" ]]; then REGION="${FACT_REGION}"; fi
-    if [[ -n "${FACT_CLUSTER_VIP}" ]]; then CLUSTER_VIP="${FACT_CLUSTER_VIP}"; fi
-    if [[ -n "${FACT_CLUSTER_INGRESS}" ]]; then CLUSTER_INGRESS="${FACT_CLUSTER_INGRESS}"; fi
-    if [[ -n "${FACT_PRIMARY_LOAD_BALANCER}" ]]; then PRIMARY_LOAD_BALANCER="${FACT_PRIMARY_LOAD_BALANCER}"; fi
-    if [[ -n "${FACT_IP_CIDR}" ]]; then MACHINE_IP="${FACT_IP_CIDR%%/*}"; fi
-    if [[ -n "${FACT_ADMIN_USER_EMAIL}" ]]; then ADMIN_USER_EMAIL="${FACT_ADMIN_USER_EMAIL}"; fi
-    if [[ -n "${FACT_PRIMARY_ROOT_REPO}" ]]; then PRIMARY_ROOT_REPO="${FACT_PRIMARY_ROOT_REPO}"; fi
 fi
 
-# Explicit CLI arguments take highest precedence
-if [[ -n "${CLI_CLUSTER_NAME}" ]]; then CLUSTER_NAME="${CLI_CLUSTER_NAME}"; fi
-if [[ -n "${CLI_MACHINE_IP}" ]]; then MACHINE_IP="${CLI_MACHINE_IP}"; fi
-if [[ -n "${CLI_PROJECT_ID}" ]]; then PROJECT_ID="${CLI_PROJECT_ID}"; fi
-if [[ -n "${CLI_REGION}" ]]; then REGION="${CLI_REGION}"; fi
-if [[ -n "${CLI_CLUSTER_VIP}" ]]; then CLUSTER_VIP="${CLI_CLUSTER_VIP}"; fi
-if [[ -n "${CLI_CLUSTER_INGRESS}" ]]; then CLUSTER_INGRESS="${CLI_CLUSTER_INGRESS}"; fi
-if [[ -n "${CLI_PRIMARY_LOAD_BALANCER}" ]]; then PRIMARY_LOAD_BALANCER="${CLI_PRIMARY_LOAD_BALANCER}"; fi
-if [[ -n "${CLI_ADMIN_USER_EMAIL}" ]]; then ADMIN_USER_EMAIL="${CLI_ADMIN_USER_EMAIL}"; fi
+# Precedence hierarchy: CLI arguments > Environment variables > Facts file
+CLUSTER_NAME="${CLI_CLUSTER_NAME:-${ENV_CLUSTER_NAME:-${FACT_CLUSTER_NAME:-}}}"
+PROJECT_ID="${CLI_PROJECT_ID:-${ENV_PROJECT_ID:-${FACT_PROJECT_ID:-}}}"
+REGION="${CLI_REGION:-${ENV_REGION:-${FACT_REGION:-us-west1}}}"
 
-# Fail fast if CLUSTER_NAME is not set or is empty
-if [[ -z "${CLUSTER_NAME:-}" ]]; then
+FACT_MACHINE_IP=""
+if [[ -n "${FACT_IP_CIDR:-}" ]]; then
+    FACT_MACHINE_IP="${FACT_IP_CIDR%%/*}"
+fi
+MACHINE_IP="${CLI_MACHINE_IP:-${ENV_MACHINE_IP:-${FACT_MACHINE_IP:-}}}"
+
+CLUSTER_VIP="${CLI_CLUSTER_VIP:-${ENV_CLUSTER_VIP:-${FACT_CLUSTER_VIP:-}}}"
+CLUSTER_INGRESS="${CLI_CLUSTER_INGRESS:-${ENV_CLUSTER_INGRESS:-${FACT_CLUSTER_INGRESS:-}}}"
+PRIMARY_LOAD_BALANCER="${CLI_PRIMARY_LOAD_BALANCER:-${ENV_PRIMARY_LOAD_BALANCER:-${FACT_PRIMARY_LOAD_BALANCER:-}}}"
+ADMIN_USER_EMAIL="${CLI_ADMIN_USER_EMAIL:-${ENV_ADMIN_USER_EMAIL:-${FACT_ADMIN_USER_EMAIL:-}}}"
+PRIMARY_ROOT_REPO="${ENV_PRIMARY_ROOT_REPO:-${FACT_PRIMARY_ROOT_REPO:-MISSING!!!}}"
+
+# Fail fast if any required variables are missing
+MISSING_VARS=()
+[[ -z "${CLUSTER_NAME}" ]] && MISSING_VARS+=("CLUSTER_NAME (or --name)")
+[[ -z "${PROJECT_ID}" ]] && MISSING_VARS+=("PROJECT_ID (or --project)")
+[[ -z "${MACHINE_IP}" ]] && MISSING_VARS+=("MACHINE_IP (or --ip)")
+[[ -z "${CLUSTER_VIP}" ]] && MISSING_VARS+=("CLUSTER_VIP (or --vip)")
+[[ -z "${CLUSTER_INGRESS}" ]] && MISSING_VARS+=("CLUSTER_INGRESS (or --ingress)")
+[[ -z "${PRIMARY_LOAD_BALANCER}" ]] && MISSING_VARS+=("PRIMARY_LOAD_BALANCER (or --lb-range)")
+
+if [[ ${#MISSING_VARS[@]} -gt 0 ]]; then
   echo "==============================================================================" >&2
-  echo "  ERROR: CLUSTER_NAME is not defined or is empty." >&2
-  echo "  Please set the CLUSTER_NAME environment variable (e.g. export CLUSTER_NAME=\"my-cluster\")" >&2
-  echo "  or provide it via the --name argument or a facts file." >&2
+  echo "  ERROR: Missing required cluster configuration parameter(s):" >&2
+  for var in "${MISSING_VARS[@]}"; do
+    echo "    - ${var}" >&2
+  done
+  echo "" >&2
+  echo "  When running manually, please export these environment variables ahead of time:" >&2
+  echo "    export CLUSTER_NAME=\"my-cluster\"" >&2
+  echo "    export PROJECT_ID=\"my-gcp-project-id\"" >&2
+  echo "    export MACHINE_IP=\"192.168.4.241\"" >&2
+  echo "    export CLUSTER_VIP=\"192.168.4.100\"" >&2
+  echo "    export CLUSTER_INGRESS=\"192.168.4.101\"" >&2
+  echo "    export PRIMARY_LOAD_BALANCER=\"192.168.4.101-192.168.4.109\"" >&2
+  echo "" >&2
+  echo "  Or supply them via CLI arguments, or provide a facts file with --facts <file>." >&2
   echo "==============================================================================" >&2
   exit 1
 fi

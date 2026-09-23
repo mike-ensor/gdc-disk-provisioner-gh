@@ -27,7 +27,15 @@ class TestCodeReviewFixes(unittest.TestCase):
         result = subprocess.run(
             [script_path, "-y", "--dry-run"],
             capture_output=True, text=True,
-            env={**os.environ, "CLUSTER_NAME": "test-cluster"}
+            env={
+                **os.environ,
+                "CLUSTER_NAME": "test-cluster",
+                "PROJECT_ID": "anthos-bare-metal-lab-1",
+                "MACHINE_IP": "192.168.9.241",
+                "CLUSTER_VIP": "192.168.9.143",
+                "CLUSTER_INGRESS": "192.168.9.144",
+                "PRIMARY_LOAD_BALANCER": "192.168.9.144-192.168.9.150",
+            }
         )
         self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
         self.assertNotIn("unbound variable", result.stderr)

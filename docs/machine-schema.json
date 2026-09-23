@@ -34,7 +34,6 @@
           "description": "Management interface network settings.",
           "required": [
             "dhcp_v4",
-            "gateway",
             "dns_servers"
           ],
           "properties": {
