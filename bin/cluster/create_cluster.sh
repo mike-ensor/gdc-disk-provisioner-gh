@@ -36,6 +36,7 @@ PRIMARY_LOAD_BALANCER="${PRIMARY_LOAD_BALANCER:-192.168.9.144-192.168.9.150}"
 
 ADMIN_USER_EMAIL="${ADMIN_USER_EMAIL:-}"
 FACTS_FILE="${FACTS_FILE:-}"
+PRIMARY_ROOT_REPO="${PRIMARY_ROOT_REPO:-MISSING!!!}"
 
 CLI_CLUSTER_NAME=""
 CLI_MACHINE_IP=""
@@ -191,6 +192,7 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     FACT_PRIMARY_LOAD_BALANCER=$(get_json_val "${FACTS_FILE}" ".cluster.networking.cluster_lb_range")
     FACT_IP_CIDR=$(get_json_val "${FACTS_FILE}" ".network.cluster_network.ip_cidr")
     FACT_ADMIN_USER_EMAIL=$(get_json_val "${FACTS_FILE}" ".cluster.admin_user_email")
+    FACT_PRIMARY_ROOT_REPO=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo")
 
     if [[ -n "${FACT_CLUSTER_NAME}" ]]; then CLUSTER_NAME="${FACT_CLUSTER_NAME}"; fi
     if [[ -n "${FACT_PROJECT_ID}" ]]; then PROJECT_ID="${FACT_PROJECT_ID}"; fi
@@ -200,6 +202,7 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     if [[ -n "${FACT_PRIMARY_LOAD_BALANCER}" ]]; then PRIMARY_LOAD_BALANCER="${FACT_PRIMARY_LOAD_BALANCER}"; fi
     if [[ -n "${FACT_IP_CIDR}" ]]; then MACHINE_IP="${FACT_IP_CIDR%%/*}"; fi
     if [[ -n "${FACT_ADMIN_USER_EMAIL}" ]]; then ADMIN_USER_EMAIL="${FACT_ADMIN_USER_EMAIL}"; fi
+    if [[ -n "${FACT_PRIMARY_ROOT_REPO}" ]]; then PRIMARY_ROOT_REPO="${FACT_PRIMARY_ROOT_REPO}"; fi
 fi
 
 # Explicit CLI arguments take highest precedence
@@ -220,6 +223,7 @@ export CLUSTER_VIP
 export CLUSTER_INGRESS
 export PRIMARY_LOAD_BALANCER
 export ADMIN_USER_EMAIL
+export PRIMARY_ROOT_REPO
 
 export BMCTL_WORKSPACE="/var/gdc-install/bmctl-workspace"
 export CLUSTER_CONFIG_DIR="${BMCTL_WORKSPACE}/${CLUSTER_NAME}"
@@ -251,16 +255,35 @@ function print_runtime() {
 
 trap print_runtime EXIT
 
+GCLOUD_TOKEN_AUTH="FALSE"
+TOKEN=$(gcloud auth print-access-token 2>/dev/null || true)
+
+if [[ -n "$TOKEN" ]]; then
+    TOKEN_INFO=$(curl -s "https://oauth2.googleapis.com/tokeninfo?access_token=$TOKEN" || true)
+    EXPIRES_IN=$(echo "$TOKEN_INFO" | grep -o '"expires_in": [0-9]*' | grep -o '[0-9]*' || true)
+    
+    if [[ -n "$EXPIRES_IN" ]]; then
+        EXPIRES_MIN=$(( EXPIRES_IN / 60 ))
+        GCLOUD_TOKEN_AUTH="true (expires in ~${EXPIRES_MIN}m)"
+    else
+        GCLOUD_TOKEN_AUTH="true (expiration unknown)"
+    fi
+fi
+GOOGLE_APP_CREDS="${GOOGLE_APPLICATION_CREDENTIALS:-MISSING!!!}"
+
 echo "=============================================================================="
 echo "  NOTE: Temporary cluster creation process. DO NOT USE FOR PRODUCTION         "
 echo "=============================================================================="
 echo "Starting GDC Cluster Creation Process"
-echo "  Cluster Name:          ${CLUSTER_NAME}"
-echo "  Project ID:            ${PROJECT_ID}"
-echo "  Machine IP:            ${MACHINE_IP}"
-echo "  Cluster VIP:           ${CLUSTER_VIP}"
-echo "  Cluster Ingress:       ${CLUSTER_INGRESS}"
-echo "  Primary Load Balancer: ${PRIMARY_LOAD_BALANCER}"
+printf "  %-35s %s\n" "Cluster Name:" "${CLUSTER_NAME}"
+printf "  %-35s %s\n" "Project ID:" "${PROJECT_ID}"
+printf "  %-35s %s\n" "Machine IP:" "${MACHINE_IP}"
+printf "  %-35s %s\n" "Cluster VIP:" "${CLUSTER_VIP}"
+printf "  %-35s %s\n" "Cluster Ingress:" "${CLUSTER_INGRESS}"
+printf "  %-35s %s\n" "Primary Load Balancer:" "${PRIMARY_LOAD_BALANCER}"
+printf "  %-35s %s\n" "Primary Root Repo:" "${PRIMARY_ROOT_REPO}"
+printf "  %-35s %s\n" "GOOGLE_APP_CREDS:" "${GOOGLE_APP_CREDS}"
+printf "  %-35s %s\n" "gcloud token authenticated:" "${GCLOUD_TOKEN_AUTH}"
 echo "=============================================================================="
 
 if [[ "${AUTO_YES}" != "true" ]]; then
