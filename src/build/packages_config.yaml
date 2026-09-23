@@ -46,6 +46,7 @@ packages_to_include:
     - "apt-transport-https"
     - "ca-certificates"
     - "curl"
+    - "jq"
     - "software-properties-common"
     - "gnupg2"
     - "libseccomp-dev"

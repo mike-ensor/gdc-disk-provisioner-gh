@@ -42,20 +42,23 @@ ISO_ENVIRONMENT="${ISO_ENVIRONMENT:-local}"
 BUILD_ENV="${PROJECT_ROOT}/src/build/build.env"
 LOCAL_ENV="${PROJECT_ROOT}/src/build/${ISO_ENVIRONMENT}.env"
 
-source_env_safe() {
+source_env_file() {
     local env_file="$1"
+    local allow_override="${2:-false}"
     if [[ -f "${env_file}" ]]; then
         while IFS= read -r line || [[ -n "$line" ]]; do
             # Skip comments and empty lines
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
             [[ -z "$line" ]] && continue
+            # Strip optional export prefix (e.g. from .envrc)
+            line="${line#"export "}"
             # Extract key and value
             if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
                 local key="${BASH_REMATCH[1]}"
                 local val="${BASH_REMATCH[2]}"
                 val="${val#\"}" && val="${val%\"}"
                 val="${val#\'}" && val="${val%\'}"
-                if [[ -z "${!key:-}" ]]; then
+                if [[ "${allow_override}" == "true" ]] || [[ -z "${!key:-}" ]]; then
                     export "${key}"="${val}"
                 fi
             fi
@@ -63,8 +66,13 @@ source_env_safe() {
     fi
 }
 
-source_env_safe "${BUILD_ENV}"
-source_env_safe "${LOCAL_ENV}"
+# 1. Base defaults (do not overwrite pre-existing shell environment variables)
+[[ -f "${PROJECT_ROOT}/.envrc" ]] && source_env_file "${PROJECT_ROOT}/.envrc" false
+[[ -f "${PROJECT_ROOT}/src/dependencies.env" ]] && source_env_file "${PROJECT_ROOT}/src/dependencies.env" false
+source_env_file "${BUILD_ENV}" false
+
+# 2. Environment overrides (e.g. barn.env, honeywell.env overwrite build.env)
+source_env_file "${LOCAL_ENV}" true
 
 # ==========================================
 # 1. Enforce Mandatory Environment Variables
@@ -92,6 +100,7 @@ ENV_FILE="${PROJECT_ROOT}/src/build/build.env"
 # ==========================================
 # 2. Auto-Increment ISO_VERSION Patch in VERSION and .envrc
 # ==========================================
+SHOULD_UPDATE_VERSION=false
 if [[ "${SKIP_INCREMENT:-false}" != "true" && "${ISO_VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
     MAJOR="${BASH_REMATCH[1]}"
     MINOR="${BASH_REMATCH[2]}"
@@ -99,24 +108,9 @@ if [[ "${SKIP_INCREMENT:-false}" != "true" && "${ISO_VERSION}" =~ ^([0-9]+)\.([0
     NEW_PATCH=$((PATCH + 1))
     NEW_ISO_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
     
-    echo "[-] Auto-incrementing ISO_VERSION: ${ISO_VERSION} -> ${NEW_ISO_VERSION}"
-    
-    # Update VERSION file
-    echo "${NEW_ISO_VERSION}" > "${PROJECT_ROOT}/VERSION"
-    echo "[-] Successfully updated VERSION file to ${NEW_ISO_VERSION}."
-    
-    # Update .envrc on disk
-    ENVRC_FILE="${PROJECT_ROOT}/.envrc"
-    if [[ -f "${ENVRC_FILE}" ]]; then
-        # Use standard sed to replace the ISO_VERSION line
-        sed -i "s/export ISO_VERSION=.*/export ISO_VERSION=\"${NEW_ISO_VERSION}\"/g" "${ENVRC_FILE}"
-        echo "[-] Successfully updated ${ENVRC_FILE}."
-    else
-        echo "[!] Warning: .envrc file not found at ${ENVRC_FILE}. Skipping disk update." >&2
-    fi
-    
-    # Update our runtime variable to use the newly incremented version
+    echo "[-] Next target ISO_VERSION: ${ISO_VERSION} -> ${NEW_ISO_VERSION}"
     ISO_VERSION="${NEW_ISO_VERSION}"
+    SHOULD_UPDATE_VERSION=true
 else
     echo "[!] Warning: ISO_VERSION '${ISO_VERSION}' does not match semver format. Skipping auto-increment." >&2
 fi
@@ -128,9 +122,9 @@ fi
 get_env() {
     (
         set -a
-        [ -f src/dependencies.env ] && . src/dependencies.env &>/dev/null
-        [ -f src/build/build.env ] && . src/build/build.env &>/dev/null
-        [ -f "src/build/${ISO_ENVIRONMENT}.env" ] && . "src/build/${ISO_ENVIRONMENT}.env" &>/dev/null
+        [ -f "${PROJECT_ROOT}/src/dependencies.env" ] && . "${PROJECT_ROOT}/src/dependencies.env" &>/dev/null
+        [ -f "${PROJECT_ROOT}/src/build/build.env" ] && . "${PROJECT_ROOT}/src/build/build.env" &>/dev/null
+        [ -f "${PROJECT_ROOT}/src/build/${ISO_ENVIRONMENT}.env" ] && . "${PROJECT_ROOT}/src/build/${ISO_ENVIRONMENT}.env" &>/dev/null
         if [ -n "$1" ]; then eval echo "\${$1:-}"; fi
     )
 }
@@ -142,15 +136,14 @@ GDC_COMPANION_DEFAULT=$(get_env GDC_COMPANION)
 DEBUG_EXTRA_USER_DEFAULT=$(get_env "DEBUG_EXTRA_USER")
 DEBUG_EXTRA_PASSWORD_DEFAULT=$(get_env "DEBUG_EXTRA_PASSWORD")
 
-
-
 # Initialize runtime variables
-GCS_BUCKET="${GCS_BUCKET_DEFAULT}"
-SOURCE_ISO_FILENAME="${SOURCE_ISO_DEFAULT}"
-INSTALL_COMPANION_URL_VAL="${INSTALL_COMPANION_URL_DEFAULT}"
-GDC_COMPANION_VAL="${GDC_COMPANION_DEFAULT:-TRUE}"
+GCS_BUCKET="${GCS_BUCKET:-${GCS_BUCKET_DEFAULT}}"
+SOURCE_ISO_FILENAME="${SOURCE_ISO_FILENAME:-${SOURCE_ISO_DEFAULT}}"
+INSTALL_COMPANION_URL_VAL="${INSTALL_COMPANION_URL:-${INSTALL_COMPANION_URL_DEFAULT}}"
+GDC_COMPANION_VAL="${GDC_COMPANION:-${GDC_COMPANION_DEFAULT:-TRUE}}"
 DEBUG_EXTRA_USER_VAL="${DEBUG_EXTRA_USER:-${DEBUG_EXTRA_USER_DEFAULT:-}}"
 DEBUG_EXTRA_PASSWORD_VAL="${DEBUG_EXTRA_PASSWORD:-${DEBUG_EXTRA_PASSWORD_DEFAULT:-}}"
+AUTO_YES="${AUTO_YES:-false}"
 
 # ==========================================
 # 4. Help and Usage Menu
@@ -164,6 +157,8 @@ show_help() {
     echo "  -f, --filename VALUE     Blessed Source ISO Filename (default: ${SOURCE_ISO_DEFAULT})"
     echo "  -c, --customer-assets VAL Customer-supplied assets tarball URI (GCS or HTTPS)"
     echo "  -l, --companion VAL      GDC Companion telemetry control: TRUE, FALSE (default: ${GDC_COMPANION_DEFAULT:-TRUE})"
+    echo "  -p, --prefix VALUE       Custom ISO prefix string"
+    echo "  -y, --yes                Skip confirmation prompt"
     echo "  -h, --help               Show this help menu"
     echo ""
     echo "Environment Variables (Enforced):"
@@ -206,6 +201,10 @@ while [[ $# -gt 0 ]]; do
             fi
             ISO_NAME_PREFIX_ARG="$2"
             shift 2
+            ;;
+        -y|--yes)
+            AUTO_YES=true
+            shift
             ;;
         -h|--help)
             show_help
@@ -272,6 +271,7 @@ echo " LAUNCHING GDC ISO CLOUD BUILD PIPELINE"
 echo "=============================================================================="
 echo "  GCP Project ID:  ${PROJECT_ID}"
 echo "  GCP Region:      ${REGION}"
+echo "  ISO Environment: ${ISO_ENVIRONMENT}"
 echo "  Debug ISO:       ${GDC_DEBUG_MODE:-false}"
 echo "  Builder Version: ${BUILD_VERSION}"
 echo "  Target ISO Ver:  ${ISO_VERSION}"
@@ -284,6 +284,33 @@ echo "  Source GCS Bkt:  gs://${GCS_BUCKET_NAME} (Fallback)"
 fi
 echo "  Source ISO Name: ${SOURCE_ISO_FILENAME}"
 echo "=============================================================================="
+
+if [[ "${AUTO_YES:-false}" != "true" ]]; then
+    read -r -p "Do you want to proceed? (yes/No) " CONFIRM_PROCEED
+    case "${CONFIRM_PROCEED}" in
+        [yY][eE][sS]|[yY])
+            echo "[-] Proceeding with build..."
+            ;;
+        *)
+            echo "Build aborted by user."
+            exit 0
+            ;;
+    esac
+fi
+
+# Update VERSION and .envrc only after confirmation
+if [[ "${SHOULD_UPDATE_VERSION:-false}" == "true" ]]; then
+    echo "${ISO_VERSION}" > "${PROJECT_ROOT}/VERSION"
+    echo "[-] Successfully updated VERSION file to ${ISO_VERSION}."
+    ENVRC_FILE="${PROJECT_ROOT}/.envrc"
+    if [[ -f "${ENVRC_FILE}" ]]; then
+        sed -i "s/export ISO_VERSION=.*/export ISO_VERSION=\"${ISO_VERSION}\"/g" "${ENVRC_FILE}"
+        echo "[-] Successfully updated ${ENVRC_FILE}."
+    else
+        echo "[!] Warning: .envrc file not found at ${ENVRC_FILE}. Skipping disk update." >&2
+    fi
+fi
+
 echo "[-] Initiating gcloud builds submit..."
 
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "N/A")

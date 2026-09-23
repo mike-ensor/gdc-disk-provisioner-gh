@@ -289,6 +289,7 @@ class TestGgdBuildScripts(unittest.TestCase):
         self.assertIn("second_boot_start_time", local_content)
         self.assertIn("linux_ready_start_time", local_content)
         self.assertIn("cluster_ready_start_time", local_content)
+        self.assertIn("cluster_turnup_start_time", local_content)
         self.assertIn('"duration_seconds"', local_content)
         self.assertIn('"overall_provisioning_start_time"', local_content)
     # ==========================================================================
@@ -321,7 +322,8 @@ class TestGgdBuildScripts(unittest.TestCase):
             "stage_first_boot.yml",
             "stage_second_boot.yml",
             "stage_linux_ready.yml",
-            "stage_cluster_ready.yml"
+            "stage_cluster_ready.yml",
+            "stage_cluster_turnup.yml"
         ]
         for stage in stages:
             stage_path = os.path.join(ansible_dir, "stages", stage)

@@ -9,6 +9,7 @@ Thumbs.db
 
 #
 .git-workspace
+.worktrees/
 .review/
 .github/
 

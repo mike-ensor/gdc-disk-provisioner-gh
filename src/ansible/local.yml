@@ -366,6 +366,97 @@
         - cluster_ready_state.status != "completed"
       tags: ["cluster-ready"]
 
+    - name: "CLUSTER_TURNUP | GDC-STATE | Guard: Halt execution if user requested stop at CLUSTER_READY"
+      block:
+        - name: "CLUSTER_TURNUP | GDC-STATE | Collect final diagnostics before halting"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/gdc-collector ]; then
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url }}"
+            fi
+          ignore_errors: true
+          failed_when: false
+        - name: "CLUSTER_TURNUP | GDC-STATE | Halt execution"
+          ansible.builtin.meta: end_play
+      when: 
+        - stop_stage == "CLUSTER_READY"
+        - cluster_ready_state.status == "completed"
+      tags: ["cluster-turnup"]
+
+    # ==============================================================================
+    # STAGE 6: ClusterTurnup (Standalone / HA Cluster Inception)
+    # ==============================================================================
+    - name: "CLUSTER_TURNUP | GDC-STATE | Run Stage 6"
+      block:
+        - name: "CLUSTER_TURNUP | GDC-TIMING | Record Stage Start"
+          ansible.builtin.set_fact:
+            cluster_turnup_start_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+            cluster_turnup_start_epoch: "{{ now(utc=true).strftime('%s') | int }}"
+        - name: "CLUSTER_TURNUP | GDC-STATE | Execute"
+          ansible.builtin.import_tasks: stages/stage_cluster_turnup.yml
+      rescue:
+        - name: "GDC-STATE | Record ClusterTurnup Failure state"
+          ansible.builtin.copy:
+            dest: /var/gdc-install/state/cluster-turnup.json
+            owner: root
+            group: root
+            mode: '0644'
+            content: |
+              {% set _evidence = cluster_turnup_evidence | default({}) %}
+              {% set _error_detail = ansible_failed_result | default({}) %}
+              {% set _stderr = _error_detail.stderr | default(_error_detail.msg | default('')) %}
+              {% if _stderr %}
+              {% set _ = _evidence.update({"stderr": _stderr}) %}
+              {% endif %}
+              {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
+              {% set _end_epoch = now(utc=true).strftime('%s') | int %}
+              {% set _start_epoch = cluster_turnup_start_epoch | default(_end_epoch) | int %}
+              {% set _duration = [_end_epoch - _start_epoch, 0] | max %}
+              {% set _timing = {
+                "start_time": cluster_turnup_start_time | default(_end_time),
+                "end_time": _end_time,
+                "duration_seconds": _duration,
+                "overall_provisioning_start_time": provisioning_start_time | default(cluster_turnup_start_time | default(_end_time))
+              } %}
+              {% set _ = _evidence.update({"timing": _timing, "error_details": _error_detail}) %}
+              {
+                "stage": "CLUSTER_TURNUP",
+                "status": "FAILED",
+                "timestamp": "{{ _end_time }}",
+                "evidence": {{ _evidence | to_json }}
+              }
+        - name: "GDC-STATE | Fail the play on ClusterTurnup Inception"
+          ansible.builtin.fail:
+            msg: "GDC ClusterTurnup Inception failed!"
+      always:
+        - name: "GDC-STATE | Trigger Post-Stage 6 Diagnostic Collection"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/gdc-collector ]; then
+              /usr/local/bin/gdc-collector --stage cluster-turnup --companion-url="{{ gdc_companion_reports_url }}"
+            elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
+              "{{ playbook_dir }}/../../bin/gdc-collector" --stage cluster-turnup --companion-url="{{ gdc_companion_reports_url }}"
+            fi
+          ignore_errors: true
+          failed_when: false
+      when:
+        - cluster_ready_state.status == "completed"
+        - cluster_turnup_state.status != "completed"
+      tags: ["cluster-turnup"]
+
+    - name: "CLUSTER_COMPLETE | GDC-STATE | Guard: Halt execution if user requested stop at CLUSTER_TURNUP"
+      block:
+        - name: "CLUSTER_COMPLETE | GDC-STATE | Collect final diagnostics before halting"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/gdc-collector ]; then
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url }}"
+            fi
+          ignore_errors: true
+          failed_when: false
+        - name: "CLUSTER_COMPLETE | GDC-STATE | Halt execution"
+          ansible.builtin.meta: end_play
+      when: 
+        - stop_stage == "CLUSTER_TURNUP"
+        - cluster_turnup_state.status == "completed"
+      tags: ["cluster-turnup"]
 
     - name: "GDC-STATE | Run final telemetry"
       block:

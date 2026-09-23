@@ -20,7 +20,7 @@ Immediate blockers and high-profile bugs prioritized for upcoming releases:
 | **P0 (Bug)** | **mTLS Hostname CN Mismatch (HTTP 403)** | `Stage 5: Cluster Ready` | `provision-mtls-cert.sh` requests certificates using physical MAC address instead of `machine_config.hostname`. Zero-Trust Companion API rejects connection with HTTP 403. | Align certificate subject CN generation with `machine_config.hostname`. |
 | **P1 (Bug)** | **HTTP 301 Telemetry POST Drop** | `Stage 1 & Stage 5` | Non-HTTPS Companion URLs receive HTTP 301 redirects from gateways, dropping POST bodies and losing diagnostic uploads. | Enforce strict HTTPS URL schemes in `INSTALL_COMPANION_URL` and template configs. |
 | **P1 (Feature)** | **Zero-SSH NodeAgent Pre-Seeding** | `Stage 2: First Boot` | Current bootstrapping requires preliminary SSH access for operator debugging. | Automate pre-seeding of Server CA, Client CA, and Node Server Certs during Stage 2. |
-| **P1 (Feature)** | **Automated Offline Standalone Turnup** | `Stage 6: Cluster Up` | `bmctl create cluster` currently requires manual execution of `create_cluster.sh`. | Migrate standalone cluster turnup directly into Ansible `CLUSTER_READY` orchestration role. |
+| **P1 (Feature)** | **Automated Offline Standalone Turnup** | `Stage 6: Cluster Up` | `bmctl create cluster` previously required manual execution of `create_cluster.sh`. | Fully automated standalone cluster turnup via Stage 6 `CLUSTER_TURNUP` Ansible role and dynamic facts. |
 | **P2 (Feature)** | **Non-LUKS Storage Mode (`GDC-SPEC-008`)** | `Stage 1: LiveCD` | Bare-metal lab hardware lacking TPM 2.0 or UEFI support cannot complete installation. | Implement `GDC_ENABLE_LUKS=false` build parameter to conditionally bypass LUKS partitioning. |
 | **P2 (Feature)** | **3-Node HA Cluster Orchestration** | `Stage 6: Cluster Up` | Multi-node turnup requires manual trust exchanges and registry sharing across nodes. | Implement primary-secondary node role assignment, Gitea SSH key exchange, and registry proxy routing. |
 
@@ -235,7 +235,7 @@ The table below maps project capabilities across **Functional Domains** (columns
   - [x] Pre-seed GDC bootstrap credentials (`bmctl` and `nodeagent` integrated)
   - [ ] **Configuration Generation:** Automate creation of `cluster-config.yaml` defining target networks, VIPs, and storage paths
   - [ ] **Registry Mirror Redirection:** Redirect container registry mirror to local Nexus Group loopback Port 5001
-  - [ ] **Hands-off Turnup Execution:** Fully orchestrate `bmctl create cluster` from within Ansible playbooks
+  - [x] **Hands-off Turnup Execution:** Fully orchestrate `bmctl create cluster` from within Ansible playbooks via Stage 6 `CLUSTER_TURNUP`
   - [ ] **Version Alignment Guardrails:** Strictly assert Node Agent version matches target deployed `bmctl` release
 - [-] **Security & NodeAgent Integration**
   - [ ] **Keyless Security Profile:** Enforce NodeAgent TPM-bound federation in place of static JSON service account keys

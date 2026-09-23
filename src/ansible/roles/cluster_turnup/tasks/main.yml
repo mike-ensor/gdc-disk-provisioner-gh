@@ -1,0 +1,92 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+---
+# ==============================================================================
+# Role Tasks: cluster_turnup
+# ==============================================================================
+# Executes offline standalone cluster creation using create_cluster.sh and validates
+# cluster inception and post-creation state.
+# Coordinated with GDC-SPEC-005-TURNUP.
+# ==============================================================================
+
+- name: "GDC-TURNUP | Check if create_cluster.sh exists at /usr/local/bin/cluster/create_cluster.sh"
+  ansible.builtin.stat:
+    path: /usr/local/bin/cluster/create_cluster.sh
+  register: target_create_cluster_stat
+
+- name: "GDC-TURNUP | Ensure target directory exists for cluster scripts"
+  ansible.builtin.file:
+    path: /usr/local/bin/cluster
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: not target_create_cluster_stat.stat.exists
+
+- name: "GDC-TURNUP | Copy create_cluster.sh from repository if missing on target"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../bin/cluster/create_cluster.sh"
+    dest: /usr/local/bin/cluster/create_cluster.sh
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - not target_create_cluster_stat.stat.exists
+    - (playbook_dir + '/../../bin/cluster/create_cluster.sh') is file
+
+- name: "GDC-TURNUP | Execute create_cluster.sh to run cluster installation"
+  ansible.builtin.command:
+    cmd: "/usr/local/bin/cluster/create_cluster.sh --yes"
+  register: cluster_create_output
+  environment:
+    PATH: "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+    GOOGLE_APPLICATION_CREDENTIALS: "/etc/gdc/application_default_credentials.json"
+    GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES: "1"
+
+- name: "GDC-TURNUP | Verify admin kubeconfig exists at /etc/kubernetes/admin.conf"
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: admin_kubeconfig_stat
+
+- name: "GDC-TURNUP | Fail if admin kubeconfig is missing"
+  ansible.builtin.fail:
+    msg: "Cluster turnup failed: /etc/kubernetes/admin.conf not found."
+  when: not admin_kubeconfig_stat.stat.exists
+
+- name: "GDC-TURNUP | Query cluster node readiness"
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes"
+  register: kubectl_nodes_result
+  changed_when: false
+  failed_when: false
+  when: admin_kubeconfig_stat.stat.exists
+
+- name: "GDC-EVIDENCE | Structure ClusterTurnup Evidence Facts"
+  ansible.builtin.set_fact:
+    cluster_turnup_evidence:
+      timing:
+        start_time: "{{ cluster_turnup_start_time | default(ansible_date_time.iso8601) }}"
+        end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+        duration_seconds: "{{ [(now(utc=true).strftime('%s') | int) - (cluster_turnup_start_epoch | default(now(utc=true).strftime('%s')) | int), 0] | max }}"
+        overall_provisioning_start_time: "{{ provisioning_start_time | default(cluster_turnup_start_time | default(ansible_date_time.iso8601)) }}"
+      kubeconfig:
+        path: "/etc/kubernetes/admin.conf"
+        exists: "{{ admin_kubeconfig_stat.stat.exists | bool }}"
+      command_output:
+        rc: "{{ cluster_create_output.rc | default(-1) }}"
+        stdout_summary: "{{ (cluster_create_output.stdout_lines | default([]))[-10:] | join('\n') }}"
+      node_readiness:
+        verified: "{{ (kubectl_nodes_result.rc is defined and kubectl_nodes_result.rc == 0) | bool }}"
+        output: "{{ kubectl_nodes_result.stdout | default('') }}"
