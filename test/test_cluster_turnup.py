@@ -39,7 +39,7 @@ class TestClusterTurnupScript(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
         self.assertIn("Starting GDC Cluster Creation Process", result.stdout)
-        self.assertIn("Cluster Name:          gdc-default-241", result.stdout)
+        self.assertIn("Cluster Name:                       gdc-default-241", result.stdout)
         self.assertIn("[DRY-RUN]", result.stdout)
 
     def test_facts_file_dynamic_sourcing(self):
@@ -49,12 +49,12 @@ class TestClusterTurnupScript(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
         self.assertIn(f"Sourcing cluster parameters from facts: {VALID_FACTS_FILE}", result.stdout)
-        self.assertIn("Cluster Name:          edge-cluster-01", result.stdout)
-        self.assertIn("Project ID:            gdc-edge-lab", result.stdout)
-        self.assertIn("Machine IP:            192.168.109.10", result.stdout)
-        self.assertIn("Cluster VIP:           192.168.109.100", result.stdout)
-        self.assertIn("Cluster Ingress:       192.168.109.101", result.stdout)
-        self.assertIn("Primary Load Balancer: 192.168.109.100-192.168.109.110", result.stdout)
+        self.assertIn("Cluster Name:                       edge-cluster-01", result.stdout)
+        self.assertIn("Project ID:                         gdc-edge-lab", result.stdout)
+        self.assertIn("Machine IP:                         192.168.109.10", result.stdout)
+        self.assertIn("Cluster VIP:                        192.168.109.100", result.stdout)
+        self.assertIn("Cluster Ingress:                    192.168.109.101", result.stdout)
+        self.assertIn("Primary Load Balancer:              192.168.109.100-192.168.109.110", result.stdout)
 
     def test_cli_overrides_facts_file(self):
         result = subprocess.run(
@@ -67,11 +67,11 @@ class TestClusterTurnupScript(unittest.TestCase):
             capture_output=True, text=True
         )
         self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
-        self.assertIn("Cluster Name:          custom-edge-99", result.stdout)
-        self.assertIn("Cluster VIP:           10.0.0.50", result.stdout)
+        self.assertIn("Cluster Name:                       custom-edge-99", result.stdout)
+        self.assertIn("Cluster VIP:                        10.0.0.50", result.stdout)
         # Non-overridden fields still source from facts file
-        self.assertIn("Project ID:            gdc-edge-lab", result.stdout)
-        self.assertIn("Machine IP:            192.168.109.10", result.stdout)
+        self.assertIn("Project ID:                         gdc-edge-lab", result.stdout)
+        self.assertIn("Machine IP:                         192.168.109.10", result.stdout)
 
 
 class TestClusterTurnupAnsibleIntegration(unittest.TestCase):
