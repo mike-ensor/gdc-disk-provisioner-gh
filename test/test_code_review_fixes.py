@@ -26,7 +26,8 @@ class TestCodeReviewFixes(unittest.TestCase):
         script_path = os.path.join(PROJECT_ROOT, "bin/cluster/create_cluster.sh")
         result = subprocess.run(
             [script_path, "-y", "--dry-run"],
-            capture_output=True, text=True
+            capture_output=True, text=True,
+            env={**os.environ, "CLUSTER_NAME": "test-cluster"}
         )
         self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
         self.assertNotIn("unbound variable", result.stderr)
