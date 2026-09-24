@@ -106,6 +106,7 @@ gdc_gcloud_install_dir: "/var/gdc-install/tools/google-cloud-sdk"
 
 # Google Cloud SDK components to install natively
 gdc_gcloud_components:
+  - { app: "beta", symlink: false }
   - { app: "nomos" }
   - { app: "gsutil" }
   - { app: "kubectl" }

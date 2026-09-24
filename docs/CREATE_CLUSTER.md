@@ -246,19 +246,23 @@ spec:
   anthosBareMetalVersion: 1.35.300-gke.87
   gkeConnect:
     projectID: anthos-bare-metal-lab-1
+    location: us-west1
   controlPlane:
     nodePoolSpec:
       nodes:
         - address: 192.168.9.241 # Target Node IP
   clusterNetwork:
+    bundledIngress: false
+    flatIPv4: false
     pods:
       cidrBlocks:
-        - 10.200.0.0/16 # Non-overlapping pod network
+        - 172.28.0.0/16 # Non-overlapping pod network
     services:
       cidrBlocks:
-        - 10.201.0.0/16
+        - 172.29.0.0/20
   loadBalancer:
     mode: bundled
+    type: layer2
     ports:
       controlPlaneLBPort: 443
     vips:
@@ -271,6 +275,7 @@ spec:
   clusterOperations:
     projectID: anthos-bare-metal-lab-1
     location: us-west1
+    disableCloudAuditLogging: false
   storage:
     lvpNodeMounts:
       path: /mnt/localpv-disk

@@ -387,7 +387,9 @@
     state: link
     force: yes
   loop: "{{ gdc_gcloud_components }}"
-  when: gcloud_available | bool
+  when:
+    - gcloud_available | bool
+    - item.symlink | default(true) | bool
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
 - name: "GDC-TASK-10B | Ensure bmctl install directory exists"

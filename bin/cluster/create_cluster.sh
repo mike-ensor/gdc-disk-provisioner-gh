@@ -34,6 +34,9 @@ ENV_CLUSTER_INGRESS="${CLUSTER_INGRESS:-}"
 ENV_PRIMARY_LOAD_BALANCER="${PRIMARY_LOAD_BALANCER:-}"
 ENV_ADMIN_USER_EMAIL="${ADMIN_USER_EMAIL:-}"
 ENV_PRIMARY_ROOT_REPO="${PRIMARY_ROOT_REPO:-}"
+ENV_ANTHOS_VERSION="${ANTHOS_VERSION:-${ANTHOS_BARE_METAL_VERSION:-}}"
+ENV_POD_CIDR="${POD_CIDR:-}"
+ENV_SERVICE_CIDR="${SERVICE_CIDR:-}"
 FACTS_FILE="${FACTS_FILE:-}"
 
 CLI_CLUSTER_NAME=""
@@ -44,6 +47,10 @@ CLI_CLUSTER_VIP=""
 CLI_CLUSTER_INGRESS=""
 CLI_PRIMARY_LOAD_BALANCER=""
 CLI_ADMIN_USER_EMAIL=""
+CLI_PRIMARY_ROOT_REPO=""
+CLI_ANTHOS_VERSION=""
+CLI_POD_CIDR=""
+CLI_SERVICE_CIDR=""
 
 AUTO_YES=false
 DRY_RUN=false
@@ -65,6 +72,10 @@ Options:
   --vip <VIP>            Cluster Control Plane VIP (default: ${ENV_CLUSTER_VIP:-none})
   --ingress <INGRESS>    Cluster Ingress VIP (default: ${ENV_CLUSTER_INGRESS:-none})
   --lb-range <RANGE>     MetalLB pool address range (default: ${ENV_PRIMARY_LOAD_BALANCER:-none})
+  --version <VERSION>    Anthos bare metal version (default: ${ENV_ANTHOS_VERSION:-1.35.300-gke.87})
+  --pod-cidr <CIDR>      Pods CIDR block (default: ${ENV_POD_CIDR:-172.28.0.0/16})
+  --service-cidr <CIDR>  Services CIDR block (default: ${ENV_SERVICE_CIDR:-172.29.0.0/20})
+  --root-repo <IMG>      OCI image for primary RootSync (default: ${ENV_PRIMARY_ROOT_REPO:-none})
   --admin-email <EMAIL>  Administrator email for ClusterRoleBinding (optional)
   --dry-run              Validate configuration and simulate inception without modifying system
   -y, --yes              Skip confirmation prompt
@@ -105,6 +116,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --lb-range)
             CLI_PRIMARY_LOAD_BALANCER="$2"
+            shift 2
+            ;;
+        --version)
+            CLI_ANTHOS_VERSION="$2"
+            shift 2
+            ;;
+        --pod-cidr)
+            CLI_POD_CIDR="$2"
+            shift 2
+            ;;
+        --service-cidr)
+            CLI_SERVICE_CIDR="$2"
+            shift 2
+            ;;
+        --root-repo|--primary-root-repo)
+            CLI_PRIMARY_ROOT_REPO="$2"
             shift 2
             ;;
         --admin-email)
@@ -189,6 +216,9 @@ FACT_PRIMARY_LOAD_BALANCER=""
 FACT_IP_CIDR=""
 FACT_ADMIN_USER_EMAIL=""
 FACT_PRIMARY_ROOT_REPO=""
+FACT_ANTHOS_VERSION=""
+FACT_POD_CIDR=""
+FACT_SERVICE_CIDR=""
 
 if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     echo "[-] Sourcing cluster parameters from facts: ${FACTS_FILE}"
@@ -204,6 +234,9 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     fi
     FACT_ADMIN_USER_EMAIL=$(get_json_val "${FACTS_FILE}" ".cluster.admin_user_email")
     FACT_PRIMARY_ROOT_REPO=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo")
+    FACT_ANTHOS_VERSION=$(get_json_val "${FACTS_FILE}" ".cluster.anthos_bare_metal_version")
+    FACT_POD_CIDR=$(get_json_val "${FACTS_FILE}" ".cluster.networking.pod_cidr")
+    FACT_SERVICE_CIDR=$(get_json_val "${FACTS_FILE}" ".cluster.networking.service_cidr")
 fi
 
 # Precedence hierarchy: CLI arguments > Environment variables > Facts file
@@ -221,7 +254,10 @@ CLUSTER_VIP="${CLI_CLUSTER_VIP:-${ENV_CLUSTER_VIP:-${FACT_CLUSTER_VIP:-}}}"
 CLUSTER_INGRESS="${CLI_CLUSTER_INGRESS:-${ENV_CLUSTER_INGRESS:-${FACT_CLUSTER_INGRESS:-}}}"
 PRIMARY_LOAD_BALANCER="${CLI_PRIMARY_LOAD_BALANCER:-${ENV_PRIMARY_LOAD_BALANCER:-${FACT_PRIMARY_LOAD_BALANCER:-}}}"
 ADMIN_USER_EMAIL="${CLI_ADMIN_USER_EMAIL:-${ENV_ADMIN_USER_EMAIL:-${FACT_ADMIN_USER_EMAIL:-}}}"
-PRIMARY_ROOT_REPO="${ENV_PRIMARY_ROOT_REPO:-${FACT_PRIMARY_ROOT_REPO:-MISSING!!!}}"
+PRIMARY_ROOT_REPO="${CLI_PRIMARY_ROOT_REPO:-${ENV_PRIMARY_ROOT_REPO:-${FACT_PRIMARY_ROOT_REPO:-}}}"
+ANTHOS_VERSION="${CLI_ANTHOS_VERSION:-${ENV_ANTHOS_VERSION:-${FACT_ANTHOS_VERSION:-1.35.300-gke.87}}}"
+POD_CIDR="${CLI_POD_CIDR:-${ENV_POD_CIDR:-${FACT_POD_CIDR:-172.28.0.0/16}}}"
+SERVICE_CIDR="${CLI_SERVICE_CIDR:-${ENV_SERVICE_CIDR:-${FACT_SERVICE_CIDR:-172.29.0.0/20}}}"
 
 # Fail fast if any required variables are missing
 MISSING_VARS=()
@@ -261,6 +297,9 @@ export CLUSTER_INGRESS
 export PRIMARY_LOAD_BALANCER
 export ADMIN_USER_EMAIL
 export PRIMARY_ROOT_REPO
+export ANTHOS_VERSION
+export POD_CIDR
+export SERVICE_CIDR
 
 export BMCTL_WORKSPACE="/var/gdc-install/bmctl-workspace"
 export CLUSTER_CONFIG_DIR="${BMCTL_WORKSPACE}/${CLUSTER_NAME}"
@@ -314,11 +353,15 @@ echo "==========================================================================
 echo "Starting GDC Cluster Creation Process"
 printf "  %-35s %s\n" "Cluster Name:" "${CLUSTER_NAME}"
 printf "  %-35s %s\n" "Project ID:" "${PROJECT_ID}"
+printf "  %-35s %s\n" "Region:" "${REGION}"
+printf "  %-35s %s\n" "Anthos Version:" "${ANTHOS_VERSION}"
 printf "  %-35s %s\n" "Machine IP:" "${MACHINE_IP}"
 printf "  %-35s %s\n" "Cluster VIP:" "${CLUSTER_VIP}"
 printf "  %-35s %s\n" "Cluster Ingress:" "${CLUSTER_INGRESS}"
+printf "  %-35s %s\n" "Pod CIDR:" "${POD_CIDR}"
+printf "  %-35s %s\n" "Service CIDR:" "${SERVICE_CIDR}"
 printf "  %-35s %s\n" "Primary Load Balancer:" "${PRIMARY_LOAD_BALANCER}"
-printf "  %-35s %s\n" "Primary Root Repo:" "${PRIMARY_ROOT_REPO}"
+printf "  %-35s %s\n" "Primary Root Repo:" "${PRIMARY_ROOT_REPO:-none}"
 printf "  %-35s %s\n" "GOOGLE_APP_CREDS:" "${GOOGLE_APP_CREDS}"
 printf "  %-35s %s\n" "gcloud token authenticated:" "${GCLOUD_TOKEN_AUTH}"
 echo "=============================================================================="
@@ -399,22 +442,26 @@ metadata:
 spec:
   type: standalone
   profile: edge
-  anthosBareMetalVersion: 1.35.300-gke.87
+  anthosBareMetalVersion: ${ANTHOS_VERSION}
   gkeConnect:
     projectID: ${PROJECT_ID}
+    location: ${REGION}
   controlPlane:
     nodePoolSpec:
       nodes:
         - address: ${MACHINE_IP}
   clusterNetwork:
+    bundledIngress: false
+    flatIPv4: false
     pods:
       cidrBlocks:
-        - 10.200.0.0/16
+        - ${POD_CIDR}
     services:
       cidrBlocks:
-        - 10.201.0.0/16
+        - ${SERVICE_CIDR}
   loadBalancer:
     mode: bundled
+    type: layer2
     ports:
       controlPlaneLBPort: 443
     vips:
@@ -427,6 +474,7 @@ spec:
   clusterOperations:
     projectID: ${PROJECT_ID}
     location: ${REGION}
+    disableCloudAuditLogging: false
   storage:
     lvpNodeMounts:
       path: /mnt/localpv-disk
@@ -442,7 +490,7 @@ spec:
     enabled: false
     location: ${REGION}
   nodeAccess:
-    loginUser: ${USER}
+    loginUser: ${LOGIN_USER:-gdc-admin}
 EOF
 else
 	echo "[OK] Configuration file already exists at ${CLUSTER_CONFIG_FILE}"
@@ -450,7 +498,11 @@ fi
 
 # 4. Initiate Cluster Inception
 echo "[-] Executing Preflight Checks..."
-GCP_ACCESS_TOKEN=$(gcloud auth application-default print-access-token)
+if ! GCP_ACCESS_TOKEN=$(gcloud auth application-default print-access-token 2>/dev/null); then
+	echo "[!] ERROR: Unable to obtain GCP access token from Application Default Credentials." >&2
+	echo "    Please run 'gcloud auth application-default login' or verify GOOGLE_APPLICATION_CREDENTIALS." >&2
+	exit 1
+fi
 export GCP_ACCESS_TOKEN
 if ! bmctl check preflight --cluster "${CLUSTER_NAME}"; then
 	echo "[!] Preflight checks failed! Please review the errors above."
@@ -490,6 +542,64 @@ EOF
 		echo "[OK] ClusterRoleBinding for ${ADMIN_USER_EMAIL} created."
 	else
 		echo "[-] ADMIN_USER_EMAIL is not defined. Skipping ClusterRoleBinding creation."
+	fi
+
+	# 6. Deploy Config Sync
+	echo "[-] Deploying Config Sync..."
+	APPLY_SPEC_FILE="${CLUSTER_CONFIG_DIR}/apply-spec.yaml"
+	cat <<EOF >"${APPLY_SPEC_FILE}"
+applySpecVersion: 1
+spec:
+  configSync:
+    enabled: true
+EOF
+
+	MEMBERSHIP="projects/${PROJECT_ID}/locations/${REGION}/memberships/${CLUSTER_NAME}"
+	echo "[-] Applying Config Management to membership: ${MEMBERSHIP}..."
+	gcloud beta container fleet config-management apply \
+		--membership="${MEMBERSHIP}" \
+		--config="${APPLY_SPEC_FILE}" \
+		--project="${PROJECT_ID}"
+	echo "[OK] Config Sync deployment initiated for ${CLUSTER_NAME}."
+
+	# 7. Deploy OCI Primary RootSync (if specified)
+	if [[ -n "${PRIMARY_ROOT_REPO}" && "${PRIMARY_ROOT_REPO}" != "none" ]]; then
+		echo "[-] Deploying Primary RootSync for OCI image: ${PRIMARY_ROOT_REPO}..."
+		echo "[-] Waiting for RootSync CRD to be established..."
+		for i in {1..30}; do
+			if sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl get crd rootsyncs.configsync.gke.io &>/dev/null; then
+				break
+			fi
+			sleep 2
+		done
+
+		if ! sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl get crd rootsyncs.configsync.gke.io &>/dev/null; then
+			echo "[!] ERROR: Timed out waiting for rootsyncs.configsync.gke.io CRD to be established." >&2
+			exit 1
+		fi
+
+		ROOTSYNC_FILE="${CLUSTER_CONFIG_DIR}/rootsync-primary.yaml"
+		echo "[-] Generating RootSync manifest for primary root repo..."
+		cat <<EOF >"${ROOTSYNC_FILE}"
+apiVersion: configsync.gke.io/v1beta1
+kind: RootSync
+metadata:
+  name: root-sync
+  namespace: config-management-system
+spec:
+  sourceFormat: unstructured
+  sourceType: oci
+  oci:
+    image: ${PRIMARY_ROOT_REPO}
+    dir: .
+    auth: k8sserviceaccount
+EOF
+
+		echo "[-] Applying RootSync 'root-sync' to cluster..."
+		sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl apply -f "${ROOTSYNC_FILE}"
+		echo "[OK] Primary RootSync deployed successfully."
+	else
+		echo "[-] No primary root repo specified. Skipping RootSync deployment."
 	fi
 else
 	echo "[!] Warning: /etc/kubernetes/admin.conf not found. Ensure the cluster creation completed successfully."
