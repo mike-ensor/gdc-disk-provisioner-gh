@@ -477,7 +477,26 @@ class TestGgdTemplateHydration(unittest.TestCase):
         })
         rendered_prod = template.render(ctx_prod)
         self.assertNotIn("forge", rendered_prod)
-        self.assertNotIn("useradd -m -s /bin/bash -p '$6$salt$hash' forge", rendered_prod)
+
+    def test_user_data_multi_ssh_keys(self):
+        """Validates that comma- and semicolon-delimited SSH keys are split into multiple lines."""
+        template = self.jinja_env.get_template('user-data.j2')
+        key1 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI11111 admin1@host"
+        key2 = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQ22222 admin2@host"
+        
+        ctx = self.get_context({
+            'admin_ssh_pub_keys': f"{key1}; {key2}",
+            'temp_installer_ssh_pub_keys': f"{key1}; {key2}",
+            'temp_installer_ssh_pub_keys_list': [key1, key2]
+        })
+        rendered = template.render(ctx)
+        self.assertIn("echo \"${ADMIN_KEYS}\" | tr ',;' '\\n\\n'", rendered)
+        self.assertIn("echo \"${TEMP_KEYS}\" | tr ',;' '\\n\\n'", rendered)
+        parsed = yaml.safe_load(rendered)
+        auth_keys = parsed.get("autoinstall", {}).get("ssh", {}).get("authorized-keys", [])
+        self.assertEqual(len(auth_keys), 2)
+        self.assertIn(key1, auth_keys)
+        self.assertIn(key2, auth_keys)
 
     # ==========================================================================
     # TEST SUITE 4: Netplan and python-driven runtime hydrator tests (Crossover)

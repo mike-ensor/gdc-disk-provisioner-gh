@@ -265,6 +265,9 @@ if __name__ == "__main__":
     env['hostname'] = env.get('HOSTNAME', 'gdc-standalone-node')
     env['admin_ssh_pub_keys'] = env.get('ADMIN_SSH_PUB_KEYS', '')
     env['temp_installer_ssh_pub_keys'] = env.get('TEMPORARY_INSTALLER_SSH_PUB_KEYS', '')
+    import re
+    env['admin_ssh_pub_keys_list'] = [k.strip() for k in re.split(r'[,;\n]+', env['admin_ssh_pub_keys']) if k.strip()]
+    env['temp_installer_ssh_pub_keys_list'] = [k.strip() for k in re.split(r'[,;\n]+', env['temp_installer_ssh_pub_keys']) if k.strip()]
     import subprocess
     try:
         git_branch = subprocess.check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD']).decode('utf-8').strip()

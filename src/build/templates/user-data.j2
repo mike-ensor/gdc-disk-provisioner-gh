@@ -82,7 +82,12 @@ autoinstall:
   ssh:
     install-server: true
     allow-pw: true
-    {% if temp_installer_ssh_pub_keys %}
+    {% if temp_installer_ssh_pub_keys_list %}
+    authorized-keys:
+      {% for k in temp_installer_ssh_pub_keys_list %}
+      - "{{ k }}"
+      {% endfor %}
+    {% elif temp_installer_ssh_pub_keys %}
     authorized-keys:
       - "{{ temp_installer_ssh_pub_keys }}"
     {% endif %}
@@ -625,14 +630,14 @@ autoinstall:
       
       mkdir -p /target/etc/gdc
       if [ -n "${ADMIN_KEYS}" ]; then
-        echo "${ADMIN_KEYS}" > /target/etc/gdc/admin-keys.pub
+        echo "${ADMIN_KEYS}" | tr ',;' '\n\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d' > /target/etc/gdc/admin-keys.pub
         chmod 600 /target/etc/gdc/admin-keys.pub
         logger -t gdc-provisioner "[GOAL] Admin SSH keys staged successfully for Ansible execution"
       fi
 
       if [ -n "${TEMP_KEYS}" ]; then
         mkdir -p /target/home/temporary-installer/.ssh
-        echo "${TEMP_KEYS}" >> /target/home/temporary-installer/.ssh/authorized_keys
+        echo "${TEMP_KEYS}" | tr ',;' '\n\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d' >> /target/home/temporary-installer/.ssh/authorized_keys
         chmod 700 /target/home/temporary-installer/.ssh
         chmod 600 /target/home/temporary-installer/.ssh/authorized_keys
         curtin in-target -- chown -R temporary-installer:temporary-installer /home/temporary-installer/.ssh

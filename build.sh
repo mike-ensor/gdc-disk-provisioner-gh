@@ -27,10 +27,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SCRIPT_DIR}"
 
-# Load ISO_VERSION from the committed VERSION file as the source of truth
+# Load ISO_VERSION from environment, fallback to the committed VERSION file
 if [[ -f "${PROJECT_ROOT}/VERSION" ]]; then
-    export ISO_VERSION=$(tr -d '[:space:]' < "${PROJECT_ROOT}/VERSION")
-    echo "[-] Loaded ISO_VERSION from VERSION file: ${ISO_VERSION}"
+    FILE_VERSION=$(tr -d '[:space:]' < "${PROJECT_ROOT}/VERSION")
+    if [[ -n "${ISO_VERSION:-}" && "${ISO_VERSION}" != "${FILE_VERSION}" ]]; then
+        echo "[-] Using custom ISO_VERSION from environment: ${ISO_VERSION}"
+        export SKIP_INCREMENT="true"
+    else
+        export ISO_VERSION="${FILE_VERSION}"
+        echo "[-] Loaded ISO_VERSION from VERSION file: ${ISO_VERSION}"
+    fi
+elif [[ -n "${ISO_VERSION:-}" ]]; then
+    echo "[-] Using custom ISO_VERSION from environment: ${ISO_VERSION}"
+    export SKIP_INCREMENT="true"
 fi
 
 # Initialize environment variable
@@ -42,11 +51,16 @@ ISO_ENVIRONMENT="${ISO_ENVIRONMENT:-local}"
 BUILD_ENV="${PROJECT_ROOT}/src/build/build.env"
 LOCAL_ENV="${PROJECT_ROOT}/src/build/${ISO_ENVIRONMENT}.env"
 
+if [[ ! -f "${LOCAL_ENV}" ]]; then
+    echo "[!] Error: Environment file '${LOCAL_ENV}' not found for ISO_ENVIRONMENT='${ISO_ENVIRONMENT}'" >&2
+    exit 1
+fi
+
 source_env_file() {
     local env_file="$1"
     local allow_override="${2:-false}"
     if [[ -f "${env_file}" ]]; then
-        while IFS= read -r line || [[ -n "$line" ]]; do
+        while IFS= read line || [[ -n "$line" ]]; do
             # Skip comments and empty lines
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
             [[ -z "$line" ]] && continue
@@ -101,13 +115,15 @@ ENV_FILE="${PROJECT_ROOT}/src/build/build.env"
 # 2. Auto-Increment ISO_VERSION Patch in VERSION and .envrc
 # ==========================================
 SHOULD_UPDATE_VERSION=false
-if [[ "${SKIP_INCREMENT:-false}" != "true" && "${ISO_VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+if [[ "${SKIP_INCREMENT:-false}" == "true" ]]; then
+    echo "[-] Auto-increment skipped."
+elif [[ "${ISO_VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
     MAJOR="${BASH_REMATCH[1]}"
     MINOR="${BASH_REMATCH[2]}"
     PATCH="${BASH_REMATCH[3]}"
     NEW_PATCH=$((PATCH + 1))
     NEW_ISO_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
-    
+
     echo "[-] Next target ISO_VERSION: ${ISO_VERSION} -> ${NEW_ISO_VERSION}"
     ISO_VERSION="${NEW_ISO_VERSION}"
     SHOULD_UPDATE_VERSION=true
@@ -166,6 +182,10 @@ show_help() {
     echo "  BUILD_VERSION            Custom builder image tag (iso-builder:BUILD_VERSION)"
     echo "  REGION                   GCP Region for registry and metadata lookup"
     echo "  ISO_VERSION              Version tag for the custom GDC ISO"
+    echo ""
+    echo "Environment Variables (Optional):"
+    echo "  ISO_ENVIRONMENT          Load specific <env>.env file from src/build/ (default: local)"
+    echo "  SKIP_INCREMENT           Set to 'true' to skip auto-incrementing the patch version"
     echo ""
     echo "Example:"
     echo "  export PROJECT_ID=\"my-project\" BUILD_VERSION=\"1.0.0\" REGION=\"us-central1\" ISO_VERSION=\"1.0.2\""
@@ -319,7 +339,7 @@ GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "N/A")
 BUILD_ID=$(gcloud builds submit "${PROJECT_ROOT}" \
     --config="${PROJECT_ROOT}/cloudbuild.yaml" \
     --project="${PROJECT_ID}" \
-    --substitutions="_GCS_BUCKET_NAME=${GCS_BUCKET_NAME},_ISO_VERSION=${ISO_VERSION},_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME},_BUILD_VERSION=${BUILD_VERSION},_REGION=${REGION},_PROJECT_ID=${PROJECT_ID},_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME},_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false},_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI:-},_GIT_BRANCH=${GIT_BRANCH},_GIT_COMMIT=${GIT_COMMIT},_INSTALL_COMPANION_URL=${INSTALL_COMPANION_URL_VAL:-},_ADMIN_SSH_PUB_KEYS=${ADMIN_SSH_PUB_KEYS:-},_TEMPORARY_INSTALLER_SSH_PUB_KEYS=${TEMPORARY_INSTALLER_SSH_PUB_KEYS:-},_TEMPORARY_INSTALLER_PASSWORD=${TEMPORARY_INSTALLER_PASSWORD:-},_GDC_COMPANION=${GDC_COMPANION_VAL:-TRUE},_DEBUG_EXTRA_USER=${DEBUG_EXTRA_USER_VAL},_DEBUG_EXTRA_PASSWORD=${DEBUG_EXTRA_PASSWORD_VAL},_ISO_ENVIRONMENT=${ISO_ENVIRONMENT},_ISO_NAME_PREFIX=${ISO_NAME_PREFIX}" \
+    --substitutions="^@@^_GCS_BUCKET_NAME=${GCS_BUCKET_NAME}@@_ISO_VERSION=${ISO_VERSION}@@_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME}@@_BUILD_VERSION=${BUILD_VERSION}@@_REGION=${REGION}@@_PROJECT_ID=${PROJECT_ID}@@_ISO_BLESSED_GCS_BUCKET=${ISO_BLESSED_GCS_BUCKET_NAME}@@_GDC_DEBUG_MODE=${GDC_DEBUG_MODE:-false}@@_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI:-}@@_GIT_BRANCH=${GIT_BRANCH}@@_GIT_COMMIT=${GIT_COMMIT}@@_INSTALL_COMPANION_URL=${INSTALL_COMPANION_URL_VAL:-}@@_ADMIN_SSH_PUB_KEYS=${ADMIN_SSH_PUB_KEYS:-}@@_TEMPORARY_INSTALLER_SSH_PUB_KEYS=${TEMPORARY_INSTALLER_SSH_PUB_KEYS:-}@@_TEMPORARY_INSTALLER_PASSWORD=${TEMPORARY_INSTALLER_PASSWORD:-}@@_GDC_COMPANION=${GDC_COMPANION_VAL:-TRUE}@@_DEBUG_EXTRA_USER=${DEBUG_EXTRA_USER_VAL}@@_DEBUG_EXTRA_PASSWORD=${DEBUG_EXTRA_PASSWORD_VAL}@@_ISO_ENVIRONMENT=${ISO_ENVIRONMENT}@@_ISO_NAME_PREFIX=${ISO_NAME_PREFIX}" \
     --async --format="value(id)")
 
 echo "[+] Cloud Build job created with ID: ${BUILD_ID}"
