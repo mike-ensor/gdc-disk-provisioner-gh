@@ -94,18 +94,57 @@ def get_physical_interfaces(sys_class_net='/sys/class/net'):
 
 def load_env_vars(env_path="/tmp/allocated_ips.env"):
     env = {}
+
+    # 1. Sourcing bootstrap defaults from CDROM / workspace if present
+    bootstrap_candidates = [
+        "/cdrom/custom-data/bootstrap_network.env",
+        "/tmp/bootstrap_network.env",
+        "custom-data/bootstrap_network.env",
+        "build-workspace/custom-iso/custom-data/bootstrap_network.env",
+        "../../build-workspace/custom-iso/custom-data/bootstrap_network.env",
+    ]
+    for b_path in bootstrap_candidates:
+        if os.path.exists(b_path):
+            log_info(f"Loading bootstrap network defaults from {b_path}")
+            try:
+                with open(b_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and '=' in line and not line.startswith('#'):
+                            k, v = line.split('=', 1)
+                            env[k.strip()] = v.strip()
+                break
+            except Exception as e:
+                log_error(f"Failed to read bootstrap network defaults from {b_path}: {e}")
+
+    # 2. Dynamic runtime allocation overrides (from scan_ips if executed)
     if os.path.exists(env_path):
         log_info(f"Sourcing dynamic allocation properties from {env_path}")
         with open(env_path, 'r') as f:
             for line in f:
                 line = line.strip()
-                if line and '=' in line:
+                if line and '=' in line and not line.startswith('#'):
                     k, v = line.split('=', 1)
                     env[k.strip()] = v.strip()
-    else:
-        log_info("Dynamic allocation state missing. Defaulting to fallback .14")
-        env["MACHINE_IP"] = "192.168.4.14"
-        env["K8S_IP"] = "172.31.250.10"
+
+    # 3. Final fallbacks if neither dynamic nor bootstrap provided values
+    if "MACHINE_IP" not in env:
+        if "BOOTSTRAP_MACHINE_IP_CIDR" in env:
+            env["MACHINE_IP"] = env["BOOTSTRAP_MACHINE_IP_CIDR"].split('/')[0]
+        elif "MACHINE_IP_CIDR" in env:
+            env["MACHINE_IP"] = env["MACHINE_IP_CIDR"].split('/')[0]
+        else:
+            log_info("Dynamic allocation state missing. Defaulting to fallback .14")
+            env["MACHINE_IP"] = "192.168.4.14"
+
+    if "K8S_IP" not in env:
+        if "BOOTSTRAP_K8S_IP_CIDR" in env:
+            env["K8S_IP"] = env["BOOTSTRAP_K8S_IP_CIDR"].split('/')[0]
+        elif "K8S_IP_CIDR" in env:
+            env["K8S_IP"] = env["K8S_IP_CIDR"].split('/')[0]
+        else:
+            env["K8S_IP"] = "172.31.250.10"
+
     return env
 
 def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', env_path='/tmp/allocated_ips.env', target_dir='/target'):
@@ -126,10 +165,10 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
     env_vars = load_env_vars(env_path)
     
     # Extract CIDR masks dynamically from template context or default
-    machine_cidr_raw = env_vars.get("MACHINE_IP_CIDR", "192.168.4.11/24")
+    machine_cidr_raw = env_vars.get("BOOTSTRAP_MACHINE_IP_CIDR", env_vars.get("MACHINE_IP_CIDR", "192.168.4.11/24"))
     machine_mask = machine_cidr_raw.split('/')[1] if '/' in machine_cidr_raw else "24"
     
-    k8s_cidr_raw = env_vars.get("K8S_IP_CIDR", "172.31.250.10/24")
+    k8s_cidr_raw = env_vars.get("BOOTSTRAP_K8S_IP_CIDR", env_vars.get("K8S_IP_CIDR", "172.31.250.10/24"))
     k8s_mask = k8s_cidr_raw.split('/')[1] if '/' in k8s_cidr_raw else "24"
     
     # Construct complete CIDR addresses

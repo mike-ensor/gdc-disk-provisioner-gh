@@ -402,11 +402,7 @@
             mode: '0644'
             content: |
               {% set _evidence = cluster_turnup_evidence | default({}) %}
-              {% set _error_detail = ansible_failed_result | default({}) %}
-              {% set _stderr = _error_detail.stderr | default(_error_detail.msg | default('')) %}
-              {% if _stderr %}
-              {% set _ = _evidence.update({"stderr": _stderr}) %}
-              {% endif %}
+              {% set _error_detail = {"msg": "Error creating a cluster. Check the 'bmctl-workspace' logs for details"} %}
               {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
               {% set _end_epoch = now(utc=true).strftime('%s') | int %}
               {% set _start_epoch = cluster_turnup_start_epoch | default(_end_epoch) | int %}

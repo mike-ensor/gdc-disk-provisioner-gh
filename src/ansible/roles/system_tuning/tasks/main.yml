@@ -99,6 +99,28 @@
   when: kmod_deploy.changed
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-07 | Deploy persistent storage kernel modules for Kubernetes (iscsi_tcp, ib_iser)"
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/gdc-storage.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Preloaded on host to prevent 'Invalid ELF header magic' loops in bmctl bootstrap/kind container
+      # when container's kmod lacks zstd decompression support for compressed host kernel modules
+      iscsi_tcp
+      ib_iser
+  register: storage_kmod_deploy
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-07 | Load storage kernel modules immediately"
+  ansible.builtin.command: modprobe {{ item }}
+  loop:
+    - iscsi_tcp
+    - ib_iser
+  when: storage_kmod_deploy.changed
+  tags: ["strictly-local"]
+
 # --------------------------------------------------------------------------
 # Task 08: NTP Alignment & Timezone
 # --------------------------------------------------------------------------

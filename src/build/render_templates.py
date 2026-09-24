@@ -139,6 +139,20 @@ def render_templates(template_dir, output_dir, env):
     with open(os.path.join(output_dir, 'custom-data', 'network-template.yaml'), 'w') as f:
         f.write(netplan_content)
         
+    # Persist bootstrap network configuration defaults for configure_netplan.py
+    k8s_ip_raw = env.get('k8s_ip_cidr', '')
+    k8s_ip = k8s_ip_raw.split('/')[0] if '/' in k8s_ip_raw else k8s_ip_raw
+    machine_ip_raw = env.get('machine_ip_cidr', '')
+    machine_ip = machine_ip_raw.split('/')[0] if '/' in machine_ip_raw else machine_ip_raw
+    
+    with open(os.path.join(output_dir, 'custom-data', 'bootstrap_network.env'), 'w') as f:
+        f.write(f"BOOTSTRAP_MACHINE_IP_CIDR={machine_ip_raw}\n")
+        f.write(f"BOOTSTRAP_MACHINE_GATEWAY={env.get('machine_gateway', '')}\n")
+        f.write(f"MACHINE_IP={machine_ip}\n")
+        f.write(f"BOOTSTRAP_K8S_IP_CIDR={k8s_ip_raw}\n")
+        f.write(f"BOOTSTRAP_K8S_GATEWAY={env.get('k8s_gateway', '')}\n")
+        f.write(f"K8S_IP={k8s_ip}\n")
+        
     # Copy storage templates to output_dir/custom-data/storage/
     storage_src_dir = os.path.join(template_dir, 'storage')
     storage_dst_dir = os.path.join(output_dir, 'custom-data', 'storage')

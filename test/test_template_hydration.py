@@ -641,6 +641,17 @@ class TestGgdTemplateHydration(unittest.TestCase):
             args = call[0][0]
             self.assertNotIn("chroot", args, "Dangerous chroot netplan generate must not be executed.")
 
+    def test_bootstrap_network_env_fallback(self):
+        """Asserts configure_netplan.py adopts bootstrap_network.env when allocated_ips.env is missing."""
+        import configure_netplan
+        bootstrap_data = "BOOTSTRAP_MACHINE_IP_CIDR=192.168.9.11/24\nBOOTSTRAP_K8S_IP_CIDR=192.168.109.12/24\nBOOTSTRAP_K8S_GATEWAY=192.168.109.1\n"
+        with mock.patch("os.path.exists") as mock_exists:
+            mock_exists.side_effect = lambda p: "bootstrap_network.env" in p
+            with mock.patch("builtins.open", mock.mock_open(read_data=bootstrap_data)):
+                env = configure_netplan.load_env_vars("/nonexistent/allocated_ips.env")
+                self.assertEqual(env.get("K8S_IP"), "192.168.109.12")
+                self.assertEqual(env.get("MACHINE_IP"), "192.168.9.11")
+
     def test_luks_keyfile_path_validation(self):
         """Statically asserts that GDC LUKS bootstrap keyfiles are routed strictly via /var/log/installer/."""
         # 1. Assert user-data template writes to /var/log/installer/gdc-luks-key
@@ -730,6 +741,27 @@ class TestGgdTemplateHydration(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             validate_artifacts.validate_commands_in_script("unmkinitramfs -t file.img dir")
         self.assertIn("does not support the option '-t'", str(ctx.exception))
+
+    def test_all_src_jinja_templates_syntax_validity(self):
+        """Verifies that every .j2 template under src/ compiles with Jinja2 without syntax errors."""
+        import glob
+        import jinja2
+
+        env = jinja2.Environment()
+        src_dir = os.path.join(PROJECT_ROOT, "src")
+        template_files = glob.glob(os.path.join(src_dir, "**/*.j2"), recursive=True)
+
+        self.assertGreater(len(template_files), 0, "Expected to find .j2 templates under src/")
+
+        for template_path in template_files:
+            rel_path = os.path.relpath(template_path, PROJECT_ROOT)
+            with self.subTest(template=rel_path):
+                with open(template_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                try:
+                    env.parse(content)
+                except jinja2.exceptions.TemplateSyntaxError as e:
+                    self.fail(f"Jinja2 template syntax error in {rel_path} (line {e.lineno}): {e.message}")
 
 if __name__ == "__main__":
     unittest.main()

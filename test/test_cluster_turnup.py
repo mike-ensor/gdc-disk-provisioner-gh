@@ -147,7 +147,7 @@ class TestClusterTurnupAnsibleIntegration(unittest.TestCase):
         self.assertIn("gdc-collector --stage cluster-turnup", content)
         self.assertIn('stop_stage == "CLUSTER_READY"', content)
         self.assertIn('stop_stage == "CLUSTER_TURNUP"', content)
-        self.assertIn('"stderr": _stderr', content)
+        self.assertIn("Error creating a cluster. Check the 'bmctl-workspace' logs for details", content)
 
     def test_state_initialization_includes_cluster_turnup(self):
         with open(STATE_INIT_PATH, "r", encoding="utf-8") as f:

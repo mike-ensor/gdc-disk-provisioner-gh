@@ -250,11 +250,25 @@
     content: |
       if [ ! -f /etc/gdc/manual_adc_override ]; then
         export GOOGLE_APPLICATION_CREDENTIALS="/etc/gdc/application_default_credentials.json"
-        export GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1
+        export GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES="1"
       fi
       
       alias gdc-adc-disable='unset GOOGLE_APPLICATION_CREDENTIALS GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES'
-      alias gdc-adc-enable='export GOOGLE_APPLICATION_CREDENTIALS="/etc/gdc/application_default_credentials.json" GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES=1'
+      alias gdc-adc-enable='export GOOGLE_APPLICATION_CREDENTIALS="/etc/gdc/application_default_credentials.json" GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES="1"'
+
+- name: "GDC-ORCH | Set system-wide GOOGLE_APPLICATION_CREDENTIALS in /etc/environment"
+  ansible.builtin.lineinfile:
+    path: /etc/environment
+    regexp: "^{{ item.key }}="
+    line: '{{ item.key }}="{{ item.value }}"'
+    state: present
+    create: true
+    owner: root
+    group: root
+    mode: '0600'
+  loop:
+    - { key: 'GOOGLE_APPLICATION_CREDENTIALS', value: '/etc/gdc/application_default_credentials.json' }
+    - { key: 'GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES', value: '1' }
 
 - name: "GDC-ORCH | Authenticate gcloud using short-lived access token"
   ansible.builtin.shell: |
@@ -344,6 +358,15 @@
     mode: '0644'
     content: "{{ machine_config | to_nice_json }}"
 
+- name: "GDC-ORCH | Purge stale VLAN definitions from 01-netcfg.yaml"
+  ansible.builtin.shell: |
+    if [ -f /etc/netplan/01-netcfg.yaml ]; then
+      python3 -c "import yaml; p='/etc/netplan/01-netcfg.yaml'; f=open(p); d=yaml.safe_load(f); f.close(); d.get('network',{}).pop('vlans',None) if d else None; f=open(p,'w'); yaml.dump(d,f); f.close()" || true
+    fi
+    ip link delete "{{ gdc_primary_interface }}.{{ machine_config.network.cluster_network.vlan_id | default(109) }}" 2>/dev/null || true
+  when: machine_config.network is defined and machine_config.network.cluster_network is defined
+  changed_when: true
+
 - name: "GDC-ORCH | Deploy GDC Netplan configuration"
   ansible.builtin.template:
     src: 50-gdc-network.yaml.j2
@@ -355,6 +378,12 @@
 
 - name: "GDC-ORCH | Apply Netplan configuration"
   ansible.builtin.command: netplan apply
+  when: machine_config.network is defined
+
+- name: "GDC-ORCH | Ensure systemd-networkd instantiates new netdev interfaces"
+  ansible.builtin.systemd:
+    name: systemd-networkd
+    state: restarted
   when: machine_config.network is defined
 
 - name: "GDC-NETWORK | Network Sanity Check (Ping Gateway with DHCP wait)"

@@ -11,11 +11,15 @@ TEMPLATE_PATH = os.path.join(PROJECT_ROOT, "src/ansible/roles/machine_orchestrat
 class TestRefreshCredentialsFallback(unittest.TestCase):
     def setUp(self):
         with open(TEMPLATE_PATH, "r") as f:
-            self.script_content = f.read()
+            template_content = f.read()
 
-        # Remove jinja tags for the test (like variables)
-        self.script_content = self.script_content.replace("{{ gdc_step_ca_url }}", "https://mock-ca")
-        self.script_content = self.script_content.replace("{{ gdc_companion_base_url }}", "https://mock-companion/")
+        import jinja2
+        env = jinja2.Environment()
+        template = env.from_string(template_content)
+        self.script_content = template.render(
+            gdc_step_ca_url="https://mock-ca",
+            gdc_companion_base_url="https://mock-companion/"
+        )
 
     def run_script(self, mock_env, curl_mock=""):
         temp_dir_obj = tempfile.TemporaryDirectory()
