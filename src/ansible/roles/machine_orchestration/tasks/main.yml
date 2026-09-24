@@ -338,7 +338,8 @@
 - name: "GDC-ORCH | Enable and start GDC NodeAgent service"
   ansible.builtin.systemd:
     name: node-agent.service
-    enabled: true
+    enabled: false
+    masked: true
     state: stopped
     daemon_reload: yes
 
@@ -368,10 +369,14 @@
     # 2. Dynamically find and delete ANY kernel links matching the legacy <iface>.<vlan_id> naming scheme
     VLAN_ID="{{ machine_config.network.cluster_network.vlan_id | default(109) }}"
     for iface in $(ip -d link show type vlan | grep -oE '^[0-9]+: [^:@]+' | awk '{print $2}'); do
-      if [[ "$iface" == *".$VLAN_ID" ]]; then
-        ip link delete "$iface" 2>/dev/null || true
-      fi
+      case "$iface" in
+        *."$VLAN_ID")
+          ip link delete "$iface" 2>/dev/null || true
+          ;;
+      esac
     done
+  args:
+    executable: /bin/bash
   when: machine_config.network is defined and machine_config.network.cluster_network is defined
   changed_when: true
 
