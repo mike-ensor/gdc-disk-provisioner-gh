@@ -132,6 +132,44 @@ class TestClusterTurnupScript(unittest.TestCase):
         # Non-overridden fields still source from facts file
         self.assertIn("Machine IP:                         192.168.109.12", result.stdout)
 
+    def test_custom_version_and_cidrs(self):
+        # Verify custom version and CIDR flags override defaults
+        result = subprocess.run(
+            [
+                CREATE_CLUSTER_SCRIPT, "-y", "--dry-run",
+                "--facts", VALID_FACTS_FILE,
+                "--version", "1.36.0-gke.10",
+                "--pod-cidr", "10.100.0.0/16",
+                "--service-cidr", "10.101.0.0/20",
+            ],
+            capture_output=True, text=True,
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "HOME": os.environ.get("HOME", ""),
+            }
+        )
+        self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+        self.assertIn("Anthos Version:                     1.36.0-gke.10", result.stdout)
+        self.assertIn("Pod CIDR:                           10.100.0.0/16", result.stdout)
+        self.assertIn("Service CIDR:                       10.101.0.0/20", result.stdout)
+
+    def test_root_repo_parameter(self):
+        # Verify primary root repo passed via CLI is parsed and displayed
+        result = subprocess.run(
+            [
+                CREATE_CLUSTER_SCRIPT, "-y", "--dry-run",
+                "--facts", VALID_FACTS_FILE,
+                "--root-repo", "us-docker.pkg.dev/my-proj/repo/platform:v1",
+            ],
+            capture_output=True, text=True,
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "HOME": os.environ.get("HOME", ""),
+            }
+        )
+        self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+        self.assertIn("Primary Root Repo:                  us-docker.pkg.dev/my-proj/repo/platform:v1", result.stdout)
+
 
 class TestClusterTurnupAnsibleIntegration(unittest.TestCase):
     """Verifies the Ansible playbook and stage definitions for CLUSTER_TURNUP."""
