@@ -36,7 +36,7 @@ TARGET_HOST="${GDC_TARGET_HOST:-127.0.0.1}"
 SSH_PORT="${GDC_SSH_PORT:-2222}"
 GDC_PASS="${GDC_PASSWORD:-}"
 
-SSH_KEY_PATH="${PROJECT_ROOT}/test/test-keys/id_ed25519"
+SSH_KEY_PATH="${GDC_SSH_KEY:-${PROJECT_ROOT}/test/test-keys/id_ed25519}"
 TARGET_USER="gdc-admin"
 
 echo "=============================================================================="
@@ -229,7 +229,7 @@ EOF
 fi
 
 # Build SSH / SCP command prefixes
-SSH_BASE_OPTS="-p ${SSH_PORT} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5"
+SSH_BASE_OPTS="-p ${SSH_PORT} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o IdentitiesOnly=yes"
 if [[ -n "${GDC_PASS}" ]]; then
     if ! command -v sshpass &>/dev/null; then
         echo "[!] Error: 'sshpass' is required when GDC_PASSWORD is provided." >&2
@@ -243,7 +243,7 @@ else
         exit 1
     fi
     SSH_CMD_PREFIX="ssh ${SSH_BASE_OPTS} -i ${SSH_KEY_PATH}"
-    SCP_CMD_PREFIX="scp -P ${SSH_PORT} -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    SCP_CMD_PREFIX="scp -P ${SSH_PORT} -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes"
 fi
 
 # 2. Detect Active SSH User (gdc-admin or temporary-installer)
