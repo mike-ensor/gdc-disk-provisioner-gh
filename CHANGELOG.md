@@ -18,6 +18,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Stage Completion Status Standard**: Standardized internal Ansible state outputs to lowercase (`ready-linux`, `linux-ready`).
 
 ### Fixed
+- **Netplan VLAN Collision and Silent Route Rejection**: Resolved Netplan default route conflict where installer-generated `/etc/netplan/01-netcfg.yaml` retained legacy VLAN definitions, causing `netplan apply` to silently abort creating `vlan109` while exiting 0. Added automated purging of stale `vlans:` blocks from `01-netcfg.yaml` and dynamic kernel cleanup of legacy `*.<vlan>` links in `machine_orchestration`, followed by `systemd-networkd` restart to guarantee `.netdev` instantiation.
+- **Dynamic Bootstrap Network Seed Generation**: Configured `render_templates.py` to persist `BOOTSTRAP_K8S_IP_CIDR`, `BOOTSTRAP_MACHINE_IP_CIDR`, and gateways into `custom-data/bootstrap_network.env`, enabling `configure_netplan.py` to dynamically hydrate initial boot networking rather than falling back to hardcoded static addresses (`172.31.250.10`).
+- **Storage Kernel Module Preloading**: Preloaded `iscsi_tcp` and `ib_iser` in host system tuning (`/etc/modules-load.d/gdc-storage.conf`) to resolve container `Invalid ELF header magic` module load failures within `bmctl` bootstrap clusters.
 - **Headless Container Storage Logger**: Guarded storage logging against missing `/dev/log` syslog sockets in headless containerized build environments.
 - **POSIX Shell Compliance**: Ensured POSIX `sh -n` compliance across Subiquity `early-commands` and injected automated shell syntax validation gates.
 

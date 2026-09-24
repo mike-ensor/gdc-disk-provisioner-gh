@@ -360,10 +360,18 @@
 
 - name: "GDC-ORCH | Purge stale VLAN definitions from 01-netcfg.yaml"
   ansible.builtin.shell: |
+    # 1. Clean 01-netcfg.yaml completely of any boot-time VLANs
     if [ -f /etc/netplan/01-netcfg.yaml ]; then
       python3 -c "import yaml; p='/etc/netplan/01-netcfg.yaml'; f=open(p); d=yaml.safe_load(f); f.close(); d.get('network',{}).pop('vlans',None) if d else None; f=open(p,'w'); yaml.dump(d,f); f.close()" || true
     fi
-    ip link delete "{{ gdc_primary_interface }}.{{ machine_config.network.cluster_network.vlan_id | default(109) }}" 2>/dev/null || true
+
+    # 2. Dynamically find and delete ANY kernel links matching the legacy <iface>.<vlan_id> naming scheme
+    VLAN_ID="{{ machine_config.network.cluster_network.vlan_id | default(109) }}"
+    for iface in $(ip -d link show type vlan | grep -oE '^[0-9]+: [^:@]+' | awk '{print $2}'); do
+      if [[ "$iface" == *".$VLAN_ID" ]]; then
+        ip link delete "$iface" 2>/dev/null || true
+      fi
+    done
   when: machine_config.network is defined and machine_config.network.cluster_network is defined
   changed_when: true
 
