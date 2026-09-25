@@ -359,27 +359,6 @@
     mode: '0644'
     content: "{{ machine_config | to_nice_json }}"
 
-- name: "GDC-ORCH | Purge stale VLAN definitions from 01-netcfg.yaml"
-  ansible.builtin.shell: |
-    # 1. Clean 01-netcfg.yaml completely of any boot-time VLANs
-    if [ -f /etc/netplan/01-netcfg.yaml ]; then
-      python3 -c "import yaml; p='/etc/netplan/01-netcfg.yaml'; f=open(p); d=yaml.safe_load(f); f.close(); d.get('network',{}).pop('vlans',None) if d else None; f=open(p,'w'); yaml.dump(d,f); f.close()" || true
-    fi
-
-    # 2. Dynamically find and delete ANY kernel links matching the legacy <iface>.<vlan_id> naming scheme
-    VLAN_ID="{{ machine_config.network.cluster_network.vlan_id | default(109) }}"
-    for iface in $(ip -d link show type vlan | grep -oE '^[0-9]+: [^:@]+' | awk '{print $2}'); do
-      case "$iface" in
-        *."$VLAN_ID")
-          ip link delete "$iface" 2>/dev/null || true
-          ;;
-      esac
-    done
-  args:
-    executable: /bin/bash
-  when: machine_config.network is defined and machine_config.network.cluster_network is defined
-  changed_when: true
-
 - name: "GDC-ORCH | Deploy GDC Netplan configuration"
   ansible.builtin.template:
     src: 50-gdc-network.yaml.j2
@@ -387,17 +366,31 @@
     owner: root
     group: root
     mode: '0600'
-  when: machine_config.network is defined
+  when:
+    - machine_config.network is defined
+    - not (machine_config.is_fallback | default(false))
+
+- name: "GDC-ORCH | Remove bootstrap 01-netcfg.yaml to prevent Netplan address list merging"
+  ansible.builtin.file:
+    path: /etc/netplan/01-netcfg.yaml
+    state: absent
+  when:
+    - machine_config.network is defined
+    - not (machine_config.is_fallback | default(false))
 
 - name: "GDC-ORCH | Apply Netplan configuration"
   ansible.builtin.command: netplan apply
-  when: machine_config.network is defined
+  when:
+    - machine_config.network is defined
+    - not (machine_config.is_fallback | default(false))
 
 - name: "GDC-ORCH | Ensure systemd-networkd instantiates new netdev interfaces"
   ansible.builtin.systemd:
     name: systemd-networkd
     state: restarted
-  when: machine_config.network is defined
+  when:
+    - machine_config.network is defined
+    - not (machine_config.is_fallback | default(false))
 
 - name: "GDC-NETWORK | Network Sanity Check (Ping Gateway with DHCP wait)"
   ansible.builtin.shell: |
@@ -429,10 +422,9 @@
   when: gateway_ping.rc != 0
 
 - name: "GDC-ORCH | Execute dynamic IP allocation network checks"
-  ansible.builtin.shell: |
-    PHYS_IFACE=$(ip link show | awk -F': ' '/state UP/ {getline; print $0}' | awk -F': ' '/^ / {next} {print $2}' | grep -E '^e' | head -n 1 || ip link show | awk -F': ' '/state UP/ && $2 ~ /^e/ {print $2}' | head -n 1)
-    if [ -z "$PHYS_IFACE" ]; then PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0"); fi
-    /usr/local/bin/scan_ips.py --interface "${PHYS_IFACE}" --config /etc/ansible/facts.d/gdc.fact
+  ansible.builtin.command:
+    cmd: "/usr/local/bin/scan_ips.py --interface {{ gdc_primary_interface }} --config /etc/ansible/facts.d/gdc.fact"
+  changed_when: false
   ignore_errors: true
 
 - name: "GDC-ORCH | Deploy cluster networking validation script"

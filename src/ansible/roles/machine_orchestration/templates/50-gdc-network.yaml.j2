@@ -22,7 +22,7 @@ network:
 
 {% if machine_config.network is defined and machine_config.network.cluster_network is defined and machine_config.network.cluster_network.vlan_id | default(109) | int > 0 %}
   vlans:
-    vlan{{ machine_config.network.cluster_network.vlan_id | default(109) }}:
+    {{ gdc_primary_interface }}.{{ machine_config.network.cluster_network.vlan_id | default(109) }}:
       id: {{ machine_config.network.cluster_network.vlan_id | default(109) }}
       link: {{ gdc_primary_interface }}
 {% if machine_config.network.cluster_network.dhcp_v4 | default(false) %}
@@ -31,7 +31,7 @@ network:
       dhcp4: false
       addresses:
         - {{ machine_config.network.cluster_network.ip_cidr }}
-{% if machine_config.network.cluster_network.gateway is defined %}
+{% if machine_config.network.cluster_network.gateway is defined and machine_config.network.cluster_network.gateway and machine_config.network.cluster_network.gateway != 'none' and machine_config.network.cluster_network.gateway != '0.0.0.0' %}
       routes:
         - to: default
           via: {{ machine_config.network.cluster_network.gateway }}

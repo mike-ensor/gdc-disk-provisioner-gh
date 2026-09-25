@@ -57,19 +57,30 @@ else
 fi
 
 echo "[*] Checking Kubernetes VLAN Network..."
-if [ -n "$K8S_VLAN" ] && [ "$K8S_VLAN" != "null" ]; then
-    if ip link show | grep -q "vlan$K8S_VLAN"; then
-        echo "PASS: VLAN interface vlan$K8S_VLAN exists."
+if [ -n "$K8S_VLAN" ] && [ "$K8S_VLAN" != "null" ] && [ "$K8S_VLAN" -gt 0 ] 2>/dev/null; then
+    PHYS_IFACE=""
+    for iface_path in $(ls -d /sys/class/net/e* 2>/dev/null | grep -v '\.' | sort); do
+        if [ -f "$iface_path/carrier" ] && [ "$(cat "$iface_path/carrier" 2>/dev/null)" = "1" ]; then
+            PHYS_IFACE=$(basename "$iface_path")
+            break
+        fi
+    done
+    if [ -z "$PHYS_IFACE" ]; then
+        PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | grep -v '\.' | sort | head -n 1 || echo "eth0")
+    fi
+    VLAN_IFACE="${PHYS_IFACE}.${K8S_VLAN}"
+    if ip link show dev "$VLAN_IFACE" >/dev/null 2>&1; then
+        echo "PASS: VLAN interface $VLAN_IFACE exists."
     else
-        echo "FAIL: VLAN interface vlan$K8S_VLAN is missing."
+        echo "FAIL: VLAN interface $VLAN_IFACE is missing."
         exit 1
     fi
 
     if [ "$K8S_DHCP" != "true" ] && [ -n "$K8S_IP" ] && [ "$K8S_IP" != "null" ]; then
-        if ip -4 addr show "vlan$K8S_VLAN" | grep -q "$K8S_IP"; then
-            echo "PASS: Kubernetes IP $K8S_IP is configured on vlan$K8S_VLAN."
+        if ip -4 addr show dev "$VLAN_IFACE" | grep -q "$K8S_IP"; then
+            echo "PASS: Kubernetes IP $K8S_IP is configured on $VLAN_IFACE."
         else
-            echo "FAIL: Kubernetes IP $K8S_IP is missing from vlan$K8S_VLAN."
+            echo "FAIL: Kubernetes IP $K8S_IP is missing from $VLAN_IFACE."
             exit 1
         fi
     else
