@@ -365,9 +365,9 @@ class TestGgdTemplateHydration(unittest.TestCase):
         
         config = yaml.safe_load(rendered)
         self.assertIn('vlans', config['network'])
-        self.assertIn('vlan109', config['network']['vlans'])
-        self.assertEqual(config['network']['vlans']['vlan109']['id'], 109)
-        self.assertEqual(config['network']['vlans']['vlan109']['link'], 'enp1s0')
+        self.assertIn('enp1s0.109', config['network']['vlans'])
+        self.assertEqual(config['network']['vlans']['enp1s0.109']['id'], 109)
+        self.assertEqual(config['network']['vlans']['enp1s0.109']['link'], 'enp1s0')
         self.assertNotIn('vrfs', config['network'])
 
 

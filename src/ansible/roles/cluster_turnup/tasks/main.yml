@@ -49,8 +49,12 @@
 - name: "GDC-TURNUP | Execute create_cluster.sh to run cluster installation"
   ansible.builtin.command:
     cmd: "/usr/local/bin/cluster/create_cluster.sh --yes"
+  become: true
+  become_user: "{{ gdc_admin_user | default('gdc-admin') }}"
   register: cluster_create_output
   environment:
+    HOME: "/home/{{ gdc_admin_user | default('gdc-admin') }}"
+    USER: "{{ gdc_admin_user | default('gdc-admin') }}"
     PATH: "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
     GOOGLE_APPLICATION_CREDENTIALS: "/etc/gdc/application_default_credentials.json"
     GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES: "1"

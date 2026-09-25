@@ -230,6 +230,12 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     FACT_PRIMARY_LOAD_BALANCER=$(get_json_val "${FACTS_FILE}" ".cluster.networking.cluster_lb_range")
     FACT_IP_CIDR=$(get_json_val "${FACTS_FILE}" ".network.cluster_network.ip_cidr")
     if [[ -z "${FACT_IP_CIDR}" ]]; then
+        FACT_VLAN_ID=$(get_json_val "${FACTS_FILE}" ".network.cluster_network.vlan_id")
+        if [[ -n "${FACT_VLAN_ID}" && "${FACT_VLAN_ID}" != "0" ]] && command -v ip >/dev/null 2>&1; then
+            FACT_IP_CIDR=$(ip -4 -o addr show 2>/dev/null | awk -v vlan=".${FACT_VLAN_ID}$" '$2 ~ vlan {print $4; exit}' || true)
+        fi
+    fi
+    if [[ -z "${FACT_IP_CIDR}" ]]; then
         FACT_IP_CIDR=$(get_json_val "${FACTS_FILE}" ".network.management_network.ip_cidr")
     fi
     FACT_ADMIN_USER_EMAIL=$(get_json_val "${FACTS_FILE}" ".cluster.admin_user_email")
@@ -366,6 +372,11 @@ printf "  %-35s %s\n" "GOOGLE_APP_CREDS:" "${GOOGLE_APP_CREDS}"
 printf "  %-35s %s\n" "gcloud token authenticated:" "${GCLOUD_TOKEN_AUTH}"
 echo "=============================================================================="
 
+if [[ "${DRY_RUN}" != "true" && "$(id -un)" != "gdc-admin" ]]; then
+	echo "[!] ERROR: This script must be executed as user 'gdc-admin' (current user: '$(id -un)')." >&2
+	exit 1
+fi
+
 if [[ "${AUTO_YES}" != "true" ]]; then
     read -r -p "Are you sure you want to run preflight and create cluster '${CLUSTER_NAME}'? (Y/n) " RESPONSE
 fi
@@ -387,25 +398,21 @@ if sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl get nodes &>/dev/null; t
 	exit 0
 fi
 
-# Ensure workspace exists
-sudo mkdir -p /var/gdc-install
-sudo chown -R "$USER":"$USER" /var/gdc-install
+mkdir -p "${BMCTL_WORKSPACE}"
 
 # 2. Configure SSH Access
-echo "[-] Configuring local SSH access..."
-if [ ! -f "$HOME/.ssh/id_ed25519" ]; then
-	ssh-keygen -t ed25519 -C "gdc-admin@local" -N "" -f "$HOME/.ssh/id_ed25519"
+echo "[-] Configuring local SSH access for gdc-admin..."
+mkdir -p "${HOME}/.ssh"
+chmod 700 "${HOME}/.ssh"
+if [ ! -f "${HOME}/.ssh/id_ed25519" ]; then
+	ssh-keygen -t ed25519 -C "gdc-admin@local" -N "" -f "${HOME}/.ssh/id_ed25519"
 fi
 
-if ! grep -F -x -q "$(cat "$HOME"/.ssh/id_ed25519.pub)" "$HOME/.ssh/authorized_keys" 2>/dev/null; then
-	cat "$HOME/.ssh/id_ed25519.pub" >>"$HOME/.ssh/authorized_keys"
+touch "${HOME}/.ssh/authorized_keys"
+chmod 600 "${HOME}/.ssh/authorized_keys"
+if ! grep -F -x -q "$(cat "${HOME}/.ssh/id_ed25519.pub")" "${HOME}/.ssh/authorized_keys" 2>/dev/null; then
+	cat "${HOME}/.ssh/id_ed25519.pub" >> "${HOME}/.ssh/authorized_keys"
 fi
-
-sudo chown -R "$USER":"$USER" "$HOME/.ssh/"
-chmod 700 "$HOME/.ssh/"
-chmod 600 "$HOME/.ssh/authorized_keys"
-chmod 600 "$HOME/.ssh/id_ed25519"
-chmod 644 "$HOME/.ssh/id_ed25519.pub"
 
 # 3. Scaffold the Configuration File
 echo "[-] Scaffolding bmctl configuration..."
@@ -490,7 +497,7 @@ spec:
     enabled: false
     location: ${REGION}
   nodeAccess:
-    loginUser: ${LOGIN_USER:-gdc-admin}
+    loginUser: gdc-admin
 EOF
 else
 	echo "[OK] Configuration file already exists at ${CLUSTER_CONFIG_FILE}"
