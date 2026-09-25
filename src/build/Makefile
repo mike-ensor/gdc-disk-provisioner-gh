@@ -53,6 +53,11 @@ STEP_CLI_FILENAME := $(call get_env,STEP_CLI_FILENAME)
 STEP_CLI_SHA256 := $(call get_env,STEP_CLI_SHA256)
 STEP_CLI_URL := $(call get_env,STEP_CLI_URL)
 
+HELM_PACKAGE_FILENAME := $(call get_env,HELM_PACKAGE_FILENAME)
+HELM_PACKAGE_SHA256 := $(call get_env,HELM_PACKAGE_SHA256)
+HELM_PACKAGE_URL := $(call get_env,HELM_PACKAGE_URL)
+HELM_VERSION := $(call get_env,HELM_VERSION)
+
 TEMPORARY_INSTALLER_PASSWORD := $(call get_env,TEMPORARY_INSTALLER_PASSWORD)
 DEBUG_EXTRA_USER := $(call get_env,DEBUG_EXTRA_USER)
 DEBUG_EXTRA_PASSWORD := $(call get_env,DEBUG_EXTRA_PASSWORD)
@@ -183,7 +188,7 @@ deps:
 		echo "  [-] GCS cache active. Pulling artifacts from $(DEPENDENCY_CACHE_GCS_BUCKET)..."; \
 		BUCKET_NAME=$$(echo "$(DEPENDENCY_CACHE_GCS_BUCKET)" | sed 's/^gs:\/\///'); \
 		if [ -n "$$BUCKET_NAME" ]; then \
-			for file in "$(SOURCE_ISO_FILENAME)" "gdc-collector" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)" "$(CIS_TARBALL_FILENAME)"; do \
+			for file in "$(SOURCE_ISO_FILENAME)" "gdc-collector" "gdc-collector.sha256" "bmctl" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)" "$(CIS_TARBALL_FILENAME)" "$(HELM_PACKAGE_FILENAME)"; do \
 				if [ "$$file" = "$(SOURCE_ISO_FILENAME)" ]; then \
 					local_path="$(CACHE_DIR)/isos/$$file"; \
 					gcs_path="gs://$$BUCKET_NAME/source/$$file"; \
@@ -202,6 +207,40 @@ deps:
 					fi; \
 				fi; \
 			done; \
+			echo "    [-] Checking GCS for latest gdc-collector binary and version..."; \
+			LATEST_COLLECTOR=$$(gcloud storage objects list "gs://$$BUCKET_NAME/binaries/gdc-collector-[0-9]*" --format="value(name)" 2>/dev/null | grep -v '\.sha256$$' | sort -V | tail -n 1 || true); \
+			if [ -n "$$LATEST_COLLECTOR" ]; then \
+				echo "    [x] Found latest collector on GCS: $$LATEST_COLLECTOR"; \
+				echo "$$LATEST_COLLECTOR" > $(CACHE_DIR)/latest_collector_name.txt; \
+			fi; \
+			if [ ! -f "$(BIN_CACHE_DIR)/gdc-collector.sha256" ] && gcloud storage objects describe "gs://$$BUCKET_NAME/binaries/gdc-collector.sha256" &>/dev/null; then \
+				echo "    [-] Downloading gdc-collector.sha256 from GCS..."; \
+				gcloud storage cp "gs://$$BUCKET_NAME/binaries/gdc-collector.sha256" "$(BIN_CACHE_DIR)/gdc-collector.sha256"; \
+			fi; \
+			if [ ! -f "$(BIN_CACHE_DIR)/bmctl" ]; then \
+				echo "    [-] Checking GCS cache for bmctl..."; \
+				if gcloud storage objects describe "gs://$$BUCKET_NAME/binaries/bmctl" &>/dev/null; then \
+					echo "    [x] Downloading bmctl from GCS cache..."; \
+					gcloud storage cp "gs://$$BUCKET_NAME/binaries/bmctl" "$(BIN_CACHE_DIR)/bmctl"; \
+				elif gcloud storage objects describe "gs://anthos-baremetal-release/bmctl/$(BOOTSTRAP_BMCTL_VERSION)/linux-amd64/bmctl" --project="$(PROJECT_ID)" &>/dev/null; then \
+					echo "    [x] Downloading bmctl from Anthos release bucket..."; \
+					gcloud storage cp "gs://anthos-baremetal-release/bmctl/$(BOOTSTRAP_BMCTL_VERSION)/linux-amd64/bmctl" "$(BIN_CACHE_DIR)/bmctl" --project="$(PROJECT_ID)"; \
+				fi; \
+				if [ -f "$(BIN_CACHE_DIR)/bmctl" ]; then \
+					chmod +x "$(BIN_CACHE_DIR)/bmctl"; \
+				fi; \
+			fi; \
+			echo "    [-] Preserving origin metadata and timestamps from GCS..."; \
+			gcloud storage ls -l "gs://$$BUCKET_NAME/binaries/*" 2>/dev/null | python3 -c 'import sys, json, os; \
+lines = sys.stdin.read().splitlines(); \
+meta_file = "$(CACHE_DIR)/binary_metadata.json"; \
+data = json.load(open(meta_file)) if os.path.exists(meta_file) else {}; \
+for l in lines: \
+    parts = l.strip().split(); \
+    if len(parts) >= 3 and parts[2].startswith("gs://"): \
+        fn = os.path.basename(parts[2]); \
+        data[fn] = {"size": int(parts[0]) if parts[0].isdigit() else 0, "last_updated": parts[1], "source": "GCS Cache", "gcs_path": parts[2]}; \
+json.dump(data, open(meta_file, "w"), indent=2)' 2>/dev/null || true; \
 			echo "    [-] Checking GCS for latest gdc-companion binary..."; \
 			LATEST_COMPANION=$$(gcloud storage objects list "gs://$$BUCKET_NAME/binaries/gdc-companion-*" --format="value(name)" --sort-by="~timeCreated" --limit=1 2>/dev/null || true); \
 			if [ -n "$$LATEST_COMPANION" ]; then \
@@ -270,12 +309,21 @@ deps:
 	@echo "  [-] Verifying Smallstep CLI integrity..."
 	@echo "$(STEP_CLI_SHA256)  $(BIN_CACHE_DIR)/$(STEP_CLI_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Smallstep CLI package hash mismatch!" >&2; exit 1)
 	@echo "  [x] Smallstep CLI binary integrity verified."
+	@# 7. Helm CLI
+	@if [ ! -f "$(BIN_CACHE_DIR)/$(HELM_PACKAGE_FILENAME)" ]; then \
+		echo "  [-] Helm CLI cache missing. Downloading from: $(HELM_PACKAGE_URL)..."; \
+		curl -L -o "$(BIN_CACHE_DIR)/$(HELM_PACKAGE_FILENAME)" "$(HELM_PACKAGE_URL)"; \
+		python3 -c "import json, os; f='$(CACHE_DIR)/binary_sources.json'; d=json.load(open(f)) if os.path.exists(f) else {}; d['$(HELM_PACKAGE_FILENAME)']='Upstream Network'; json.dump(d, open(f, 'w'))" 2>/dev/null; \
+	fi
+	@echo "  [-] Verifying Helm CLI integrity..."
+	@echo "$(HELM_PACKAGE_SHA256)  $(BIN_CACHE_DIR)/$(HELM_PACKAGE_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Helm package hash mismatch!" >&2; exit 1)
+	@echo "  [x] Helm CLI binary integrity verified."
 	@# GCS Seed Cache Phase
 	@if [ "$(ENABLE_GCS)" = "true" ] && [ "$(GCLOUD_PRESENT)" = "true" ]; then \
 		echo "  [-] Synchronizing verified local cache back to GCS..."; \
 		BUCKET_NAME=$$(echo "$(DEPENDENCY_CACHE_GCS_BUCKET)" | sed 's/^gs:\/\///'); \
 		if [ -n "$$BUCKET_NAME" ]; then \
-			for file in "gdc-collector" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)" "$(CIS_TARBALL_FILENAME)"; do \
+			for file in "gdc-collector" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)" "$(CIS_TARBALL_FILENAME)" "$(HELM_PACKAGE_FILENAME)"; do \
 				local_path="$(BIN_CACHE_DIR)/$$file"; \
 				gcs_path="gs://$$BUCKET_NAME/binaries/$$file"; \
 				if [ -f "$$local_path" ]; then \
@@ -578,6 +626,11 @@ publish:
 	echo "      \"version\": \"0.26.1\"," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "      \"filename\": \"$(STEP_CLI_FILENAME)\"," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "      \"sha256\": \"$(STEP_CLI_SHA256)\"" >> "$(PROVENANCE_MANIFEST)"; \
+	echo "    }," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "    \"helm\": {" >> "$(PROVENANCE_MANIFEST)"; \
+	echo "      \"version\": \"$(HELM_VERSION)\"," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "      \"filename\": \"$(HELM_PACKAGE_FILENAME)\"," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "      \"sha256\": \"$(HELM_PACKAGE_SHA256)\"" >> "$(PROVENANCE_MANIFEST)"; \
 	echo "    }" >> "$(PROVENANCE_MANIFEST)"; \
 	echo "  }," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "  \"output_cryptographic_signatures\": {" >> "$(PROVENANCE_MANIFEST)"; \
@@ -604,6 +657,8 @@ reports:
 	@python3 ../../test/bin/generate_build_report.py \
 		--local \
 		--iso-version "$(ISO_VERSION)" \
+		--iso-environment "$(ISO_ENVIRONMENT)" \
+		--iso-name "$(FINAL_ISO_NAME)" \
 		--status "SUCCESS" \
 		--gcs-bucket "$(GCS_BUCKET)" \
 		--upload

@@ -37,6 +37,7 @@ gdc_core_packages:
   - "net-tools"
   - "arp-scan"
   - "linux-generic-hwe-24.04"
+  - "nfs-common"
 
 # Packages to purge for OS slimming & security reduction
 gdc_purge_packages:
@@ -91,7 +92,12 @@ gdc_install_directories:
   - "tools"
   - "tools/google-cloud-sdk"
   - "tools/node-agent"
+  - "tools/helm"
   - "vmruntime-configs"
+
+# Helm CLI Configuration Settings
+gdc_helm_install_dir: "/var/gdc-install/tools/helm"
+gdc_helm_version: "3.22.0"
 
 # NodeAgent Configuration Settings
 gdc_nodeagent_install_dir: "/var/gdc-install/tools/node-agent"

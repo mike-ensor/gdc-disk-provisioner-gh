@@ -50,3 +50,17 @@ Unlike Debian packages, massive OCI container image layers (for Kubernetes, Plat
     *   *Frequency:* Operator-driven (Stage 6A offline update flow or First-Boot Ingestion).
     *   *Data Flow:* Container images are exported as `*.tar` bundles. They are imported to the node via physical USB or internal network file transfer. 
     *   *Tools Used:* The node executes `docker load -i <bundle>.tar`, tags the image for localhost, and performs a `docker push 127.0.0.1:5002/<image>` (Port `5002` is the dedicated write-port for the Nexus Hosted registry). Alternatively, GDC provides a native tool executed as `bmctl push images --private-registry 127.0.0.1:5002/...` to bulk-load registry endpoints.
+
+---
+
+## 3. Standalone Offline Service Binaries & CLI Tools
+
+### 3.1. How Binaries are Cached in GCS
+Offline binaries (Gitea, Nexus, JRE, Google Cloud SDK, Smallstep CLI, Helm CLI, and gdc-collector) are declared in `src/dependencies.env` with pinned cryptographic SHA-256 signatures.
+*   **GCS Prefix:** `gs://${GCS_BUCKET}/binaries/`
+*   **Lifecycle Sync:** During `make deps` (invoked locally or in Cloud Build Step 1 / `cloudbuild-cache.yaml`), the pipeline checks GCS first. If absent, it downloads from the upstream release mirror, validates the SHA-256 checksum, and seeds the file back to the GCS bucket.
+
+### 3.2. Usage During the ISO Build Process
+*   **Extraction & Staging:** During `src/build/remaster.sh`, standalone binaries are unpacked or copied directly into their target paths on the ISO (e.g. `/custom-data/tools/helm/helm`, `/custom-data/gitea/gitea`).
+*   **Subiquity / Cloud-Init Propagation:** `user-data.j2` copies all tools from `/cdrom/custom-data/tools/` directly into `/target/var/gdc-install/tools/` and `/target/var/gdc-install/iso-cache/tools/`.
+*   **Ansible Symlink:** In `roles/system_tuning`, the Ansible playbook verifies permissions and ensures symlinks exist in `/usr/local/bin/` (`helm`, `bmctl`, `gcloud`).

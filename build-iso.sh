@@ -31,10 +31,10 @@ cleanup_and_report() {
     local exit_code=$?
     if [[ "${exit_code}" -eq 0 ]]; then
         echo "[-] ISO Job completed successfully. Compiling local build report..."
-        python3 "${PROJECT_ROOT}/test/bin/generate_build_report.py" --local --status "SUCCESS" --iso-version "${ISO_VERSION:-1.0.0}" || true
+        python3 "${PROJECT_ROOT}/test/bin/generate_build_report.py" --local --status "SUCCESS" --iso-version "${ISO_VERSION:-1.0.0}" --iso-environment "${ISO_ENVIRONMENT:-local}" || true
     else
         echo "[!] ISO Job failed! Compiling local failure build report..." >&2
-        python3 "${PROJECT_ROOT}/test/bin/generate_build_report.py" --local --status "FAILED" --iso-version "${ISO_VERSION:-1.0.0}" || true
+        python3 "${PROJECT_ROOT}/test/bin/generate_build_report.py" --local --status "FAILED" --iso-version "${ISO_VERSION:-1.0.0}" --iso-environment "${ISO_ENVIRONMENT:-local}" || true
     fi
 }
 trap cleanup_and_report EXIT

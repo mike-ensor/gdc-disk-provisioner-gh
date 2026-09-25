@@ -35,6 +35,7 @@ gdc_core_packages:
   - "net-tools"
   - "arp-scan"
   - "linux-generic-hwe-24.04"
+  - "nfs-common"
 
 gdc_purge_packages:
   - "snapd"

@@ -262,6 +262,71 @@ def validate_json_schema(data, schema_path):
         print(f"  [!] Schema Validation Error: {e}", file=sys.stderr)
         return False
 
+def mask_sensitive_value(key, value):
+    """
+    Masks sensitive credentials using the format xxx*********xxx (first 3 and last 3 visible).
+    If length <= 6, replaces the entire value with '*'.
+    """
+    if value is None:
+        return value
+    val_str = str(value).strip()
+    if not val_str:
+        return val_str
+
+    key_upper = key.upper()
+
+    # SSH public keys are non-secret public keys
+    if key_upper in ("ADMIN_SSH_PUB_KEYS", "TEMPORARY_INSTALLER_SSH_PUB_KEYS"):
+        return val_str
+
+    explicit_sensitive = {
+        "TEMPORARY_INSTALLER_PASSWORD",
+        "DEBUG_EXTRA_PASSWORD",
+        "DEBUG_EXTRA_PASSWORD_HASH",
+        "PASSWORD_HASH",
+        "STEP_PROVISIONER_PASSWORD",
+        "INSTALL_COMPANION_API_KEY",
+        "BOOTIMUS_PASS",
+        "BOOTIMUS_USER",
+        "NEXUS_ADMIN_PASSWORD",
+        "NEXUS_ADMIN_PASS",
+        "GITEA_ADMIN_PASSWORD",
+        "ROOT_PASSWORD",
+        "ROOT_PASSWORD_HASH"
+    }
+
+    sensitive_keywords = ["PASSWORD", "PASSWD", "SECRET", "TOKEN", "API_KEY", "PRIVATE_KEY", "CREDENTIAL", "AUTH_KEY"]
+    is_sensitive = (key_upper in explicit_sensitive) or any(kw in key_upper for kw in sensitive_keywords)
+
+    if not is_sensitive:
+        return val_str
+
+    length = len(val_str)
+    if length <= 6:
+        return "*" * length
+    return val_str[:3] + ("*" * (length - 6)) + val_str[-3:]
+
+def load_environment_config(project_root, iso_env):
+    """
+    Loads [ISO_ENVIRONMENT].env and returns a dictionary with masked variables.
+    """
+    env_file = os.path.join(project_root, f"src/build/{iso_env}.env")
+    if not os.path.exists(env_file):
+        env_file = os.path.join(project_root, "src/build/local.env")
+
+    rel_path = os.path.relpath(env_file, project_root) if os.path.exists(env_file) else f"src/build/{iso_env}.env"
+    raw_vars = parse_env_file(env_file) if os.path.exists(env_file) else {}
+
+    masked_vars = {}
+    for k, v in raw_vars.items():
+        masked_vars[k] = mask_sensitive_value(k, v)
+
+    return {
+        "environment": iso_env,
+        "config_file": rel_path,
+        "variables": masked_vars
+    }
+
 # ------------------------------------------------------------------------------
 # Main Orchestration Loop
 # ------------------------------------------------------------------------------
@@ -273,13 +338,15 @@ def main():
     parser.add_argument("--project-id", type=str, help="GCP Project ID")
     parser.add_argument("--gcs-bucket", type=str, help="GCS Bucket Name")
     parser.add_argument("--iso-version", type=str, help="ISO Version tag")
+    parser.add_argument("--iso-environment", type=str, help="ISO build environment (e.g. honeywell, barn, local)")
+    parser.add_argument("--iso-name", type=str, help="Full ISO output name (e.g. honeywell-24.04-v0.9.4-debug.iso)")
     parser.add_argument("--status", type=str, choices=["SUCCESS", "FAILED"], default="SUCCESS", help="Final build outcome status")
     parser.add_argument("--output-dir", type=str, help="Local directory to output JSON and Markdown reports")
     parser.add_argument("--upload", action="store_true", help="Upload compiled reports back to GCS reports/ folder")
     args = parser.parse_args()
 
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    iso_env = os.environ.get("ISO_ENVIRONMENT", "local")
+    iso_env = args.iso_environment or os.environ.get("ISO_ENVIRONMENT", "local")
     build_env = parse_env_file(os.path.join(project_root, "src/build/build.env"))
     local_env = parse_env_file(os.path.join(project_root, f"src/build/{iso_env}.env"))
     dependencies_env = parse_env_file(os.path.join(project_root, "src/dependencies.env"))
@@ -299,19 +366,23 @@ def main():
 
     git_branch, git_commit = get_git_info()
     host_os = get_host_os()
-    
+
     # Determine local ISO details
     debug_mode = os.environ.get("GDC_DEBUG_MODE") or local_env.get("GDC_DEBUG_MODE") or build_env.get("GDC_DEBUG_MODE") or "false"
     companion_val = os.environ.get("GDC_COMPANION") or local_env.get("GDC_COMPANION") or build_env.get("GDC_COMPANION") or "TRUE"
     comp_suffix = "-no-comp" if str(companion_val).strip().upper() in ("FALSE", "0", "NO", "NONE") else ""
     iso_prefix = os.environ.get("ISO_NAME_PREFIX") or local_env.get("ISO_NAME_PREFIX") or build_env.get("ISO_NAME_PREFIX") or "gdc-bootstrap-ubuntu-24.04"
-    iso_name = f"{iso_prefix}-v{iso_version}{comp_suffix}-debug.iso" if debug_mode.lower() == "true" else f"{iso_prefix}-v{iso_version}{comp_suffix}.iso"
+
+    iso_name = args.iso_name or os.environ.get("TARGET_ISO_NAME") or os.environ.get("FINAL_ISO_NAME")
+    if not iso_name:
+        iso_name = f"{iso_prefix}-v{iso_version}{comp_suffix}-debug.iso" if debug_mode.lower() == "true" else f"{iso_prefix}-v{iso_version}{comp_suffix}.iso"
+
     local_iso_path = os.path.join(project_root, "build-workspace/output", iso_name)
-    
+
     kvm_available = os.path.exists("/dev/kvm")
     local_iso_size_bytes = os.path.getsize(local_iso_path) if os.path.exists(local_iso_path) else 0
     local_iso_sha256 = get_sha256(local_iso_path) if os.path.exists(local_iso_path) else "MISSING"
-    
+
     # Parse stage durations
     stage_times = parse_stage_times(os.path.join(project_root, "build-workspace/stage_times.env"))
     local_dur = 0
@@ -320,12 +391,21 @@ def main():
     if start_times_list and end_times_list:
         local_dur = max(0, max(end_times_list) - min(start_times_list))
 
+    # Ingest and mask environment configuration
+    env_config = load_environment_config(project_root, iso_env)
+
+    # Standard per-environment report name: build-report-[ISO_ENVIRONMENT]-v[VERSION]
+    report_stem = f"build-report-{iso_env}-v{iso_version}"
+
     # Initialize report data structure
     report = {
         "timestamp": timestamp,
         "build_id": build_id,
         "iso_version": iso_version,
+        "iso_environment": iso_env,
+        "iso_name": iso_name,
         "status": args.status,
+        "environment_config": env_config,
         "metadata": {
           "git_branch": git_branch,
           "git_commit": git_commit,
@@ -346,7 +426,7 @@ def main():
         "deployment_verification": {
           "deployed_to_gcs": False,
           "verified_on_gcs": False,
-          "gcs_path": f"gs://{gcs_bucket_name}/sync/gdc-bootstrap-ubuntu-24.04-v{iso_version}.iso",
+          "gcs_path": f"gs://{gcs_bucket_name}/sync/{iso_name}",
           "sha256_matches": False
         }
     }
@@ -504,7 +584,7 @@ def main():
 
     report["stages"] = stages_list
 
-    # Load binary sources log
+    # Load binary sources log and origin metadata
     binary_sources = {}
     sources_file = os.path.join(project_root, ".cache/binary_sources.json")
     if os.path.exists(sources_file):
@@ -514,51 +594,124 @@ def main():
         except Exception:
             pass
 
+    binary_metadata = {}
+    metadata_file = os.path.join(project_root, ".cache/binary_metadata.json")
+    if os.path.exists(metadata_file):
+        try:
+            with open(metadata_file, "r") as mf:
+                binary_metadata = json.load(mf)
+        except Exception:
+            pass
+
     # Calculate local audit for binaries
     print("[-] Performing cryptographic signature audit on central binaries...")
     cache_dir = os.path.join(project_root, ".cache/binaries")
+    custom_tools_dir = os.path.join(project_root, "build-workspace/custom-iso/custom-data/tools")
+
     bin_targets = [
-        ("GDC_COLLECTOR_FILENAME", "GDC_COLLECTOR_SHA256"),
-        ("verify-upgrade-readiness.sh", "DYNAMIC_GCS_SYNC"),
-        ("GITEA_BINARY_FILENAME", "GITEA_BINARY_SHA256"),
-        ("JRE_PACKAGE_FILENAME", "JRE_PACKAGE_SHA256"),
-        ("NEXUS_PACKAGE_FILENAME", "NEXUS_PACKAGE_SHA256"),
-        ("GCLOUD_SDK_FILENAME", "GCLOUD_SDK_SHA256"),
-        ("STEP_CLI_FILENAME", "STEP_CLI_SHA256")
+        ("GDC_COLLECTOR_FILENAME", "GDC_COLLECTOR_SHA256", "0.1.115", None),
+        ("HELM_PACKAGE_FILENAME", "HELM_PACKAGE_SHA256", dependencies_env.get("HELM_VERSION", "3.22.0"), "helm/helm"),
+        ("BMCTL_BINARY_FILENAME", "BMCTL_BINARY_SHA256", build_env.get("BOOTSTRAP_BMCTL_VERSION", "1.35.300-gke.87"), "bmctl/bmctl"),
+        ("NODEAGENTD_BINARY_FILENAME", "NODEAGENTD_BINARY_SHA256", build_env.get("BOOTSTRAP_BMCTL_VERSION", "1.35.300-gke.87"), "node-agent/nodeagentd"),
+        ("GITEA_BINARY_FILENAME", "GITEA_BINARY_SHA256", "1.22.1", None),
+        ("JRE_PACKAGE_FILENAME", "JRE_PACKAGE_SHA256", "17.0.11+9", None),
+        ("NEXUS_PACKAGE_FILENAME", "NEXUS_PACKAGE_SHA256", "3.69.0-02", None),
+        ("GCLOUD_SDK_FILENAME", "GCLOUD_SDK_SHA256", "575.0.0", None),
+        ("STEP_CLI_FILENAME", "STEP_CLI_SHA256", "0.26.1", None),
+        ("CIS_TARBALL_FILENAME", "CIS_TARBALL_SHA256", "4.61.0", None),
+        ("verify-upgrade-readiness.sh", "DYNAMIC_GCS_SYNC", "1.0.0", None)
     ]
-    for fn_key, sha_key in bin_targets:
-        fn = dependencies_env.get(fn_key)
-        exp_sha = dependencies_env.get(sha_key)
-        if fn and exp_sha:
-            fpath = os.path.join(cache_dir, fn)
-            actual_sha = get_sha256(fpath) if os.path.exists(fpath) else None
-            verified = (actual_sha == exp_sha) or (exp_sha == "DYNAMIC_GCS_SYNC" and actual_sha is not None)
-            
-            if exp_sha == "DYNAMIC_GCS_SYNC" and fn == "gdc-collector":
+
+    for fn_key, sha_key, default_ver, alt_subpath in bin_targets:
+        fn = dependencies_env.get(fn_key, fn_key)
+        exp_sha = dependencies_env.get(sha_key, sha_key)
+        ver_str = default_ver or "-"
+
+        # Determine file location: check .cache/binaries/ first, then custom-iso tools directory
+        fpath = os.path.join(cache_dir, fn)
+        if not os.path.exists(fpath) and alt_subpath:
+            alt_fpath = os.path.join(custom_tools_dir, alt_subpath)
+            if os.path.exists(alt_fpath):
+                fpath = alt_fpath
+
+        # Special handling for gdc-collector
+        if fn == "gdc-collector":
+            # 1. Resolve expected SHA from gdc-collector.sha256 if present
+            sha_file = os.path.join(cache_dir, "gdc-collector.sha256")
+            if not os.path.exists(sha_file):
+                matching_shas = [f for f in os.listdir(cache_dir) if f.startswith("gdc-collector-") and f.endswith(".sha256")] if os.path.exists(cache_dir) else []
+                if matching_shas:
+                    matching_shas.sort()
+                    sha_file = os.path.join(cache_dir, matching_shas[-1])
+            if os.path.exists(sha_file):
+                try:
+                    with open(sha_file, "r") as sf:
+                        first_line = sf.read().strip()
+                        if first_line:
+                            exp_sha = first_line.split()[0]
+                except Exception:
+                    pass
+
+            # 2. Resolve version from latest_collector_name.txt, versioned filenames, or CLI
+            latest_txt = os.path.join(project_root, ".cache/latest_collector_name.txt")
+            if os.path.exists(latest_txt):
+                try:
+                    with open(latest_txt, "r") as ltf:
+                        c_name = os.path.basename(ltf.read().strip())
+                        if c_name.startswith("gdc-collector-"):
+                            ver_str = c_name[len("gdc-collector-"):]
+                except Exception:
+                    pass
+            elif os.path.exists(cache_dir):
+                ver_files = [f for f in os.listdir(cache_dir) if f.startswith("gdc-collector-") and not f.endswith(".sha256")]
+                if ver_files:
+                    ver_files.sort()
+                    c_name = ver_files[-1]
+                    ver_str = c_name[len("gdc-collector-"):]
+
+            # 3. Try running gdc-collector --version if available
+            if os.path.exists(fpath):
                 import subprocess as subproc
                 try:
-                    # Make it executable just in case
                     os.chmod(fpath, 0o755)
-                    version_out = subproc.check_output([fpath, "--version"], stderr=subproc.STDOUT).strip()
-                    if version_out:
-                        actual_sha = version_out.decode('utf-8')
-                        exp_sha = "VERSION_SYNC"
+                    vout = subproc.check_output([fpath, "--version"], stderr=subproc.STDOUT).strip().decode('utf-8')
+                    m = re.search(r'gdc-collector\s+([0-9]+\.[0-9]+\.[0-9]+)', vout)
+                    if m:
+                        ver_str = m.group(1)
                 except Exception:
-                    actual_sha = "Version check failed"
-                verified = True
+                    pass
 
-            size_bytes = os.path.getsize(fpath) if os.path.exists(fpath) else 0
-            size_mb = round(size_bytes / (1024 * 1024), 2)
-            source = binary_sources.get(fn, "Local Disk Cache")
-            
-            report["binaries_audit"].append({
-                "filename": fn,
-                "expected_sha": exp_sha,
-                "actual_sha": actual_sha or "MISSING",
-                "verified": verified,
-                "source": source,
-                "size_mb": size_mb
-            })
+        actual_sha = get_sha256(fpath) if os.path.exists(fpath) else None
+
+        # Verification check: strict SHA match when expected_sha is a valid hex hash, or presence when dynamic
+        if exp_sha and exp_sha not in ("DYNAMIC_GCS_SYNC", "VERSION_SYNC"):
+            verified = (actual_sha == exp_sha)
+        else:
+            verified = actual_sha is not None
+
+        size_bytes = os.path.getsize(fpath) if os.path.exists(fpath) else 0
+        size_mb = round(size_bytes / (1024 * 1024), 2)
+
+        # Resolve acquisition source and origin last_updated timestamp
+        meta_entry = binary_metadata.get(fn, {})
+        source = meta_entry.get("source") or binary_sources.get(fn, "Local Disk Cache")
+        last_updated_str = meta_entry.get("last_updated")
+        if not last_updated_str and os.path.exists(fpath):
+            mtime = os.path.getmtime(fpath)
+            last_updated_str = datetime.fromtimestamp(mtime, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        elif not last_updated_str:
+            last_updated_str = "N/A"
+
+        report["binaries_audit"].append({
+            "filename": fn,
+            "version": ver_str,
+            "expected_sha": exp_sha or "MISSING",
+            "actual_sha": actual_sha or "MISSING",
+            "verified": verified,
+            "source": source,
+            "size_mb": size_mb,
+            "last_updated": last_updated_str
+        })
 
     # Count debs in offline preseed cache
     packages_dir = os.path.join(project_root, ".cache/packages")
@@ -678,10 +831,16 @@ def main():
         stage["tests"] = tests_list
 
     # Save canonical JSON build report
-    json_path = os.path.join(output_dir, f"build-report-v{iso_version}.json")
+    json_path = os.path.join(output_dir, f"{report_stem}.json")
     with open(json_path, "w") as jf:
         json.dump(report, jf, indent=2)
     print(f"[x] Canonical JSON report saved: {json_path}")
+
+    # Also save backwards-compatible copy if filename differs
+    legacy_json_path = os.path.join(output_dir, f"build-report-v{iso_version}.json")
+    if legacy_json_path != json_path:
+        with open(legacy_json_path, "w") as ljf:
+            json.dump(report, ljf, indent=2)
 
     # Validate against schema
     schema_path = os.path.join(project_root, "docs/build-report-schema.json")
@@ -695,6 +854,8 @@ def main():
 * **Build ID:** `{report["build_id"]}`
 * **GCP Project ID:** `{project_id}`
 * **ISO Version:** `{iso_version}`
+* **ISO Environment Profile:** `{iso_env}`
+* **Target ISO Name:** `{iso_name}`
 * **Build Branch / Commit SHA:** `{git_branch}` / `{git_commit}`
 * **Execution Timestamp:** `{report["timestamp"]}`
 * **Host Build Environment:** `{host_os}`
@@ -714,15 +875,26 @@ def main():
 
     md_content += """
 ## 3. Cryptographic Binary & Cache Verification Checksum Integrity
-| Central Binary Filename | Verification Status | Size (MB) | Acquisition Source | Cryptographic Hash |
-| :--- | :---: | :---: | :---: | :--- |
+| Central Binary Filename | Version | Verification Status | Size (MB) | Acquisition Source | Last Updated (Origin) | Expected SHA | Actual SHA |
+| :--- | :---: | :---: | :---: | :--- | :---: | :--- | :--- |
 """
     for bin_obj in report["binaries_audit"]:
         status_txt = "[PASSED]" if bin_obj["verified"] else "[FAILED]"
-        md_content += f"| `{bin_obj['filename']}` | **{status_txt}** | `{bin_obj['size_mb']} MB` | `{bin_obj['source']}` | `{bin_obj['actual_sha']}` |\n"
+        ver_display = bin_obj.get("version", "-")
+        last_up_display = bin_obj.get("last_updated", "-")
+        md_content += f"| `{bin_obj['filename']}` | `{ver_display}` | **{status_txt}** | `{bin_obj['size_mb']} MB` | `{bin_obj['source']}` | `{last_up_display}` | `{bin_obj['expected_sha']}` | `{bin_obj['actual_sha']}` |\n"
+
+    # Section 4: Environment Profile Configuration
+    md_content += f"""
+## 4. Environment Configuration (`{env_config.get("config_file", f"src/build/{iso_env}.env")}`)
+| Environment Variable | Configured Value (Sensitive Credentials Masked) |
+| :--- | :--- |
+"""
+    for ek, ev in sorted(env_config.get("variables", {}).items()):
+        md_content += f"| `{ek}` | `{ev}` |\n"
 
     md_content += f"""
-## 4. Offline Package Pre-Seeding Audit (.deb files)
+## 5. Offline Package Pre-Seeding Audit (.deb files)
 * **Total Core Packages Requested:** `{report["packages_seeding"]["total_requested"]}`
 * **Total Packages Successfully Downloaded:** `{report["packages_seeding"]["total_cached"]}`
 
@@ -738,7 +910,7 @@ def main():
             md_content += f"- [!] `{fail}` failed to resolve/download.\n"
 
     md_content += f"""
-## 5. Deployment Verification Gate (Stage 9)
+## 6. Deployment Verification Gate (Stage 9)
 * **Deployed to GCS Target:** `{report["deployment_verification"]["deployed_to_gcs"]}`
 * **GCS Upload Verified:** `{report["deployment_verification"]["verified_on_gcs"]}`
 * **Destination GCS Path:** `{report["deployment_verification"]["gcs_path"]}`
@@ -762,7 +934,7 @@ def main():
             grouped_cats[cat].append(t)
 
     # Append the comprehensive dynamic validation suites section
-    md_content += "\n## 6. Unified Test Cases & Validation Suite\n"
+    md_content += "\n## 7. Unified Test Cases & Validation Suite\n"
     for cat_name, tests_list in grouped_cats.items():
         if not tests_list:
             continue
@@ -776,7 +948,7 @@ def main():
     # Check for failing logs to render
     failing_stages = [st for stage in report["stages"] if (st := stage) and stage["status"] == "FAILED"]
     if failing_stages:
-        md_content += "\n## 7. Build Failure Diagnostics & Logs\n"
+        md_content += "\n## 8. Build Failure Diagnostics & Logs\n"
         for fstage in failing_stages:
             md_content += f"\n> [!] **Failing Stage ID:** `{fstage['stage_id']}` ({fstage['name']})\n"
             if fstage["error_logs"]:
@@ -793,27 +965,48 @@ def main():
   ```
 """
 
-    md_path = os.path.join(output_dir, f"build-report-v{iso_version}.md")
+    md_path = os.path.join(output_dir, f"{report_stem}.md")
     with open(md_path, "w") as mf:
         mf.write(md_content)
     print(f"[x] Human-readable Markdown report saved: {md_path}")
+
+    # Also save backwards-compatible copy if filename differs
+    legacy_md_path = os.path.join(output_dir, f"build-report-v{iso_version}.md")
+    if legacy_md_path != md_path:
+        with open(legacy_md_path, "w") as lmf:
+            lmf.write(md_content)
 
     # GCS Upload Phase (Stage 11 reports publication)
     if args.upload and report["deployment_verification"]["deployed_to_gcs"]:
         print(f"[-] Uploading build reports to GCS reports/build-reports/ directory...")
         try:
-            # Upload JSON Report
+            # Upload Primary JSON Report
             subprocess.run([
                 "gcloud", "storage", "cp", json_path,
-                f"gs://{gcs_bucket_name}/reports/build-reports/build-report-v{iso_version}.json",
+                f"gs://{gcs_bucket_name}/reports/build-reports/{report_stem}.json",
                 "--quiet"
             ], check=True)
-            # Upload Markdown Report
+            # Upload Primary Markdown Report
             subprocess.run([
                 "gcloud", "storage", "cp", md_path,
-                f"gs://{gcs_bucket_name}/reports/build-reports/build-report-v{iso_version}.md",
+                f"gs://{gcs_bucket_name}/reports/build-reports/{report_stem}.md",
                 "--quiet"
             ], check=True)
+
+            # Upload legacy aliases if differing
+            if legacy_json_path != json_path and os.path.exists(legacy_json_path):
+                subprocess.run([
+                    "gcloud", "storage", "cp", legacy_json_path,
+                    f"gs://{gcs_bucket_name}/reports/build-reports/build-report-v{iso_version}.json",
+                    "--quiet"
+                ], check=True)
+            if legacy_md_path != md_path and os.path.exists(legacy_md_path):
+                subprocess.run([
+                    "gcloud", "storage", "cp", legacy_md_path,
+                    f"gs://{gcs_bucket_name}/reports/build-reports/build-report-v{iso_version}.md",
+                    "--quiet"
+                ], check=True)
+
             print("  [x] Reports successfully published on GCS under /reports/build-reports/ prefix.")
         except Exception as ue:
             print(f"  [!] Failed to upload reports: {ue}", file=sys.stderr)

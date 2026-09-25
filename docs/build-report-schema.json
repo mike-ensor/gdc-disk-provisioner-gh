@@ -28,6 +28,27 @@
       "type": "string",
       "description": "Version of the GDC custom ISO compiled."
     },
+    "iso_environment": {
+      "type": "string",
+      "description": "Environment profile used for ISO compilation (e.g., honeywell, barn, local)."
+    },
+    "iso_name": {
+      "type": "string",
+      "description": "Full target ISO output filename."
+    },
+    "environment_config": {
+      "type": "object",
+      "description": "Masked environment profile configurations from [ISO_ENVIRONMENT].env.",
+      "required": ["environment", "variables"],
+      "properties": {
+        "environment": { "type": "string" },
+        "config_file": { "type": "string" },
+        "variables": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
     "status": {
       "type": "string",
       "enum": ["SUCCESS", "FAILED"],
@@ -78,11 +99,13 @@
         "required": ["filename", "expected_sha", "actual_sha", "verified", "source", "size_mb"],
         "properties": {
           "filename": { "type": "string" },
+          "version": { "type": "string", "description": "Semantic or release version of the binary." },
           "expected_sha": { "type": "string" },
           "actual_sha": { "type": "string" },
           "verified": { "type": "boolean" },
           "source": { "type": "string" },
-          "size_mb": { "type": "number" }
+          "size_mb": { "type": "number" },
+          "last_updated": { "type": "string", "description": "RFC 3339 UTC timestamp indicating when the binary was last modified or created in its origin (GCS bucket or upstream mirror)." }
         }
       }
     },

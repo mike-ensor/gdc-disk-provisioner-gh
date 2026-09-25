@@ -351,25 +351,31 @@ for i in {1..80}; do
   echo "[Cloud Build] Status: ${b_status} (Attempt ${i}/80)"
   if [[ "${b_status}" == "SUCCESS" ]]; then
     echo "[x] Cloud Build finished successfully."
-    echo "[-] Downloading canonical build reports from GCS..."
+    REPORT_BASE="build-report-${ISO_ENVIRONMENT}-v${ISO_VERSION}"
+    echo "[-] Downloading canonical build reports from GCS (${REPORT_BASE})..."
     mkdir -p "${PROJECT_ROOT}/build-workspace/output"
-    gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/build-report-v${ISO_VERSION}.json" "${PROJECT_ROOT}/build-workspace/output/" || true
-    gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/build-report-v${ISO_VERSION}.md" "${PROJECT_ROOT}/build-workspace/output/" || true
+    gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/${REPORT_BASE}.json" "${PROJECT_ROOT}/build-workspace/output/" || true
+    gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/${REPORT_BASE}.md" "${PROJECT_ROOT}/build-workspace/output/" || true
+    gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/build-report-v${ISO_VERSION}.json" "${PROJECT_ROOT}/build-workspace/output/" 2>/dev/null || true
+    gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/build-report-v${ISO_VERSION}.md" "${PROJECT_ROOT}/build-workspace/output/" 2>/dev/null || true
     break
   elif [[ "${b_status}" == "FAILURE" || "${b_status}" == "TIMEOUT" || "${b_status}" == "CANCELLED" ]]; then
     echo "[!] Cloud Build failed with status: ${b_status}" >&2
     echo "[-] Automatically streaming failure logs..." >&2
     gcloud builds log "${BUILD_ID}" --project="${PROJECT_ID}" || true
     echo "[-] Generating local failure build report..." >&2
+    REPORT_BASE="build-report-${ISO_ENVIRONMENT}-v${ISO_VERSION}"
     python3 "${PROJECT_ROOT}/test/bin/generate_build_report.py" \
       --build-id "${BUILD_ID}" \
       --project-id "${PROJECT_ID}" \
       --gcs-bucket "gs://${GCS_BUCKET_NAME}" \
       --iso-version "${ISO_VERSION}" \
+      --iso-environment "${ISO_ENVIRONMENT}" \
+      --iso-name "${TARGET_ISO_NAME}" \
       --status "FAILED" \
       --output-dir "${PROJECT_ROOT}/build-workspace/output" || true
     echo "" >&2
-    echo "[!] A localized failure report has been written to build-workspace/output/build-report-v${ISO_VERSION}.md" >&2
+    echo "[!] A localized failure report has been written to build-workspace/output/${REPORT_BASE}.md" >&2
     exit 1
   fi
   sleep 15

@@ -143,11 +143,17 @@ fi
 echo "[-] Fetching bmctl and nodeagentd version ${BOOTSTRAP_BMCTL_VERSION}..."
 mkdir -p "${EXTRACT_DIR}/custom-data/tools/bmctl"
 mkdir -p "${EXTRACT_DIR}/custom-data/tools/node-agent"
-if ! gcloud storage cp "gs://anthos-baremetal-release/bmctl/${BOOTSTRAP_BMCTL_VERSION}/linux-amd64/bmctl" "${EXTRACT_DIR}/custom-data/tools/bmctl/bmctl" --project="${PROJECT_ID}"; then
+if [[ -f "${BIN_CACHE_DIR}/bmctl" ]]; then
+    echo "  [x] Using cached bmctl binary."
+    cp "${BIN_CACHE_DIR}/bmctl" "${EXTRACT_DIR}/custom-data/tools/bmctl/bmctl"
+elif ! gcloud storage cp "gs://anthos-baremetal-release/bmctl/${BOOTSTRAP_BMCTL_VERSION}/linux-amd64/bmctl" "${EXTRACT_DIR}/custom-data/tools/bmctl/bmctl" --project="${PROJECT_ID}"; then
     echo "[!] Failed to download bmctl from GCS. Attempting public HTTPS fallback..."
     curl -L "https://storage.googleapis.com/anthos-baremetal-release/bmctl/${BOOTSTRAP_BMCTL_VERSION}/linux-amd64/bmctl" -o "${EXTRACT_DIR}/custom-data/tools/bmctl/bmctl"
 fi
-if ! gcloud storage cp "gs://anthos-baremetal-release/bmctl/${BOOTSTRAP_BMCTL_VERSION}/linux-amd64/nodeagentd" "${EXTRACT_DIR}/custom-data/tools/node-agent/nodeagentd" --project="${PROJECT_ID}"; then
+if [[ -f "${BIN_CACHE_DIR}/nodeagentd" ]]; then
+    echo "  [x] Using cached nodeagentd binary."
+    cp "${BIN_CACHE_DIR}/nodeagentd" "${EXTRACT_DIR}/custom-data/tools/node-agent/nodeagentd"
+elif ! gcloud storage cp "gs://anthos-baremetal-release/bmctl/${BOOTSTRAP_BMCTL_VERSION}/linux-amd64/nodeagentd" "${EXTRACT_DIR}/custom-data/tools/node-agent/nodeagentd" --project="${PROJECT_ID}"; then
     echo "[!] Failed to download nodeagentd from GCS. Attempting public HTTPS fallback..."
     curl -L "https://storage.googleapis.com/anthos-baremetal-release/bmctl/${BOOTSTRAP_BMCTL_VERSION}/linux-amd64/nodeagentd" -o "${EXTRACT_DIR}/custom-data/tools/node-agent/nodeagentd"
 fi
@@ -176,6 +182,19 @@ fi
 
 echo "[-] Copying pre-verified Smallstep CLI package..."
 cp "${BIN_CACHE_DIR}/${STEP_CLI_FILENAME}" "${EXTRACT_DIR}/custom-data/packages/"
+
+echo "[-] Extracting and staging Helm CLI binary..."
+mkdir -p "${EXTRACT_DIR}/custom-data/tools/helm"
+if [[ -f "${BIN_CACHE_DIR}/${HELM_PACKAGE_FILENAME}" ]]; then
+    TEMP_HELM_DIR=$(mktemp -d)
+    tar -xzf "${BIN_CACHE_DIR}/${HELM_PACKAGE_FILENAME}" -C "${TEMP_HELM_DIR}"
+    cp "${TEMP_HELM_DIR}/linux-amd64/helm" "${EXTRACT_DIR}/custom-data/tools/helm/helm"
+    chmod +x "${EXTRACT_DIR}/custom-data/tools/helm/helm"
+    rm -rf "${TEMP_HELM_DIR}"
+    echo "  [x] Helm CLI staged successfully at /custom-data/tools/helm/helm."
+else
+    echo "  [!] WARNING: Helm package not found in cache! Run 'make deps' first." >&2
+fi
 
 echo "[-] Copying pre-seeded offline Debian packages..."
 mkdir -p "${EXTRACT_DIR}/custom-data/packages"

@@ -136,6 +136,8 @@ def main():
         host_cache_success = False
     if not verify_host_cache(deps.get("JRE_PACKAGE_FILENAME", ""), deps.get("JRE_PACKAGE_SHA256", ""), cache_dir):
         host_cache_success = False
+    if not verify_host_cache(deps.get("HELM_PACKAGE_FILENAME", ""), deps.get("HELM_PACKAGE_SHA256", ""), cache_dir):
+        host_cache_success = False
 
     if not host_cache_success:
         log_error("Host cached binaries validation failed. Ensure dependencies are pulled.")
@@ -154,6 +156,7 @@ def main():
         "/custom-data/auth/gcp-authentication.sh",
         "/custom-data/gitea/gitea",
         "/custom-data/nexus/nexus-bin/bin/nexus",
+        "/custom-data/tools/helm/helm",
         "/boot/grub/grub.cfg"
     ]
 

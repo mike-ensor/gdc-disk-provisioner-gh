@@ -62,6 +62,7 @@ packages_to_include:
     - "unattended-upgrades"
     - "efibootmgr"
     - "linux-generic-hwe-24.04"
+    - "nfs-common"
 
   # Optional packages specified by the customer/operator for target environments
   customer_added: []

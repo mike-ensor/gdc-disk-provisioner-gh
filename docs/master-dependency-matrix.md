@@ -58,8 +58,9 @@ Executed on the builder workstation or CI/CD runner. It assemblies the remastere
     *   `gitea` (v1.22.0+, Go-based): Standalone Gitea Go binary.
     *   `nexus` (v3.68.0+): Standalone Sonatype Nexus Repository Manager package.
     *   `openjdk-17-jre-headless`: Standalone Java JVM required by Nexus.
+    *   `helm` (v3.22.0+, Go-based): Standalone Kubernetes Package Manager CLI.
     *   `bootstrap-playbooks.git`: Bare mirror of GDC playbooks cloned from `UPSTREAM_PLAYBOOKS_REPO`.
-    *   `packages/*.deb`: Native Debian packages and recursively resolved dependencies cached from GCS.
+    *   `packages/*.deb`: Native Debian packages and recursively resolved dependencies cached from GCS (including `nfs-common` and supporting libraries).
 
 ---
 
@@ -97,6 +98,8 @@ Executed locally on the target server's first boot, orchestrated by the Ansible 
     *   `systemd-cryptenroll` (v255+): Native systemd utility used to seal LUKS keys to TPM PCR `0+7`.
     *   `ssh-tpm-agent` (v0.5.1+): Hardware-backed TPM SSH host-key agent.
     *   `step-cli` (v0.24.4+): Step CA utility to enroll device identity certs via TPM CSRs. *(See [`docs/TPM_ATTESTATION_AND_MTLS.md`](TPM_ATTESTATION_AND_MTLS.md) for the end-to-end hardware attestation architecture.)*
+*   **Storage & Driver Support Packages:**
+    *   `nfs-common` (v2.6.4+): NFS client utilities and RPC support libraries required for Longhorn storage engine volumes.
 *   **Hardening & Slimming Packages:**
     *   `auditd` & `audispd-plugins` (v3.1.2+): System audit logging for CIS Level 2 rules.
     *   `snapd`, `unattended-upgrades`, `x11-common`: Purged and deleted from system.
@@ -125,6 +128,7 @@ The final turnup phase executed on the bootstrapped hardware node.
 *   **Cluster Orchestration Software:**
     *   `bmctl` (v1.29.0+): Google Distributed Cloud Bare Metal deployment and control CLI.
     *   `kubectl` (v1.29.0+): Kubernetes cluster controller.
+    *   `helm` (v3.22.0+): Kubernetes Package Manager CLI.
 *   **Container Runtimes:**
     *   `containerd` (v1.7.12+): High-performance container runtime engine.
     *   `docker-ce` (v25.0.3+): Standalone container engine for workstation operations.

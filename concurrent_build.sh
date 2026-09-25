@@ -268,6 +268,9 @@ for attempt in {1..90}; do
 EOF
         echo "[-] Downloading canonical build reports from GCS..."
         mkdir -p "${PROJECT_ROOT}/build-workspace/output"
+        REPORT_BASE="build-report-${ISO_ENVIRONMENT:-local}-v${ISO_VERSION}"
+        gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/${REPORT_BASE}.json" "${PROJECT_ROOT}/build-workspace/output/" 2>/dev/null || true
+        gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/${REPORT_BASE}.md" "${PROJECT_ROOT}/build-workspace/output/" 2>/dev/null || true
         gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/build-report-v${ISO_VERSION}.json" "${PROJECT_ROOT}/build-workspace/output/" 2>/dev/null || true
         gcloud storage cp "gs://${GCS_BUCKET_NAME}/reports/build-reports/build-report-v${ISO_VERSION}.md" "${PROJECT_ROOT}/build-workspace/output/" 2>/dev/null || true
         break

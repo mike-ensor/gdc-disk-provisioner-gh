@@ -74,6 +74,9 @@ steps:
           fi
         done
 
+        echo "[-] Preserving origin binary metadata and timestamps from GCS..."
+        gcloud storage ls -l "gs://$${DEP_BUCKET_NAME}/binaries/*" 2>/dev/null | python3 -c 'import sys, json, os; lines = sys.stdin.read().splitlines(); meta_file = ".cache/binary_metadata.json"; data = json.load(open(meta_file)) if os.path.exists(meta_file) else {}; data.update({os.path.basename(p[2]): {"size": int(p[0]) if p[0].isdigit() else 0, "last_updated": p[1], "source": "GCS Cache", "gcs_path": p[2]} for p in (l.strip().split() for l in lines) if len(p) >= 3 and p[2].startswith("gs://")}); json.dump(data, open(meta_file, "w"), indent=2)' 2>/dev/null || true
+
         echo "[-] Pulling cached GGD Debian packages from GCS packages/ prefix..."
         mkdir -p .cache/packages
         if gcloud storage ls "gs://$${DEP_BUCKET_NAME}/packages/*.deb" &>/dev/null; then
