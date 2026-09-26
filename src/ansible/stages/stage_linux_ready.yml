@@ -13,6 +13,10 @@
   ansible.builtin.include_role:
     name: system_tuning
 
+- name: Run storage_prereqs role
+  ansible.builtin.include_role:
+    name: storage_prereqs
+
 - name: Run security_hardening role
   ansible.builtin.include_role:
     name: security_hardening

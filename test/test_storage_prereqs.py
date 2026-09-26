@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Unit tests for Longhorn v2 (SPDK / NVMe-oF) storage prerequisites."""
+
+import os
+import subprocess
+import unittest
+import yaml
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+class TestStoragePrereqs(unittest.TestCase):
+    """Verifies all Longhorn v2 offline packages, cloud-init, Ansible role, and diagnostics."""
+
+    def test_packages_config_contains_longhorn_dependencies(self):
+        """Verifies packages_config.yaml bakes all required Longhorn v2 dependencies."""
+        config_path = os.path.join(PROJECT_ROOT, "src/build/packages_config.yaml")
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+
+        platform_pkgs = set(cfg.get("packages_to_include", {}).get("platform_required", []))
+        expected_pkgs = {
+            "open-iscsi",
+            "nfs-common",
+            "cryptsetup",
+            "dmsetup",
+            "util-linux",
+            "libnvme1",
+            "nvme-cli",
+        }
+        for pkg in expected_pkgs:
+            self.assertIn(
+                pkg,
+                platform_pkgs,
+                f"Missing required Longhorn dependency '{pkg}' in platform_required",
+            )
+
+    def test_cloud_init_user_data_enables_iscsid(self):
+        """Verifies user-data.j2 enables iscsid service during Subiquity late-commands."""
+        user_data_path = os.path.join(PROJECT_ROOT, "src/build/templates/user-data.j2")
+        with open(user_data_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        self.assertIn(
+            "curtin in-target -- systemctl enable iscsid.service",
+            content,
+            "user-data.j2 must enable iscsid.service for Longhorn node checks at first boot",
+        )
+
+    def test_storage_prereqs_role_tasks(self):
+        """Verifies storage_prereqs tasks define HugePages, kernel modules, iscsid, and /customer/sds."""
+        role_tasks_path = os.path.join(
+            PROJECT_ROOT, "src/ansible/roles/storage_prereqs/tasks/main.yml"
+        )
+        with open(role_tasks_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # HugePages verification
+        self.assertIn("ansible.posix.sysctl", content)
+        self.assertIn("vm.nr_hugepages", content)
+        self.assertIn("99-longhorn-hugepages.conf", content)
+        self.assertIn("reload: true", content)
+        self.assertIn("sysctl_set: true", content)
+
+        # Persistent module configuration
+        self.assertIn("longhorn-v2.conf", content)
+        self.assertIn("/etc/modules-load.d/", content)
+
+        # Live modprobe module loading
+        self.assertIn("community.general.modprobe", content)
+
+        # Service and mount path
+        self.assertIn("name: iscsid", content)
+        self.assertIn("state: directory", content)
+
+    def test_storage_prereqs_role_defaults(self):
+        """Verifies storage_prereqs defaults declare expected modules and page counts."""
+        defaults_path = os.path.join(
+            PROJECT_ROOT, "src/ansible/roles/storage_prereqs/defaults/main.yml"
+        )
+        with open(defaults_path, "r", encoding="utf-8") as f:
+            defaults = yaml.safe_load(f)
+
+        self.assertEqual(defaults.get("storage_hugepages_count"), 2048)
+        self.assertEqual(
+            defaults.get("storage_hugepages_file"),
+            "/etc/sysctl.d/99-longhorn-hugepages.conf",
+        )
+        self.assertEqual(
+            defaults.get("storage_modules_file"),
+            "/etc/modules-load.d/longhorn-v2.conf",
+        )
+        self.assertEqual(defaults.get("storage_sds_directory"), "/customer/sds")
+
+        expected_modules = ["nvme-tcp", "uio", "uio_pci_generic", "vfio_pci"]
+        self.assertEqual(defaults.get("storage_kernel_modules"), expected_modules)
+
+    def test_stage_linux_ready_includes_storage_prereqs(self):
+        """Verifies stage_linux_ready.yml executes storage_prereqs during NODE_PREP / pre-Kubelet."""
+        stage_path = os.path.join(
+            PROJECT_ROOT, "src/ansible/stages/stage_linux_ready.yml"
+        )
+        with open(stage_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        self.assertIn(
+            "name: storage_prereqs",
+            content,
+            "stage_linux_ready.yml must include storage_prereqs role during NODE_PREP",
+        )
+
+    def test_machine_orchestration_deploys_and_executes_validation_script(self):
+        """Verifies machine_orchestration deploys validation script and records evidence."""
+        orch_tasks_path = os.path.join(
+            PROJECT_ROOT, "src/ansible/roles/machine_orchestration/tasks/main.yml"
+        )
+        with open(orch_tasks_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        self.assertIn("validate-storage-prereqs.sh", content)
+        self.assertIn("/usr/local/bin/validate-storage-prereqs.sh", content)
+        self.assertIn("storage_prereqs:", content)
+        self.assertIn("hugepages_verified:", content)
+        self.assertIn("kernel_modules_loaded:", content)
+        self.assertIn("sds_directory_present:", content)
+
+    def test_validate_storage_prereqs_script_syntax(self):
+        """Verifies that validate-storage-prereqs.sh passes bash syntax validation."""
+        script_path = os.path.join(
+            PROJECT_ROOT,
+            "src/ansible/roles/storage_prereqs/files/validate-storage-prereqs.sh",
+        )
+        res = subprocess.run(
+            ["bash", "-n", script_path], capture_output=True, text=True
+        )
+        self.assertEqual(
+            res.returncode,
+            0,
+            f"validate-storage-prereqs.sh bash syntax error: {res.stderr}",
+        )
+
+        with open(script_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        self.assertIn("/proc/sys/vm/nr_hugepages", content)
+        self.assertIn("nvme_tcp", content)
+        self.assertIn("uio", content)
+        self.assertIn("uio_pci_generic", content)
+        self.assertIn("vfio_pci", content)
+        self.assertIn("/customer/sds", content)
+
+
+if __name__ == "__main__":
+    unittest.main()

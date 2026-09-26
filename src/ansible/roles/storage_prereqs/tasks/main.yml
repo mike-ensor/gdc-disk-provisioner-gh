@@ -1,0 +1,61 @@
+---
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+# ==============================================================================
+# Role Tasks: storage_prereqs (Longhorn v2 / SPDK / NVMe-oF Host Preparation)
+# ==============================================================================
+
+- name: "GDC-STORAGE | Configure persistent HugePages for Longhorn SPDK / NVMe-oF"
+  ansible.posix.sysctl:
+    name: vm.nr_hugepages
+    value: "{{ storage_hugepages_count | default(2048) | string }}"
+    sysctl_file: /etc/sysctl.d/99-longhorn-hugepages.conf
+    state: present
+    reload: true
+    sysctl_set: true
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Deploy persistent Longhorn v2 kernel modules configuration"
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/longhorn-v2.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Longhorn v2 (SPDK / NVMe-oF) required kernel modules
+      {% for mod in storage_kernel_modules | default(['nvme-tcp', 'uio', 'uio_pci_generic', 'vfio_pci']) %}
+      {{ mod }}
+      {% endfor %}
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Load Longhorn v2 kernel modules into running kernel"
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ storage_kernel_modules }}"
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Ensure iscsid service is enabled and active"
+  ansible.builtin.systemd:
+    name: iscsid
+    enabled: true
+    state: started
+  ignore_errors: true
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Ensure storage mount path directory exists"
+  ansible.builtin.file:
+    path: "{{ storage_sds_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Deploy storage prerequisites validation script"
+  ansible.builtin.copy:
+    src: validate-storage-prereqs.sh
+    dest: /usr/local/bin/validate-storage-prereqs.sh
+    owner: root
+    group: root
+    mode: '0755'
+  tags: ["strictly-local", "storage"]

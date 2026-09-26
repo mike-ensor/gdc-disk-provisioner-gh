@@ -435,6 +435,21 @@
     group: root
     mode: '0755'
 
+- name: "GDC-ORCH | Deploy storage prerequisites validation script"
+  ansible.builtin.copy:
+    src: validate-storage-prereqs.sh
+    dest: /usr/local/bin/validate-storage-prereqs.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "GDC-EVIDENCE | Execute Longhorn storage prerequisites validation check"
+  ansible.builtin.command:
+    cmd: /usr/local/bin/validate-storage-prereqs.sh
+  register: storage_prereqs_val
+  changed_when: false
+  failed_when: false
+
 - name: "GDC-EVIDENCE | Stat mTLS Client Certificate"
   ansible.builtin.stat:
     path: /var/gdc-install/keys/client.crt
@@ -490,6 +505,12 @@
         token_type: "Bearer"
       gcloud_status:
         authenticated: "{{ gcloud_auth_check.rc == 0 }}"
+      storage_prereqs:
+        hugepages_verified: "{{ (storage_prereqs_val.stdout is defined and 'HugePages = ' in storage_prereqs_val.stdout and 'OK' in storage_prereqs_val.stdout) | bool }}"
+        kernel_modules_loaded: "{{ (storage_prereqs_val.stdout is defined and 'nvme_tcp is loaded' in storage_prereqs_val.stdout and 'uio is loaded' in storage_prereqs_val.stdout and 'uio_pci_generic is loaded' in storage_prereqs_val.stdout and 'vfio_pci is loaded' in storage_prereqs_val.stdout) | bool }}"
+        sds_directory_present: "{{ (storage_prereqs_val.stdout is defined and '/customer/sds exists' in storage_prereqs_val.stdout) | bool }}"
+        validation_status: "{{ 'PASS' if (storage_prereqs_val.rc is defined and storage_prereqs_val.rc == 0) else 'FAIL' }}"
+        details: "{{ storage_prereqs_val.stdout_lines | default([]) }}"
 
 - name: "GDC-ORCH | Verify peer hostname resolution"
   ansible.builtin.command:

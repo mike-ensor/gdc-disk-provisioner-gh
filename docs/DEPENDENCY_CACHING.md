@@ -7,7 +7,7 @@ The central Google Cloud Storage (GCS) bucket (e.g., `gs://gdc-disk-provisioner-
 *   **Trigger/Frequency:** The GCS cache is populated by executing the `cloudbuild-cache.yaml` pipeline ("GDC Bootloader - GCS Cache Pre-Seeding & Fill Pipeline"). This is executed out-of-band (independent of the ISO build) whenever upstream dependencies need to be refreshed.
 *   **Tools Used:**
     *   **Python/Shell:** `src/build/preseed_packages.py` (wrapped by `preseed_packages.sh`).
-    *   **APT Utilities:** Uses `apt-cache depends --recurse --no-recommends` to resolve the full dependency tree of items listed in `src/build/packages_config.yaml` (while actively filtering out base-OS libraries like `^libc6$`).
+    *   **APT Utilities:** Uses `apt-cache depends --recurse --no-recommends` to resolve the full dependency tree of items listed in `src/build/packages_config.yaml` (including platform requirements and Longhorn v2 / SPDK dependencies like `open-iscsi`, `nfs-common`, `cryptsetup`, `dmsetup`, `util-linux`, `libnvme1`, `nvme-cli`, while actively filtering out base-OS libraries like `^libc6$`).
     *   **Download:** Uses `apt-get download` to fetch `.deb` files into a local `.cache/packages` directory.
     *   **Upload:** Uses `gcloud storage cp` to synchronize all `.deb` files to the `gs://${GCS_BUCKET}/packages/` prefix.
 

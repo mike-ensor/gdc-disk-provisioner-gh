@@ -132,7 +132,7 @@ The final promotion gate. Marks a specific tested ISO candidate as officially pr
 Depending on whether you are initializing a new build environment, developing templates, or performing quality assurance audits on the PXE server, you can trigger one of three structured pipelines.
 
 ### Scenario A: Build All (Complete Pipeline)
-*   **Trigger:** `./build-builder.sh` followed by `./build-iso.sh`
+*   **Trigger:** `./build-builder.sh` followed by `./build.sh --bootimus`
 *   **Use Case:** Compiling a new `iso-builder` compilation environment container (e.g., when dependencies, python compilers, or shell checkers change) and then building and deploying a fresh ISO.
 *   **Workflow:**
 
@@ -142,7 +142,7 @@ graph TD
     Step1 --> Step2[Increment BUILD_VERSION in .envrc]
     Step2 --> Step3[Compile iso-builder image locally / cloud]
     Step3 --> Step4[Push iso-builder to Google Artifact Registry]
-    Step4 --> Step5[Run ./build-iso.sh]
+    Step4 --> Step5[Run ./build.sh --bootimus]
     Step5 --> Step6[Increment ISO_VERSION in .envrc & VERSION]
     Step6 --> Step7[Trigger Google Cloud Build asynchronously using new iso-builder]
     Step7 --> Step8[Poll Cloud Build status until SUCCESS]
@@ -158,13 +158,13 @@ graph TD
 ---
 
 ### Scenario B: Build ISO (Most Common Flow)
-*   **Trigger:** `./build-iso.sh`
+*   **Trigger:** `./build.sh` (or `./build.sh --bootimus` to deploy to PXE)
 *   **Use Case:** **The primary developer loop.** Used to compile a new version of the GDC installer ISO using pre-compiled, cached container runtimes, automatically registering it and locking it in secure, non-interactive mode on the Bootimus server.
 *   **Workflow:**
 
 ```mermaid
 graph TD
-    Start([Start: Build ISO]) --> Step1[Run ./build-iso.sh]
+    Start([Start: Build ISO]) --> Step1[Run ./build.sh --bootimus]
     Step1 --> Step2[Increment ISO_VERSION in .envrc & VERSION]
     Step2 --> Step3[Trigger Google Cloud Build using existing cached iso-builder]
     Step3 --> Step4[Poll Cloud Build status until SUCCESS]

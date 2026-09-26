@@ -617,6 +617,7 @@ autoinstall:
       cp /cdrom/custom-data/systemd/gdc-desired-state.timer /target/etc/systemd/system/ || true
       curtin in-target -- systemctl enable gitea.service nexus.service gdc-provision.service gdc-provision.timer
       curtin in-target -- systemctl enable gdc-desired-state.timer || true
+      curtin in-target -- systemctl enable iscsid.service || true
       curtin in-target -- git config --system --add safe.directory /var/lib/gitea/repos/gdc/bootstrap-playbooks.git || true
       curtin in-target -- git config --system --add safe.directory /var/lib/gitea/repos/gdc/system-desired-state.git || true
       curtin in-target -- git config --system --add safe.directory '*' || true

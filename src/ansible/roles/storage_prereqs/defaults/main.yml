@@ -1,0 +1,15 @@
+---
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+# ==============================================================================
+# Role Defaults: storage_prereqs (Longhorn v2 / SPDK / NVMe-oF Prereqs)
+# ==============================================================================
+
+storage_hugepages_count: 2048
+storage_hugepages_file: /etc/sysctl.d/99-longhorn-hugepages.conf
+storage_modules_file: /etc/modules-load.d/longhorn-v2.conf
+storage_kernel_modules:
+  - "nvme-tcp"
+  - "uio"
+  - "uio_pci_generic"
+  - "vfio_pci"
+storage_sds_directory: /customer/sds

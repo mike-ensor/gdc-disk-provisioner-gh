@@ -25,7 +25,7 @@ sequenceDiagram
     end
 
     box rgb(24, 43, 73) Stage 2: Publish & Deploy
-        participant Pub as buildAll.sh
+        participant Pub as build.sh
         participant GCS as Cloud Storage / NFS
     end
 
@@ -53,7 +53,7 @@ sequenceDiagram
     deactivate Eng
 
     %% --- STAGE 2 ---
-    Dev->>Pub: Run './buildAll.sh'
+    Dev->>Pub: Run './build.sh --bootimus'
     activate Pub
     Pub->>GCS: Push versioned ISO to GCS Bucket / NFS Mount
     deactivate Pub

@@ -38,7 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     netplan.io \
     ansible-lint \
     && rm -rf /var/lib/apt/lists/* \
-    && ansible-galaxy collection install ansible.posix -p /usr/share/ansible/collections \
+    && ansible-galaxy collection install ansible.posix community.general -p /usr/share/ansible/collections \
     && xorriso --version \
     && ansible-lint --version
 

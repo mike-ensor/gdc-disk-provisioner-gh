@@ -60,7 +60,7 @@ Executed on the builder workstation or CI/CD runner. It assemblies the remastere
     *   `openjdk-17-jre-headless`: Standalone Java JVM required by Nexus.
     *   `helm` (v3.22.0+, Go-based): Standalone Kubernetes Package Manager CLI.
     *   `bootstrap-playbooks.git`: Bare mirror of GDC playbooks cloned from `UPSTREAM_PLAYBOOKS_REPO`.
-    *   `packages/*.deb`: Native Debian packages and recursively resolved dependencies cached from GCS (including `nfs-common` and supporting libraries).
+    *   `packages/*.deb`: Native Debian packages and recursively resolved dependencies cached from GCS (including `nfs-common`, `open-iscsi`, `nvme-cli`, and supporting Longhorn v2 libraries).
 
 ---
 
@@ -98,8 +98,14 @@ Executed locally on the target server's first boot, orchestrated by the Ansible 
     *   `systemd-cryptenroll` (v255+): Native systemd utility used to seal LUKS keys to TPM PCR `0+7`.
     *   `ssh-tpm-agent` (v0.5.1+): Hardware-backed TPM SSH host-key agent.
     *   `step-cli` (v0.24.4+): Step CA utility to enroll device identity certs via TPM CSRs. *(See [`docs/TPM_ATTESTATION_AND_MTLS.md`](TPM_ATTESTATION_AND_MTLS.md) for the end-to-end hardware attestation architecture.)*
-*   **Storage & Driver Support Packages:**
-    *   `nfs-common` (v2.6.4+): NFS client utilities and RPC support libraries required for Longhorn storage engine volumes.
+*   **Storage & Driver Support Packages (Longhorn v2 / SPDK / NVMe-oF):**
+    *   `open-iscsi` (v2.1.9+): iSCSI initiator daemon (`iscsid`) and management tooling for Longhorn volume attachments.
+    *   `nfs-common` (v2.6.4+): NFS client utilities and RPC support libraries required for Longhorn RWX storage engine volumes.
+    *   `cryptsetup` (v2.7.0+): Cryptographic volume and LUKS device-mapper support.
+    *   `dmsetup` (v2.03.16+): Device-mapper userspace library and tool for block device management.
+    *   `util-linux` (v2.39.3+): Low-level system utilities (`blkid`, `lsblk`, `findmnt`, `fstrim`).
+    *   `libnvme1` (v1.8+): Host NVMe management C library for NVMe-oF/TCP integration.
+    *   `nvme-cli` (v2.8+): Userspace tooling for NVMe-over-Fabrics discovery, connection, and control.
 *   **Hardening & Slimming Packages:**
     *   `auditd` & `audispd-plugins` (v3.1.2+): System audit logging for CIS Level 2 rules.
     *   `snapd`, `unattended-upgrades`, `x11-common`: Purged and deleted from system.

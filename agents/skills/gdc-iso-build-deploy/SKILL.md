@@ -13,7 +13,7 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
 
 ### Example 1: Full Pipeline Build
 **Prompt:** "Build and deploy the new custom GDC ISO to the PXE server."
-**Action:** The agent executes `./build-iso.sh` and tracks progress through each gate.
+**Action:** The agent executes `./build.sh --bootimus` and tracks progress through each gate.
 
 ### Example 2: Resume Asynchronous Build Check
 **Prompt:** "Is the custom GDC ISO build done yet?"
@@ -21,7 +21,7 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
 
 ### Example 3: Build ISO without Companion Telemetry Webhooks
 **Prompt:** "Build a new ISO but disable all phone-home tracking."
-**Action:** The agent executes `./build.sh --companion FALSE` (or `GDC_COMPANION=FALSE ./build-iso.sh`).
+**Action:** The agent executes `./build.sh --companion FALSE`.
 
 ## 3. Security Constraints
 - **Secrets Isolation:** Never print `BOOTIMUS_USER` or `BOOTIMUS_PASS` credentials to logs. Leverage the Infisical CLI automatically when credentials are not in the active environment.
@@ -29,7 +29,7 @@ Provides a structured workflow for remastering, cloud-building, PXE deploying, a
 
 ## 4. Dependencies
 - **CLI Utilities:** `gcloud`, `git`, `python3`, `make`
-- **Internal Tools:** `./build.sh`, `./build-iso.sh`, `./src/build/bootimus.py`
+- **Internal Tools:** `./build.sh`, `./build-builder.sh`, `./src/build/bootimus.py`
 
 ---
 

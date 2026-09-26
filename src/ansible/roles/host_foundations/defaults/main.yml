@@ -36,6 +36,11 @@ gdc_core_packages:
   - "arp-scan"
   - "linux-generic-hwe-24.04"
   - "nfs-common"
+  - "open-iscsi"
+  - "dmsetup"
+  - "util-linux"
+  - "libnvme1"
+  - "nvme-cli"
 
 gdc_purge_packages:
   - "snapd"

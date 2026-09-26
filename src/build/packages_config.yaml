@@ -63,6 +63,11 @@ packages_to_include:
     - "efibootmgr"
     - "linux-generic-hwe-24.04"
     - "nfs-common"
+    - "open-iscsi"
+    - "dmsetup"
+    - "util-linux"
+    - "libnvme1"
+    - "nvme-cli"
 
   # Optional packages specified by the customer/operator for target environments
   customer_added: []
