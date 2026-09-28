@@ -179,9 +179,9 @@ exit 1
         with open(os.path.join(mock_sys_block, "sdb", "size"), "w") as f:
             f.write("536870912\n") # 256GB USB
         with open(os.path.join(mock_sys_block, "nvme0n1", "size"), "w") as f:
-            f.write("1000204800\n") # 500GB NVMe Disk 1
+            f.write("2000409600\n") # 1TB NVMe Disk 1
         with open(os.path.join(mock_sys_block, "nvme1n1", "size"), "w") as f:
-            f.write("2000409600\n") # 1TB NVMe Disk 2
+            f.write("4000819200\n") # 2TB NVMe Disk 2
 
         script_path = os.path.join(PROJECT_ROOT, "src/build/generate_storage_config.sh")
         test_script = f"""#!/usr/bin/env bash
@@ -206,6 +206,50 @@ chmod +x "{self.test_dir}/test_gen_dual.sh"
         self.assertNotIn("path: /dev/sdb", res.stdout)
         # 4. Topology is dual disk
         self.assertIn("Dual Disk", res.stdout)
+
+    def test_generate_storage_config_skips_undersized_disks(self):
+        """Verifies generate_storage_config.sh skips disks smaller than 560 GiB (1174405120 sectors)."""
+        mock_lsblk = os.path.join(self.bin_dir, "lsblk")
+        with open(mock_lsblk, "w") as f:
+            f.write("""#!/usr/bin/env bash
+if [[ "$*" == *"-dno NAME,TYPE"* ]]; then
+    echo "nvme0n1 disk"
+    exit 0
+fi
+if [[ "$*" == *"-dno TRAN /dev/nvme0n1"* ]]; then
+    echo "nvme"
+    exit 0
+fi
+exit 0
+""")
+        os.chmod(mock_lsblk, 0o755)
+
+        mock_findmnt = os.path.join(self.bin_dir, "findmnt")
+        with open(mock_findmnt, "w") as f:
+            f.write("#!/usr/bin/env bash\nexit 1\n")
+        os.chmod(mock_findmnt, 0o755)
+
+        mock_blkid = os.path.join(self.bin_dir, "blkid")
+        with open(mock_blkid, "w") as f:
+            f.write("#!/usr/bin/env bash\nexit 0\n")
+        os.chmod(mock_blkid, 0o755)
+
+        mock_sys_block = os.path.join(self.test_dir, "sys_block_undersized")
+        os.makedirs(os.path.join(mock_sys_block, "nvme0n1"), exist_ok=True)
+        # 250GB disk = 503316480 sectors (< 1174405120 sectors)
+        with open(os.path.join(mock_sys_block, "nvme0n1", "size"), "w") as f:
+            f.write("503316480\n")
+
+        script_path = os.path.join(PROJECT_ROOT, "src/build/generate_storage_config.sh")
+        test_script = f"""#!/usr/bin/env bash
+export PATH="{self.bin_dir}:$PATH"
+sed "s|/sys/block/|{mock_sys_block}/|g" "{script_path}" > "{self.test_dir}/test_gen_undersized.sh"
+chmod +x "{self.test_dir}/test_gen_undersized.sh"
+"{self.test_dir}/test_gen_undersized.sh" --dry-run
+"""
+        res = subprocess.run(["bash", "-c", test_script], capture_output=True, text=True)
+        self.assertIn("Skipping undersized disk: /dev/nvme0n1", res.stderr)
+        self.assertIn("503316480 sectors < 1174405120", res.stderr)
 
     def test_user_data_protection_function(self):
         """Verifies the disk sanitization protection logic in user-data.j2 under POSIX sh."""

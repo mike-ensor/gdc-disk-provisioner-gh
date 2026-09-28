@@ -63,7 +63,7 @@ fi
 # ==============================================================================
 # 1. Disk Detection & Sorting Heuristics
 # ==============================================================================
-log_goal "Scanning hardware block devices for GDC-compliant storage drives (>= 250 G)"
+log_goal "Scanning hardware block devices for GDC-compliant storage drives (>= 560 GiB / 600 GB)"
 
 # Detect active installer live media disks to prevent self-targeting/corruption
 INSTALLER_DISKS=()
@@ -135,11 +135,11 @@ for disk in ${RAW_DISKS}; do
     # Get sector size of block device
     if [[ -f "/sys/block/${disk}/size" ]]; then
         SECTORS=$(cat "/sys/block/${disk}/size")
-        # 240 GB = 503316480 sectors (512-byte blocks)
-        if [[ ${SECTORS} -ge 503316480 ]]; then
+        # 560 GiB = 1174405120 sectors (512-byte blocks) to guarantee 100GB logs and 300GB+ Nexus
+        if [[ ${SECTORS} -ge 1174405120 ]]; then
             DETECTED_DISKS+=("${disk}")
         else
-            echo "[-] Skipping undersized disk: /dev/${disk} (${SECTORS} sectors < 503316480)" >&2
+            echo "[-] Skipping undersized disk: /dev/${disk} (${SECTORS} sectors < 1174405120)" >&2
         fi
     fi
 done
