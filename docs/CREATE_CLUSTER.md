@@ -306,17 +306,21 @@ bmctl check preflight --cluster "${CLUSTER_NAME}"
 bmctl create cluster -c "${CLUSTER_NAME}"
 ```
 
-### 5a. Setup a cluster-admin user
+### 5a. Setup cluster-admin users (RBAC)
 
-One-line script **OR** create a file with multiple users. Unless using ConfigSync Primary Root Repo to create the ClusterRoleBinding, the RBAC needs to be created on the cluster.
+The cluster turnup script (`create_cluster.sh`) automatically creates two distinct `ClusterRoleBinding` resources:
 
-```shell
-export ADMIN_USER_EMAIL="user@company.com"
-kubectl apply -f - <<EOF
+1. **Automated Admin User (`automated-admin-email`)**: Created when `--admin-email` or `$ADMIN_USER_EMAIL` is supplied.
+2. **Dynamic Installed Cluster Admins (`dynamic-installed-cluster-admin-list`)**: Ingested directly from `.cluster.cluster_admin_emails` (array of strings) in the facts JSON.
+
+#### Manifest Examples
+
+**Automated Admin Binding (`cluster-admin-automated.yaml`):**
+```yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: gdc-primary-cluster-admins
+  name: automated-admin-email
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -324,8 +328,26 @@ roleRef:
 subjects:
 - apiGroup: rbac.authorization.k8s.io
   kind: User
-  name: ${ADMIN_USER_EMAIL}
-EOF
+  name: user@company.com
+```
+
+**Dynamic Admin List Binding (`cluster-admins-dynamic.yaml`):**
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dynamic-installed-cluster-admin-list
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: ensor@google.com
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: michael.d.ensor@gmail.com
 ```
 
 ### 5b. (OPTIONAL) Get Local Credentials

@@ -83,18 +83,35 @@ class TestBuildScript(unittest.TestCase):
 
     def test_dry_run_concurrent_matrix(self):
         """Verifies --concurrent parses multi-target matrix with environment prefixes."""
-        matrix = "honeywell:0.9.5;barn:0.9.1;0.8.5"
-        res = self.run_build_sh(["--dry-run", "--concurrent", matrix])
-        self.assertEqual(res.returncode, 0, f"--dry-run concurrent failed: {res.stderr}")
-        stdout = res.stdout
+        honeywell_env = os.path.join(PROJECT_ROOT, "src/build/honeywell.env")
+        barn_env = os.path.join(PROJECT_ROOT, "src/build/barn.env")
+        created = []
+        try:
+            if not os.path.exists(honeywell_env):
+                with open(honeywell_env, "w", encoding="utf-8") as f:
+                    f.write('ISO_NAME_PREFIX="honeywell-24.04"\n')
+                created.append(honeywell_env)
+            if not os.path.exists(barn_env):
+                with open(barn_env, "w", encoding="utf-8") as f:
+                    f.write('ISO_NAME_PREFIX="gdc-labs-24.04"\n')
+                created.append(barn_env)
 
-        self.assertIn("Target Count:       3", stdout)
-        self.assertIn("Env: honeywell | Ver: 0.9.5", stdout)
-        self.assertIn("Output: honeywell-24.04-v0.9.5-debug.iso", stdout)
-        self.assertIn("Env: barn | Ver: 0.9.1", stdout)
-        self.assertIn("Output: gdc-labs-24.04-v0.9.1-debug.iso", stdout)
-        self.assertIn("Env: base | Ver: 0.8.5", stdout)
-        self.assertIn("Output: gdc-bootstrap-ubuntu-24.04-v0.8.5-debug.iso", stdout)
+            matrix = "honeywell:0.9.5;barn:0.9.1;0.8.5"
+            res = self.run_build_sh(["--dry-run", "--concurrent", matrix])
+            self.assertEqual(res.returncode, 0, f"--dry-run concurrent failed: {res.stderr}")
+            stdout = res.stdout
+
+            self.assertIn("Target Count:       3", stdout)
+            self.assertIn("Env: honeywell | Ver: 0.9.5", stdout)
+            self.assertIn("Output: honeywell-24.04-v0.9.5-debug.iso", stdout)
+            self.assertIn("Env: barn | Ver: 0.9.1", stdout)
+            self.assertIn("Output: gdc-labs-24.04-v0.9.1-debug.iso", stdout)
+            self.assertIn("Env: base | Ver: 0.8.5", stdout)
+            self.assertIn("Output: gdc-bootstrap-ubuntu-24.04-v0.8.5-debug.iso", stdout)
+        finally:
+            for path in created:
+                if os.path.exists(path):
+                    os.remove(path)
 
     def test_dry_run_local_mode(self):
         """Verifies --local sets execution mode to LOCAL."""

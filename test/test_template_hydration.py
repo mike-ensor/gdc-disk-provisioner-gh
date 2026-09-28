@@ -782,5 +782,37 @@ class TestGgdTemplateHydration(unittest.TestCase):
                 except jinja2.exceptions.TemplateSyntaxError as e:
                     self.fail(f"Jinja2 template syntax error in {rel_path} (line {e.lineno}): {e.message}")
 
+    def test_storage_sanitization_bottom_up_quiescence(self):
+        """Verifies that user-data enforces bottom-up storage teardown and bounded udev settle."""
+        template = self.jinja_env.get_template('user-data.j2')
+        rendered = template.render(self.base_env)
+
+        # Assert bottom-up ordering: LVM deactivate and DM close before disk wipe
+        self.assertIn("vgchange -an --force", rendered)
+        self.assertIn("dmsetup table --target crypt", rendered)
+        self.assertIn("dmsetup remove_all --force", rendered)
+
+        # Assert removal of dangerous blkdiscard and snap bind-mount hack
+        self.assertNotIn("blkdiscard --force", rendered)
+        self.assertNotIn("mount --bind /tmp/cryptsetup-wrapper", rendered)
+
+        # Assert bounded udev settle and partition refresh
+        self.assertIn("udevadm settle --timeout=15", rendered)
+        self.assertIn("udevadm trigger --action=change", rendered)
+
+    def test_luks_add_key_direct_host_execution_and_aspm(self):
+        """Verifies direct host cryptsetup luksAddKey execution and AMD PCIe/display stabilization."""
+        template = self.jinja_env.get_template('user-data.j2')
+        rendered = template.render(self.base_env)
+
+        # Assert direct host cryptsetup luksAddKey with primary and fallback keys
+        self.assertIn('cryptsetup luksAddKey --batch-mode --key-file=/var/log/installer/gdc-luks-key "${crypt_dev}" /target/etc/keys/temp_key.key', rendered)
+        self.assertIn('cryptsetup luksAddKey --batch-mode --key-file=/target/tmp/pass.txt "${crypt_dev}" /target/etc/keys/temp_key.key', rendered)
+
+        # Assert PCIe ASPM stabilization on AMD without disabling amdgpu driver for compute
+        self.assertIn('pcie_aspm=off amdgpu.aspm=0', rendered)
+        self.assertNotIn('modprobe.blacklist=amdgpu', rendered)
+        self.assertNotIn('nomodeset', rendered)
+
 if __name__ == "__main__":
     unittest.main()

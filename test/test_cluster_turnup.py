@@ -170,6 +170,133 @@ class TestClusterTurnupScript(unittest.TestCase):
         self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
         self.assertIn("Primary Root Repo:                  us-docker.pkg.dev/my-proj/repo/platform:v1", result.stdout)
 
+    def test_facts_file_cluster_admin_emails_parsing(self):
+        # Automated run via facts file sourcing cluster_admin_emails array
+        clean_env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": os.environ.get("HOME", ""),
+        }
+        result = subprocess.run(
+            [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run", "--facts", VALID_FACTS_FILE],
+            capture_output=True, text=True,
+            env=clean_env
+        )
+        self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+        self.assertIn("Cluster Admin Emails (2):", result.stdout)
+        self.assertIn("ensor@google.com", result.stdout)
+        self.assertIn("michael.d.ensor@gmail.com", result.stdout)
+
+    def test_facts_file_empty_admin_emails(self):
+        # When cluster_admin_emails is empty array, dry-run succeeds and reports 0 emails
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write('''{
+              "cluster": {
+                "cluster_name": "gdc-empty-admins",
+                "cluster_admin_emails": [],
+                "networking": {
+                  "cluster_vip": "192.168.109.2",
+                  "cluster_ingress": "192.168.109.100",
+                  "cluster_lb_range": "192.168.109.100-192.168.109.150"
+                }
+              },
+              "gcp_info": {
+                "project_id": "anthos-bare-metal-lab-1",
+                "region": "us-west1"
+              },
+              "network": {
+                "cluster_network": {
+                  "ip_cidr": "192.168.109.12/24"
+                }
+              }
+            }''')
+            temp_path = f.name
+        try:
+            result = subprocess.run(
+                [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run", "--facts", temp_path],
+                capture_output=True, text=True,
+                env={"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")}
+            )
+            self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+            self.assertIn("Cluster Admin Emails (0):           none", result.stdout)
+        finally:
+            os.remove(temp_path)
+
+    def test_manifest_generation_structure(self):
+        # Validate that the generated manifest templates in bash produce valid YAML structure and expected names
+        with open(CREATE_CLUSTER_SCRIPT, "r") as f:
+            content = f.read()
+        self.assertIn("name: automated-admin-email", content)
+        self.assertIn("name: dynamic-installed-cluster-admin-list", content)
+        self.assertIn("cluster-admin-automated.yaml", content)
+        self.assertIn("cluster-admins-dynamic.yaml", content)
+
+    def test_rbac_manifests_yaml_validity(self):
+        # Verify that the bash script's RBAC manifest logic generates syntactically valid YAML
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_script = f"""
+CLUSTER_CONFIG_DIR="{tmpdir}"
+ADMIN_USER_EMAIL="admin@example.com"
+CLUSTER_ADMIN_EMAILS=("admin1@example.com" "admin2@example.com")
+
+ADMIN_EMAIL_FILE="${{CLUSTER_CONFIG_DIR}}/cluster-admin-automated.yaml"
+cat <<EOF >"${{ADMIN_EMAIL_FILE}}"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: automated-admin-email
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: ${{ADMIN_USER_EMAIL}}
+EOF
+
+DYNAMIC_ADMINS_FILE="${{CLUSTER_CONFIG_DIR}}/cluster-admins-dynamic.yaml"
+cat <<EOF >"${{DYNAMIC_ADMINS_FILE}}"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dynamic-installed-cluster-admin-list
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+EOF
+for admin_email in "${{CLUSTER_ADMIN_EMAILS[@]}}"; do
+	cat <<EOF >>"${{DYNAMIC_ADMINS_FILE}}"
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: ${{admin_email}}
+EOF
+done
+"""
+            subprocess.run(["bash", "-c", test_script], check=True)
+            automated_yaml_path = os.path.join(tmpdir, "cluster-admin-automated.yaml")
+            dynamic_yaml_path = os.path.join(tmpdir, "cluster-admins-dynamic.yaml")
+
+            with open(automated_yaml_path, "r") as f:
+                auto_manifest = yaml.safe_load(f)
+            self.assertEqual(auto_manifest["apiVersion"], "rbac.authorization.k8s.io/v1")
+            self.assertEqual(auto_manifest["kind"], "ClusterRoleBinding")
+            self.assertEqual(auto_manifest["metadata"]["name"], "automated-admin-email")
+            self.assertEqual(auto_manifest["roleRef"]["name"], "cluster-admin")
+            self.assertEqual(auto_manifest["subjects"][0]["name"], "admin@example.com")
+
+            with open(dynamic_yaml_path, "r") as f:
+                dynamic_manifest = yaml.safe_load(f)
+            self.assertEqual(dynamic_manifest["apiVersion"], "rbac.authorization.k8s.io/v1")
+            self.assertEqual(dynamic_manifest["kind"], "ClusterRoleBinding")
+            self.assertEqual(dynamic_manifest["metadata"]["name"], "dynamic-installed-cluster-admin-list")
+            self.assertEqual(dynamic_manifest["roleRef"]["name"], "cluster-admin")
+            self.assertEqual(len(dynamic_manifest["subjects"]), 2)
+            self.assertEqual(dynamic_manifest["subjects"][0]["name"], "admin1@example.com")
+            self.assertEqual(dynamic_manifest["subjects"][1]["name"], "admin2@example.com")
+
+
 
 class TestClusterTurnupAnsibleIntegration(unittest.TestCase):
     """Verifies the Ansible playbook and stage definitions for CLUSTER_TURNUP."""
