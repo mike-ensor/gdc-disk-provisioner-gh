@@ -845,6 +845,13 @@ class TestGgdTemplateHydration(unittest.TestCase):
         self.assertIn("udevadm settle --timeout=15", rendered)
         self.assertIn("udevadm trigger --action=change", rendered)
 
+        # Assert target-scoped disk wiping (no blanket wipe of all disks in lsblk)
+        self.assertIn("TARGET_DISKS=", rendered)
+        self.assertNotIn("for d in $(lsblk -dno NAME", rendered)
+        self.assertIn("for tgt in ${TARGET_DISKS}; do", rendered)
+        self.assertIn("ID_BUS=usb", rendered)
+        self.assertIn("/proc/mounts", rendered)
+
     def test_luks_add_key_direct_host_execution_and_aspm(self):
         """Verifies direct host cryptsetup luksAddKey execution and AMD PCIe/display stabilization."""
         template = self.jinja_env.get_template('user-data.j2')

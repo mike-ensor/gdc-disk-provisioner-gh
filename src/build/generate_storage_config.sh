@@ -67,14 +67,15 @@ log_goal "Scanning hardware block devices for GDC-compliant storage drives (>= 5
 
 # Detect active installer live media disks to prevent self-targeting/corruption
 INSTALLER_DISKS=()
-for mnt in /cdrom /isodevice /run/live/medium; do
-    if dev=$(findmnt -no SOURCE "${mnt}" 2>/dev/null) && [[ -n "${dev}" ]]; then
-        real_dev=$(readlink -f "${dev}" 2>/dev/null || echo "${dev}")
+for mnt in /cdrom /isodevice /run/live/medium /run/initramfs/cdrom /run/initramfs/live /rofs; do
+    if dev=$(findmnt -e -no SOURCE "${mnt}" 2>/dev/null) && [[ -n "${dev}" ]]; then
+        clean_dev="${dev%%\[*}"
+        real_dev=$(readlink -f "${clean_dev}" 2>/dev/null || echo "${clean_dev}")
         if [[ -b "${real_dev}" ]]; then
             if [[ "${real_dev}" =~ loop[0-9]+ ]]; then
                 back_file=$(losetup -O BACK-FILE -n "${real_dev}" 2>/dev/null || true)
                 if [[ -n "${back_file}" ]]; then
-                    loop_src=$(findmnt -no SOURCE -T "${back_file}" 2>/dev/null || true)
+                    loop_src=$(df --output=source "${back_file}" 2>/dev/null | tail -n 1)
                     if [[ -n "${loop_src}" && -b "${loop_src}" ]]; then
                         loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
                         INSTALLER_DISKS+=("${loop_pk:-$(basename "${loop_src}")}")
@@ -88,7 +89,18 @@ for mnt in /cdrom /isodevice /run/live/medium; do
     fi
 done
 
-# Also detect block devices hosting iso9660 filesystem (hybrid ISO on USB)
+# Also detect all loop backing files across the system
+while read -r back_file; do
+    if [[ -n "${back_file}" && -f "${back_file}" ]]; then
+        loop_src=$(df --output=source "${back_file}" 2>/dev/null | tail -n 1)
+        if [[ -n "${loop_src}" && -b "${loop_src}" ]]; then
+            loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+            INSTALLER_DISKS+=("${loop_pk:-$(basename "${loop_src}")}")
+        fi
+    fi
+done < <(losetup -O BACK-FILE -n 2>/dev/null || true)
+
+# Also detect block devices with GDC installer label or iso9660 filesystem
 while read -r iso_dev; do
     if [[ -n "${iso_dev}" && -b "${iso_dev}" ]]; then
         real_dev=$(readlink -f "${iso_dev}" 2>/dev/null || echo "${iso_dev}")
@@ -99,7 +111,7 @@ while read -r iso_dev; do
             INSTALLER_DISKS+=("$(basename "${real_dev}")")
         fi
     fi
-done < <(blkid -t TYPE=iso9660 -o device 2>/dev/null || true)
+done < <({ blkid -L "GDC-BOOTSTRAP" 2>/dev/null; ls -1 /dev/disk/by-label/GDC-BOOTSTRAP* 2>/dev/null; blkid -t TYPE=iso9660 -o device 2>/dev/null; } || true)
 
 # Sort disks ascending by size so the smaller disk is always allocated to System
 RAW_DISKS=$(lsblk -dno NAME,TYPE | awk '$2 == "disk" {print $1}')
@@ -124,11 +136,22 @@ for disk in ${RAW_DISKS}; do
         continue
     fi
 
-    # Skip USB transport devices (USB flash drives, external USB enclosures)
+    # Skip USB transport devices (USB flash drives, external USB enclosures) and removable media
     TRAN=$(lsblk -dno TRAN "/dev/${disk}" 2>/dev/null || true)
     SYSPATH=$(readlink -f "/sys/block/${disk}" 2>/dev/null || true)
-    if [[ "${TRAN}" == "usb" || "${SYSPATH}" =~ /usb[0-9]* ]]; then
-        echo "[-] Skipping USB storage device: /dev/${disk} (TRAN=${TRAN:-usb})" >&2
+    IS_REMOVABLE="0"
+    if [[ -f "/sys/block/${disk}/removable" ]]; then
+        IS_REMOVABLE=$(cat "/sys/block/${disk}/removable" 2>/dev/null || echo "0")
+    else
+        IS_REMOVABLE=$(lsblk -dno RM "/dev/${disk}" 2>/dev/null | tr -d '[:space:]' || echo "0")
+    fi
+    IS_UDEV_USB="false"
+    if udevadm info --query=property --name="/dev/${disk}" 2>/dev/null | grep -q -E '^(ID_BUS=usb|ID_USB_DRIVER=)'; then
+        IS_UDEV_USB="true"
+    fi
+
+    if [[ "${TRAN}" == "usb" || "${SYSPATH}" =~ [uU][sS][bB] || "${IS_REMOVABLE}" == "1" || "${IS_UDEV_USB}" == "true" ]]; then
+        echo "[-] Skipping USB storage device: /dev/${disk} (TRAN=${TRAN:-none}, RM=${IS_REMOVABLE})" >&2
         continue
     fi
     

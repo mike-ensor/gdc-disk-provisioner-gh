@@ -29,8 +29,11 @@ GDC Bare Metal requires strict isolation of disk workloads to prevent resource c
 The dynamic disk analyzer script (`src/build/generate_storage_config.sh`) executes during the early stage of cloud-init boot. It scans block devices using the following heuristics:
 
 1. **Size Filtering:** Only devices with a capacity $\ge 560\text{ GiB}$ ($1,174,405,120$ sectors of 512 bytes) are registered as GDC-compliant target drives. Smaller storage targets are ignored.
-2. **Device Exclusion:** System loopback devices (`/dev/loop*`), active bootable installer live media (`/cdrom`, `/isodevice`, `iso9660` optical/USB drives), and all USB transport storage devices (`TRAN=usb` or `/sys/devices/.../usb*`) are explicitly excluded to prevent accidental self-erasure when booting from USB media.
+2. **Device Exclusion:** System loopback devices (`/dev/loop*`), active bootable installer live media (`/cdrom`, `/isodevice`, `/rofs`, `/run/live/*`, `GDC-BOOTSTRAP` label, `iso9660` optical/USB drives), and all USB transport or removable storage devices (`TRAN=usb`, udev `ID_BUS=usb`, `ID_USB_DRIVER=usb-storage|uas`, or `/sys/block/.../removable`) are explicitly excluded to prevent accidental self-erasure when booting from USB media.
 3. **Ascending Size Sorting:** Disks are sorted ascending by sector count. The smaller physical drive is always allocated as the **System Disk (Disk 1)**, while the larger drive is designated as the **Data Disk (Disk 2)**. This ensures optimal utilization of high-capacity storage on dense hardware platforms.
+
+### Target-Scoped Sanitization & Media Protection
+During LiveCD `early-commands` (Task 4 storage cleanup), the installer strictly restricts destructive partition and raw block zeroing (`wipefs`, `dd if=/dev/zero`) to the **explicitly authorized target installation disks** (`/run/autoinstall-storage.yaml`). Non-target block devices (such as USB installer thumb drives, external maintenance storage, or SAN volumes) are never touched. Furthermore, `is_protected_dev()` enforces layered guards against live mounts in `/proc/mounts`, udev USB attributes, sysfs bus paths, and volume labels before executing any destructive operations.
 
 ---
 
