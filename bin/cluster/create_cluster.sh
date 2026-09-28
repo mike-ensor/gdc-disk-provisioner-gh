@@ -189,6 +189,37 @@ except Exception:
     fi
 }
 
+get_json_array() {
+    local file="$1"
+    local jsonpath="$2"
+    if [[ ! -f "$file" ]]; then
+        return
+    fi
+    if command -v jq >/dev/null 2>&1; then
+        jq -r "${jsonpath} // [] | .[]" "$file" 2>/dev/null || true
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c "
+import json
+try:
+    with open('$file') as f:
+        data = json.load(f)
+    keys = '$jsonpath'.strip('.').split('.')
+    val = data
+    for k in keys:
+        if val is None or not isinstance(val, dict):
+            val = None
+            break
+        val = val.get(k)
+    if isinstance(val, list):
+        for item in val:
+            if item is not None and str(item).strip():
+                print(str(item).strip())
+except Exception:
+    pass
+" 2>/dev/null || true
+    fi
+}
+
 # Auto-detect facts file if not explicitly supplied
 if [[ -z "${FACTS_FILE}" ]]; then
     for candidate in \
@@ -219,6 +250,7 @@ FACT_PRIMARY_ROOT_REPO=""
 FACT_ANTHOS_VERSION=""
 FACT_POD_CIDR=""
 FACT_SERVICE_CIDR=""
+CLUSTER_ADMIN_EMAILS=()
 
 if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     echo "[-] Sourcing cluster parameters from facts: ${FACTS_FILE}"
@@ -243,6 +275,9 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     FACT_ANTHOS_VERSION=$(get_json_val "${FACTS_FILE}" ".cluster.anthos_bare_metal_version")
     FACT_POD_CIDR=$(get_json_val "${FACTS_FILE}" ".cluster.networking.pod_cidr")
     FACT_SERVICE_CIDR=$(get_json_val "${FACTS_FILE}" ".cluster.networking.service_cidr")
+    while IFS= read -r email; do
+        [[ -n "${email}" ]] && CLUSTER_ADMIN_EMAILS+=("${email}")
+    done < <(get_json_array "${FACTS_FILE}" ".cluster.cluster_admin_emails")
 fi
 
 # Precedence hierarchy: CLI arguments > Environment variables > Facts file
@@ -368,6 +403,12 @@ printf "  %-35s %s\n" "Pod CIDR:" "${POD_CIDR}"
 printf "  %-35s %s\n" "Service CIDR:" "${SERVICE_CIDR}"
 printf "  %-35s %s\n" "Primary Load Balancer:" "${PRIMARY_LOAD_BALANCER}"
 printf "  %-35s %s\n" "Primary Root Repo:" "${PRIMARY_ROOT_REPO:-none}"
+printf "  %-35s %s\n" "Admin User Email (automated):" "${ADMIN_USER_EMAIL:-none}"
+if [[ ${#CLUSTER_ADMIN_EMAILS[@]} -gt 0 ]]; then
+    printf "  %-35s %s\n" "Cluster Admin Emails (${#CLUSTER_ADMIN_EMAILS[@]}):" "${CLUSTER_ADMIN_EMAILS[*]}"
+else
+    printf "  %-35s %s\n" "Cluster Admin Emails (0):" "none"
+fi
 printf "  %-35s %s\n" "GOOGLE_APP_CREDS:" "${GOOGLE_APP_CREDS}"
 printf "  %-35s %s\n" "gcloud token authenticated:" "${GCLOUD_TOKEN_AUTH}"
 echo "=============================================================================="
@@ -530,13 +571,15 @@ if [ -f "/etc/kubernetes/admin.conf" ]; then
 	fi
 	echo "[OK] Cluster creation complete. Kubeconfig available at ${CLUSTER_CONFIG_DIR}/${CLUSTER_NAME}-kubeconfig"
 
+	# 5a. Automated Admin User Role Binding
 	if [ -n "${ADMIN_USER_EMAIL:-}" ]; then
-		echo "[-] ADMIN_USER_EMAIL is defined (${ADMIN_USER_EMAIL}). Creating ClusterRoleBinding..."
-		sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl apply -f - <<EOF
+		echo "[-] ADMIN_USER_EMAIL is defined (${ADMIN_USER_EMAIL}). Creating ClusterRoleBinding 'automated-admin-email'..."
+		ADMIN_EMAIL_FILE="${CLUSTER_CONFIG_DIR}/cluster-admin-automated.yaml"
+		cat <<EOF >"${ADMIN_EMAIL_FILE}"
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: gdc-primary-cluster-admins
+  name: automated-admin-email
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -546,9 +589,38 @@ subjects:
   kind: User
   name: ${ADMIN_USER_EMAIL}
 EOF
-		echo "[OK] ClusterRoleBinding for ${ADMIN_USER_EMAIL} created."
+		sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl apply -f "${ADMIN_EMAIL_FILE}"
+		echo "[OK] ClusterRoleBinding 'automated-admin-email' for ${ADMIN_USER_EMAIL} created."
 	else
-		echo "[-] ADMIN_USER_EMAIL is not defined. Skipping ClusterRoleBinding creation."
+		echo "[-] ADMIN_USER_EMAIL is not defined. Skipping automated-admin-email creation."
+	fi
+
+	# 5b. Dynamic Installed Cluster Admin Users Role Binding
+	if [ ${#CLUSTER_ADMIN_EMAILS[@]} -gt 0 ]; then
+		echo "[-] Applying dynamic cluster admin email list (${#CLUSTER_ADMIN_EMAILS[@]} users)..."
+		DYNAMIC_ADMINS_FILE="${CLUSTER_CONFIG_DIR}/cluster-admins-dynamic.yaml"
+		cat <<EOF >"${DYNAMIC_ADMINS_FILE}"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dynamic-installed-cluster-admin-list
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+EOF
+		for admin_email in "${CLUSTER_ADMIN_EMAILS[@]}"; do
+			cat <<EOF >>"${DYNAMIC_ADMINS_FILE}"
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: ${admin_email}
+EOF
+		done
+		sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl apply -f "${DYNAMIC_ADMINS_FILE}"
+		echo "[OK] ClusterRoleBinding 'dynamic-installed-cluster-admin-list' applied successfully."
+	else
+		echo "[-] No cluster admin emails defined in facts. Skipping dynamic-installed-cluster-admin-list creation."
 	fi
 
 	# 6. Deploy Config Sync

@@ -268,96 +268,78 @@ autoinstall:
         return 1
       }
 
-      # A. Wipe all signatures on any existing partitions first before destroying partition table!
-      for p in /dev/nvme*p* /dev/nvme* /dev/sd* /dev/mapper/*; do
+      # 1. Unmount any stale mounts under /target, /mnt, or /media
+      echo "[-] [STORAGE-CLEANUP] Unmounting stale target filesystems..." >/dev/ttyS0 2>/dev/null || true
+      echo "[-] [STORAGE-CLEANUP] Unmounting stale target filesystems..." >/dev/console 2>/dev/null || true
+      grep -E '/target|/mnt' /proc/mounts 2>/dev/null | awk '{print $2}' | sort -r | while read -r mnt_pt; do
+        if [ -n "${mnt_pt}" ]; then
+          umount -f -l "${mnt_pt}" 2>/dev/null || true
+        fi
+      done
+
+      # 2. Teardown active Logical Volumes and Volume Groups unconditionally
+      echo "[-] [STORAGE-CLEANUP] Deactivating existing LVM volume groups..." >/dev/ttyS0 2>/dev/null || true
+      echo "[-] [STORAGE-CLEANUP] Deactivating existing LVM volume groups..." >/dev/console 2>/dev/null || true
+      vgchange -an --force 2>/dev/null || true
+      lvchange -an --force 2>/dev/null || true
+
+      # 3. Close open cryptsetup containers and purge device-mapper nodes
+      echo "[-] [STORAGE-CLEANUP] Closing existing DM-Crypt mappings..." >/dev/ttyS0 2>/dev/null || true
+      echo "[-] [STORAGE-CLEANUP] Closing existing DM-Crypt mappings..." >/dev/console 2>/dev/null || true
+      dmsetup table --target crypt 2>/dev/null | cut -d: -f1 | while read -r crypt_dev; do
+        if [ -n "${crypt_dev}" ]; then
+          cryptsetup close "${crypt_dev}" 2>/dev/null || true
+        fi
+      done
+      dmsetup remove_all --force 2>/dev/null || true
+
+      # 4. Wipe filesystem/partition signatures bottom-up (partitions first, then raw disks)
+      echo "[-] [STORAGE-CLEANUP] Wiping partition and block signatures..." >/dev/ttyS0 2>/dev/null || true
+      echo "[-] [STORAGE-CLEANUP] Wiping partition and block signatures..." >/dev/console 2>/dev/null || true
+      for p in /dev/nvme*p* /dev/sd*[0-9]*; do
         if [ -b "${p}" ]; then
           if is_protected_dev "${p}"; then
             echo "   -> [PROTECT] Skipping protected installer/USB device: ${p}"
             continue
           fi
-          echo "   -> Wiping existing signatures on: ${p}"
           wipefs --all --force "${p}" 2>/dev/null || true
         fi
       done
-      # B. Now safely deactivate Volume Groups and destroy partition tables on physical disks
+
+      # 5. Targeted boundary zeroing on raw target disks (Avoid blkdiscard controller stalls)
       for d in $(lsblk -dno NAME | grep -vE 'loop|sr|ram'); do
         if is_protected_dev "/dev/${d}"; then
           echo "   -> [PROTECT] Preserving protected installer/USB storage disk: /dev/${d}"
           continue
         fi
-        echo "   -> Cleaning device: /dev/${d}"
-        # Deactivate any active Volume Groups on the device
-        vgchange -an --force 2>/dev/null || true
-        # Close any open dm mappings
-        dmsetup remove_all --force || true
-        # Attempt hardware-level blkdiscard to reset the SSD/NVMe drive
-        echo "   -> Attempting hardware-level blkdiscard on: /dev/${d}"
-        blkdiscard --force "/dev/${d}" 2>/dev/null || true
-        
-        # Unconditionally zero out the partition table and first 100MB of the disk to destroy all stale LUKS headers
-        echo "   -> Zeroing out partition table and primary LUKS/GPT header region on: /dev/${d}"
-        dd if=/dev/zero of="/dev/${d}" bs=1M count=100 oflag=direct status=none || true
-        
-        # Also zero out the last 16MB of the disk to destroy the backup GPT header!
+        echo "[-] [STORAGE-CLEANUP] Zeroing GPT and LUKS headers on: /dev/${d}..." >/dev/ttyS0 2>/dev/null || true
+        echo "[-] [STORAGE-CLEANUP] Zeroing GPT and LUKS headers on: /dev/${d}..." >/dev/console 2>/dev/null || true
+        wipefs --all --force "/dev/${d}" 2>/dev/null || true
+
+        # Zero out primary GPT and LUKS header region (first 32MB)
+        dd if=/dev/zero of="/dev/${d}" bs=1M count=32 oflag=direct status=none 2>/dev/null || true
+
+        # Zero out secondary backup GPT region (last 32MB)
         disk_size=$(blockdev --getsize64 "/dev/${d}" 2>/dev/null || echo "0")
-        if [ "${disk_size}" -gt 16777216 ]; then
-          seek_pos=$(( (disk_size - 16777216) / 1048576 ))
-          dd if=/dev/zero of="/dev/${d}" bs=1M count=16 seek="${seek_pos}" oflag=direct status=none || true
+        if [ "${disk_size}" -gt 33554432 ]; then
+          seek_pos=$(( (disk_size - 33554432) / 1048576 ))
+          dd if=/dev/zero of="/dev/${d}" bs=1M count=32 seek="${seek_pos}" oflag=direct status=none 2>/dev/null || true
         fi
-        
-        # --- SYNCHRONIZATION AND FLUSHING ---
-        echo "   -> Synchronizing block device caches for /dev/${d}..."
+
+        # Flush block device caches and reread partition table
         sync 2>/dev/null || true
-        
-        # 1. Flush dirty buffers with error-state check
-        if ! err_out=$(blockdev --flushbufs "/dev/${d}" 2>&1); then
-          echo "   -> [INFO] blockdev --flushbufs on /dev/${d} reported: ${err_out} (this is non-critical and normal when running under virtualized/emulated storage controller layers)."
-        else
-          echo "   -> [SUCCESS] blockdev --flushbufs completed successfully on /dev/${d}."
-        fi
-        
-        # 2. Tell kernel to re-read partition tables with fallback routing on failure
-        if ! err_out=$(blockdev --rereadpt "/dev/${d}" 2>&1); then
-          echo "   -> [WARN] blockdev --rereadpt failed on /dev/${d}: ${err_out}. Attempting partprobe fallback..."
-          if ! probe_err=$(partprobe "/dev/${d}" 2>&1); then
-            echo "   -> [ERROR] Both blockdev rereadpt and partprobe failed on /dev/${d}: ${probe_err}! Stale partitions may continue to persist."
-          else
-            echo "   -> [SUCCESS] partprobe successfully refreshed the partition table map for /dev/${d}."
-          fi
-        else
-          echo "   -> [SUCCESS] blockdev --rereadpt successfully refreshed the partition table map for /dev/${d}."
-        fi
-
-        # --- DETERMINISTIC POLLING VERIFICATION LOOP ---
-        # Since we cleared the partition tables, all /dev/nvme0n1p* block devices should disappear from the kernel.
-        # We poll the sysfs directory structure for nvme0n1 to verify they are gone.
-        max_retries=30
-        retry=0
-        partitions_lingering=true
-        
-        echo "   -> Verifying partition block device removal for /dev/${d}..."
-        while [ ${retry} -lt ${max_retries} ]; do
-          # Check if any sub-partition directories exist in sysfs (e.g. nvme0n1p1 or sda1)
-          if [ -d "/sys/class/block/${d}" ] && ! ls /sys/class/block/${d}/${d}* >/dev/null 2>&1; then
-            echo "   -> [SUCCESS] Verified: All partition block devices for /dev/${d} have successfully disappeared from sysfs."
-            partitions_lingering=false
-            break
-          fi
-          retry=$((retry + 1))
-          sleep 0.5
-        done
-
-        if [ "${partitions_lingering}" = "true" ]; then
-          echo "   -> [ERROR] Partition block devices for /dev/${d} are STILL lingering in sysfs after 15 seconds! Forcing final udev settle."
-          udevadm settle 2>/dev/null || true
-        fi
+        blockdev --flushbufs "/dev/${d}" 2>/dev/null || true
+        partprobe "/dev/${d}" 2>/dev/null || blockdev --rereadpt "/dev/${d}" 2>/dev/null || true
       done
-      
-      # --- FINAL SYSTEM-WIDE SETTLEMENT ---
-      echo "   -> Performing final system-wide sync and dropping page/inode caches..."
-      sync && echo 3 > /proc/sys/vm/drop_caches
-      udevadm settle 2>/dev/null || true
-      echo "   -> Disk sanitization phase successfully finalized. Proceeding to partition."
+
+      # 6. Bounded udev barrier: trigger events and wait with a 15-second ceiling
+      echo "[-] [STORAGE-CLEANUP] Synchronizing kernel state & waiting for udev quiescence (15s ceiling)..." >/dev/ttyS0 2>/dev/null || true
+      echo "[-] [STORAGE-CLEANUP] Synchronizing kernel state & waiting for udev quiescence (15s ceiling)..." >/dev/console 2>/dev/null || true
+      sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+      udevadm trigger --action=change 2>/dev/null || true
+      udevadm settle --timeout=15 2>/dev/null || true
+      echo "[+] [STORAGE-CLEANUP] Storage subsystem is clean, unlocked, and quiescent." >/dev/ttyS0 2>/dev/null || true
+      echo "[+] [STORAGE-CLEANUP] Storage subsystem is clean, unlocked, and quiescent." >/dev/console 2>/dev/null || true
     - |
       # Print GDC vintage parchment boot banner with version and build timestamp
       if [ -f /cdrom/custom-data/boot-banner.txt ]; then
@@ -377,32 +359,6 @@ autoinstall:
       PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
       
     - |
-      # [GDC-INSTALL-STEP 4.5/12] Injecting cryptsetup wrapper to prevent argon2id OOM panics on HMB NVMe drives
-      echo "[-] Deploying cryptsetup memory-limit wrapper..."
-      cat << 'EOW' > /tmp/cryptsetup-wrapper
-      #!/bin/bash
-      if [[ "$*" == *"luksFormat"* ]]; then
-        # Force pbkdf2 and low iteration count for fast, low-memory bootstrapping
-        # This prevents 1GB argon2id allocations that crash DRAM-less NVMe HMB controllers
-        exec /tmp/cryptsetup.orig --pbkdf pbkdf2 --pbkdf-force-iterations 1000 "$@"
-      else
-        exec /tmp/cryptsetup.orig "$@"
-      fi
-      EOW
-      chmod +x /tmp/cryptsetup-wrapper
-      
-      # Backup the real binary
-      cp $(which cryptsetup) /tmp/cryptsetup.orig
-      
-      # Bind mount the wrapper over all cryptsetup instances (including inside the read-only snap!)
-      for cs in $(find /snap/subiquity -name cryptsetup -type f -executable 2>/dev/null); do
-        mount --bind /tmp/cryptsetup-wrapper "$cs" || true
-      done
-      for cs in /sbin/cryptsetup /usr/sbin/cryptsetup /bin/cryptsetup /usr/bin/cryptsetup; do
-        if [ -f "$cs" ]; then
-          mount --bind /tmp/cryptsetup-wrapper "$cs" || true
-        fi
-      done
       # [GDC-INSTALL-STEP 5/12] Activating Live ISO network segment...
       VLAN_ID="{{ machine_vlan }}"
       if [ -z "${VLAN_ID}" ] || [ "${VLAN_ID}" = "0" ]; then
@@ -767,8 +723,12 @@ autoinstall:
       if [ -n "${LUKS_DEVS}" ]; then
         for crypt_dev in ${LUKS_DEVS}; do
           logger -t gdc-provisioner "[GOAL] Adding key to LUKS device ${crypt_dev}..."
-          if curtin in-target -- cryptsetup luksAddKey --key-file=/tmp/pass.txt "${crypt_dev}" /etc/keys/temp_key.key; then
-            logger -t gdc-provisioner "[GOAL] Added key to LUKS device ${crypt_dev}"
+          if cryptsetup luksAddKey --batch-mode --key-file=/var/log/installer/gdc-luks-key "${crypt_dev}" /target/etc/keys/temp_key.key 2>/dev/null; then
+            logger -t gdc-provisioner "[GOAL] Added key to LUKS device ${crypt_dev} using primary installer key"
+          elif [ -f /target/tmp/pass.txt ] && cryptsetup luksAddKey --batch-mode --key-file=/target/tmp/pass.txt "${crypt_dev}" /target/etc/keys/temp_key.key 2>/dev/null; then
+            logger -t gdc-provisioner "[GOAL] Added key to LUKS device ${crypt_dev} using pass.txt fallback"
+          elif curtin in-target -- cryptsetup luksAddKey --key-file=/tmp/pass.txt "${crypt_dev}" /etc/keys/temp_key.key; then
+            logger -t gdc-provisioner "[GOAL] Added key to LUKS device ${crypt_dev} via in-target fallback"
           else
             echo "[GDC-INSTALL-FAIL] Critical Failure: Failed to add key to LUKS device ${crypt_dev}!"
             exit 1
@@ -901,7 +861,7 @@ autoinstall:
         
         PLATFORM_PARAMS=""
         if [ "$IS_AMD" = "true" ]; then
-          PLATFORM_PARAMS="tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp"
+          PLATFORM_PARAMS="tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp pcie_aspm=off amdgpu.aspm=0"
         fi
         
         TARGET_CMDLINE="console=tty1 console=ttyS0,115200 systemd.log_level=info ${PLATFORM_PARAMS} video=efifb:1280x1024"
