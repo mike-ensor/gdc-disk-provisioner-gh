@@ -280,6 +280,51 @@ class TestGgdTemplateHydration(unittest.TestCase):
             parsed = yaml.safe_load(hydrated)
             self.assertIn("config", parsed, f"{filename} must contain a 'config' key.")
 
+    def test_storage_config_lvm_partition_sizes(self):
+        """Verifies updated LVM sizes: lv_var_log=100G, single lv_nexus=300G, dual lv_nexus=-1, lv_sds=-1."""
+        storage_dir = os.path.join(self.template_dir, "storage")
+        
+        # Test Single Disk Templates (BIOS & UEFI)
+        for single_file in ["storage_config_bios_single.yaml", "storage_config_uefi_single.yaml"]:
+            with open(os.path.join(storage_dir, single_file), "r") as f:
+                content = f.read().replace("${DISK_1}", "vda")
+            parsed = yaml.safe_load(content)
+            lvs = {item["name"]: str(item.get("size")) for item in parsed["config"] if item.get("type") == "lvm_partition"}
+            self.assertEqual(lvs.get("lv_var_log"), "100G", f"{single_file} lv_var_log must be 100G")
+            self.assertEqual(lvs.get("lv_nexus"), "300G", f"{single_file} lv_nexus must be 300G")
+            self.assertEqual(lvs.get("lv_sds"), "-1", f"{single_file} lv_sds must be -1")
+
+        # Test Dual Disk Templates (BIOS & UEFI)
+        for dual_file in ["storage_config_bios_dual.yaml", "storage_config_uefi_dual.yaml"]:
+            with open(os.path.join(storage_dir, dual_file), "r") as f:
+                content = f.read().replace("${DISK_1}", "vda").replace("${DISK_2}", "vdb")
+            parsed = yaml.safe_load(content)
+            lvs = {item["name"]: str(item.get("size")) for item in parsed["config"] if item.get("type") == "lvm_partition"}
+            self.assertEqual(lvs.get("lv_var_log"), "100G", f"{dual_file} lv_var_log must be 100G")
+            self.assertEqual(lvs.get("lv_nexus"), "-1", f"{dual_file} lv_nexus must be -1")
+            self.assertEqual(lvs.get("lv_sds"), "-1", f"{dual_file} lv_sds must be -1")
+
+        # Test Jinja2 storage_config.j2 hydration
+        template = self.jinja_env.get_template("storage_config.j2")
+        
+        # Single disk context
+        ctx_single = self.get_context({'SINGLE_DISK': 'true'})
+        rendered_single = template.render(ctx_single)
+        parsed_single = yaml.safe_load(rendered_single)
+        lvs_single = {item["name"]: str(item.get("size")) for item in parsed_single["config"] if item.get("type") == "lvm_partition"}
+        self.assertEqual(lvs_single.get("lv_var_log"), "100G", "storage_config.j2 single lv_var_log must be 100G")
+        self.assertEqual(lvs_single.get("lv_nexus"), "300G", "storage_config.j2 single lv_nexus must be 300G")
+        self.assertEqual(lvs_single.get("lv_sds"), "-1", "storage_config.j2 single lv_sds must be -1")
+
+        # Dual disk context
+        ctx_dual = self.get_context({'SINGLE_DISK': 'false'})
+        rendered_dual = template.render(ctx_dual)
+        parsed_dual = yaml.safe_load(rendered_dual)
+        lvs_dual = {item["name"]: str(item.get("size")) for item in parsed_dual["config"] if item.get("type") == "lvm_partition"}
+        self.assertEqual(lvs_dual.get("lv_var_log"), "100G", "storage_config.j2 dual lv_var_log must be 100G")
+        self.assertEqual(lvs_dual.get("lv_nexus"), "-1", "storage_config.j2 dual lv_nexus must be -1")
+        self.assertEqual(lvs_dual.get("lv_sds"), "-1", "storage_config.j2 dual lv_sds must be -1")
+
     # ==========================================================================
     # TEST SUITE 3: Dynamic Service units, Timers, and Metadata Hydration
     # ==========================================================================
@@ -799,6 +844,13 @@ class TestGgdTemplateHydration(unittest.TestCase):
         # Assert bounded udev settle and partition refresh
         self.assertIn("udevadm settle --timeout=15", rendered)
         self.assertIn("udevadm trigger --action=change", rendered)
+
+        # Assert target-scoped disk wiping (no blanket wipe of all disks in lsblk)
+        self.assertIn("TARGET_DISKS=", rendered)
+        self.assertNotIn("for d in $(lsblk -dno NAME", rendered)
+        self.assertIn("for tgt in ${TARGET_DISKS}; do", rendered)
+        self.assertIn("ID_BUS=usb", rendered)
+        self.assertIn("/proc/mounts", rendered)
 
     def test_luks_add_key_direct_host_execution_and_aspm(self):
         """Verifies direct host cryptsetup luksAddKey execution and AMD PCIe/display stabilization."""

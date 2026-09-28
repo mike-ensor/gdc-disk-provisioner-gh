@@ -199,17 +199,31 @@ autoinstall:
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Performing defensive block device sanitization & cache flushes"
 
+      # Determine explicitly selected installation target disks (from dynamic generator or static config)
+      TARGET_DISKS=""
+      if [ -f /run/autoinstall-storage.yaml ]; then
+        TARGET_DISKS=$(grep -E '^[[:space:]]*- \{type: disk,.*id: disk-(system|data),' /run/autoinstall-storage.yaml | sed -n 's/.*path: \(\/dev\/[^, }]*\).*/\1/p' | tr '\n' ' ')
+      fi
+      if [ -z "${TARGET_DISKS}" ]; then
+        TARGET_DISKS="/dev/{{ disk1 }} {% if not single_disk %}/dev/{{ disk2 }}{% endif %}"
+      fi
+      echo "[-] [STORAGE-CLEANUP] Authorized installation target disks: ${TARGET_DISKS}" >/dev/ttyS0 2>/dev/null || true
+      echo "[-] [STORAGE-CLEANUP] Authorized installation target disks: ${TARGET_DISKS}" >/dev/console 2>/dev/null || true
+
       # Discover installer live media disks to prevent self-erasure when booted from USB
       INSTALLER_DISKS=""
-      for mnt in /cdrom /isodevice /run/live/medium; do
-        if dev=$(findmnt -no SOURCE "${mnt}" 2>/dev/null) && [ -n "${dev}" ]; then
-          real_dev=$(readlink -f "${dev}" 2>/dev/null || echo "${dev}")
+
+      # A. Check mount points associated with installer media (handling tags & bracketed sub-paths)
+      for mnt in /cdrom /isodevice /run/live/medium /run/initramfs/cdrom /run/initramfs/live /rofs; do
+        if dev=$(findmnt -e -no SOURCE "${mnt}" 2>/dev/null) && [ -n "${dev}" ]; then
+          clean_dev="${dev%%\[*}"
+          real_dev=$(readlink -f "${clean_dev}" 2>/dev/null || echo "${clean_dev}")
           if [ -b "${real_dev}" ]; then
             case "${real_dev}" in
               *loop[0-9]*)
                 back_file=$(losetup -O BACK-FILE -n "${real_dev}" 2>/dev/null || true)
                 if [ -n "${back_file}" ]; then
-                  loop_src=$(findmnt -no SOURCE -T "${back_file}" 2>/dev/null || true)
+                  loop_src=$(df --output=source "${back_file}" 2>/dev/null | tail -n 1)
                   if [ -n "${loop_src}" ] && [ -b "${loop_src}" ]; then
                     loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
                     INSTALLER_DISKS="${INSTALLER_DISKS} ${loop_pk:-$(basename "${loop_src}")}"
@@ -225,10 +239,21 @@ autoinstall:
         fi
       done
 
-      # Also detect any block devices hosting iso9660 filesystem
-      for iso_dev in $(blkid -t TYPE=iso9660 -o device 2>/dev/null || true); do
-        if [ -n "${iso_dev}" ] && [ -b "${iso_dev}" ]; then
-          real_dev=$(readlink -f "${iso_dev}" 2>/dev/null || echo "${iso_dev}")
+      # B. Detect all active loop backing files across the system
+      for back_file in $(losetup -O BACK-FILE -n 2>/dev/null || true); do
+        if [ -n "${back_file}" ] && [ -f "${back_file}" ]; then
+          loop_src=$(df --output=source "${back_file}" 2>/dev/null | tail -n 1)
+          if [ -n "${loop_src}" ] && [ -b "${loop_src}" ]; then
+            loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+            INSTALLER_DISKS="${INSTALLER_DISKS} ${loop_pk:-$(basename "${loop_src}")}"
+          fi
+        fi
+      done
+
+      # C. Detect block devices with GDC installer label or iso9660 filesystem
+      for lbl_dev in $(blkid -L "GDC-BOOTSTRAP" 2>/dev/null || true) /dev/disk/by-label/GDC-BOOTSTRAP* $(blkid -t TYPE=iso9660 -o device 2>/dev/null || true); do
+        if [ -n "${lbl_dev}" ] && [ -b "${lbl_dev}" ]; then
+          real_dev=$(readlink -f "${lbl_dev}" 2>/dev/null || echo "${lbl_dev}")
           pkname=$(lsblk -no PKNAME "${real_dev}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
           INSTALLER_DISKS="${INSTALLER_DISKS} ${pkname:-$(basename "${real_dev}")}"
         fi
@@ -236,35 +261,69 @@ autoinstall:
 
       is_protected_dev() {
         target_dev="$1"
-        [ -b "${target_dev}" ] || return 1
+        [ -n "${target_dev}" ] || return 1
         bname=$(basename "${target_dev}")
+
+        # Resolve parent disk name
         pkname=$(lsblk -no PKNAME "${target_dev}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
         if [ -n "${pkname}" ]; then
           root_disk="${pkname}"
         elif [ -f "/sys/class/block/${bname}/partition" ]; then
           root_disk=$(basename "$(dirname "$(readlink -f "/sys/class/block/${bname}")")")
         else
-          root_disk="${bname}"
+          # Fallback regex for standard partition naming (e.g. sda1 -> sda, nvme0n1p1 -> nvme0n1)
+          case "${bname}" in
+            sd[a-z][0-9]*)
+              root_disk=$(echo "${bname}" | sed 's/[0-9]*$//')
+              ;;
+            nvme[0-9]*n[0-9]*p[0-9]*)
+              root_disk=$(echo "${bname}" | sed 's/p[0-9]*$//')
+              ;;
+            *)
+              root_disk="${bname}"
+              ;;
+          esac
         fi
 
-        # Protect all known installer disks
+        # 1. Protect all known installer disks
         for inst_d in ${INSTALLER_DISKS}; do
           if [ "${root_disk}" = "${inst_d}" ] || [ "${bname}" = "${inst_d}" ]; then
             return 0
           fi
         done
 
-        # Protect all USB block devices
+        # 2. Protect if root disk or target partition is actively mounted anywhere in /proc/mounts
+        if grep -q -E "(^|[[:space:]])/dev/${root_disk}([0-9]+|p[0-9]+)?[[:space:]]" /proc/mounts 2>/dev/null; then
+          return 0
+        fi
+
+        # 3. Protect all USB block devices via lsblk transport
         tran=$(lsblk -dno TRAN "/dev/${root_disk}" 2>/dev/null || true)
         if [ "${tran}" = "usb" ]; then
           return 0
         fi
+
+        # 4. Protect USB devices via udev ID_BUS / ID_USB_DRIVER
+        if udevadm info --query=property --name="/dev/${root_disk}" 2>/dev/null | grep -q -E '^(ID_BUS=usb|ID_USB_DRIVER=)'; then
+          return 0
+        fi
+
+        # 5. Protect removable storage media (e.g. USB sticks, SD cards)
+        if [ -f "/sys/block/${root_disk}/removable" ] && [ "$(cat "/sys/block/${root_disk}/removable" 2>/dev/null)" = "1" ]; then
+          return 0
+        fi
+        if [ "$(lsblk -dno RM "/dev/${root_disk}" 2>/dev/null | tr -d '[:space:]')" = "1" ]; then
+          return 0
+        fi
+
+        # 6. Protect devices with sysfs path pointing to USB bus
         if [ -d "/sys/block/${root_disk}" ]; then
           syspath=$(readlink -f "/sys/block/${root_disk}" 2>/dev/null || true)
           case "${syspath}" in
-            */usb*) return 0 ;;
+            *[uU][sS][bB]*) return 0 ;;
           esac
         fi
+
         return 1
       }
 
@@ -293,43 +352,49 @@ autoinstall:
       done
       dmsetup remove_all --force 2>/dev/null || true
 
-      # 4. Wipe filesystem/partition signatures bottom-up (partitions first, then raw disks)
-      echo "[-] [STORAGE-CLEANUP] Wiping partition and block signatures..." >/dev/ttyS0 2>/dev/null || true
-      echo "[-] [STORAGE-CLEANUP] Wiping partition and block signatures..." >/dev/console 2>/dev/null || true
-      for p in /dev/nvme*p* /dev/sd*[0-9]*; do
-        if [ -b "${p}" ]; then
-          if is_protected_dev "${p}"; then
-            echo "   -> [PROTECT] Skipping protected installer/USB device: ${p}"
-            continue
-          fi
-          wipefs --all --force "${p}" 2>/dev/null || true
-        fi
-      done
+      # 4. Wipe filesystem/partition signatures bottom-up ON AUTHORIZED TARGET DISKS ONLY
+      echo "[-] [STORAGE-CLEANUP] Wiping partition and block signatures on target disks..." >/dev/ttyS0 2>/dev/null || true
+      echo "[-] [STORAGE-CLEANUP] Wiping partition and block signatures on target disks..." >/dev/console 2>/dev/null || true
+      for tgt in ${TARGET_DISKS}; do
+        [ -b "${tgt}" ] || continue
+        tgt_bname=$(basename "${tgt}")
 
-      # 5. Targeted boundary zeroing on raw target disks (Avoid blkdiscard controller stalls)
-      for d in $(lsblk -dno NAME | grep -vE 'loop|sr|ram'); do
-        if is_protected_dev "/dev/${d}"; then
-          echo "   -> [PROTECT] Preserving protected installer/USB storage disk: /dev/${d}"
+        if is_protected_dev "${tgt}"; then
+          echo "   -> [PROTECT] Skipping protected installer/USB device: ${tgt}" >/dev/ttyS0 2>/dev/null || true
+          echo "   -> [PROTECT] Preserving protected installer/USB storage disk: ${tgt}" >/dev/console 2>/dev/null || true
           continue
         fi
-        echo "[-] [STORAGE-CLEANUP] Zeroing GPT and LUKS headers on: /dev/${d}..." >/dev/ttyS0 2>/dev/null || true
-        echo "[-] [STORAGE-CLEANUP] Zeroing GPT and LUKS headers on: /dev/${d}..." >/dev/console 2>/dev/null || true
-        wipefs --all --force "/dev/${d}" 2>/dev/null || true
+
+        # Wipe all partitions belonging to this target disk first
+        for p in "/dev/${tgt_bname}"* "/dev/${tgt_bname}"p*; do
+          if [ -b "${p}" ] && [ "${p}" != "${tgt}" ]; then
+            if is_protected_dev "${p}"; then
+              echo "   -> [PROTECT] Skipping protected installer/USB partition: ${p}" >/dev/ttyS0 2>/dev/null || true
+              continue
+            fi
+            wipefs --all --force "${p}" 2>/dev/null || true
+          fi
+        done
+
+        # 5. Targeted boundary zeroing on the raw target disk (Avoid blkdiscard controller stalls)
+        echo "[-] [STORAGE-CLEANUP] Zeroing GPT and LUKS headers on target: ${tgt}..." >/dev/ttyS0 2>/dev/null || true
+        echo "[-] [STORAGE-CLEANUP] Zeroing GPT and LUKS headers on target: ${tgt}..." >/dev/console 2>/dev/null || true
+        wipefs --all --force "${tgt}" 2>/dev/null || true
 
         # Zero out primary GPT and LUKS header region (first 32MB)
-        dd if=/dev/zero of="/dev/${d}" bs=1M count=32 oflag=direct status=none 2>/dev/null || true
+        dd if=/dev/zero of="${tgt}" bs=1M count=32 oflag=direct status=none 2>/dev/null || true
 
         # Zero out secondary backup GPT region (last 32MB)
-        disk_size=$(blockdev --getsize64 "/dev/${d}" 2>/dev/null || echo "0")
+        disk_size=$(blockdev --getsize64 "${tgt}" 2>/dev/null || echo "0")
         if [ "${disk_size}" -gt 33554432 ]; then
           seek_pos=$(( (disk_size - 33554432) / 1048576 ))
-          dd if=/dev/zero of="/dev/${d}" bs=1M count=32 seek="${seek_pos}" oflag=direct status=none 2>/dev/null || true
+          dd if=/dev/zero of="${tgt}" bs=1M count=32 seek="${seek_pos}" oflag=direct status=none 2>/dev/null || true
         fi
 
         # Flush block device caches and reread partition table
         sync 2>/dev/null || true
-        blockdev --flushbufs "/dev/${d}" 2>/dev/null || true
-        partprobe "/dev/${d}" 2>/dev/null || blockdev --rereadpt "/dev/${d}" 2>/dev/null || true
+        blockdev --flushbufs "${tgt}" 2>/dev/null || true
+        partprobe "${tgt}" 2>/dev/null || blockdev --rereadpt "${tgt}" 2>/dev/null || true
       done
 
       # 6. Bounded udev barrier: trigger events and wait with a 15-second ceiling

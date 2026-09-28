@@ -179,9 +179,9 @@ exit 1
         with open(os.path.join(mock_sys_block, "sdb", "size"), "w") as f:
             f.write("536870912\n") # 256GB USB
         with open(os.path.join(mock_sys_block, "nvme0n1", "size"), "w") as f:
-            f.write("1000204800\n") # 500GB NVMe Disk 1
+            f.write("2000409600\n") # 1TB NVMe Disk 1
         with open(os.path.join(mock_sys_block, "nvme1n1", "size"), "w") as f:
-            f.write("2000409600\n") # 1TB NVMe Disk 2
+            f.write("4000819200\n") # 2TB NVMe Disk 2
 
         script_path = os.path.join(PROJECT_ROOT, "src/build/generate_storage_config.sh")
         test_script = f"""#!/usr/bin/env bash
@@ -207,6 +207,50 @@ chmod +x "{self.test_dir}/test_gen_dual.sh"
         # 4. Topology is dual disk
         self.assertIn("Dual Disk", res.stdout)
 
+    def test_generate_storage_config_skips_undersized_disks(self):
+        """Verifies generate_storage_config.sh skips disks smaller than 560 GiB (1174405120 sectors)."""
+        mock_lsblk = os.path.join(self.bin_dir, "lsblk")
+        with open(mock_lsblk, "w") as f:
+            f.write("""#!/usr/bin/env bash
+if [[ "$*" == *"-dno NAME,TYPE"* ]]; then
+    echo "nvme0n1 disk"
+    exit 0
+fi
+if [[ "$*" == *"-dno TRAN /dev/nvme0n1"* ]]; then
+    echo "nvme"
+    exit 0
+fi
+exit 0
+""")
+        os.chmod(mock_lsblk, 0o755)
+
+        mock_findmnt = os.path.join(self.bin_dir, "findmnt")
+        with open(mock_findmnt, "w") as f:
+            f.write("#!/usr/bin/env bash\nexit 1\n")
+        os.chmod(mock_findmnt, 0o755)
+
+        mock_blkid = os.path.join(self.bin_dir, "blkid")
+        with open(mock_blkid, "w") as f:
+            f.write("#!/usr/bin/env bash\nexit 0\n")
+        os.chmod(mock_blkid, 0o755)
+
+        mock_sys_block = os.path.join(self.test_dir, "sys_block_undersized")
+        os.makedirs(os.path.join(mock_sys_block, "nvme0n1"), exist_ok=True)
+        # 250GB disk = 503316480 sectors (< 1174405120 sectors)
+        with open(os.path.join(mock_sys_block, "nvme0n1", "size"), "w") as f:
+            f.write("503316480\n")
+
+        script_path = os.path.join(PROJECT_ROOT, "src/build/generate_storage_config.sh")
+        test_script = f"""#!/usr/bin/env bash
+export PATH="{self.bin_dir}:$PATH"
+sed "s|/sys/block/|{mock_sys_block}/|g" "{script_path}" > "{self.test_dir}/test_gen_undersized.sh"
+chmod +x "{self.test_dir}/test_gen_undersized.sh"
+"{self.test_dir}/test_gen_undersized.sh" --dry-run
+"""
+        res = subprocess.run(["bash", "-c", test_script], capture_output=True, text=True)
+        self.assertIn("Skipping undersized disk: /dev/nvme0n1", res.stderr)
+        self.assertIn("503316480 sectors < 1174405120", res.stderr)
+
     def test_user_data_protection_function(self):
         """Verifies the disk sanitization protection logic in user-data.j2 under POSIX sh."""
         user_data_j2_path = os.path.join(PROJECT_ROOT, "src/build/templates/user-data.j2")
@@ -215,59 +259,111 @@ chmod +x "{self.test_dir}/test_gen_dual.sh"
 
         # Verify key protective safeguards exist in the template
         self.assertIn("is_protected_dev()", content)
-        self.assertIn('INSTALLER_DISKS=""', content)
-        self.assertIn('tran=$(lsblk -dno TRAN "/dev/${root_disk}" 2>/dev/null || true)', content)
-        self.assertIn('echo "   -> [PROTECT] Skipping protected installer/USB device: ${p}"', content)
-        self.assertIn('echo "   -> [PROTECT] Preserving protected installer/USB storage disk: /dev/${d}"', content)
+        self.assertIn("TARGET_DISKS=", content)
+        self.assertIn("/proc/mounts", content)
+        self.assertIn("ID_BUS=usb", content)
+        self.assertIn("GDC-BOOTSTRAP", content)
+        self.assertIn("removable", content)
+        self.assertIn("echo \"   -> [PROTECT] Skipping protected installer/USB", content)
+        self.assertIn("echo \"   -> [PROTECT] Preserving protected installer/USB", content)
 
-        # Test execution of the protection logic in isolation using POSIX sh
+        # Test execution of the hardened protection logic in isolation using POSIX sh
         sh_test = """
-        INSTALLER_DISKS="sda"
+        # Mock /proc/mounts with /dev/sdb1 mounted on /cdrom
+        MOCK_MOUNTS="/tmp/mock_mounts_$$"
+        echo "/dev/sdb1 /cdrom iso9660 ro,noatime 0 0" > "${MOCK_MOUNTS}"
+        trap 'rm -f "${MOCK_MOUNTS}"' EXIT
+
+        INSTALLER_DISKS="sdb"
+
+        # Mock udevadm info
+        mock_udevadm_is_usb() {
+          case "$1" in
+            *sdc*) return 0 ;; # sdc is USB without TRAN
+            *) return 1 ;;
+          esac
+        }
+
+        # Mock removable check
+        mock_is_removable() {
+          case "$1" in
+            *sdd*) return 0 ;; # sdd is removable flash drive
+            *) return 1 ;;
+          esac
+        }
 
         is_protected_dev() {
           target_dev="$1"
+          [ -n "${target_dev}" ] || return 1
           bname=$(basename "${target_dev}")
           
-          # Mock pkname mapping using POSIX case
+          # Resolve parent disk
           case "${bname}" in
-            sda*)
-              pkname="sda"
+            sd[a-z][0-9]*)
+              root_disk=$(echo "${bname}" | sed 's/[0-9]*$//')
               ;;
-            nvme0n1p*)
-              pkname="nvme0n1"
+            nvme[0-9]*n[0-9]*p[0-9]*)
+              root_disk=$(echo "${bname}" | sed 's/p[0-9]*$//')
               ;;
             *)
-              pkname=""
+              root_disk="${bname}"
               ;;
           esac
-          root_disk="${pkname:-${bname}}"
 
+          # 1. Protect if explicitly discovered as installer media
           for inst_d in ${INSTALLER_DISKS}; do
             if [ "${root_disk}" = "${inst_d}" ] || [ "${bname}" = "${inst_d}" ]; then
               return 0
             fi
           done
 
+          # 2. Protect if actively mounted anywhere in /proc/mounts
+          if grep -q -E "(^|[[:space:]])/dev/${root_disk}([0-9]+|p[0-9]+)?[[:space:]]" "${MOCK_MOUNTS}" 2>/dev/null; then
+            return 0
+          fi
+
+          # 3. Protect USB transport
           if [ "${root_disk}" = "sda" ]; then
             tran="usb"
           else
-            tran="nvme"
+            tran=""
           fi
-
           if [ "${tran}" = "usb" ]; then
             return 0
           fi
+
+          # 4. Protect udev ID_BUS=usb
+          if mock_udevadm_is_usb "${root_disk}"; then
+            return 0
+          fi
+
+          # 5. Protect removable media
+          if mock_is_removable "${root_disk}"; then
+            return 0
+          fi
+
           return 1
         }
 
-        # Assert sda and its partitions are protected
-        is_protected_dev /dev/sda || exit 1
-        is_protected_dev /dev/sda1 || exit 2
-        is_protected_dev /dev/sda2 || exit 3
+        # Test A: Explicit installer disk sdb (and partition sdb1)
+        is_protected_dev /dev/sdb || exit 1
+        is_protected_dev /dev/sdb1 || exit 2
 
-        # Assert internal drive nvme0n1 is NOT protected (safe to wipe)
-        if is_protected_dev /dev/nvme0n1; then exit 4; fi
-        if is_protected_dev /dev/nvme0n1p1; then exit 5; fi
+        # Test B: USB with TRAN=usb (sda)
+        is_protected_dev /dev/sda || exit 3
+        is_protected_dev /dev/sda1 || exit 4
+
+        # Test C: USB with empty TRAN but udev ID_BUS=usb (sdc)
+        is_protected_dev /dev/sdc || exit 5
+        is_protected_dev /dev/sdc1 || exit 6
+
+        # Test D: Removable flash drive without TRAN or udev (sdd)
+        is_protected_dev /dev/sdd || exit 7
+        is_protected_dev /dev/sdd1 || exit 8
+
+        # Test E: Internal NVMe drive nvme0n1 (must NOT be protected, safe to wipe if target)
+        if is_protected_dev /dev/nvme0n1; then exit 9; fi
+        if is_protected_dev /dev/nvme0n1p1; then exit 10; fi
 
         echo "PROTECTION_TEST_OK"
         """

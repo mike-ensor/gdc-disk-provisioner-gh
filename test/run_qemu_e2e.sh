@@ -126,7 +126,7 @@ if [[ "${QEMU_AVAILABLE}" = "false" ]]; then
         echo "[-] Displaying the precise dynamic dual-disk & TPM automation command sequence:"
         echo "=============================================================================="
         echo "1. Create Sparse Virtual GDC Drives (0 bytes baseline disk space usage):"
-        echo "   $ qemu-img create -f qcow2 /tmp/gdc-sys-disk.qcow2 250G"
+        echo "   $ qemu-img create -f qcow2 /tmp/gdc-sys-disk.qcow2 650G"
         echo "   $ qemu-img create -f qcow2 /tmp/gdc-data-disk.qcow2 350G"
         echo ""
         echo "2. Spin up Isolated TPM 2.0 Emulator Daemon (unique temp folder path):"
@@ -181,8 +181,8 @@ TPM_TEMP_DIR=""
 SWTPM_PID=""
 
 if [[ "${REUSE_DISKS}" = "false" ]]; then
-    echo "[-] Creating 250 GiB sparse validation target System disk..."
-    qemu-img create -f qcow2 "${TEMP_DISK_1}" 250G &>/dev/null
+    echo "[-] Creating 650 GiB sparse validation target System disk..."
+    qemu-img create -f qcow2 "${TEMP_DISK_1}" 650G &>/dev/null
 
     # Dual Disk topology allocation (Disk 2)
     echo "[-] Creating 350 GiB sparse validation target Data disk..."

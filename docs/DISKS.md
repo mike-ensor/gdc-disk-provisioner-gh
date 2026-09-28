@@ -28,27 +28,31 @@ GDC Bare Metal requires strict isolation of disk workloads to prevent resource c
 
 The dynamic disk analyzer script (`src/build/generate_storage_config.sh`) executes during the early stage of cloud-init boot. It scans block devices using the following heuristics:
 
-1. **Size Filtering:** Only devices with a capacity $\ge 240\text{ GiB}$ ($503,316,480$ sectors of 512 bytes) are registered as GDC-compliant target drives. Smaller storage targets are ignored.
-2. **Device Exclusion:** System loopback devices (`/dev/loop*`), active bootable installer live media (`/cdrom`, `/isodevice`, `iso9660` optical/USB drives), and all USB transport storage devices (`TRAN=usb` or `/sys/devices/.../usb*`) are explicitly excluded to prevent accidental self-erasure when booting from USB media.
+1. **Size Filtering:** Only devices with a capacity $\ge 560\text{ GiB}$ ($1,174,405,120$ sectors of 512 bytes) are registered as GDC-compliant target drives. Smaller storage targets are ignored.
+2. **Device Exclusion:** System loopback devices (`/dev/loop*`), active bootable installer live media (`/cdrom`, `/isodevice`, `/rofs`, `/run/live/*`, `GDC-BOOTSTRAP` label, `iso9660` optical/USB drives), and all USB transport or removable storage devices (`TRAN=usb`, udev `ID_BUS=usb`, `ID_USB_DRIVER=usb-storage|uas`, or `/sys/block/.../removable`) are explicitly excluded to prevent accidental self-erasure when booting from USB media.
 3. **Ascending Size Sorting:** Disks are sorted ascending by sector count. The smaller physical drive is always allocated as the **System Disk (Disk 1)**, while the larger drive is designated as the **Data Disk (Disk 2)**. This ensures optimal utilization of high-capacity storage on dense hardware platforms.
+
+### Target-Scoped Sanitization & Media Protection
+During LiveCD `early-commands` (Task 4 storage cleanup), the installer strictly restricts destructive partition and raw block zeroing (`wipefs`, `dd if=/dev/zero`) to the **explicitly authorized target installation disks** (`/run/autoinstall-storage.yaml`). Non-target block devices (such as USB installer thumb drives, external maintenance storage, or SAN volumes) are never touched. Furthermore, `is_protected_dev()` enforces layered guards against live mounts in `/proc/mounts`, udev USB attributes, sysfs bus paths, and volume labels before executing any destructive operations.
 
 ---
 
 ## 3. Dynamic Topology & Scaling Rules
 
-### A. Single-Disk Topology (1x NVMe/SSD $\ge 250\text{ GiB}$)
-* **The Constraint:** The sum of standard GDC Logical Volume targets exceeds 400 GiB. Installing onto a single 250GB-500GB SSD requires active partition scaling to prevent volume group exhaustion.
-* **The Resolution:** Gitea, Nexus, and local-disk volumes are automatically scaled down:
+### A. Single-Disk Topology (1x NVMe/SSD $\ge 600\text{ GiB}$ / $1\text{ TB}$)
+* **The Constraint:** The sum of standard GDC Logical Volume targets (including 100 GiB logs and 300 GiB Nexus) requires at least 557 GiB baseline storage before customer SDS allocation.
+* **The Resolution:** Logical volumes are allocated with dedicated quotas:
+  * `lv_var_log` is allocated **100 GiB**.
   * `lv_gitea` is scaled to **15 GiB**.
-  * `lv_nexus` (registry mirror) is scaled to **60 GiB**.
+  * `lv_nexus` (registry mirror) is allocated **300 GiB**.
   * `lv_local_disk` is scaled to **25 GiB**.
-  * `lv_sds` (Software-Defined Storage) is assigned all remaining capacity (approx. 280 GiB on a 500GB drive).
+  * `lv_sds` (Software-Defined Storage) is assigned all remaining capacity (`size: -1`).
 * **LUKS Container:** A single encrypted DM-Crypt container (`crypt-system`) is initialized, backing the Volume Group `vg_system`.
 
-### B. Dual/Multi-Disk Topology (2x to 4x+ NVMe/SSD $\ge 250\text{ GiB}$)
+### B. Dual/Multi-Disk Topology (2x to 4x+ NVMe/SSD $\ge 600\text{ GiB}$ / $1\text{ TB}$)
 * **Workload Isolation (Separation of Concerns):** To maximize IOPS performance and satisfy etcd's low-latency requirements under high loads, system processes and customer container data pipelines are physically separated across independent physical drives:
-  * **Disk 1 (System Disk):** Automatically partitioned and mapped under the encrypted volume group `vg_system`. It hosts `/`, `/var`, `/var/log`, `containerd`, `etcd`, Gitea, and Nexus. Since local storage blocks are moved to Disk 2, the installer removes the sizing limits on local mirrors, allowing `lv_nexus` to scale to the **entire remainder of Disk 1** (e.g. ~1.8 TB on a 2TB drive) to cache massive registries.
-  * **Disk 2 (Data Disk):** Initialized under a separate encrypted LVM Volume Group `vg_data`. This drive is dedicated entirely to high-volume user data: `/customer/local-disk` (100 GiB) and `/customer/sds` (remainder of Disk 2, e.g. ~1.9 TB on a 2TB drive).
+  * **Disk 1 (System Disk):** Automatically partitioned and mapped under the encrypted volume group `vg_system`. It hosts `/`, `/var`, `/var/log` (100 GiB), `containerd`, `etcd`, Gitea, and Nexus. Since local storage blocks are moved to Disk 2, the installer removes the fixed sizing limits on local mirrors, allowing `lv_nexus` to scale to the **entire remainder of Disk 1** (`size: -1`, guaranteed $\ge 300\text{ GiB}$ on compliant drives) to cache massive registries.
+  * **Disk 2 (Data Disk):** Initialized under a separate encrypted LVM Volume Group `vg_data`. This drive is dedicated entirely to high-volume user data: `/customer/local-disk` (100 GiB) and `/customer/sds` (remainder of Disk 2, `size: -1`).
   * **Outcome:** Write-heavy container extractions on Disk 2 do not cause I/O latency spikes on Disk 1, ensuring the etcd consensus database maintains uninterrupted quorum.
 
 ### C. Pristine Block Preservation (Disks 3 and 4)
@@ -67,15 +71,15 @@ The primary target drives are partitioned and formatted based on the detected to
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `lv_root` | `/` | 20 GiB | EXT4 | `defaults` | Host operating system binaries & basic tools. |
 | `lv_var` | `/var` | 20 GiB | EXT4 | `defaults,noatime` | Kubelet states and runtime data directories. |
-| `lv_var_log` | `/var/log` | 15 GiB | EXT4 | `defaults,noatime` | **Logs Isolation:** Fluent-bit buffers (12 GiB required) are isolated from system root. |
+| `lv_var_log` | `/var/log` | 100 GiB | EXT4 | `defaults,noatime` | **Logs Isolation:** Fluent-bit buffers and journald logs isolated from system root. |
 | `lv_var_opt_metrics` | `/var/opt/buffered-metrics` | 10 GiB | EXT4 | `defaults,noatime` | **Metrics Isolation:** GDC metrics collection buffer (10,016 MiB required). |
 | `lv_containerd` | `/var/lib/containerd` | 30 GiB | XFS | `defaults,noatime,prjquota` | **CRI Isolation:** Container image storage; enforces XFS Project Quotas (`prjquota`). |
 | `lv_etcd` | `/var/lib/etcd` | 20 GiB | EXT4 | `noatime,nodiratime,commit=1` | **Performance Isolation:** Core etcd database. `commit=1` minimizes consensus write latency. |
 | `lv_etcd_events` | `/var/lib/etcd-events` | 5 GiB | EXT4 | `noatime,nodiratime,commit=1` | **Performance Isolation:** etcd events database. `commit=1` minimizes event write latency. |
 | `lv_gitea` | `/var/lib/gitea` | 20 GiB | EXT4 | `defaults,noatime` | Local Gitea mirror git repositories storage boundary. |
-| `lv_nexus` | `/var/lib/nexus` | 150 GiB* | EXT4 | `defaults,noatime` | Local Nexus cache and blob stores (APT, OCI registry layers, LLMs). |
+| `lv_nexus` | `/var/lib/nexus` | 300 GiB* | EXT4 | `defaults,noatime` | Local Nexus cache and blob stores (APT, OCI registry layers, LLMs). |
 
-*\* Note: On Single-Disk topologies, `lv_gitea` is scaled to 15 GiB, `lv_nexus` to 60 GiB, and `lv_root`/`lv_var` to 15 GiB each. On Dual-Disk topologies, `lv_nexus` consumes the entire remainder of Disk 1 (`size: -1`).*
+*\* Note: On Single-Disk topologies, `lv_var_log` is 100 GiB, `lv_gitea` is scaled to 15 GiB, `lv_nexus` to 300 GiB, and `lv_root`/`lv_var` to 15 GiB/25 GiB. On Dual-Disk topologies, `lv_nexus` consumes the entire remainder of Disk 1 (`size: -1`, guaranteed $\ge 300\text{ GiB}$ on compliant drives).*
 
 ### Data Volume Group (`vg_data`) - Mounted on Disk 2 (Multi-Disk Only)
 

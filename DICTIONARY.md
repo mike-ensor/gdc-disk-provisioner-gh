@@ -118,19 +118,19 @@ A GRUB display parameter (`video=efifb:1280x1024`) that forces a standard 16:9 1
 A GDC Bare Metal compliant storage partitioning standard. It isolates system partitions (EFI, boot) from 9 to 11 dedicated Logical Volumes inside an encrypted Volume Group (`vg_system`), preventing single-filesystem saturation from impacting Kubernetes operations:
 * `/` (`lv_root`): 20 GiB — Base operating system.
 * `/var` (`lv_var`): 20 GiB — Kubelet states and runtime data.
-* `/var/log` (`lv_var_log`): 15 GiB — Fluent-bit and system log isolation.
+* `/var/log` (`lv_var_log`): 100 GiB — Fluent-bit, journald, and system log isolation.
 * `/var/opt/buffered-metrics` (`lv_var_opt_metrics`): 10 GiB — GDC telemetry metrics buffer.
 * `/var/lib/containerd` (`lv_containerd`): 30 GiB — CRI runtime container storage (XFS with `prjquota`).
 * `/var/lib/etcd` (`lv_etcd`): 20 GiB — etcd consensus database (`commit=1` mount optimization).
 * `/var/lib/etcd-events` (`lv_etcd_events`): 5 GiB — etcd events database (`commit=1`).
 * `/var/lib/gitea` (`lv_gitea`): 15–20 GiB — Local Gitea repository storage.
-* `/var/lib/nexus` (`lv_nexus`): 60–150 GiB+ — Local Nexus caching registries and blob stores.
+* `/var/lib/nexus` (`lv_nexus`): 300 GiB (single-disk) or remainder (dual-disk) — Local Nexus caching registries and blob stores.
 
 ### Single-Disk Topology
-The automated storage layout deployed on servers with exactly one NVMe/SSD ($\ge 250\text{ GiB}$). Because full standard LVM allocations exceed 400 GiB, the dynamic storage script (`generate_storage_config.sh`) proportionally scales down non-critical partitions (`lv_gitea` to 15 GiB, `lv_nexus` to 60 GiB, `lv_local_disk` to 25 GiB), assigning all remaining capacity to `/customer/sds`.
+The automated storage layout deployed on servers with exactly one NVMe/SSD ($\ge 560\text{ GiB}$ / $600\text{ GB+}$). Accommodates the full standard LVM allocations (including 100 GiB logs and 300 GiB Nexus), assigning all remaining capacity to `/customer/sds`.
 
 ### Dual/Multi-Disk Topology
-The high-performance storage layout deployed on servers with two or more NVMe/SSDs ($\ge 250\text{ GiB}$). It enforces physical workload isolation across separate physical block devices:
+The high-performance storage layout deployed on servers with two or more NVMe/SSDs ($\ge 560\text{ GiB}$ / $600\text{ GB+}$). It enforces physical workload isolation across separate physical block devices:
 * **Disk 1 (System Disk - `vg_system`):** Hosts OS, etcd, containerd, Gitea, and Nexus. `lv_nexus` expands to consume all remaining space on Disk 1.
 * **Disk 2 (Data Disk - `vg_data`):** Dedicated entirely to customer container volumes: `/customer/local-disk` (100 GiB) and `/customer/sds` (remainder of Disk 2). Write-intensive customer storage cannot cause I/O starvation on Disk 1 etcd consensus logs.
 

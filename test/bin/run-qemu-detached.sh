@@ -15,7 +15,7 @@ rm -rf /tmp/gdc-swtpm/ /tmp/gdc-qemu-*.qcow2 /tmp/gdc-qemu-serial.log
 mkdir -p /tmp/gdc-swtpm/
 swtpm socket --tpmstate dir=/tmp/gdc-swtpm/ --tpm2 --ctrl type=unixio,path=/tmp/gdc-swtpm/swtpm-sock --daemon
 
-qemu-img create -f qcow2 /tmp/gdc-qemu-sys.qcow2 250G
+qemu-img create -f qcow2 /tmp/gdc-qemu-sys.qcow2 650G
 qemu-img create -f qcow2 /tmp/gdc-qemu-data.qcow2 350G
 
 qemu-system-x86_64 \
