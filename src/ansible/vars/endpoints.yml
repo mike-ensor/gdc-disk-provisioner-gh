@@ -1,0 +1,64 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+# ==============================================================================
+# GDC Node & Platform Endpoints Manifest
+# ==============================================================================
+# Categorized into:
+#   system: External Google Cloud APIs and container registries
+#   platform: Node & local bare-metal environment infrastructure (NTP, Step CA, Companion)
+#
+# Cadences:
+#   always: Validated on every Ansible preflight run (all lifecycle stages)
+#   once.<stage>: Validated only when the designated lifecycle stage is executing
+# ==============================================================================
+
+system:
+  always:
+    - accounts.google.com
+    - compute.googleapis.com
+    - storage.googleapis.com
+    - gcr.io
+  once:
+    first-boot:
+      - cloudresourcemanager.googleapis.com
+      - iam.googleapis.com
+      - iamcredentials.googleapis.com
+    second-boot:
+      - gkeconnect.googleapis.com
+      - gkehub.googleapis.com
+      - gkeonprem.googleapis.com
+      - gkeonprem.mtls.googleapis.com
+    linux-ready:
+      - logging.googleapis.com
+      - monitoring.googleapis.com
+      - stackdriver.googleapis.com
+    cluster-ready:
+      - sts.googleapis.com
+      - servicecontrol.googleapis.com
+      - serviceusage.googleapis.com
+    cluster-turnup:
+      - k8s.gcr.io
+      - logging.gdce.googleapis.com
+      - storage.gdce.googleapis.com
+      - connectgateway.googleapis.com
+      - containerregistry.googleapis.com
+      - oauth2.googleapis.com
+      - securetoken.googleapis.com
+      - www.googleapis.com
+    post-cluster: []
+    upkeep: []
+
+platform:
+  always:
+    - "{{ ntp_servers | default(['time.google.com']) }}"
+  once:
+    first-boot: []
+    second-boot:
+      - "{{ gdc_companion_reports_url | default('https://gdc-companion.ensor-labs.com') }}"
+      - "{{ gdc_step_ca_url | default('https://step-ca.ensor-labs.com') }}"
+    linux-ready: []
+    cluster-ready:
+      - "{{ gdc_companion_base_url | default('https://gdc-companion.ensor-labs.com') }}"
+    cluster-turnup: []
+    post-cluster: []
+    upkeep: []

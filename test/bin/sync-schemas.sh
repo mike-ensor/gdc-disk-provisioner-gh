@@ -18,21 +18,20 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-TARGET_SCHEMA="${REPO_ROOT}/docs/machine-schema.json"
-
 DEFAULT_COMPANION="/d/projects/google/gdc-companion"
 SIBLING_COMPANION="$(cd "${REPO_ROOT}/../gdc-companion" 2>/dev/null && pwd || true)"
 
 COMPANION_DIR="${GDC_COMPANION_DIR:-$([[ -d "${DEFAULT_COMPANION}" ]] && echo "${DEFAULT_COMPANION}" || echo "${SIBLING_COMPANION}")}"
-SOURCE_SCHEMA="${COMPANION_DIR}/docs/machine-schema.json"
 
 CHECK_ONLY=false
+SCHEMAS=("machine-schema.json" "report-schema.json" "build-report-schema.json")
 
 usage() {
     cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
-Synchronizes docs/machine-schema.json from the upstream gdc-companion repository.
+Synchronizes schemas (machine-schema.json, report-schema.json, build-report-schema.json)
+from the upstream gdc-companion repository to docs/.
 
 Options:
   --check       Check for divergence without modifying files (exits 1 if drifted)
@@ -50,7 +49,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --companion)
             COMPANION_DIR="$2"
-            SOURCE_SCHEMA="${COMPANION_DIR}/docs/machine-schema.json"
             shift 2
             ;;
         -h|--help)
@@ -63,16 +61,32 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ ! -f "${SOURCE_SCHEMA}" ]]; then
-    echo "Error: Upstream schema not found at '${SOURCE_SCHEMA}'" >&2
+if [[ ! -d "${COMPANION_DIR}" ]]; then
+    echo "Error: Upstream gdc-companion directory not found at '${COMPANION_DIR}'" >&2
     echo "Set GDC_COMPANION_DIR or pass --companion <PATH>" >&2
     exit 1
 fi
 
-echo "[-] Upstream schema: ${SOURCE_SCHEMA}"
-echo "[-] Local target:    ${TARGET_SCHEMA}"
+TOTAL_DIVERGENCES=0
 
-python3 -c "
+for schema_file in "${SCHEMAS[@]}"; do
+    SOURCE_SCHEMA="${COMPANION_DIR}/docs/${schema_file}"
+    TARGET_SCHEMA="${REPO_ROOT}/docs/${schema_file}"
+
+    if [[ ! -f "${SOURCE_SCHEMA}" ]]; then
+        echo "[-] Skipping '${schema_file}': not found in upstream '${COMPANION_DIR}/docs/'"
+        continue
+    fi
+
+    echo "[-] Checking schema '${schema_file}'..."
+    echo "    Upstream: ${SOURCE_SCHEMA}"
+    echo "    Local:    ${TARGET_SCHEMA}"
+
+    if [[ ! -f "${TARGET_SCHEMA}" ]]; then
+        echo "    [!] Local schema missing!"
+        STATUS=2
+    else
+        python3 -c "
 import json, sys
 
 with open(sys.argv[1], 'r', encoding='utf-8') as sf, open(sys.argv[2], 'r', encoding='utf-8') as tf:
@@ -83,30 +97,25 @@ upstream_cmp = {k: v for k, v in upstream.items() if k != '\$comment'}
 local_cmp = {k: v for k, v in local.items() if k != '\$comment'}
 
 if upstream_cmp == local_cmp:
-    print('  [x] Schemas are identical (in sync).')
+    print('    [x] Schemas are identical (in sync).')
     sys.exit(0)
 else:
-    print('[!] Schemas have diverged!', file=sys.stderr)
+    print('    [!] Schemas have diverged!', file=sys.stderr)
     sys.exit(2)
-" "${SOURCE_SCHEMA}" "${TARGET_SCHEMA}" && STATUS=$? || STATUS=$?
+" "${SOURCE_SCHEMA}" "${TARGET_SCHEMA}" 2>/dev/null && STATUS=$? || STATUS=$?
+    fi
 
-if [[ "${STATUS}" -eq 0 ]]; then
-    exit 0
-fi
-
-if [[ "${CHECK_ONLY}" == "true" ]]; then
-    echo "Error: Divergence detected between local and upstream schema." >&2
-    exit 1
-fi
-
-echo "[-] Updating local schema with upstream definitions..."
-python3 -c "
+    if [[ "${STATUS}" -ne 0 ]]; then
+        TOTAL_DIVERGENCES=$((TOTAL_DIVERGENCES + 1))
+        if [[ "${CHECK_ONLY}" == "false" ]]; then
+            echo "    [-] Updating local ${schema_file} with upstream definitions..."
+            python3 -c "
 import json, sys
 
 with open(sys.argv[1], 'r', encoding='utf-8') as sf:
     upstream = json.load(sf)
 
-comment = 'UPSTREAM OWNER: gdc-companion (docs/machine-schema.json). DO NOT EDIT DIRECTLY. This file is vendored from the gdc-companion repository to support hermetic, air-gapped CI and offline validation. Run bin/sync-schemas.sh to sync with upstream.'
+comment = f'UPSTREAM OWNER: gdc-companion (docs/{sys.argv[3]}). DO NOT EDIT DIRECTLY. This file is vendored from the gdc-companion repository to support hermetic, air-gapped CI and offline validation. Run bin/sync-schemas.sh to sync with upstream.'
 
 ordered = {'\$schema': upstream.get('\$schema', 'http://json-schema.org/draft-07/schema#'), '\$comment': comment}
 for k, v in upstream.items():
@@ -117,5 +126,15 @@ with open(sys.argv[2], 'w', encoding='utf-8') as tf:
     json.dump(ordered, tf, indent=2)
     tf.write('\n')
 
-print('  [x] Successfully synchronized docs/machine-schema.json from gdc-companion.')
-" "${SOURCE_SCHEMA}" "${TARGET_SCHEMA}"
+print(f'    [x] Successfully synchronized docs/{sys.argv[3]} from gdc-companion.')
+" "${SOURCE_SCHEMA}" "${TARGET_SCHEMA}" "${schema_file}"
+        fi
+    fi
+done
+
+if [[ "${TOTAL_DIVERGENCES}" -gt 0 && "${CHECK_ONLY}" == "true" ]]; then
+    echo "Error: Divergence detected in ${TOTAL_DIVERGENCES} schema file(s)." >&2
+    exit 1
+fi
+
+echo "[x] All schemas verified."

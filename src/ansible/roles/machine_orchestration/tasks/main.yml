@@ -50,7 +50,7 @@
     validate_certs: false
   register: api_response
   ignore_errors: true
-  when: not manual_fact_stat.stat.exists and not mock_file_stat.stat.exists
+  when: not manual_fact_stat.stat.exists and not mock_file_stat.stat.exists and not (dns_fallback_active | default(false) | bool)
 
 - name: "GDC-ORCH | Read local machine-info-mock.json if present"
   ansible.builtin.slurp:
@@ -67,7 +67,11 @@
         else (
           (slurped_mock.content | b64decode | from_json | combine({'is_fallback': false}))
           if mock_file_stat.stat.exists
-          else (api_response.json.variables | default(api_response.json | default({})) | combine({'is_fallback': false}))
+          else (
+            (api_response.json.variables | default(api_response.json | default({})) | combine({'is_fallback': false}))
+            if (api_response is defined and api_response.json is defined)
+            else {}
+          )
         )
       }}
 
@@ -84,7 +88,14 @@
 
 - name: "GDC-ORCH | Set fallback machine-info configuration if API failed and no mock exists"
   ansible.builtin.set_fact:
-    machine_config: "{{ slurped_fallback_config.content | b64decode | from_json }}"
+    machine_config: >-
+      {{
+        (slurped_fallback_config.content | b64decode | from_json)
+        | combine({
+            'is_fallback': true,
+            'fallback_reason': ('DNS resolution failed for ' + (dns_failed_domains | default([]) | join(', '))) if (dns_fallback_active | default(false) | bool) else 'Companion API unreachable'
+          })
+      }}
   when: machine_config is not defined or machine_config == {} or 'error' in machine_config or 'hostname' not in machine_config
 
 - name: "GDC-ORCH | Apply Desired State Configuration Fallbacks"
@@ -485,6 +496,17 @@
 - name: "GDC-EVIDENCE | Structure Evidence Facts"
   ansible.builtin.set_fact:
     cluster_ready_evidence:
+      operating_mode: "{{ 'standalone' if (machine_config.is_fallback | default(false) | bool) else 'connected' }}"
+      dns_fallback_active: "{{ dns_fallback_active | default(false) | bool }}"
+      dns_resolution:
+        status: "{{ 'FAILED' if (dns_fallback_active | default(false) | bool) else 'PASS' }}"
+        unresolved_domains: "{{ dns_failed_domains | default([]) }}"
+        notes: >-
+          {{
+            'DNS resolution could not be completed for GDC Companion / Step CA after retries. Standalone fallback configuration engaged.'
+            if (dns_fallback_active | default(false) | bool)
+            else 'Critical platform endpoints resolved successfully.'
+          }}
       timing:
         start_time: "{{ cluster_ready_start_time | default(ansible_date_time.iso8601) }}"
         end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
