@@ -25,28 +25,31 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SCRIPT_DIR}"
 
-# Source environment
-if [[ -f "${PROJECT_ROOT}/.envrc" ]]; then
-    # shellcheck source=/dev/null
-    source "${PROJECT_ROOT}/.envrc"
-fi
+# Capture caller-provided environment variables so file sourcing does not overwrite them
+declare -A INITIAL_ENV
+for var in $(compgen -e); do
+    INITIAL_ENV[$var]=1
+done
 
 BUILD_ENV="${PROJECT_ROOT}/src/build/build.env"
 ISO_ENVIRONMENT="${ISO_ENVIRONMENT:-local}"
 LOCAL_ENV="${PROJECT_ROOT}/src/build/${ISO_ENVIRONMENT}.env"
 
-source_env_safe() {
+# Safe environment file loader: defaults from build.env, overrides from local.env,
+# and initial caller environment takes absolute precedence.
+load_env_file() {
     local env_file="$1"
     if [[ -f "${env_file}" ]]; then
         while IFS= read -r line || [[ -n "$line" ]]; do
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
             [[ -z "$line" ]] && continue
+            line="${line#"export "}"
             if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
                 local key="${BASH_REMATCH[1]}"
                 local val="${BASH_REMATCH[2]}"
                 val="${val#\"}" && val="${val%\"}"
                 val="${val#\'}" && val="${val%\'}"
-                if [[ -z "${!key:-}" ]]; then
+                if [[ -z "${INITIAL_ENV[${key}]:-}" ]]; then
                     export "${key}"="${val}"
                 fi
             fi
@@ -54,8 +57,8 @@ source_env_safe() {
     fi
 }
 
-source_env_safe "${BUILD_ENV}"
-source_env_safe "${LOCAL_ENV}"
+load_env_file "${BUILD_ENV}"
+load_env_file "${LOCAL_ENV}"
 
 # ==========================================
 # Help Menu
@@ -128,6 +131,15 @@ fi
 # ==========================================
 PXE_SERVER_HOST="${PXE_SERVER_HOST:-192.168.254.12}"
 PXE_SERVER_PORT="${PXE_SERVER_PORT:-26000}"
+BOOTIMUS_HTTP_PORT="${BOOTIMUS_HTTP_PORT:-16000}"
+
+# Export aligned variables for downstream Python engine
+export PXE_SERVER_HOST
+export PXE_SERVER_PORT
+export BOOTIMUS_API_HOST="${BOOTIMUS_API_HOST:-${PXE_SERVER_HOST}}"
+export BOOTIMUS_API_PORT="${BOOTIMUS_API_PORT:-${PXE_SERVER_PORT}}"
+export BOOTIMUS_HTTP_PORT
+export ISO_ENVIRONMENT
 
 echo "=============================================================================="
 if [[ "${ACTION}" == "LIST" ]]; then

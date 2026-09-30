@@ -1,0 +1,29 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "GDC-UPKEEP | Ensure gdc-provision periodic timer is enabled and active"
+  ansible.builtin.systemd:
+    name: gdc-provision.timer
+    enabled: true
+    state: started
+  register: provision_timer_stat
+  failed_when: false
+
+- name: "GDC-UPKEEP | Ensure gdc-desired-state timer is enabled and active"
+  ansible.builtin.systemd:
+    name: gdc-desired-state.timer
+    enabled: true
+    state: started
+  register: desired_state_timer_stat
+  failed_when: false
+
+- name: "GDC-UPKEEP | Verify headless USB sideload update rule exists"
+  ansible.builtin.stat:
+    path: /etc/udev/rules.d/99-gdc-usb-updater.rules
+  register: usb_udev_rule_stat
+
+- name: "GDC-EVIDENCE | Structure Upkeep Evidence Facts"
+  ansible.builtin.set_fact:
+    upkeep_evidence:
+      provision_timer_configured: "{{ (provision_timer_stat.status is defined and provision_timer_stat.status.ActiveState == 'active') or (provision_timer_stat.state is defined and provision_timer_stat.state == 'started') }}"
+      desired_state_timer_configured: "{{ (desired_state_timer_stat.status is defined and desired_state_timer_stat.status.ActiveState == 'active') or (desired_state_timer_stat.state is defined and desired_state_timer_stat.state == 'started') }}"
+      usb_updater_rule_configured: "{{ usb_udev_rule_stat.stat.exists | bool }}"

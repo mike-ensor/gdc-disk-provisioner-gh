@@ -74,15 +74,16 @@ for mnt in /cdrom /isodevice /run/live/medium /run/initramfs/cdrom /run/initramf
         if [[ -b "${real_dev}" ]]; then
             if [[ "${real_dev}" =~ loop[0-9]+ ]]; then
                 back_file=$(losetup -O BACK-FILE -n "${real_dev}" 2>/dev/null || true)
-                if [[ -n "${back_file}" ]]; then
-                    loop_src=$(df --output=source "${back_file}" 2>/dev/null | tail -n 1)
+                clean_back_file="${back_file% (deleted)}"
+                if [[ -n "${clean_back_file}" && -f "${clean_back_file}" ]]; then
+                    loop_src=$(df --output=source "${clean_back_file}" 2>/dev/null | tail -n 1 || true)
                     if [[ -n "${loop_src}" && -b "${loop_src}" ]]; then
-                        loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+                        loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]' || true)
                         INSTALLER_DISKS+=("${loop_pk:-$(basename "${loop_src}")}")
                     fi
                 fi
             else
-                pkname=$(lsblk -no PKNAME "${real_dev}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+                pkname=$(lsblk -no PKNAME "${real_dev}" 2>/dev/null | head -n 1 | tr -d '[:space:]' || true)
                 INSTALLER_DISKS+=("${pkname:-$(basename "${real_dev}")}")
             fi
         fi
@@ -91,10 +92,11 @@ done
 
 # Also detect all loop backing files across the system
 while read -r back_file; do
-    if [[ -n "${back_file}" && -f "${back_file}" ]]; then
-        loop_src=$(df --output=source "${back_file}" 2>/dev/null | tail -n 1)
+    clean_back_file="${back_file% (deleted)}"
+    if [[ -n "${clean_back_file}" && -f "${clean_back_file}" ]]; then
+        loop_src=$(df --output=source "${clean_back_file}" 2>/dev/null | tail -n 1 || true)
         if [[ -n "${loop_src}" && -b "${loop_src}" ]]; then
-            loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+            loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]' || true)
             INSTALLER_DISKS+=("${loop_pk:-$(basename "${loop_src}")}")
         fi
     fi

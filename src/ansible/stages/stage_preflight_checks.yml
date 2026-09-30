@@ -107,6 +107,7 @@
       ansible.builtin.command: >-
         python3 {{ playbook_dir }}/scripts/check_endpoints.py
         --companion-url "{{ gdc_companion_reports_url | default('') }}"
+        --step-ca-url "{{ gdc_step_ca_url | default('') }}"
       register: endpoint_check_raw
       changed_when: false
       failed_when: false

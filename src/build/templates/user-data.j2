@@ -222,16 +222,17 @@ autoinstall:
             case "${real_dev}" in
               *loop[0-9]*)
                 back_file=$(losetup -O BACK-FILE -n "${real_dev}" 2>/dev/null || true)
-                if [ -n "${back_file}" ]; then
-                  loop_src=$(df --output=source "${back_file}" 2>/dev/null | tail -n 1)
+                clean_back_file="${back_file% (deleted)}"
+                if [ -n "${clean_back_file}" ] && [ -f "${clean_back_file}" ]; then
+                  loop_src=$(df --output=source "${clean_back_file}" 2>/dev/null | tail -n 1 || true)
                   if [ -n "${loop_src}" ] && [ -b "${loop_src}" ]; then
-                    loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+                    loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]' || true)
                     INSTALLER_DISKS="${INSTALLER_DISKS} ${loop_pk:-$(basename "${loop_src}")}"
                   fi
                 fi
                 ;;
               *)
-                pkname=$(lsblk -no PKNAME "${real_dev}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+                pkname=$(lsblk -no PKNAME "${real_dev}" 2>/dev/null | head -n 1 | tr -d '[:space:]' || true)
                 INSTALLER_DISKS="${INSTALLER_DISKS} ${pkname:-$(basename "${real_dev}")}"
                 ;;
             esac
@@ -241,10 +242,11 @@ autoinstall:
 
       # B. Detect all active loop backing files across the system
       for back_file in $(losetup -O BACK-FILE -n 2>/dev/null || true); do
-        if [ -n "${back_file}" ] && [ -f "${back_file}" ]; then
-          loop_src=$(df --output=source "${back_file}" 2>/dev/null | tail -n 1)
+        clean_back_file="${back_file% (deleted)}"
+        if [ -n "${clean_back_file}" ] && [ -f "${clean_back_file}" ]; then
+          loop_src=$(df --output=source "${clean_back_file}" 2>/dev/null | tail -n 1 || true)
           if [ -n "${loop_src}" ] && [ -b "${loop_src}" ]; then
-            loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+            loop_pk=$(lsblk -no PKNAME "${loop_src}" 2>/dev/null | head -n 1 | tr -d '[:space:]' || true)
             INSTALLER_DISKS="${INSTALLER_DISKS} ${loop_pk:-$(basename "${loop_src}")}"
           fi
         fi
@@ -1158,6 +1160,15 @@ autoinstall:
         exit 1
       fi
       
+      # Write persistent LiveCD completion state
+      mkdir -p /target/var/gdc-install/state
+      printf '{\n  "stage": "LIVECD",\n  "status": "completed",\n  "timestamp": "%s"\n}\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" > /target/var/gdc-install/state/live-cd.json
+
+      # Emit LiveCD completion report to Companion before reboot
+      if [ -x /usr/local/bin/gdc-collector ]; then
+        timeout 60s /usr/local/bin/gdc-collector --stage live-cd --companion-url="{{ companion_url }}" >/dev/ttyS0 2>&1 || true
+      fi
+
       echo "=============================================================================="
       echo "[GDC-INSTALL-GOAL] All custom late commands succeeded and validated!"
       echo "=============================================================================="

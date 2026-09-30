@@ -323,6 +323,15 @@ fi
 
 # Copy ONLY the contents of src/ansible/ into the target directory
 cp -r "${PROJECT_ROOT}/src/ansible"/* "${TARGET_COPY_DIR}/"
+if [[ -f "${PROJECT_ROOT}/src/ansible/.gitignore" ]]; then
+    cp "${PROJECT_ROOT}/src/ansible/.gitignore" "${TARGET_COPY_DIR}/.gitignore"
+fi
+
+# Clean-room sanitization: purge any compiled Python bytecode and cache dirs
+find "${TARGET_COPY_DIR}" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+find "${TARGET_COPY_DIR}" -name "*.py[cod]" -delete 2>/dev/null || true
+find "${TARGET_COPY_DIR}" -name '*$py.class' -delete 2>/dev/null || true
+find "${TARGET_COPY_DIR}" -name "*.retry" -delete 2>/dev/null || true
 
 # [HOTFIX] Inject the rendered all.yml global vars from the hydrator,
 # replacing the checked-in all.yml.j2 so ansible-pull has actual variables

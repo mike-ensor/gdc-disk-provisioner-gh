@@ -251,6 +251,80 @@ chmod +x "{self.test_dir}/test_gen_undersized.sh"
         self.assertIn("Skipping undersized disk: /dev/nvme0n1", res.stderr)
         self.assertIn("503316480 sectors < 1174405120", res.stderr)
 
+    def test_generate_storage_config_netboot_deleted_loop_media(self):
+        """Verifies generate_storage_config.sh handles netboot/ramdisk loop devices where ISO is unlinked (deleted)."""
+        mock_lsblk = os.path.join(self.bin_dir, "lsblk")
+        with open(mock_lsblk, "w") as f:
+            f.write("""#!/usr/bin/env bash
+if [[ "$*" == *"-dno NAME,TYPE"* ]]; then
+    echo "nvme0n1 disk"
+    exit 0
+fi
+if [[ "$*" == *"-dno TRAN /dev/nvme0n1"* ]]; then
+    echo "nvme"
+    exit 0
+fi
+exit 0
+""")
+        os.chmod(mock_lsblk, 0o755)
+
+        mock_findmnt = os.path.join(self.bin_dir, "findmnt")
+        with open(mock_findmnt, "w") as f:
+            f.write("""#!/usr/bin/env bash
+if [[ "$*" == *"/cdrom"* ]]; then
+    echo "/dev/loop0"
+    exit 0
+fi
+exit 1
+""")
+        os.chmod(mock_findmnt, 0o755)
+
+        mock_losetup = os.path.join(self.bin_dir, "losetup")
+        with open(mock_losetup, "w") as f:
+            f.write("""#!/usr/bin/env bash
+if [[ "$*" == *"-O BACK-FILE -n /dev/loop0"* ]]; then
+    echo "/gdc-labs-24.04-v0.9.11-debug.iso (deleted)"
+    exit 0
+fi
+if [[ "$*" == *"-O BACK-FILE -n"* ]]; then
+    echo "/gdc-labs-24.04-v0.9.11-debug.iso (deleted)"
+    exit 0
+fi
+exit 0
+""")
+        os.chmod(mock_losetup, 0o755)
+
+        mock_df = os.path.join(self.bin_dir, "df")
+        with open(mock_df, "w") as f:
+            f.write("""#!/usr/bin/env bash
+# Real df fails if given a deleted/nonexistent path
+if [[ "$*" == *" (deleted)"* ]]; then
+    echo "df: '$*': No such file or directory" >&2
+    exit 1
+fi
+echo "/dev/loop0"
+exit 0
+""")
+        os.chmod(mock_df, 0o755)
+
+        mock_sys_block = os.path.join(self.test_dir, "sys_block_netboot")
+        os.makedirs(os.path.join(mock_sys_block, "nvme0n1"), exist_ok=True)
+        # 1TB NVMe = 2000409600 sectors
+        with open(os.path.join(mock_sys_block, "nvme0n1", "size"), "w") as f:
+            f.write("2000409600\n")
+
+        script_path = os.path.join(PROJECT_ROOT, "src/build/generate_storage_config.sh")
+        test_script = f"""#!/usr/bin/env bash
+export PATH="{self.bin_dir}:$PATH"
+sed "s|/sys/block/|{mock_sys_block}/|g" "{script_path}" > "{self.test_dir}/test_gen_netboot.sh"
+chmod +x "{self.test_dir}/test_gen_netboot.sh"
+"{self.test_dir}/test_gen_netboot.sh" --dry-run
+"""
+        res = subprocess.run(["bash", "-c", test_script], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, f"Script failed unexpectedly on netboot loop: {res.stdout} {res.stderr}")
+        self.assertIn("path: /dev/nvme0n1", res.stdout)
+        self.assertIn("Single Disk", res.stdout)
+
     def test_user_data_protection_function(self):
         """Verifies the disk sanitization protection logic in user-data.j2 under POSIX sh."""
         user_data_j2_path = os.path.join(PROJECT_ROOT, "src/build/templates/user-data.j2")

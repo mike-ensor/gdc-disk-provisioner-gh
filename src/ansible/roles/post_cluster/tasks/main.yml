@@ -1,0 +1,29 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "GDC-POST | Verify cluster nodes reach Ready condition"
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf wait --for=condition=Ready nodes --all --timeout=180s"
+  register: nodes_ready_check
+  changed_when: false
+  failed_when: false
+
+- name: "GDC-POST | Verify CoreDNS operational readiness"
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf rollout status deployment/coredns -n kube-system --timeout=120s"
+  register: coredns_rollout_check
+  changed_when: false
+  failed_when: false
+
+- name: "GDC-POST | Check storage classes availability"
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf get sc"
+  register: storage_class_check
+  changed_when: false
+  failed_when: false
+
+- name: "GDC-EVIDENCE | Structure PostCluster Evidence Facts"
+  ansible.builtin.set_fact:
+    post_cluster_evidence:
+      kubernetes_nodes_ready: "{{ nodes_ready_check.rc == 0 }}"
+      coredns_operational: "{{ coredns_rollout_check.rc == 0 }}"
+      storage_classes_present: "{{ storage_class_check.rc == 0 }}"
