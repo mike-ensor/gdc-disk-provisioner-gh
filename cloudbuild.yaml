@@ -57,6 +57,9 @@ steps:
         echo "[-] Pulling cached GGD binaries from GCS binaries/ prefix..."
         source src/dependencies.env
         source src/build/build.env
+        if [ -n "${_ISO_ENVIRONMENT}" ] && [ -f "src/build/${_ISO_ENVIRONMENT}.env" ]; then
+          source "src/build/${_ISO_ENVIRONMENT}.env"
+        fi
         
         # Clean the gs:// prefix for local string manipulation if needed
         DEP_BUCKET_NAME=$(echo "$${DEPENDENCY_CACHE_GCS_BUCKET}" | sed 's/^gs:\/\///')
@@ -100,6 +103,9 @@ steps:
         echo "[-] [CI Stage: compile] Triggering Stage-Gate compilation for version: ${_ISO_VERSION}..."
         
         source src/build/build.env
+        if [ -n "${_ISO_ENVIRONMENT}" ] && [ -f "src/build/${_ISO_ENVIRONMENT}.env" ]; then
+          source "src/build/${_ISO_ENVIRONMENT}.env"
+        fi
 
         # Build the targets sequentially using GNU Make dependencies
         make -C src/build test-static \
