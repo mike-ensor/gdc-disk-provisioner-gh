@@ -1,0 +1,927 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "UPSTREAM OWNER: gdc-companion (docs/report-schema.json). DO NOT EDIT DIRECTLY. This file is vendored from the gdc-companion repository to support hermetic, air-gapped CI and offline validation. Run bin/sync-schemas.sh to sync with upstream.",
+  "title": "GDC Bare-Metal Diagnostic Report Schema",
+  "description": "JSON schema for the machine-readable diagnostic report compiled on GDC bare-metal target nodes.",
+  "type": "object",
+  "required": [
+    "timestamp",
+    "host_metadata",
+    "system_health",
+    "services",
+    "ports",
+    "tpm_status",
+    "lvm_volumes",
+    "http_health",
+    "network_connectivity",
+    "system_minimum_requirements",
+    "gdc_endpoints_readiness",
+    "ip_address",
+    "gdc_os_prerequisites",
+    "hardware_inventory",
+    "bootstrap_stages_progress",
+    "machine_stages_progress"
+  ],
+  "properties": {
+    "cis_benchmarks_evidence": {
+      "type": "object",
+      "description": "Results and metadata from the CIS benchmark scans.",
+      "required": [
+        "execution_status",
+        "profiles",
+        "timestamp"
+      ],
+      "properties": {
+        "execution_status": {
+          "type": "string",
+          "enum": [
+            "PENDING",
+            "IN_PROGRESS",
+            "COMPLETED",
+            "FAILED",
+            "SKIPPED"
+          ]
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "profiles": {
+          "type": "object",
+          "description": "Map of CIS profile names to their respective results.",
+          "patternProperties": {
+            "^[a-zA-Z0-9_]+$": {
+              "type": "object",
+              "required": [
+                "report_path",
+                "rules_failed",
+                "rules_passed",
+                "rules_total",
+                "score_percentage"
+              ],
+              "properties": {
+                "report_path": {
+                  "type": "string"
+                },
+                "rules_failed": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "rules_other": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "rules_passed": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "rules_total": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "score_percentage": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp indicating when the report was compiled."
+    },
+    "ip_address": {
+      "type": "string",
+      "format": "ipv4",
+      "description": "IPv4 address of the node's primary management interface."
+    },
+    "host_metadata": {
+      "type": "object",
+      "required": [
+        "hostname",
+        "kernel",
+        "uefi_boot",
+        "privileged",
+        "inotify_max_user_instances",
+        "inotify_max_user_watches",
+        "machine_id",
+        "system_uuid",
+        "iso_version",
+        "system_state"
+      ],
+      "properties": {
+        "hostname": {
+          "type": "string"
+        },
+        "kernel": {
+          "type": "string"
+        },
+        "uefi_boot": {
+          "type": "boolean"
+        },
+        "privileged": {
+          "type": "boolean"
+        },
+        "inotify_max_user_instances": {
+          "type": "integer"
+        },
+        "inotify_max_user_watches": {
+          "type": "integer"
+        },
+        "machine_id": {
+          "type": "string",
+          "description": "MAC address of the node's primary management NIC acting as the unique node identifier."
+        },
+        "system_uuid": {
+          "type": "string",
+          "description": "The SMBIOS UUID of the motherboard system."
+        },
+        "iso_version": {
+          "type": "string",
+          "description": "The version of the GDC bootloader ISO used to bootstrap the system."
+        },
+        "system_state": {
+          "type": "string",
+          "enum": [
+            "First Boot",
+            "Baseline Ready"
+          ],
+          "description": "Indicates whether the system is in its initial boot state (before Ansible completed) or is fully provisioned and ready."
+        }
+      }
+    },
+    "system_health": {
+      "type": "object",
+      "required": [
+        "uptime",
+        "load_average",
+        "failed_units_count"
+      ],
+      "properties": {
+        "uptime": {
+          "type": "string"
+        },
+        "load_average": {
+          "type": "string"
+        },
+        "failed_units_count": {
+          "type": "integer"
+        }
+      }
+    },
+    "services": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "active",
+          "load_state",
+          "active_state",
+          "unit_file_state"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "load_state": {
+            "type": "string"
+          },
+          "active_state": {
+            "type": "string"
+          },
+          "unit_file_state": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ports": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "listening"
+        ],
+        "properties": {
+          "listening": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "tpm_status": {
+      "type": "object",
+      "required": [
+        "device_present"
+      ],
+      "properties": {
+        "device_present": {
+          "type": "boolean"
+        }
+      }
+    },
+    "lvm_volumes": {
+      "type": "object",
+      "description": "Raw JSON output parsed from lsblk indicating disk structure and mounts."
+    },
+    "http_health": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "http_code",
+          "healthy"
+        ],
+        "properties": {
+          "http_code": {
+            "type": "integer"
+          },
+          "healthy": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "network_connectivity": {
+      "type": "object",
+      "required": [
+        "management_gateway",
+        "kubernetes_gateway",
+        "cross_link_isolated",
+        "public_wan_dns"
+      ],
+      "properties": {
+        "management_gateway": {
+          "type": "object",
+          "required": [
+            "reachable"
+          ],
+          "properties": {
+            "reachable": {
+              "type": "boolean"
+            },
+            "avg_rtt_ms": {
+              "type": "number"
+            }
+          }
+        },
+        "kubernetes_gateway": {
+          "type": "object",
+          "required": [
+            "reachable"
+          ],
+          "properties": {
+            "reachable": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "avg_rtt_ms": {
+              "type": "number"
+            },
+            "skipped_reason": {
+              "type": "string"
+            }
+          }
+        },
+        "cross_link_isolated": {
+          "type": "object",
+          "required": [
+            "secured"
+          ],
+          "properties": {
+            "secured": {
+              "type": "boolean"
+            }
+          }
+        },
+        "public_wan_dns": {
+          "type": "object",
+          "required": [
+            "reachable"
+          ],
+          "properties": {
+            "reachable": {
+              "type": "boolean"
+            },
+            "avg_rtt_ms": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "system_minimum_requirements": {
+      "type": "object",
+      "required": [
+        "cpu",
+        "memory",
+        "storage",
+        "overall_status"
+      ],
+      "properties": {
+        "cpu": {
+          "type": "object",
+          "required": [
+            "status",
+            "physical_cores",
+            "logical_threads",
+            "hyperthreading_enabled"
+          ],
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "physical_cores": {
+              "type": "integer"
+            },
+            "logical_threads": {
+              "type": "integer"
+            },
+            "hyperthreading_enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "memory": {
+          "type": "object",
+          "required": [
+            "status",
+            "total_gib"
+          ],
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "total_gib": {
+              "type": "number"
+            }
+          }
+        },
+        "storage": {
+          "type": "object",
+          "required": [
+            "status",
+            "total_disks",
+            "disk_sizes_gib"
+          ],
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "total_disks": {
+              "type": "integer"
+            },
+            "disk_sizes_gib": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "overall_status": {
+          "type": "string"
+        }
+      }
+    },
+    "gdc_endpoints_readiness": {
+      "type": "object",
+      "description": "Egress resolution checks mapped by network context (management vs kubernetes).",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "required": [
+            "status",
+            "dns_resolved",
+            "resolved_ip",
+            "tcp_connected"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "PASS",
+                "FAIL",
+                "SKIPPED",
+                "WARN"
+              ]
+            },
+            "executed": {
+              "type": "boolean"
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "system",
+                "platform"
+              ]
+            },
+            "target_stage": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "dns_resolved": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "resolved_ip": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tcp_connected": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "notes": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "gdc_os_prerequisites": {
+      "type": "object",
+      "required": [
+        "software_checks",
+        "storage_partitions",
+        "overall_compliance"
+      ],
+      "properties": {
+        "software_checks": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "status",
+              "details",
+              "test_results"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "PENDING",
+                  "NOT RUN"
+                ]
+              },
+              "details": {
+                "type": "string"
+              },
+              "remediation": {
+                "type": "string",
+                "description": "Optional remediation instructions provided when a check fails."
+              },
+              "test_results": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "test_name",
+                    "status"
+                  ],
+                  "properties": {
+                    "test_name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "PASS",
+                        "FAIL",
+                        "PENDING",
+                        "NOT RUN"
+                      ]
+                    },
+                    "output": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "storage_partitions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "mount",
+              "shared_by",
+              "free_gib",
+              "required_gib",
+              "status"
+            ],
+            "properties": {
+              "mount": {
+                "type": "string"
+              },
+              "shared_by": {
+                "type": "string"
+              },
+              "free_gib": {
+                "type": "number"
+              },
+              "required_gib": {
+                "type": "number"
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "overall_compliance": {
+          "type": "string"
+        }
+      }
+    },
+    "preflight_validations": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Standardized decoupled preflight validation results from Ansible.",
+      "properties": {
+        "test_suite": {
+          "type": "string"
+        },
+        "current_stage": {
+          "type": "string"
+        },
+        "execution_timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "overall_status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "WARN"
+          ]
+        },
+        "total_duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "test_name",
+              "category",
+              "status",
+              "severity",
+              "notes"
+            ],
+            "properties": {
+              "test_name": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string",
+                "enum": [
+                  "hardware",
+                  "network",
+                  "storage",
+                  "binary",
+                  "configuration",
+                  "service"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "SKIPPED",
+                  "WARN"
+                ]
+              },
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "FATAL",
+                  "WARNING",
+                  "INFO"
+                ]
+              },
+              "notes": {
+                "type": "string"
+              },
+              "remediation_hint": {
+                "type": "string"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "duration_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "meta": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "hardware_inventory": {
+      "type": "object",
+      "required": [
+        "cpu",
+        "memory",
+        "storage",
+        "tpm",
+        "bios",
+        "network"
+      ],
+      "properties": {
+        "cpu": {
+          "type": "object",
+          "required": [
+            "model",
+            "logical_cpus"
+          ],
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "logical_cpus": {
+              "type": "integer"
+            }
+          }
+        },
+        "memory": {
+          "type": "object",
+          "required": [
+            "total_gb",
+            "modules"
+          ],
+          "properties": {
+            "total_gb": {
+              "type": "number"
+            },
+            "modules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "size": {
+                    "type": "string"
+                  },
+                  "speed": {
+                    "type": "string"
+                  },
+                  "manufacturer": {
+                    "type": "string"
+                  },
+                  "serial_number": {
+                    "type": "string"
+                  },
+                  "part_number": {
+                    "type": "string"
+                  },
+                  "locator": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "storage": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "device",
+              "size_gib",
+              "model",
+              "serial_number"
+            ],
+            "properties": {
+              "device": {
+                "type": "string"
+              },
+              "size_gib": {
+                "type": "number"
+              },
+              "model": {
+                "type": "string"
+              },
+              "serial_number": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "tpm": {
+          "type": "object",
+          "required": [
+            "present",
+            "vendor",
+            "description"
+          ],
+          "properties": {
+            "present": {
+              "type": "boolean"
+            },
+            "vendor": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            }
+          }
+        },
+        "bios": {
+          "type": "object",
+          "required": [
+            "vendor",
+            "version",
+            "release_date",
+            "system_uuid",
+            "uuid_status"
+          ],
+          "properties": {
+            "vendor": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "release_date": {
+              "type": "string"
+            },
+            "system_uuid": {
+              "type": "string"
+            },
+            "uuid_status": {
+              "type": "string",
+              "enum": [
+                "OK",
+                "DUPLICATE_ANOMALY"
+              ]
+            }
+          }
+        },
+        "network": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "interface",
+              "mac_address",
+              "status",
+              "speed",
+              "virtual_mac"
+            ],
+            "properties": {
+              "interface": {
+                "type": "string"
+              },
+              "mac_address": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "speed": {
+                "type": "string"
+              },
+              "virtual_mac": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "bootstrap_stages_progress": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "stage_id",
+          "name",
+          "status",
+          "evidence"
+        ],
+        "properties": {
+          "stage_id": {
+            "type": "string",
+            "enum": [
+              "HARDWARE_SETTLING",
+              "DISK_SANITIZATION",
+              "NAMESPACE_SYNC",
+              "STORAGE_LAYOUT",
+              "OS_PAYLOAD",
+              "TPM_SEALING",
+              "BOUNDARY_HUB_TURNUP",
+              "LINUX_READY_VALIDATION"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "FAILED",
+              "BYPASSED"
+            ]
+          },
+          "evidence": {
+            "type": "object",
+            "description": "Metrics or configurations captured during the stage-gate check as cryptographic or technical proof of state completion.",
+            "properties": {
+              "cis_benchmarks": {
+                "$ref": "#/properties/cis_benchmarks_evidence"
+              }
+            }
+          }
+        }
+      }
+    },
+    "machine_stages_progress": {
+      "type": "array",
+      "description": "Overarching sequential machine states tracking the bootstrap across separate reboots.",
+      "items": {
+        "type": "object",
+        "required": [
+          "stage_id",
+          "name",
+          "status",
+          "timestamp"
+        ],
+        "properties": {
+          "stage_id": {
+            "type": "string",
+            "enum": [
+              "LIVECD",
+              "FIRST_BOOT",
+              "SECOND_BOOT",
+              "LINUX_READY",
+              "CLUSTER_READY",
+              "CLUSTER_TURNUP",
+              "POST_VALIDATION",
+              "UPDATE_UPKEEP"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "FAILED",
+              "BYPASSED"
+            ]
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "evidence": {
+            "type": "object",
+            "properties": {
+              "cis_benchmarks": {
+                "$ref": "#/properties/cis_benchmarks_evidence"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
