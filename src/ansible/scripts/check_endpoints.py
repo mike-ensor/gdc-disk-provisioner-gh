@@ -23,10 +23,12 @@
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 import json
 import socket
 import sys
 import time
+from typing import Optional
 from urllib.parse import urlparse
 
 DEFAULT_DOMAINS = [
@@ -57,7 +59,13 @@ DEFAULT_DOMAINS = [
     "storage.gdce.googleapis.com",
 ]
 
-def check_domain(domain: str) -> dict:
+def check_target(target: dict, timeout: float = 2.0) -> dict:
+    test_name = target["test_name"]
+    domain = target["domain"]
+    port = target.get("port", 443)
+    service_label = target.get("service_label")
+    url = target.get("url")
+
     t0 = time.time()
     dns_resolved = False
     resolved_ip = None
@@ -68,7 +76,7 @@ def check_domain(domain: str) -> dict:
         ip = socket.gethostbyname(domain)
         dns_resolved = True
         resolved_ip = ip
-        with socket.create_connection((ip, 443), timeout=2.0):
+        with socket.create_connection((ip, port), timeout=timeout):
             tcp_connected = True
     except Exception as e:
         err_msg = str(e)
@@ -77,49 +85,104 @@ def check_domain(domain: str) -> dict:
 
     if tcp_connected:
         status = "PASS"
-        notes = f"Resolved to {resolved_ip} and connected via TCP/443 successfully."
+        if service_label:
+            notes = f"{service_label} ({domain}:{port}): Resolved to {resolved_ip} and connected via TCP/{port} successfully."
+            remediation_hint = f"Endpoint {domain}:{port} is reachable."
+        else:
+            notes = f"Resolved to {resolved_ip} and connected via TCP/{port} successfully."
+            remediation_hint = f"Check DNS server resolution and outbound firewall rules for {domain}:{port}."
     elif dns_resolved:
         status = "WARN"
-        notes = f"DNS resolved to {resolved_ip}, but TCP/443 connection failed: {err_msg}"
+        if service_label:
+            notes = f"{service_label} ({domain}:{port}): DNS resolved to {resolved_ip}, but TCP/{port} connection failed: {err_msg} (Host unreachable or port {port} closed)."
+            remediation_hint = f"Check network routing, default gateway reachability, and firewall rules for {resolved_ip}:{port} ({domain})."
+        else:
+            notes = f"DNS resolved to {resolved_ip}, but TCP/{port} connection failed: {err_msg}"
+            remediation_hint = f"Check DNS server resolution and outbound firewall rules for {domain}:{port}."
     else:
         status = "WARN"
-        notes = f"DNS resolution failed: {err_msg}"
+        if service_label:
+            notes = f"{service_label} ({domain}:{port}): DNS resolution failed: {err_msg}. Host '{domain}' could not be resolved by DNS nameservers or /etc/hosts."
+            remediation_hint = f"Verify DNS nameserver configuration or ensure '{domain}' is mapped in /etc/hosts (via src/build/add-hosts)."
+        else:
+            notes = f"DNS resolution failed: {err_msg}"
+            remediation_hint = f"Check DNS server resolution and outbound firewall rules for {domain}:{port}."
+
+    meta = {
+        "domain": domain,
+        "port": port,
+        "dns_resolved": dns_resolved,
+        "resolved_ip": resolved_ip,
+        "tcp_connected": tcp_connected
+    }
+    if url:
+        meta["url"] = url
+    if "service" in target:
+        meta["service"] = target["service"]
 
     return {
-        "test_name": f"endpoint_connect_{domain}",
+        "test_name": test_name,
         "category": "network",
         "status": status,
         "severity": "WARNING",
         "notes": notes,
-        "remediation_hint": f"Check DNS server resolution and outbound firewall rules for {domain}:443.",
+        "remediation_hint": remediation_hint,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "duration_ms": duration_ms,
-        "meta": {
-            "domain": domain,
-            "dns_resolved": dns_resolved,
-            "resolved_ip": resolved_ip,
-            "tcp_connected": tcp_connected
-        }
+        "meta": meta
     }
+
+def parse_endpoint_url(url_str: str, service_name: str, test_name: str) -> Optional[dict]:
+    if not url_str or not url_str.strip():
+        return None
+    try:
+        parsed = urlparse(url_str.strip())
+        if not parsed.hostname:
+            return None
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        return {
+            "test_name": test_name,
+            "service_label": service_name,
+            "service": test_name.replace("endpoint_connect_", ""),
+            "domain": parsed.hostname,
+            "port": port,
+            "url": url_str.strip(),
+        }
+    except Exception:
+        return None
 
 def main():
     parser = argparse.ArgumentParser(description="Check Google and GDC endpoint connectivity")
     parser.add_argument("--companion-url", help="GDC Companion URL to include in checks")
+    parser.add_argument("--step-ca-url", help="Step CA URL to include in checks")
     parser.add_argument("--timeout", type=float, default=2.0, help="Socket connect timeout in seconds")
     parser.add_argument("--max-workers", type=int, default=12, help="Thread pool worker count")
     args = parser.parse_args()
 
-    domains = list(DEFAULT_DOMAINS)
-    if args.companion_url:
-        try:
-            parsed = urlparse(args.companion_url)
-            if parsed.hostname and parsed.hostname not in domains:
-                domains.append(parsed.hostname)
-        except Exception:
-            pass
+    targets = []
 
+    # 1. Specialized GDC Infrastructure endpoints (Companion & Step CA)
+    companion_target = parse_endpoint_url(args.companion_url, "GDC Companion", "endpoint_connect_companion")
+    if companion_target:
+        targets.append(companion_target)
+
+    step_ca_target = parse_endpoint_url(args.step_ca_url, "Step CA", "endpoint_connect_step_ca")
+    if step_ca_target:
+        targets.append(step_ca_target)
+
+    # 2. Standard Google API and container registry endpoints
+    for domain in DEFAULT_DOMAINS:
+        targets.append({
+            "test_name": f"endpoint_connect_{domain}",
+            "domain": domain,
+            "port": 443,
+            "service_label": None,
+            "url": None
+        })
+
+    checker = partial(check_target, timeout=args.timeout)
     with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
-        results = list(executor.map(check_domain, domains))
+        results = list(executor.map(checker, targets))
 
     print(json.dumps(results))
 

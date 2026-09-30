@@ -107,3 +107,11 @@
 - name: "GDC-STATE | Update LinuxReady fact in-memory"
   ansible.builtin.set_fact:
     linux_ready_state: { "status": "completed" }
+
+- name: "GDC-STATE | Trigger Post-Stage Telemetry"
+  ansible.builtin.shell: |
+    if [ -x /usr/local/bin/gdc-collector ]; then
+      /usr/local/bin/gdc-collector --stage linux-ready --companion-url="{{ gdc_companion_reports_url | default('') }}"
+    fi
+  changed_when: false
+  failed_when: false

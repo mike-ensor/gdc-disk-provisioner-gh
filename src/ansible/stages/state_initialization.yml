@@ -111,7 +111,7 @@
 
 - name: "GDC-STATE | Set machine state stopper fact"
   ansible.builtin.set_fact:
-    stop_stage: "{{ (slurped_fallback_config.content | b64decode | from_json).machine_state_stop_stage | default('') }}"
+    stop_stage: "{{ (slurped_fallback_config.content | b64decode | from_json).machine_state_stop_stage | default('') | upper | replace('-', '_') }}"
   when: fallback_config_stat.stat.exists
 
 - name: "GDC-STATE | Set machine state stopper fact (default fallback)"
@@ -193,3 +193,7 @@
   when:
     - state_files_stat.results[4].stat.exists
     - slurped_cluster_turnup is defined and slurped_cluster_turnup.content is defined
+
+- name: "GDC-STATE | Initialize active lifecycle stage"
+  ansible.builtin.set_fact:
+    gdc_active_stage: "{{ lookup('gdc_state') }}"

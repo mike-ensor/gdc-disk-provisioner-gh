@@ -72,6 +72,8 @@
             first_boot_start_epoch: "{{ now(utc=true).strftime('%s') | int }}"
         - name: "FIRST_BOOT | GDC-STATE | Execute"
           ansible.builtin.import_tasks: stages/stage_first_boot.yml
+        - name: "FIRST_BOOT | GDC-STATE | Force play end to await scheduled reboot"
+          ansible.builtin.meta: end_play
       rescue:
         - name: "GDC-STATE | Record FirstBoot Failure state"
           ansible.builtin.copy:
@@ -99,34 +101,36 @@
                 "timestamp": "{{ _end_time }}",
                 "evidence": {{ _evidence | to_json }}
               }
+        - name: "GDC-STATE | Trigger Failure Telemetry"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/gdc-collector ]; then
+              /usr/local/bin/gdc-collector --stage first-boot --companion-url="{{ gdc_companion_reports_url | default('') }}"
+            fi
+          changed_when: false
+          failed_when: false
         - name: "GDC-STATE | Fail the play on FirstBoot Setup"
           ansible.builtin.fail:
             msg: "GDC FirstBoot Setup failed!"
-      always:
-        - name: "GDC-STATE | Trigger Post-Stage 2 Diagnostic Collection"
-          ansible.builtin.shell: |
-            if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --stage first-boot --companion-url="{{ gdc_companion_reports_url }}"
-            elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
-              "{{ playbook_dir }}/../../bin/gdc-collector" --stage first-boot --companion-url="{{ gdc_companion_reports_url }}"
-            fi
-          ignore_errors: true
-          failed_when: false
-      when: first_boot_state.status != "completed"
+      when: gdc_active_stage == 'first-boot'
       tags: ["first-boot"]
+
+    - name: "GDC-STATE | Advance active stage"
+      ansible.builtin.set_fact:
+        gdc_active_stage: "{{ lookup('gdc_state') }}"
+      tags: ["always"]
 
     - name: "SECOND_BOOT | GDC-STATE | Guard: Halt execution if user requested stop at FIRST_BOOT"
       block:
         - name: "SECOND_BOOT | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url }}"
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url | default('') }}"
             fi
-          ignore_errors: true
+          changed_when: false
           failed_when: false
         - name: "SECOND_BOOT | GDC-STATE | Halt execution"
           ansible.builtin.meta: end_play
-      when: 
+      when:
         - stop_stage == "FIRST_BOOT"
         - first_boot_state.status == "completed"
       tags: ["second-boot"]
@@ -169,36 +173,36 @@
                 "timestamp": "{{ _end_time }}",
                 "evidence": {{ _evidence | to_json }}
               }
+        - name: "GDC-STATE | Trigger Failure Telemetry"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/gdc-collector ]; then
+              /usr/local/bin/gdc-collector --stage second-boot --companion-url="{{ gdc_companion_reports_url | default('') }}"
+            fi
+          changed_when: false
+          failed_when: false
         - name: "GDC-STATE | Fail the play on SecondBoot Verification"
           ansible.builtin.fail:
             msg: "GDC SecondBoot Verification failed!"
-      always:
-        - name: "GDC-STATE | Trigger Post-Stage 3 Diagnostic Collection"
-          ansible.builtin.shell: |
-            if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --stage second-boot --companion-url="{{ gdc_companion_reports_url }}"
-            elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
-              "{{ playbook_dir }}/../../bin/gdc-collector" --stage second-boot --companion-url="{{ gdc_companion_reports_url }}"
-            fi
-          ignore_errors: true
-          failed_when: false
-      when:
-        - first_boot_state.status == "completed"
-        - second_boot_state.status != "completed"
+      when: gdc_active_stage == 'second-boot'
       tags: ["second-boot"]
+
+    - name: "GDC-STATE | Advance active stage"
+      ansible.builtin.set_fact:
+        gdc_active_stage: "{{ lookup('gdc_state') }}"
+      tags: ["always"]
 
     - name: "LINUX_READY | GDC-STATE | Guard: Halt execution if user requested stop at SECOND_BOOT"
       block:
         - name: "LINUX_READY | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url }}"
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url | default('') }}"
             fi
-          ignore_errors: true
+          changed_when: false
           failed_when: false
         - name: "LINUX_READY | GDC-STATE | Halt execution"
           ansible.builtin.meta: end_play
-      when: 
+      when:
         - stop_stage == "SECOND_BOOT"
         - second_boot_state.status == "completed"
       tags: ["linux-ready"]
@@ -237,27 +241,27 @@
               {% set _ = _evidence.update({"timing": _timing, "error_details": _error_detail}) %}
               {
                 "stage": "LINUX_READY",
-                "status": "FAILED",
+                "status": "failed",
                 "timestamp": "{{ _end_time }}",
                 "evidence": {{ _evidence | to_json }}
               }
+        - name: "GDC-STATE | Trigger Failure Telemetry"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/gdc-collector ]; then
+              /usr/local/bin/gdc-collector --stage linux-ready --companion-url="{{ gdc_companion_reports_url | default('') }}"
+            fi
+          changed_when: false
+          failed_when: false
         - name: "GDC-STATE | Fail the play on LinuxReady Hardening"
           ansible.builtin.fail:
             msg: "GDC LinuxReady Hardening failed!"
-      always:
-        - name: "GDC-STATE | Trigger Post-Stage 4 Diagnostic Collection"
-          ansible.builtin.shell: |
-            if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --stage linux-ready --companion-url="{{ gdc_companion_reports_url }}"
-            elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
-              "{{ playbook_dir }}/../../bin/gdc-collector" --stage linux-ready --companion-url="{{ gdc_companion_reports_url }}"
-            fi
-          ignore_errors: true
-          failed_when: false
-      when:
-        - second_boot_state.status == "completed"
-        - linux_ready_state.status != "completed"
+      when: gdc_active_stage == 'linux-ready'
       tags: ["linux-ready"]
+
+    - name: "GDC-STATE | Advance active stage"
+      ansible.builtin.set_fact:
+        gdc_active_stage: "{{ lookup('gdc_state') }}"
+      tags: ["always"]
 
     # ==============================================================================
     # STAGE 4.5: Kernel/System Pending Reboots (HWE Kernel Application)
@@ -289,9 +293,9 @@
         - name: "CLUSTER_READY | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url }}"
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url | default('') }}"
             fi
-          ignore_errors: true
+          changed_when: false
           failed_when: false
         - name: "CLUSTER_READY | GDC-STATE | Halt execution"
           ansible.builtin.meta: end_play
@@ -343,6 +347,14 @@
                 "evidence": {{ _evidence | to_json }}
               }
 
+        - name: "GDC-STATE | Trigger Failure Telemetry"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/gdc-collector ]; then
+              /usr/local/bin/gdc-collector --stage cluster-ready --companion-url="{{ gdc_companion_reports_url | default('') }}"
+            fi
+          changed_when: false
+          failed_when: false
+
         - name: "GDC-STATE | Fail the play on ClusterReady Configuration"
           ansible.builtin.fail:
             msg: "GDC ClusterReady Configuration failed!"
@@ -351,29 +363,22 @@
         - name: "GDC-STATE | End play gracefully if waiting on peers"
           ansible.builtin.meta: end_play
           when: is_waiting | default(false)
-      always:
-        - name: "GDC-STATE | Trigger Post-Stage 5 Diagnostic Collection"
-          ansible.builtin.shell: |
-            if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --stage cluster-ready --companion-url="{{ gdc_companion_reports_url }}"
-            elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
-              "{{ playbook_dir }}/../../bin/gdc-collector" --stage cluster-ready --companion-url="{{ gdc_companion_reports_url }}"
-            fi
-          ignore_errors: true
-          failed_when: false
-      when:
-        - linux_ready_state.status == "completed"
-        - cluster_ready_state.status != "completed"
+      when: gdc_active_stage == 'cluster-ready'
       tags: ["cluster-ready"]
+
+    - name: "GDC-STATE | Advance active stage"
+      ansible.builtin.set_fact:
+        gdc_active_stage: "{{ lookup('gdc_state') }}"
+      tags: ["always"]
 
     - name: "CLUSTER_TURNUP | GDC-STATE | Guard: Halt execution if user requested stop at CLUSTER_READY"
       block:
         - name: "CLUSTER_TURNUP | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url }}"
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url | default('') }}"
             fi
-          ignore_errors: true
+          changed_when: false
           failed_when: false
         - name: "CLUSTER_TURNUP | GDC-STATE | Halt execution"
           ansible.builtin.meta: end_play
@@ -416,36 +421,36 @@
               {% set _ = _evidence.update({"timing": _timing, "error_details": _error_detail}) %}
               {
                 "stage": "CLUSTER_TURNUP",
-                "status": "FAILED",
+                "status": "failed",
                 "timestamp": "{{ _end_time }}",
                 "evidence": {{ _evidence | to_json }}
               }
+        - name: "GDC-STATE | Trigger Failure Telemetry"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/gdc-collector ]; then
+              /usr/local/bin/gdc-collector --stage cluster-turnup --companion-url="{{ gdc_companion_reports_url | default('') }}"
+            fi
+          changed_when: false
+          failed_when: false
         - name: "GDC-STATE | Fail the play on ClusterTurnup Inception"
           ansible.builtin.fail:
             msg: "GDC ClusterTurnup Inception failed!"
-      always:
-        - name: "GDC-STATE | Trigger Post-Stage 6 Diagnostic Collection"
-          ansible.builtin.shell: |
-            if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --stage cluster-turnup --companion-url="{{ gdc_companion_reports_url }}"
-            elif [ -x "{{ playbook_dir }}/../../bin/gdc-collector" ]; then
-              "{{ playbook_dir }}/../../bin/gdc-collector" --stage cluster-turnup --companion-url="{{ gdc_companion_reports_url }}"
-            fi
-          ignore_errors: true
-          failed_when: false
-      when:
-        - cluster_ready_state.status == "completed"
-        - cluster_turnup_state.status != "completed"
+      when: gdc_active_stage == 'cluster-turnup'
       tags: ["cluster-turnup"]
+
+    - name: "GDC-STATE | Advance active stage"
+      ansible.builtin.set_fact:
+        gdc_active_stage: "{{ lookup('gdc_state') }}"
+      tags: ["always"]
 
     - name: "CLUSTER_COMPLETE | GDC-STATE | Guard: Halt execution if user requested stop at CLUSTER_TURNUP"
       block:
         - name: "CLUSTER_COMPLETE | GDC-STATE | Collect final diagnostics before halting"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url }}"
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url | default('') }}"
             fi
-          ignore_errors: true
+          changed_when: false
           failed_when: false
         - name: "CLUSTER_COMPLETE | GDC-STATE | Halt execution"
           ansible.builtin.meta: end_play
@@ -454,15 +459,171 @@
         - cluster_turnup_state.status == "completed"
       tags: ["cluster-turnup"]
 
-    - name: "GDC-STATE | Run final telemetry"
+    # ==============================================================================
+    # STAGE 7: PostCluster (Cluster Health & Workload Verification)
+    # ==============================================================================
+    - name: "POST_CLUSTER | GDC-STATE | Run Stage 7"
       block:
-        - name: Always execute diagnostics and upload telemetry
+        - name: "POST_CLUSTER | GDC-TIMING | Record Stage Start"
+          ansible.builtin.set_fact:
+            post_cluster_start_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+            post_cluster_start_epoch: "{{ now(utc=true).strftime('%s') | int }}"
+        - name: "POST_CLUSTER | GDC-STATE | Execute"
+          ansible.builtin.import_tasks: stages/stage_post_cluster.yml
+      rescue:
+        - name: "GDC-STATE | Record PostCluster Failure state"
+          ansible.builtin.copy:
+            dest: /var/gdc-install/state/post-validation.json
+            owner: root
+            group: root
+            mode: '0644'
+            content: |
+              {% set _evidence = post_cluster_evidence | default({}) %}
+              {% set _error_detail = ansible_failed_result | default({}) %}
+              {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
+              {% set _end_epoch = now(utc=true).strftime('%s') | int %}
+              {% set _start_epoch = post_cluster_start_epoch | default(_end_epoch) | int %}
+              {% set _duration = [_end_epoch - _start_epoch, 0] | max %}
+              {% set _timing = {
+                "start_time": post_cluster_start_time | default(_end_time),
+                "end_time": _end_time,
+                "duration_seconds": _duration,
+                "overall_provisioning_start_time": provisioning_start_time | default(post_cluster_start_time | default(_end_time))
+              } %}
+              {% set _ = _evidence.update({"timing": _timing, "error_details": _error_detail}) %}
+              {
+                "stage": "POST_CLUSTER",
+                "status": "failed",
+                "timestamp": "{{ _end_time }}",
+                "evidence": {{ _evidence | to_json }}
+              }
+        - name: "GDC-STATE | Create post-cluster.json compatibility symlink"
+          ansible.builtin.file:
+            src: /var/gdc-install/state/post-validation.json
+            dest: /var/gdc-install/state/post-cluster.json
+            state: link
+            force: true
+        - name: "GDC-STATE | Trigger Failure Telemetry"
           ansible.builtin.shell: |
             if [ -x /usr/local/bin/gdc-collector ]; then
-              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url }}"
+              /usr/local/bin/gdc-collector --stage post-cluster --companion-url="{{ gdc_companion_reports_url | default('') }}"
+            fi
+          changed_when: false
+          failed_when: false
+        - name: "GDC-STATE | Fail the play on PostCluster Verification"
+          ansible.builtin.fail:
+            msg: "GDC PostCluster Verification failed!"
+      when: gdc_active_stage == 'post-cluster'
+      tags: ["post-cluster"]
+
+    - name: "GDC-STATE | Advance active stage"
+      ansible.builtin.set_fact:
+        gdc_active_stage: "{{ lookup('gdc_state') }}"
+      tags: ["always"]
+
+    - name: "POST_CLUSTER | GDC-STATE | Guard: Halt execution if user requested stop at POST_CLUSTER"
+      block:
+        - name: "POST_CLUSTER | GDC-STATE | Collect final diagnostics before halting"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/gdc-collector ]; then
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url | default('') }}"
+            fi
+          changed_when: false
+          failed_when: false
+        - name: "POST_CLUSTER | GDC-STATE | Halt execution"
+          ansible.builtin.meta: end_play
+      when: 
+        - stop_stage in ["POST_CLUSTER", "POST-CLUSTER", "POST_VALIDATION", "POST-VALIDATION"]
+        - post_cluster_state is defined and post_cluster_state.status == "completed"
+      tags: ["post-cluster"]
+
+    # ==============================================================================
+    # STAGE 8: Upkeep (Continuous Desired-State & Provisioning Timers)
+    # ==============================================================================
+    - name: "UPKEEP | GDC-STATE | Run Stage 8"
+      block:
+        - name: "UPKEEP | GDC-TIMING | Record Stage Start"
+          ansible.builtin.set_fact:
+            upkeep_start_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+            upkeep_start_epoch: "{{ now(utc=true).strftime('%s') | int }}"
+        - name: "UPKEEP | GDC-STATE | Execute"
+          ansible.builtin.import_tasks: stages/stage_upkeep.yml
+      rescue:
+        - name: "GDC-STATE | Record Upkeep Failure state"
+          ansible.builtin.copy:
+            dest: /var/gdc-install/state/update-upkeep.json
+            owner: root
+            group: root
+            mode: '0644'
+            content: |
+              {% set _evidence = upkeep_evidence | default({}) %}
+              {% set _error_detail = ansible_failed_result | default({}) %}
+              {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
+              {% set _end_epoch = now(utc=true).strftime('%s') | int %}
+              {% set _start_epoch = upkeep_start_epoch | default(_end_epoch) | int %}
+              {% set _duration = [_end_epoch - _start_epoch, 0] | max %}
+              {% set _timing = {
+                "start_time": upkeep_start_time | default(_end_time),
+                "end_time": _end_time,
+                "duration_seconds": _duration,
+                "overall_provisioning_start_time": provisioning_start_time | default(upkeep_start_time | default(_end_time))
+              } %}
+              {% set _ = _evidence.update({"timing": _timing, "error_details": _error_detail}) %}
+              {
+                "stage": "UPDATE_UPKEEP",
+                "status": "failed",
+                "timestamp": "{{ _end_time }}",
+                "evidence": {{ _evidence | to_json }}
+              }
+        - name: "GDC-STATE | Create upkeep.json compatibility symlink"
+          ansible.builtin.file:
+            src: /var/gdc-install/state/update-upkeep.json
+            dest: /var/gdc-install/state/upkeep.json
+            state: link
+            force: true
+        - name: "GDC-STATE | Trigger Failure Telemetry"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/gdc-collector ]; then
+              /usr/local/bin/gdc-collector --stage upkeep --companion-url="{{ gdc_companion_reports_url | default('') }}"
+            fi
+          changed_when: false
+          failed_when: false
+        - name: "GDC-STATE | Fail the play on Upkeep Setup"
+          ansible.builtin.fail:
+            msg: "GDC Upkeep Setup failed!"
+      when: gdc_active_stage == 'upkeep'
+      tags: ["upkeep"]
+
+    - name: "GDC-STATE | Advance active stage"
+      ansible.builtin.set_fact:
+        gdc_active_stage: "{{ lookup('gdc_state') }}"
+      tags: ["always"]
+
+    - name: "UPKEEP | GDC-STATE | Guard: Halt execution if user requested stop at UPKEEP"
+      block:
+        - name: "UPKEEP | GDC-STATE | Collect final diagnostics before halting"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/gdc-collector ]; then
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url | default('') }}"
+            fi
+          changed_when: false
+          failed_when: false
+        - name: "UPKEEP | GDC-STATE | Halt execution"
+          ansible.builtin.meta: end_play
+      when: 
+        - stop_stage in ["UPKEEP", "UPDATE_UPKEEP", "UPDATE-UPKEEP"]
+        - upkeep_state is defined and upkeep_state.status == "completed"
+      tags: ["upkeep"]
+
+    - name: "GDC-STATE | Run final telemetry"
+      block:
+        - name: "GDC-STATE | Always execute diagnostics and upload telemetry"
+          ansible.builtin.shell: |
+            if [ -x /usr/local/bin/gdc-collector ]; then
+              /usr/local/bin/gdc-collector --companion-url="{{ gdc_companion_reports_url | default('') }}"
             else
               echo "[!] Diagnostics collector script /usr/local/bin/gdc-collector not found or not executable!" >&2
               exit 1
             fi
-          ignore_errors: true
+          changed_when: false
           failed_when: false

@@ -37,8 +37,23 @@
         "evidence": {{ first_boot_evidence | to_json }}
       }
 
+- name: "GDC-STATE | Update FirstBoot fact in-memory"
+  ansible.builtin.set_fact:
+    first_boot_state: { "status": "completed" }
+
+- name: "GDC-STATE | Trigger Post-Stage Telemetry"
+  ansible.builtin.shell: |
+    if [ -x /usr/local/bin/gdc-collector ]; then
+      /usr/local/bin/gdc-collector --stage first-boot --companion-url="{{ gdc_companion_reports_url | default('') }}"
+    fi
+  changed_when: false
+  failed_when: false
+
 - name: "GDC-STATE | Reboot to transition to SecondBoot verification stage"
   ansible.builtin.shell: |
-    sleep 45 && shutdown -r now "GDC FirstBoot completed. Rebooting to verify system auto-unsealing and stability."
+    sleep 15 && shutdown -r now "GDC FirstBoot completed. Rebooting to verify system auto-unsealing and stability."
   async: 60
   poll: 0
+
+- name: "GDC-STATE | Force play end to await scheduled reboot"
+  ansible.builtin.meta: end_play

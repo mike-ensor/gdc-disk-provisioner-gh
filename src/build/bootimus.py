@@ -31,19 +31,73 @@ import urllib.parse
 import urllib.error
 import subprocess
 
-def _get_int_env(key, default):
-    val = os.environ.get(key)
-    if val is not None and str(val).strip().isdigit():
-        return int(str(val).strip())
+def _parse_env_file(filepath):
+    """Safely parses a simple KEY=VALUE bash env file."""
+    if not os.path.exists(filepath):
+        return {}
+    res = {}
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[7:].strip()
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip()
+                    if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                        v = v[1:-1]
+                    res[k] = v
+    except Exception:
+        pass
+    return res
+
+def _load_env_defaults():
+    """Loads baseline build.env defaults merged with active ISO_ENVIRONMENT.env overrides."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    iso_env = os.environ.get("ISO_ENVIRONMENT", "local")
+    merged = {}
+    merged.update(_parse_env_file(os.path.join(script_dir, "build.env")))
+    merged.update(_parse_env_file(os.path.join(script_dir, f"{iso_env}.env")))
+    return merged
+
+_ENV_DEFAULTS = _load_env_defaults()
+
+def _get_str_env(keys, default):
+    """Retrieves string environment variable by checking multiple aliases in os.environ and env files."""
+    if isinstance(keys, str):
+        keys = [keys]
+    for k in keys:
+        val = os.environ.get(k)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    for k in keys:
+        if k in _ENV_DEFAULTS and str(_ENV_DEFAULTS[k]).strip():
+            return str(_ENV_DEFAULTS[k]).strip()
+    return default
+
+def _get_int_env(keys, default):
+    """Retrieves integer environment variable by checking multiple aliases in os.environ and env files."""
+    if isinstance(keys, str):
+        keys = [keys]
+    for k in keys:
+        val = os.environ.get(k)
+        if val is not None and str(val).strip().isdigit():
+            return int(str(val).strip())
+    for k in keys:
+        if k in _ENV_DEFAULTS and str(_ENV_DEFAULTS[k]).strip().isdigit():
+            return int(str(_ENV_DEFAULTS[k]).strip())
     return default
 
 # Configurable Defaults (Can be overridden by environment variables)
-BOOTIMUS_API_HOST = os.environ.get("BOOTIMUS_API_HOST", "192.168.254.12")
-BOOTIMUS_API_PORT = _get_int_env("BOOTIMUS_API_PORT", 26000)
-BOOTIMUS_HTTP_PORT = _get_int_env("BOOTIMUS_HTTP_PORT", 16000)
+BOOTIMUS_API_HOST = _get_str_env(["BOOTIMUS_API_HOST", "PXE_SERVER_HOST"], "192.168.254.12")
+BOOTIMUS_API_PORT = _get_int_env(["BOOTIMUS_API_PORT", "PXE_SERVER_PORT"], 26000)
+BOOTIMUS_HTTP_PORT = _get_int_env(["BOOTIMUS_HTTP_PORT"], 16000)
 API_BASE = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_API_PORT}/api"
-BOOTIMUS_SCAN_RETRIES = _get_int_env("BOOTIMUS_SCAN_RETRIES", 24)
-BOOTIMUS_SCAN_DELAY = _get_int_env("BOOTIMUS_SCAN_DELAY", 15)
+BOOTIMUS_SCAN_RETRIES = _get_int_env(["BOOTIMUS_SCAN_RETRIES"], 24)
+BOOTIMUS_SCAN_DELAY = _get_int_env(["BOOTIMUS_SCAN_DELAY", "BOOTIMUS_SCAN_INTERVAL_SECONDS"], 15)
 
 def get_bootimus_credentials():
     """Retrieves credentials from environment or dynamically from Infisical."""

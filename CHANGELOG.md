@@ -8,16 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased] (v0.8.x)
 
 ### Added
+- **Step CA and Companion URL Preflight Readiness Checks**: Enhanced `src/ansible/scripts/check_endpoints.py` and `src/ansible/stages/stage_preflight_checks.yml` to explicitly validate both `gdc_step_ca_url` and `gdc_companion_reports_url` during early preflight checks. Accurately distinguishes between DNS resolution failures and TCP socket reachability/firewall blocks with actionable remediation hints.
 - **Dynamic Boot ID and Primary MAC Telemetry Resolution**: Implemented dynamic ephemeral kernel `boot_id` and node `PRIMARY_MAC` parameter injection into Live ISO `user-data` for correlation of installation sessions by physical machine and boot attempt.
 - **Dynamic Companion Binary Fetch**: Dynamically pulls the latest `gdc-companion` binary from Google Cloud Storage into system `PATH` during build and provisioning.
 - **Concurrent Build Flags & Telemetry**: Added `--skip-pxe` flag, auto-increment versioning logic, and build-state tracking to `concurrent_build.sh`.
 - **PXE Netboot Optimization Spec (`docs/specs/`)**: Authored architecture specifications covering dynamic ISO prefixes (e.g., `honeywell`), mTLS security hardening, and netboot transfer optimization.
 
 ### Changed
+- **Step CA Static Host Mapping Injection**: Added `192.168.20.102 step-ca.ensor-labs.com` to `src/build/add-hosts` and enabled `PERSIST_ADD_HOSTS=true` across environment profiles (`barn.env`, `local.env`). Guarantees deterministic Step CA resolution during early boot across LiveCD and target OS, preventing transient `systemd-resolved` EDNS0/TCP degradation failures against gateway DNS servers.
+- **Bootimus Configuration & Profile Precedence**: Standardized Group 11 Bootimus/PXE configurations across `src/build/build.env` (generic defaults `pxe.example-labs.com:26000`), `src/build/local.env`, and `src/build/honeywell.env` (`192.168.254.12:26000`). Corrected `bootimus.sh` sourcing precedence so environment profile overrides take priority over `build.env` base defaults without requiring redundant variables in `.envrc`.
+- **Bootimus CLI Variable Aliasing & Standalone Fallback**: Updated `src/build/bootimus.py` to support `BOOTIMUS_API_HOST`/`PXE_SERVER_HOST` and `BOOTIMUS_API_PORT`/`PXE_SERVER_PORT` variable aliasing, plus automatic profile fallback parsing when executed standalone outside `bootimus.sh`.
 - **Storage Sanitization Media Exclusion**: Explicitly excluded USB flash drives and installer boot media from disk discovery and automated wiping routines.
 - **Stage Completion Status Standard**: Standardized internal Ansible state outputs to lowercase (`ready-linux`, `linux-ready`).
 
 ### Fixed
+- **FirstBoot Reboot Transition Race**: Added explicit `meta: end_play` to `stage_first_boot.yml` and `local.yml` immediately following the scheduled reboot task. This prevents Ansible from prematurely executing `second-boot` and `linux-ready` (`host_foundations` package installation) during the background reboot countdown, preventing partial package installations and abrupt SIGTERM aborts.
+- **CI/CD Test Suite Fixtures for Git-Ignored Profiles**: Added dynamic test fixtures in `test/test_bootimus_env.py` (`setUpClass`/`tearDownClass`) ensuring robust unit test execution across headless and clean CI runners where local environment profiles are git-ignored.
 - **Netplan VLAN Collision and Silent Route Rejection**: Resolved Netplan default route conflict where installer-generated `/etc/netplan/01-netcfg.yaml` retained legacy VLAN definitions, causing `netplan apply` to silently abort creating `vlan109` while exiting 0. Added automated purging of stale `vlans:` blocks from `01-netcfg.yaml` and dynamic kernel cleanup of legacy `*.<vlan>` links in `machine_orchestration`, followed by `systemd-networkd` restart to guarantee `.netdev` instantiation.
 - **Dynamic Bootstrap Network Seed Generation**: Configured `render_templates.py` to persist `BOOTSTRAP_K8S_IP_CIDR`, `BOOTSTRAP_MACHINE_IP_CIDR`, and gateways into `custom-data/bootstrap_network.env`, enabling `configure_netplan.py` to dynamically hydrate initial boot networking rather than falling back to hardcoded static addresses (`172.31.250.10`).
 - **Storage Kernel Module Preloading**: Preloaded `iscsi_tcp` and `ib_iser` in host system tuning (`/etc/modules-load.d/gdc-storage.conf`) to resolve container `Invalid ELF header magic` module load failures within `bmctl` bootstrap clusters.

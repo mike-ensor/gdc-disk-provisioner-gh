@@ -1,0 +1,59 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "GDC-TIMING | Ensure Upkeep start time is set"
+  ansible.builtin.set_fact:
+    upkeep_start_time: "{{ upkeep_start_time | default(now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')) }}"
+    upkeep_start_epoch: "{{ upkeep_start_epoch | default(now(utc=true).strftime('%s') | int) }}"
+
+- name: "Run upkeep role"
+  ansible.builtin.include_role:
+    name: upkeep
+
+- name: "GDC-TIMING | Calculate Upkeep timing facts"
+  ansible.builtin.set_fact:
+    upkeep_end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    upkeep_duration_seconds: "{{ [(now(utc=true).strftime('%s') | int) - (upkeep_start_epoch | int), 0] | max }}"
+
+- name: "GDC-EVIDENCE | Update Upkeep Evidence Timing"
+  ansible.builtin.set_fact:
+    upkeep_evidence: "{{ (upkeep_evidence | default({})) | combine({'timing': {'start_time': upkeep_start_time, 'end_time': upkeep_end_time, 'duration_seconds': upkeep_duration_seconds | int, 'overall_provisioning_start_time': provisioning_start_time | default(upkeep_start_time)}}) }}"
+
+- name: "GDC-STATE | Write Upkeep completion state"
+  ansible.builtin.copy:
+    dest: /var/gdc-install/state/update-upkeep.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {
+        "stage": "UPDATE_UPKEEP",
+        "status": "{{ 'completed' if (upkeep_evidence.provision_timer_configured and upkeep_evidence.desired_state_timer_configured) else 'failed' }}",
+        "timestamp": "{{ upkeep_end_time }}",
+        "evidence": {{ upkeep_evidence | to_json }}
+      }
+
+- name: "GDC-STATE | Create upkeep.json compatibility symlink"
+  ansible.builtin.file:
+    src: /var/gdc-install/state/update-upkeep.json
+    dest: /var/gdc-install/state/upkeep.json
+    state: link
+    force: true
+
+- name: "GDC-STATE | Update Upkeep fact in-memory"
+  ansible.builtin.set_fact:
+    upkeep_state: { "status": "{{ 'completed' if (upkeep_evidence.provision_timer_configured and upkeep_evidence.desired_state_timer_configured) else 'failed' }}" }
+
+- name: "GDC-STATE | Trigger Post-Stage Telemetry"
+  ansible.builtin.shell: |
+    if [ -x /usr/local/bin/gdc-collector ]; then
+      /usr/local/bin/gdc-collector --stage upkeep --companion-url="{{ gdc_companion_reports_url | default('') }}"
+    fi
+  changed_when: false
+  failed_when: false
+
+- name: "GDC-UPKEEP | Assert Upkeep configuration criteria met"
+  ansible.builtin.assert:
+    that:
+      - upkeep_evidence.provision_timer_configured | bool
+      - upkeep_evidence.desired_state_timer_configured | bool
+    fail_msg: "Upkeep configuration failed: Systemd timers not configured."

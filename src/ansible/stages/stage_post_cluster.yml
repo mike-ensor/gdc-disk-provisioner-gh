@@ -1,0 +1,59 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "GDC-TIMING | Ensure PostCluster start time is set"
+  ansible.builtin.set_fact:
+    post_cluster_start_time: "{{ post_cluster_start_time | default(now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')) }}"
+    post_cluster_start_epoch: "{{ post_cluster_start_epoch | default(now(utc=true).strftime('%s') | int) }}"
+
+- name: "Run post_cluster role"
+  ansible.builtin.include_role:
+    name: post_cluster
+
+- name: "GDC-TIMING | Calculate PostCluster timing facts"
+  ansible.builtin.set_fact:
+    post_cluster_end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    post_cluster_duration_seconds: "{{ [(now(utc=true).strftime('%s') | int) - (post_cluster_start_epoch | int), 0] | max }}"
+
+- name: "GDC-EVIDENCE | Update PostCluster Evidence Timing"
+  ansible.builtin.set_fact:
+    post_cluster_evidence: "{{ (post_cluster_evidence | default({})) | combine({'timing': {'start_time': post_cluster_start_time, 'end_time': post_cluster_end_time, 'duration_seconds': post_cluster_duration_seconds | int, 'overall_provisioning_start_time': provisioning_start_time | default(post_cluster_start_time)}}) }}"
+
+- name: "GDC-STATE | Write PostCluster completion state"
+  ansible.builtin.copy:
+    dest: /var/gdc-install/state/post-validation.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {
+        "stage": "POST_CLUSTER",
+        "status": "{{ 'completed' if (post_cluster_evidence.kubernetes_nodes_ready and post_cluster_evidence.coredns_operational) else 'failed' }}",
+        "timestamp": "{{ post_cluster_end_time }}",
+        "evidence": {{ post_cluster_evidence | to_json }}
+      }
+
+- name: "GDC-STATE | Create post-cluster.json compatibility symlink"
+  ansible.builtin.file:
+    src: /var/gdc-install/state/post-validation.json
+    dest: /var/gdc-install/state/post-cluster.json
+    state: link
+    force: true
+
+- name: "GDC-STATE | Update PostCluster fact in-memory"
+  ansible.builtin.set_fact:
+    post_cluster_state: { "status": "{{ 'completed' if (post_cluster_evidence.kubernetes_nodes_ready and post_cluster_evidence.coredns_operational) else 'failed' }}" }
+
+- name: "GDC-STATE | Trigger Post-Stage Telemetry"
+  ansible.builtin.shell: |
+    if [ -x /usr/local/bin/gdc-collector ]; then
+      /usr/local/bin/gdc-collector --stage post-cluster --companion-url="{{ gdc_companion_reports_url | default('') }}"
+    fi
+  changed_when: false
+  failed_when: false
+
+- name: "GDC-POST | Assert PostCluster validation criteria met"
+  ansible.builtin.assert:
+    that:
+      - post_cluster_evidence.kubernetes_nodes_ready | bool
+      - post_cluster_evidence.coredns_operational | bool
+    fail_msg: "PostCluster validation failed: Nodes or CoreDNS not Ready."

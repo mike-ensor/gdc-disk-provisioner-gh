@@ -335,6 +335,22 @@ class TestGgdBuildScripts(unittest.TestCase):
             self.assertIn("timing", s_content, f"Stage {stage} must have timing dictionary in evidence")
             self.assertIn('"status": "completed"', s_content, f"Stage {stage} must record status")
 
+    def test_first_boot_reboot_halts_play(self):
+        """Verifies that FirstBoot stage and local.yml immediately halt execution after scheduling reboot."""
+        ansible_dir = os.path.join(PROJECT_ROOT, "src/ansible")
+        local_yml = os.path.join(ansible_dir, "local.yml")
+        first_boot_yml = os.path.join(ansible_dir, "stages/stage_first_boot.yml")
+
+        with open(first_boot_yml, "r") as f:
+            first_boot_content = f.read()
+
+        with open(local_yml, "r") as f:
+            local_content = f.read()
+
+        self.assertIn("shutdown -r now", first_boot_content)
+        self.assertIn("ansible.builtin.meta: end_play", first_boot_content)
+        self.assertIn("FIRST_BOOT | GDC-STATE | Force play end to await scheduled reboot", local_content)
+
     def test_system_tuning_preloads_storage_modules(self):
         """Verifies that system_tuning role configures storage kernel modules (iscsi_tcp, ib_iser) to prevent invalid ELF header errors."""
         system_tuning_tasks = os.path.join(PROJECT_ROOT, "src/ansible/roles/system_tuning/tasks/main.yml")

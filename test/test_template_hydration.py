@@ -866,5 +866,14 @@ class TestGgdTemplateHydration(unittest.TestCase):
         self.assertNotIn('modprobe.blacklist=amdgpu', rendered)
         self.assertNotIn('nomodeset', rendered)
 
+    def test_livecd_state_and_telemetry_in_late_commands(self):
+        """Verifies that user-data writes live-cd.json and emits telemetry in late-commands."""
+        env = self.base_env.copy()
+        env['companion_url'] = 'http://127.0.0.1:8080/v1/install-logs'
+        template = self.jinja_env.get_template('user-data.j2')
+        rendered = template.render(env)
+        self.assertIn('printf \'{\\n  "stage": "LIVECD",\\n  "status": "completed",\\n  "timestamp": "%s"\\n}\\n\' "$(date -u +\'%Y-%m-%dT%H:%M:%SZ\')" > /target/var/gdc-install/state/live-cd.json', rendered)
+        self.assertIn('timeout 60s /usr/local/bin/gdc-collector --stage live-cd --companion-url="http://127.0.0.1:8080/v1/install-logs" >/dev/ttyS0 2>&1 || true', rendered)
+
 if __name__ == "__main__":
     unittest.main()
