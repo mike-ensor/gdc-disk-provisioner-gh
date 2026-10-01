@@ -6,11 +6,17 @@ network:
     __MGMT_IFACE__:
       dhcp4: true
       dhcp6: no
+      dhcp-identifier: mac
+      critical: true
       link-local: []
     # __MGMT_IFACE_END__
     {{ phys_iface }}:
       dhcp4: {{ machine_dhcp4 }}
       dhcp6: {{ machine_dhcp6 }}
+      {% if machine_dhcp4 != 'false' %}
+      dhcp-identifier: mac
+      critical: true
+      {% endif %}
       link-local: []
       {% if machine_dhcp4 == 'false' %}
       {% if not machine_vlan or machine_vlan == '0' %}
@@ -31,6 +37,10 @@ network:
       link: {{ phys_iface }}
       dhcp4: {{ machine_dhcp4 }}
       dhcp6: {{ machine_dhcp6 }}
+      {% if machine_dhcp4 != 'false' %}
+      dhcp-identifier: mac
+      critical: true
+      {% endif %}
       {% if machine_dhcp4 == 'false' %}
       addresses: [__MACHINE_IP_CIDR__]
       routes:

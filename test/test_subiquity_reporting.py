@@ -76,5 +76,63 @@ class TestSubiquityReporting(unittest.TestCase):
         self.assertNotIn("phone_home:", content, "The 'phone_home' block must NOT exist in user-data when GDC_COMPANION=FALSE")
         self.assertIn("Connectivity checking skipped", content, "The connectivity check should be skipped when GDC_COMPANION=FALSE")
 
+    def test_autoinstall_network_dhcp_identifier_and_critical(self):
+        """Validates that autoinstall network block enforces dhcp-identifier: mac and critical: true to prevent IP churn."""
+        env = {
+            'GDC_COMPANION': 'TRUE',
+            'ISO_VERSION': '1.0',
+            'TEMPORARY_INSTALLER_PASSWORD': 'test',
+            'UPSTREAM_PLAYBOOKS_REPO': 'test',
+            'BOOTSTRAP_MACHINE_IP_CIDR': 'test',
+            'BOOTSTRAP_MACHINE_GATEWAY': 'test',
+            'BOOTSTRAP_K8S_IP_CIDR': 'test',
+            'BOOTSTRAP_K8S_GATEWAY': 'test',
+            'INSTALL_COMPANION_URL': 'test',
+            'GITEA_BINARY_FILENAME': 'test',
+            'NEXUS_PACKAGE_FILENAME': 'test',
+            'JRE_PACKAGE_FILENAME': 'test',
+            'companion_url': 'http://test'
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.makedirs(os.path.join(temp_dir, 'nocloud'))
+            template_dir = os.path.join(PROJECT_ROOT, "src/build/templates")
+            render_templates.render_templates(template_dir, temp_dir, env)
+            
+            userdata_path = os.path.join(temp_dir, "nocloud/user-data")
+            with open(userdata_path, "r") as f:
+                content = f.read()
+
+        self.assertIn("dhcp-identifier: mac", content, "Autoinstall network config must set 'dhcp-identifier: mac' to preserve lease")
+        self.assertIn("critical: true", content, "Autoinstall network config must set 'critical: true' to prevent link teardown")
+
+    def test_bootcmd_tcp_keepalive_sysctl(self):
+        """Validates that bootcmd configures aggressive TCP keepalives to prevent hang on dead sockets."""
+        env = {
+            'GDC_COMPANION': 'TRUE',
+            'ISO_VERSION': '1.0',
+            'TEMPORARY_INSTALLER_PASSWORD': 'test',
+            'UPSTREAM_PLAYBOOKS_REPO': 'test',
+            'BOOTSTRAP_MACHINE_IP_CIDR': 'test',
+            'BOOTSTRAP_MACHINE_GATEWAY': 'test',
+            'BOOTSTRAP_K8S_IP_CIDR': 'test',
+            'BOOTSTRAP_K8S_GATEWAY': 'test',
+            'INSTALL_COMPANION_URL': 'test',
+            'GITEA_BINARY_FILENAME': 'test',
+            'NEXUS_PACKAGE_FILENAME': 'test',
+            'JRE_PACKAGE_FILENAME': 'test',
+            'companion_url': 'http://test'
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.makedirs(os.path.join(temp_dir, 'nocloud'))
+            template_dir = os.path.join(PROJECT_ROOT, "src/build/templates")
+            render_templates.render_templates(template_dir, temp_dir, env)
+            
+            userdata_path = os.path.join(temp_dir, "nocloud/user-data")
+            with open(userdata_path, "r") as f:
+                content = f.read()
+
+        self.assertIn("sysctl -w net.ipv4.tcp_keepalive_time=15", content, "bootcmd must tune tcp_keepalive_time")
+        self.assertIn("sysctl -w net.ipv4.tcp_retries2=5", content, "bootcmd must tune tcp_retries2")
+
 if __name__ == "__main__":
     unittest.main()

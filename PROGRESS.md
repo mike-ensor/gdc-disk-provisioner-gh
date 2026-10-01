@@ -23,6 +23,7 @@ Immediate blockers and high-profile bugs prioritized for upcoming releases:
 | **P1 (Feature)** | **Automated Offline Standalone Turnup** | `Stage 6: Cluster Up` | `bmctl create cluster` previously required manual execution of `create_cluster.sh`. | Fully automated standalone cluster turnup via Stage 6 `CLUSTER_TURNUP` Ansible role and dynamic facts. |
 | **P2 (Feature)** | **Non-LUKS Storage Mode (`GDC-SPEC-008`)** | `Stage 1: LiveCD` | Bare-metal lab hardware lacking TPM 2.0 or UEFI support cannot complete installation. | Implement `GDC_ENABLE_LUKS=false` build parameter to conditionally bypass LUKS partitioning. |
 | **P2 (Feature)** | **3-Node HA Cluster Orchestration** | `Stage 6: Cluster Up` | Multi-node turnup requires manual trust exchanges and registry sharing across nodes. | Implement primary-secondary node role assignment, Gitea SSH key exchange, and registry proxy routing. |
+| **P3 (Feature)** | **Dual Console Routing & Debug TTY (`GDC-SPEC-015`)** | `Stage 1: LiveCD` | Physical monitor stops updating after DRM driver handoff while serial streams installer logs. | Dual-tee installer logs to `/dev/tty0` and evaluate dynamic console precedence in debug builds. |
 
 ---
 
@@ -119,6 +120,7 @@ The table below maps project capabilities across **Functional Domains** (columns
 - [-] **In Progress & Planned Installer Tasks**
   - [ ] **GDC-SPEC-008: Non-LUKS Storage Provisioning:** Build flag `GDC_ENABLE_LUKS=false` to bypass LUKS on hardware lacking TPM/UEFI
   - [ ] **Installer Removal Execution Plan (`GDC-SPEC-009`):** Verification checklist for post-install cleanup
+  - [ ] **GDC-SPEC-015: Dual Console Routing & Debug TTY:** Stream live installation logs simultaneously to physical monitor (`/dev/tty0`) and serial console (`/dev/ttyS0`) in development builds.
 
 ---
 
@@ -288,5 +290,8 @@ The table below maps project capabilities across **Functional Domains** (columns
 | **GDC-SPEC-010** | GCloud Token Federation & ADC Bypass (`10-gcloud-token-federation.md`) | `Stage 4: Linux Ready` | Approved / Implemented |
 | **GDC-SPEC-011** | PXE Netboot Optimization & Deduplication (`11-pxe-netboot-optimization-and-deduplication.md`) | `Stage 0: Build` | Approved / In Progress |
 | **GDC-SPEC-012** | Automated GCS Package Cache via Cloud Build (`12-cloudbuild-package-cache.md`) | `Stage 0: Build` | Planned |
+| **GDC-SPEC-013** | Dynamic Boot ID & Primary MAC Telemetry (`13-dynamic-boot-id-and-mac-telemetry.md`) | `Stage 1: LiveCD` | Approved / Implemented |
+| **GDC-SPEC-014** | Companion ConfigSync Integration (`14-gdc-companion-configsync-spec.md`) | `Stage 5: Cluster Ready` | Approved / In Progress |
+| **GDC-SPEC-015** | Dual Console Display & Debug TTY (`15-dual-console-display-and-debug-tty.md`) | `Stage 1: LiveCD` | Planned (Low Priority) |
 | **GDC-SPEC-DEP-001** | GDC Master Dependency Matrix | `All Stages` | Approved / Implemented |
 | **GDC-SPEC-READY-LINUX**| GDC Ready-Linux & Idempotent Post-Install Plan | `Stages 2–4` | Approved / Implemented |

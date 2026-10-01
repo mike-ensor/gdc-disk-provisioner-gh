@@ -72,10 +72,14 @@ network:
     enp1s0:
       dhcp4: true
       dhcp6: no
+      dhcp-identifier: mac
+      critical: true
       link-local: []
     enp2s0:
       dhcp4: true
       dhcp6: no
+      dhcp-identifier: mac
+      critical: true
       link-local: []
   vlans:
     enp1s0.109:
@@ -84,6 +88,30 @@ network:
       addresses:
         - 172.31.250.10/24
 ```
+
+---
+
+### 2.1. Early-Stage DHCP Identity: Why `dhcp-identifier: mac` is Enforced
+
+During the earliest bootstrap stages (PXE network boot, Linux kernel/casper initialization with `ip=dhcp`, Subiquity autoinstall, and First Boot), bare-metal nodes must maintain a single, deterministic IPv4 address. 
+
+#### 1. The Client Identifier Discrepancy & IP Churn
+* **PXE & Initramfs Phase:** When the node boots into the live installer environment over PXE, the kernel/initramfs DHCP client requests an IP lease using the network interface's hardware MAC address as the client identifier (RFC 2132, type `01:<mac>`).
+* **The Default `systemd-networkd` Behavior:** In Ubuntu 24.04 LTS, `systemd-networkd` (the Netplan backend) defaults to RFC 4361 DUID client identifiers (`dhcp-identifier: duid`). The DUID is derived from `/etc/machine-id`. Because the live installer runs inside an ephemeral RAM overlay (`/cow`), its generated machine ID does not match the initramfs MAC identifier.
+* **The Failure Mode:** When Subiquity applies its autoinstall network configuration (`netplan apply`), `systemd-networkd` sends a DHCP request with the DUID client ID. Upstream DHCP servers (dnsmasq, ISC DHCP, Kea, switch DHCP agents) treat this as an entirely different machine, lease a new IP address, and immediately expire or drop the original IP lease.
+
+#### 2. Synchronous Installer Deadlocks (The Webhook Trap)
+Subiquity logs installer progress synchronously to the GDC Companion API (`reporting: webhook`). When `netplan apply` triggers mid-install IP churn:
+1. The socket connection to the Companion server is bound to the original IP address.
+2. When `systemd-networkd` swaps the IP address on the interface, the existing TCP socket becomes orphaned. Packets can no longer route to the vacated IP.
+3. Subiquity's reporting handler uses Python's `urllib.request.urlopen` with no socket timeout. Under default Linux kernel parameters (`net.ipv4.tcp_keepalive_time=7200`), the process blocks in `sk_wait_data`/`tcp_recvmsg_locked` for 2 hours, completely stalling disk partitioning and OS installation.
+
+#### 3. Why `mac` is Used for DHCP
+By explicitly enforcing `dhcp-identifier: mac` across all early-stage network declarations:
+* `systemd-networkd` is constrained to send the exact hardware MAC address as its DHCP Client Identifier, identical to the kernel/PXE bootloader.
+* Upstream DHCP servers recognize the request as a lease renewal rather than a new client, preserving the exact same IP throughout LiveCD boot, Subiquity partitioning, First Boot, and post-install configuration.
+* Adding `critical: true` directs `systemd-networkd` (`KeepConfiguration=yes`) never to flush addresses or tear down the interface link during Netplan reconfiguration passes.
+* In conjunction, `bootcmd` tunes kernel TCP keepalive parameters (`net.ipv4.tcp_keepalive_time=15`, `net.ipv4.tcp_retries2=5`) so that even if an external switch flaps, any severed socket aborts in ~30 seconds rather than freezing the installer for hours.
 
 ---
 

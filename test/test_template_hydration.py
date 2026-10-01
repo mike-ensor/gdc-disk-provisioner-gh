@@ -610,10 +610,17 @@ class TestGgdTemplateHydration(unittest.TestCase):
                 self.assertIn(f"ens3.{comb['BOOTSTRAP_MACHINE_VLAN_ID']}", vlans)
                 self.assertEqual(vlans[f"ens3.{comb['BOOTSTRAP_MACHINE_VLAN_ID']}"]["id"], int(comb['BOOTSTRAP_MACHINE_VLAN_ID']))
 
-            # Verify secondary NIC is added as a plain DHCP interface
+            # Verify secondary NIC is added as a plain DHCP interface with mac client id and critical
             ethernets = config["network"].get("ethernets", {})
             self.assertIn("ens4", ethernets)
             self.assertTrue(ethernets["ens4"].get("dhcp4"))
+            self.assertEqual(ethernets["ens4"].get("dhcp-identifier"), "mac")
+            self.assertTrue(ethernets["ens4"].get("critical"))
+
+            # Verify primary NIC uses mac client id and critical flag when dhcp is enabled
+            if ethernets["ens3"].get("dhcp4"):
+                self.assertEqual(ethernets["ens3"].get("dhcp-identifier"), "mac")
+                self.assertTrue(ethernets["ens3"].get("critical"))
 
     def test_gateway_in_subnet(self):
         """Asserts that the default gateway is within the network subnet of the assigned IP to prevent route failures."""

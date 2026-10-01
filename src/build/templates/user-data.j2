@@ -6,6 +6,10 @@ bootcmd:
   - echo "127.0.0.1 security.ubuntu.com" >> /etc/hosts
   - echo "127.0.0.1 geoip.ubuntu.com" >> /etc/hosts
   - echo "127.0.0.1 geoip.canonical.com" >> /etc/hosts
+  - sysctl -w net.ipv4.tcp_keepalive_time=15
+  - sysctl -w net.ipv4.tcp_keepalive_intvl=5
+  - sysctl -w net.ipv4.tcp_keepalive_probes=3
+  - sysctl -w net.ipv4.tcp_retries2=5
   - |
     # Intercept ephemeral kernel boot_id and primary MAC before Subiquity or cloud-final start
     BOOT_ID=$(cat /proc/sys/kernel/random/boot_id | tr -d '-')
@@ -79,6 +83,8 @@ autoinstall:
         match:
           name: "e*"
         dhcp4: true
+        dhcp-identifier: mac
+        critical: true
   ssh:
     install-server: true
     allow-pw: true
