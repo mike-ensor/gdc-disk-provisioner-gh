@@ -121,8 +121,6 @@
       "description": "Target cluster configuration metadata.",
       "required": [
         "cluster_name",
-        "primary_root_repo",
-        "primary_root_repo_auth_secret",
         "networking",
         "fleet_cluster_labels"
       ],
@@ -130,11 +128,83 @@
         "cluster_name": {
           "type": "string"
         },
+        "config_sync_enabled": {
+          "type": "boolean",
+          "description": "Optional toggle to install ConfigSync operator. Defaults to true.",
+          "default": true
+        },
         "primary_root_repo": {
-          "type": "string"
+          "description": "Primary RootSync repository configuration (git or oci).",
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "Legacy OCI or Git URI string for backward compatibility."
+            },
+            {
+              "type": "null",
+              "description": "Null if ConfigSync is enabled without a root repo."
+            },
+            {
+              "type": "object",
+              "description": "Structured Git or OCI repository configuration.",
+              "properties": {
+                "cluster_config_name": {
+                  "type": "string",
+                  "description": "Optional override for cluster subfolder directory under config/clusters/."
+                },
+                "git": {
+                  "type": "object",
+                  "description": "Git repository configuration for ConfigSync RootSync.",
+                  "required": [
+                    "repo_url"
+                  ],
+                  "properties": {
+                    "repo_url": {
+                      "type": "string",
+                      "description": "Git repository URL."
+                    },
+                    "branch": {
+                      "type": "string",
+                      "default": "main",
+                      "description": "Git branch to sync."
+                    },
+                    "gsm_secret_name": {
+                      "type": "string",
+                      "description": "Secret Manager secret name containing read-only Git PAT / credentials."
+                    }
+                  }
+                },
+                "oci": {
+                  "type": "object",
+                  "description": "OCI registry configuration for ConfigSync RootSync.",
+                  "required": [
+                    "image"
+                  ],
+                  "properties": {
+                    "image": {
+                      "type": "string",
+                      "description": "OCI image reference."
+                    },
+                    "gsa": {
+                      "type": "string",
+                      "description": "GCP Service Account name for Workload Identity Artifact Registry access."
+                    },
+                    "gsm_secret_name": {
+                      "type": "string",
+                      "description": "Secret Manager secret name containing read-only registry pull credentials."
+                    }
+                  }
+                }
+              }
+            }
+          ]
         },
         "primary_root_repo_auth_secret": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Optional legacy authentication secret name for primary_root_repo string."
         },
         "networking": {
           "type": "object",

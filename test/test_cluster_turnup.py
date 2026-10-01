@@ -14,6 +14,7 @@
 
 """Unit tests verifying GDC automated cluster-create and CLUSTER_TURNUP stage integration."""
 
+import json
 import os
 import subprocess
 import tempfile
@@ -221,6 +222,231 @@ class TestClusterTurnupScript(unittest.TestCase):
         finally:
             os.remove(temp_path)
 
+    def test_facts_file_with_structured_git_primary_root_repo(self):
+        facts = {
+            "cluster": {
+                "cluster_name": "gdc-test-git-root",
+                "primary_root_repo": {
+                    "cluster_config_name": "custom-folder",
+                    "git": {
+                        "repo_url": "https://gitlab.com/test-org/primary-root.git",
+                        "branch": "main",
+                        "gsm_secret_name": "git-creds",
+                    },
+                },
+                "networking": {
+                    "cluster_vip": "192.168.109.2",
+                    "cluster_ingress": "192.168.109.100",
+                    "cluster_lb_range": "192.168.109.100-192.168.109.150",
+                },
+            },
+            "gcp_info": {
+                "project_id": "anthos-bare-metal-lab-1",
+                "region": "us-west1",
+            },
+            "network": {
+                "cluster_network": {
+                    "ip_cidr": "192.168.109.12/24",
+                },
+            },
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(facts, f)
+            temp_path = f.name
+        try:
+            result = subprocess.run(
+                [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run", "--facts", temp_path],
+                capture_output=True,
+                text=True,
+                env={"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")},
+            )
+            self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+            self.assertIn(
+                "Primary Root Repo:                  https://gitlab.com/test-org/primary-root.git",
+                result.stdout,
+            )
+        finally:
+            os.remove(temp_path)
+
+    def test_gitops_rich_summary_table_and_flags(self):
+        """Verifies CLI flags for GitOps and rich summary table output in dry-run mode."""
+        env = {
+            **os.environ,
+            "CLUSTER_NAME": "gdc-ux-test",
+            "PROJECT_ID": "anthos-bare-metal-lab-1",
+            "MACHINE_IP": "192.168.9.241",
+            "CLUSTER_VIP": "192.168.9.143",
+            "CLUSTER_INGRESS": "192.168.9.144",
+            "PRIMARY_LOAD_BALANCER": "192.168.9.144-192.168.9.150",
+        }
+
+        # Case 1: Custom GitOps flags
+        result = subprocess.run(
+            [
+                CREATE_CLUSTER_SCRIPT,
+                "-y",
+                "--dry-run",
+                "--root-repo",
+                "https://gitlab.com/test-org/repo.git",
+                "--root-repo-branch",
+                "develop",
+                "--root-repo-secret",
+                "custom-git-secret",
+                "--cluster-config-name",
+                "custom-folder",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+        self.assertIn("Config Sync:                        true", result.stdout)
+        self.assertIn(
+            "Primary Root Repo:                  https://gitlab.com/test-org/repo.git",
+            result.stdout,
+        )
+        self.assertIn("Root Repo Type:                     git", result.stdout)
+        self.assertIn("Root Repo Branch:                   develop", result.stdout)
+        self.assertIn("Target Sync Directory:              config/clusters/custom-folder", result.stdout)
+        self.assertIn("Root Repo Authentication:           GSM Secret ('custom-git-secret')", result.stdout)
+
+        # Case 2: ConfigSync disabled flag
+        result_disabled = subprocess.run(
+            [
+                CREATE_CLUSTER_SCRIPT,
+                "-y",
+                "--dry-run",
+                "--no-config-sync",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        self.assertEqual(result_disabled.returncode, 0, f"Failed with: {result_disabled.stderr}")
+        self.assertIn("Config Sync:                        false", result_disabled.stdout)
+
+    def test_facts_file_with_structured_oci_primary_root_repo(self):
+        facts = {
+            "cluster": {
+                "cluster_name": "gdc-test-oci-root",
+                "primary_root_repo": {
+                    "oci": {
+                        "image": "us-docker.pkg.dev/test-proj/test-repo/config:v1.0.0",
+                        "gsa": "sa-name",
+                    },
+                },
+                "networking": {
+                    "cluster_vip": "192.168.109.2",
+                    "cluster_ingress": "192.168.109.100",
+                    "cluster_lb_range": "192.168.109.100-192.168.109.150",
+                },
+            },
+            "gcp_info": {
+                "project_id": "anthos-bare-metal-lab-1",
+                "region": "us-west1",
+            },
+            "network": {
+                "cluster_network": {
+                    "ip_cidr": "192.168.109.12/24",
+                },
+            },
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(facts, f)
+            temp_path = f.name
+        try:
+            result = subprocess.run(
+                [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run", "--facts", temp_path],
+                capture_output=True,
+                text=True,
+                env={"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")},
+            )
+            self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+            self.assertIn(
+                "Primary Root Repo:                  us-docker.pkg.dev/test-proj/test-repo/config:v1.0.0",
+                result.stdout,
+            )
+        finally:
+            os.remove(temp_path)
+
+    def test_facts_file_with_omitted_or_null_primary_root_repo(self):
+        # Case A: primary_root_repo is null
+        facts_null = {
+            "cluster": {
+                "cluster_name": "gdc-test-null-root",
+                "primary_root_repo": None,
+                "networking": {
+                    "cluster_vip": "192.168.109.2",
+                    "cluster_ingress": "192.168.109.100",
+                    "cluster_lb_range": "192.168.109.100-192.168.109.150",
+                },
+            },
+            "gcp_info": {
+                "project_id": "anthos-bare-metal-lab-1",
+                "region": "us-west1",
+            },
+            "network": {
+                "cluster_network": {
+                    "ip_cidr": "192.168.109.12/24",
+                },
+            },
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(facts_null, f)
+            temp_path = f.name
+        try:
+            result = subprocess.run(
+                [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run", "--facts", temp_path],
+                capture_output=True,
+                text=True,
+                env={"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")},
+            )
+            self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+            self.assertIn(
+                "Primary Root Repo:                  none",
+                result.stdout,
+            )
+        finally:
+            os.remove(temp_path)
+
+        # Case B: primary_root_repo is omitted
+        facts_omitted = {
+            "cluster": {
+                "cluster_name": "gdc-test-omitted-root",
+                "networking": {
+                    "cluster_vip": "192.168.109.2",
+                    "cluster_ingress": "192.168.109.100",
+                    "cluster_lb_range": "192.168.109.100-192.168.109.150",
+                },
+            },
+            "gcp_info": {
+                "project_id": "anthos-bare-metal-lab-1",
+                "region": "us-west1",
+            },
+            "network": {
+                "cluster_network": {
+                    "ip_cidr": "192.168.109.12/24",
+                },
+            },
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(facts_omitted, f)
+            temp_path = f.name
+        try:
+            result = subprocess.run(
+                [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run", "--facts", temp_path],
+                capture_output=True,
+                text=True,
+                env={"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")},
+            )
+            self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+            self.assertIn(
+                "Primary Root Repo:                  none",
+                result.stdout,
+            )
+        finally:
+            os.remove(temp_path)
+
     def test_manifest_generation_structure(self):
         # Validate that the generated manifest templates in bash produce valid YAML structure and expected names
         with open(CREATE_CLUSTER_SCRIPT, "r") as f:
@@ -295,6 +521,303 @@ done
             self.assertEqual(len(dynamic_manifest["subjects"]), 2)
             self.assertEqual(dynamic_manifest["subjects"][0]["name"], "admin1@example.com")
             self.assertEqual(dynamic_manifest["subjects"][1]["name"], "admin2@example.com")
+
+    def test_rootsync_manifests_yaml_validity(self):
+        """Verify that create_cluster.sh's RootSync manifest generation produces valid YAML for Git and OCI."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # 1. Test Git RootSync generation (with token auth)
+            git_script = f"""
+CLUSTER_CONFIG_DIR="{tmpdir}"
+PRIMARY_ROOT_REPO="https://gitlab.com/test-org/primary-root.git"
+ROOT_REPO_TYPE="git"
+ROOT_REPO_BRANCH="release-1.0"
+ROOT_SYNC_DIR="config/clusters/edge-1"
+ROOT_REPO_SECRET="git-creds"
+ROOTSYNC_FILE="${{CLUSTER_CONFIG_DIR}}/rootsync-git.yaml"
+
+ROOT_GIT_AUTH="none"
+if [[ -n "${{ROOT_REPO_SECRET:-}}" ]]; then
+    if [[ "${{PRIMARY_ROOT_REPO}}" == git@* || "${{PRIMARY_ROOT_REPO}}" == ssh://* ]]; then
+        ROOT_GIT_AUTH="ssh"
+    else
+        ROOT_GIT_AUTH="token"
+    fi
+fi
+
+cat <<EOF >"${{ROOTSYNC_FILE}}"
+apiVersion: configsync.gke.io/v1beta1
+kind: RootSync
+metadata:
+  name: root-sync
+  namespace: config-management-system
+spec:
+  sourceFormat: unstructured
+  sourceType: git
+  git:
+    repo: ${{PRIMARY_ROOT_REPO}}
+    branch: ${{ROOT_REPO_BRANCH:-main}}
+    dir: ${{ROOT_SYNC_DIR:-.}}
+    auth: ${{ROOT_GIT_AUTH}}
+EOF
+if [[ -n "${{ROOT_REPO_SECRET:-}}" ]]; then
+    cat <<EOF >>"${{ROOTSYNC_FILE}}"
+    secretRef:
+      name: ${{ROOT_REPO_SECRET}}
+EOF
+fi
+"""
+            subprocess.run(["bash", "-c", git_script], check=True)
+            git_yaml_path = os.path.join(tmpdir, "rootsync-git.yaml")
+            with open(git_yaml_path, "r") as f:
+                git_data = yaml.safe_load(f)
+
+            self.assertEqual(git_data["apiVersion"], "configsync.gke.io/v1beta1")
+            self.assertEqual(git_data["kind"], "RootSync")
+            self.assertEqual(git_data["metadata"]["name"], "root-sync")
+            self.assertEqual(git_data["metadata"]["namespace"], "config-management-system")
+            self.assertEqual(git_data["spec"]["sourceFormat"], "unstructured")
+            self.assertEqual(git_data["spec"]["sourceType"], "git")
+            self.assertEqual(git_data["spec"]["git"]["repo"], "https://gitlab.com/test-org/primary-root.git")
+            self.assertEqual(git_data["spec"]["git"]["branch"], "release-1.0")
+            self.assertEqual(git_data["spec"]["git"]["dir"], "config/clusters/edge-1")
+            self.assertEqual(git_data["spec"]["git"]["auth"], "token")
+            self.assertEqual(git_data["spec"]["git"]["secretRef"]["name"], "git-creds")
+
+            # 2. Test Git RootSync generation with SSH auth
+            git_ssh_script = f"""
+CLUSTER_CONFIG_DIR="{tmpdir}"
+PRIMARY_ROOT_REPO="ssh://git@github.com/my-org/repo.git"
+ROOT_REPO_TYPE="git"
+ROOT_REPO_BRANCH="main"
+ROOT_SYNC_DIR="config/clusters/edge-2"
+ROOT_REPO_SECRET="ssh-key-secret"
+ROOTSYNC_FILE="${{CLUSTER_CONFIG_DIR}}/rootsync-git-ssh.yaml"
+
+ROOT_GIT_AUTH="none"
+if [[ -n "${{ROOT_REPO_SECRET:-}}" ]]; then
+    if [[ "${{PRIMARY_ROOT_REPO}}" == git@* || "${{PRIMARY_ROOT_REPO}}" == ssh://* ]]; then
+        ROOT_GIT_AUTH="ssh"
+    else
+        ROOT_GIT_AUTH="token"
+    fi
+fi
+
+cat <<EOF >"${{ROOTSYNC_FILE}}"
+apiVersion: configsync.gke.io/v1beta1
+kind: RootSync
+metadata:
+  name: root-sync
+  namespace: config-management-system
+spec:
+  sourceFormat: unstructured
+  sourceType: git
+  git:
+    repo: ${{PRIMARY_ROOT_REPO}}
+    branch: ${{ROOT_REPO_BRANCH:-main}}
+    dir: ${{ROOT_SYNC_DIR:-.}}
+    auth: ${{ROOT_GIT_AUTH}}
+EOF
+if [[ -n "${{ROOT_REPO_SECRET:-}}" ]]; then
+    cat <<EOF >>"${{ROOTSYNC_FILE}}"
+    secretRef:
+      name: ${{ROOT_REPO_SECRET}}
+EOF
+fi
+"""
+            subprocess.run(["bash", "-c", git_ssh_script], check=True)
+            git_ssh_yaml_path = os.path.join(tmpdir, "rootsync-git-ssh.yaml")
+            with open(git_ssh_yaml_path, "r") as f:
+                git_ssh_data = yaml.safe_load(f)
+
+            self.assertEqual(git_ssh_data["spec"]["sourceType"], "git")
+            self.assertEqual(git_ssh_data["spec"]["git"]["repo"], "ssh://git@github.com/my-org/repo.git")
+            self.assertEqual(git_ssh_data["spec"]["git"]["branch"], "main")
+            self.assertEqual(git_ssh_data["spec"]["git"]["dir"], "config/clusters/edge-2")
+            self.assertEqual(git_ssh_data["spec"]["git"]["auth"], "ssh")
+            self.assertEqual(git_ssh_data["spec"]["git"]["secretRef"]["name"], "ssh-key-secret")
+
+            # 3. Test OCI RootSync generation with GSA (Workload Identity)
+            oci_gsa_script = f"""
+CLUSTER_CONFIG_DIR="{tmpdir}"
+PRIMARY_ROOT_REPO="us-docker.pkg.dev/my-proj/repo/config:v1"
+ROOT_REPO_TYPE="oci"
+ROOT_SYNC_DIR="config/clusters/edge-oci"
+ROOT_REPO_GSA="sa-configsync"
+ROOT_REPO_SECRET=""
+PROJECT_ID="my-proj"
+ROOTSYNC_FILE="${{CLUSTER_CONFIG_DIR}}/rootsync-oci-gsa.yaml"
+
+cat <<EOF >"${{ROOTSYNC_FILE}}"
+apiVersion: configsync.gke.io/v1beta1
+kind: RootSync
+metadata:
+  name: root-sync
+  namespace: config-management-system
+spec:
+  sourceFormat: unstructured
+  sourceType: oci
+  oci:
+    image: ${{PRIMARY_ROOT_REPO}}
+    dir: ${{ROOT_SYNC_DIR:-.}}
+EOF
+if [[ -n "${{ROOT_REPO_GSA:-}}" ]]; then
+    cat <<EOF >>"${{ROOTSYNC_FILE}}"
+    auth: gcpserviceaccount
+    gcpServiceAccountEmail: ${{ROOT_REPO_GSA}}@${{PROJECT_ID}}.iam.gserviceaccount.com
+EOF
+elif [[ -n "${{ROOT_REPO_SECRET:-}}" ]]; then
+    cat <<EOF >>"${{ROOTSYNC_FILE}}"
+    auth: token
+    secretRef:
+      name: ${{ROOT_REPO_SECRET}}
+EOF
+else
+    cat <<EOF >>"${{ROOTSYNC_FILE}}"
+    auth: none
+EOF
+fi
+"""
+            subprocess.run(["bash", "-c", oci_gsa_script], check=True)
+            oci_gsa_yaml_path = os.path.join(tmpdir, "rootsync-oci-gsa.yaml")
+            with open(oci_gsa_yaml_path, "r") as f:
+                oci_gsa_data = yaml.safe_load(f)
+
+            self.assertEqual(oci_gsa_data["apiVersion"], "configsync.gke.io/v1beta1")
+            self.assertEqual(oci_gsa_data["kind"], "RootSync")
+            self.assertEqual(oci_gsa_data["metadata"]["name"], "root-sync")
+            self.assertEqual(oci_gsa_data["metadata"]["namespace"], "config-management-system")
+            self.assertEqual(oci_gsa_data["spec"]["sourceFormat"], "unstructured")
+            self.assertEqual(oci_gsa_data["spec"]["sourceType"], "oci")
+            self.assertEqual(oci_gsa_data["spec"]["oci"]["image"], "us-docker.pkg.dev/my-proj/repo/config:v1")
+            self.assertEqual(oci_gsa_data["spec"]["oci"]["dir"], "config/clusters/edge-oci")
+            self.assertEqual(oci_gsa_data["spec"]["oci"]["auth"], "gcpserviceaccount")
+            self.assertEqual(
+                oci_gsa_data["spec"]["oci"]["gcpServiceAccountEmail"],
+                "sa-configsync@my-proj.iam.gserviceaccount.com",
+            )
+
+            # 4. Test OCI RootSync fallback (no GSA, no secret -> auth: none)
+            oci_none_script = f"""
+CLUSTER_CONFIG_DIR="{tmpdir}"
+PRIMARY_ROOT_REPO="docker.io/my-org/my-config:v2"
+ROOT_REPO_TYPE="oci"
+ROOT_SYNC_DIR="config/clusters/edge-public"
+ROOT_REPO_GSA=""
+ROOT_REPO_SECRET=""
+PROJECT_ID="my-proj"
+ROOTSYNC_FILE="${{CLUSTER_CONFIG_DIR}}/rootsync-oci-none.yaml"
+
+cat <<EOF >"${{ROOTSYNC_FILE}}"
+apiVersion: configsync.gke.io/v1beta1
+kind: RootSync
+metadata:
+  name: root-sync
+  namespace: config-management-system
+spec:
+  sourceFormat: unstructured
+  sourceType: oci
+  oci:
+    image: ${{PRIMARY_ROOT_REPO}}
+    dir: ${{ROOT_SYNC_DIR:-.}}
+EOF
+if [[ -n "${{ROOT_REPO_GSA:-}}" ]]; then
+    cat <<EOF >>"${{ROOTSYNC_FILE}}"
+    auth: gcpserviceaccount
+    gcpServiceAccountEmail: ${{ROOT_REPO_GSA}}@${{PROJECT_ID}}.iam.gserviceaccount.com
+EOF
+elif [[ -n "${{ROOT_REPO_SECRET:-}}" ]]; then
+    cat <<EOF >>"${{ROOTSYNC_FILE}}"
+    auth: token
+    secretRef:
+      name: ${{ROOT_REPO_SECRET}}
+EOF
+else
+    cat <<EOF >>"${{ROOTSYNC_FILE}}"
+    auth: none
+EOF
+fi
+"""
+            subprocess.run(["bash", "-c", oci_none_script], check=True)
+            oci_none_yaml_path = os.path.join(tmpdir, "rootsync-oci-none.yaml")
+            with open(oci_none_yaml_path, "r") as f:
+                oci_none_data = yaml.safe_load(f)
+
+            self.assertEqual(oci_none_data["spec"]["sourceType"], "oci")
+            self.assertEqual(oci_none_data["spec"]["oci"]["image"], "docker.io/my-org/my-config:v2")
+            self.assertEqual(oci_none_data["spec"]["oci"]["dir"], "config/clusters/edge-public")
+            self.assertEqual(oci_none_data["spec"]["oci"]["auth"], "none")
+            self.assertNotIn("secretRef", oci_none_data["spec"]["oci"])
+            self.assertNotIn("gcpServiceAccountEmail", oci_none_data["spec"]["oci"])
+
+    def test_root_repo_precedence_override(self):
+        """Verify CLI and ENV overrides properly reset root repo type, secret, gsa, and branch."""
+        # 1. Fact has Git with custom secret and branch, CLI overrides with OCI repo
+        eval_script_cli = """
+CLI_PRIMARY_ROOT_REPO="us-docker.pkg.dev/my-proj/repo/platform:v1"
+ENV_PRIMARY_ROOT_REPO=""
+FACT_PRIMARY_ROOT_REPO="https://gitlab.com/test-org/repo.git"
+FACT_ROOT_REPO_TYPE="git"
+FACT_ROOT_REPO_BRANCH="release-candidate"
+FACT_ROOT_REPO_SECRET="old-git-secret"
+FACT_ROOT_REPO_GSA=""
+
+PRIMARY_ROOT_REPO="${CLI_PRIMARY_ROOT_REPO:-${ENV_PRIMARY_ROOT_REPO:-${FACT_PRIMARY_ROOT_REPO:-}}}"
+if [[ -n "${CLI_PRIMARY_ROOT_REPO}" || -n "${ENV_PRIMARY_ROOT_REPO}" ]]; then
+    ROOT_REPO_TYPE=""
+    ROOT_REPO_SECRET=""
+    ROOT_REPO_GSA=""
+    ROOT_REPO_BRANCH="main"
+    if [[ -n "${PRIMARY_ROOT_REPO}" && "${PRIMARY_ROOT_REPO}" != "none" ]]; then
+        if [[ "${PRIMARY_ROOT_REPO}" == *.git || "${PRIMARY_ROOT_REPO}" == http* || "${PRIMARY_ROOT_REPO}" == git@* || "${PRIMARY_ROOT_REPO}" == ssh://* ]]; then
+            ROOT_REPO_TYPE="git"
+        else
+            ROOT_REPO_TYPE="oci"
+        fi
+    fi
+else
+    ROOT_REPO_TYPE="${FACT_ROOT_REPO_TYPE:-}"
+    ROOT_REPO_BRANCH="${FACT_ROOT_REPO_BRANCH:-main}"
+    ROOT_REPO_SECRET="${FACT_ROOT_REPO_SECRET:-}"
+    ROOT_REPO_GSA="${FACT_ROOT_REPO_GSA:-}"
+fi
+echo "TYPE=$ROOT_REPO_TYPE;BRANCH=$ROOT_REPO_BRANCH;SECRET=$ROOT_REPO_SECRET;GSA=$ROOT_REPO_GSA"
+"""
+        res_cli = subprocess.run(["bash", "-c", eval_script_cli], capture_output=True, text=True, check=True)
+        self.assertIn("TYPE=oci;BRANCH=main;SECRET=;GSA=", res_cli.stdout.strip())
+
+        # 2. Fact has OCI, ENV overrides with Git SSH URL
+        eval_script_env = """
+CLI_PRIMARY_ROOT_REPO=""
+ENV_PRIMARY_ROOT_REPO="ssh://git@github.com/my-org/repo.git"
+FACT_PRIMARY_ROOT_REPO="us-docker.pkg.dev/my-proj/repo/platform:v1"
+FACT_ROOT_REPO_TYPE="oci"
+FACT_ROOT_REPO_BRANCH="main"
+FACT_ROOT_REPO_SECRET=""
+FACT_ROOT_REPO_GSA="sa-companion"
+
+PRIMARY_ROOT_REPO="${CLI_PRIMARY_ROOT_REPO:-${ENV_PRIMARY_ROOT_REPO:-${FACT_PRIMARY_ROOT_REPO:-}}}"
+if [[ -n "${CLI_PRIMARY_ROOT_REPO}" || -n "${ENV_PRIMARY_ROOT_REPO}" ]]; then
+    ROOT_REPO_TYPE=""
+    ROOT_REPO_SECRET=""
+    ROOT_REPO_GSA=""
+    ROOT_REPO_BRANCH="main"
+    if [[ -n "${PRIMARY_ROOT_REPO}" && "${PRIMARY_ROOT_REPO}" != "none" ]]; then
+        if [[ "${PRIMARY_ROOT_REPO}" == *.git || "${PRIMARY_ROOT_REPO}" == http* || "${PRIMARY_ROOT_REPO}" == git@* || "${PRIMARY_ROOT_REPO}" == ssh://* ]]; then
+            ROOT_REPO_TYPE="git"
+        else
+            ROOT_REPO_TYPE="oci"
+        fi
+    fi
+else
+    ROOT_REPO_TYPE="${FACT_ROOT_REPO_TYPE:-}"
+    ROOT_REPO_BRANCH="${FACT_ROOT_REPO_BRANCH:-main}"
+    ROOT_REPO_SECRET="${FACT_ROOT_REPO_SECRET:-}"
+    ROOT_REPO_GSA="${FACT_ROOT_REPO_GSA:-}"
+fi
+echo "TYPE=$ROOT_REPO_TYPE;BRANCH=$ROOT_REPO_BRANCH;SECRET=$ROOT_REPO_SECRET;GSA=$ROOT_REPO_GSA"
+"""
+        res_env = subprocess.run(["bash", "-c", eval_script_env], capture_output=True, text=True, check=True)
+        self.assertIn("TYPE=git;BRANCH=main;SECRET=;GSA=", res_env.stdout.strip())
 
 
 

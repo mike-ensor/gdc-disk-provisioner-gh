@@ -1,0 +1,284 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "GDC-CONFIGSYNC | Initialize ConfigSync Evidence facts"
+  ansible.builtin.set_fact:
+    config_sync_evidence:
+      enabled: false
+      rootsync_applied: false
+      source_type: "none"
+      status: "skipped"
+
+- name: "GDC-CONFIGSYNC | Execute ConfigSync and RootSync Provisioning"
+  when:
+    - (machine_config.cluster.config_sync_enabled | default(true) | bool)
+    - not (offline_mode | default(false) | bool)
+  block:
+    - name: "GDC-CONFIGSYNC | Resolve cluster identity and GCP facts"
+      ansible.builtin.set_fact:
+        target_cluster_name: >-
+          {{
+            machine_config.cluster.cluster_name
+            if (machine_config is defined and machine_config.cluster is defined and machine_config.cluster.cluster_name is defined and machine_config.cluster.cluster_name is not none and (machine_config.cluster.cluster_name | string | trim | length > 0))
+            else (cluster_name | default(''))
+          }}
+        cluster_name: >-
+          {{
+            machine_config.cluster.cluster_name
+            if (machine_config is defined and machine_config.cluster is defined and machine_config.cluster.cluster_name is defined and machine_config.cluster.cluster_name is not none and (machine_config.cluster.cluster_name | string | trim | length > 0))
+            else (cluster_name | default(''))
+          }}
+        target_gcp_project_id: >-
+          {{
+            machine_config.gcp_info.project_id
+            if (machine_config is defined and machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined and machine_config.gcp_info.project_id is not none and (machine_config.gcp_info.project_id | string | trim | length > 0))
+            else (gcp_project_id | default(''))
+          }}
+        gcp_project_id: >-
+          {{
+            machine_config.gcp_info.project_id
+            if (machine_config is defined and machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined and machine_config.gcp_info.project_id is not none and (machine_config.gcp_info.project_id | string | trim | length > 0))
+            else (gcp_project_id | default(''))
+          }}
+        target_gcp_region: >-
+          {{
+            machine_config.gcp_info.region
+            if (machine_config is defined and machine_config.gcp_info is defined and machine_config.gcp_info.region is defined and machine_config.gcp_info.region is not none and (machine_config.gcp_info.region | string | trim | length > 0))
+            else (gcp_region | default('us-west1'))
+          }}
+        gcp_region: >-
+          {{
+            machine_config.gcp_info.region
+            if (machine_config is defined and machine_config.gcp_info is defined and machine_config.gcp_info.region is defined and machine_config.gcp_info.region is not none and (machine_config.gcp_info.region | string | trim | length > 0))
+            else (gcp_region | default('us-west1'))
+          }}
+
+    - name: "GDC-CONFIGSYNC | Query active gcloud project if project_id is still empty"
+      ansible.builtin.command: "gcloud config get-value project"
+      register: _gcloud_detected_project
+      changed_when: false
+      failed_when: false
+      when: target_gcp_project_id | default('') | trim | length == 0
+
+    - name: "GDC-CONFIGSYNC | Set target_gcp_project_id from active gcloud config"
+      ansible.builtin.set_fact:
+        target_gcp_project_id: "{{ _gcloud_detected_project.stdout | trim }}"
+        gcp_project_id: "{{ _gcloud_detected_project.stdout | trim }}"
+      when:
+        - target_gcp_project_id | default('') | trim | length == 0
+        - _gcloud_detected_project is defined
+        - _gcloud_detected_project.stdout is defined
+        - _gcloud_detected_project.stdout | trim | length > 0
+        - _gcloud_detected_project.stdout | trim != '(unset)'
+
+    - name: "GDC-CONFIGSYNC | Query current Kubernetes context if cluster_name is empty"
+      ansible.builtin.command: "kubectl --kubeconfig=/etc/kubernetes/admin.conf config current-context"
+      register: _k8s_detected_context
+      changed_when: false
+      failed_when: false
+      when: target_cluster_name | default('') | trim | length == 0
+
+    - name: "GDC-CONFIGSYNC | Set target_cluster_name from Kubernetes context"
+      ansible.builtin.set_fact:
+        target_cluster_name: "{{ _k8s_detected_context.stdout | trim }}"
+        cluster_name: "{{ _k8s_detected_context.stdout | trim }}"
+      when:
+        - target_cluster_name | default('') | trim | length == 0
+        - _k8s_detected_context is defined
+        - _k8s_detected_context.stdout is defined
+        - _k8s_detected_context.stdout | trim | length > 0
+
+    - name: "GDC-CONFIGSYNC | Validate target GCP Project ID and Cluster Name"
+      ansible.builtin.assert:
+        that:
+          - target_gcp_project_id | trim | length > 0
+          - target_cluster_name | trim | length > 0
+        fail_msg: "Cannot configure ConfigSync: GCP Project ID ('{{ target_gcp_project_id }}') or Cluster Name ('{{ target_cluster_name }}') is missing or empty."
+
+    - name: "GDC-CONFIGSYNC | Resolve membership resource URI"
+      ansible.builtin.set_fact:
+        membership: "projects/{{ target_gcp_project_id }}/locations/{{ target_gcp_region }}/memberships/{{ target_cluster_name }}"
+
+    - name: "GDC-CONFIGSYNC | Check if Fleet feature config-management is enabled"
+      ansible.builtin.command:
+        cmd: "gcloud beta container fleet config-management describe --project={{ target_gcp_project_id }}"
+      register: fleet_cm_describe
+      changed_when: false
+      failed_when: false
+
+    - name: "GDC-CONFIGSYNC | Enable Fleet feature config-management if not enabled"
+      ansible.builtin.command:
+        cmd: "gcloud beta container fleet config-management enable --project={{ target_gcp_project_id }}"
+      register: fleet_cm_enable
+      changed_when: true
+      when: fleet_cm_describe.rc != 0
+
+    - name: "GDC-CONFIGSYNC | Ensure state directory exists"
+      ansible.builtin.file:
+        path: /var/gdc-install/state
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "GDC-CONFIGSYNC | Generate ACM configuration manifest"
+      ansible.builtin.copy:
+        dest: /var/gdc-install/state/acm-config.yaml
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          applySpecVersion: 1
+          spec:
+            configSync:
+              enabled: true
+              sourceFormat: unstructured
+
+    - name: "GDC-CONFIGSYNC | Apply ACM configuration to cluster membership"
+      ansible.builtin.command:
+        cmd: "gcloud beta container fleet config-management apply --membership=\"{{ membership }}\" --config=/var/gdc-install/state/acm-config.yaml --project=\"{{ target_gcp_project_id }}\""
+      register: fleet_cm_apply
+      changed_when: true
+
+    - name: "GDC-CONFIGSYNC | Wait for RootSync CRD establishment"
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf wait --for=condition=Established crd/rootsyncs.configsync.gke.io --timeout=180s"
+      register: rootsync_crd_wait
+      changed_when: false
+
+    - name: "GDC-CONFIGSYNC | Resolve primary_root_repo configuration via lookup"
+      ansible.builtin.set_fact:
+        config_sync_repo: "{{ lookup('gdc_config_sync', machine_config | default({}), cluster_name=target_cluster_name) }}"
+
+    - name: "GDC-CONFIGSYNC | Set primary_root_repo facts from resolved lookup"
+      ansible.builtin.set_fact:
+        target_repo_type: "{{ config_sync_repo.repo_type }}"
+        target_repo_url: "{{ config_sync_repo.repo_url }}"
+        target_branch: "{{ config_sync_repo.branch }}"
+        target_sync_dir: "{{ config_sync_repo.sync_dir }}"
+        target_secret_name: "{{ config_sync_repo.secret_name }}"
+        target_oci_gsa: "{{ config_sync_repo.oci_gsa }}"
+        target_git_auth: "{{ config_sync_repo.auth_type }}"
+
+    - name: "GDC-CONFIGSYNC | Execute Bootstrap Secret Injection"
+      when:
+        - (config_sync_repo.requires_secret | default(false) | bool)
+      block:
+        - name: "GDC-CONFIGSYNC | Access GSM Secret payload via gcloud"
+          ansible.builtin.command:
+            cmd: "gcloud secrets versions access latest --secret={{ target_secret_name }} --project={{ target_gcp_project_id }}"
+          register: gsm_access_res
+          changed_when: false
+          no_log: true
+
+        - name: "GDC-CONFIGSYNC | Decode GSM secret JSON payload"
+          ansible.builtin.set_fact:
+            gsm_secret_payload: "{{ gsm_access_res.stdout | from_json }}"
+          no_log: true
+
+        - name: "GDC-CONFIGSYNC | Resolve Kubernetes secret data and auth mode via lookup"
+          ansible.builtin.set_fact:
+            secret_resolution: "{{ lookup('gdc_config_sync', 'secret_payload', gsm_secret_payload, repo_type=target_repo_type) }}"
+          no_log: true
+
+        - name: "GDC-CONFIGSYNC | Set resolved secret data and auth mode"
+          ansible.builtin.set_fact:
+            secret_data_dict: "{{ secret_resolution.secret_data }}"
+            target_git_auth: "{{ secret_resolution.auth_type }}"
+          no_log: true
+
+        - name: "GDC-CONFIGSYNC | Create or update Kubernetes secret in config-management-system"
+          ansible.builtin.command:
+            cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f -"
+            stdin: |
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: {{ target_secret_name }}
+                namespace: config-management-system
+              type: Opaque
+              stringData:
+              {{ secret_data_dict | to_nice_yaml(indent=2) | indent(12, first=true) }}
+          register: secret_apply_res
+          no_log: true
+          changed_when: "'created' in secret_apply_res.stdout or 'configured' in secret_apply_res.stdout"
+      always:
+        - name: "GDC-CONFIGSYNC | Purge in-memory secret facts"
+          ansible.builtin.set_fact:
+            gsm_access_res: {}
+            gsm_secret_payload: {}
+            secret_resolution: {}
+            secret_data_dict: {}
+            secret_apply_res: {}
+          no_log: true
+
+    - name: "GDC-CONFIGSYNC | Render Git RootSync manifest"
+      ansible.builtin.copy:
+        dest: /var/gdc-install/state/primary-root-repo.yaml
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          apiVersion: configsync.gke.io/v1beta1
+          kind: RootSync
+          metadata:
+            name: root-sync
+            namespace: config-management-system
+          spec:
+            sourceFormat: unstructured
+            sourceType: git
+            git:
+              repo: {{ target_repo_url }}
+              branch: {{ target_branch }}
+              dir: {{ target_sync_dir }}
+              auth: {{ target_git_auth }}
+          {% if target_secret_name | trim | length > 0 %}
+              secretRef:
+                name: {{ target_secret_name }}
+          {% endif %}
+      when: target_repo_type == 'git'
+
+    - name: "GDC-CONFIGSYNC | Render OCI RootSync manifest"
+      ansible.builtin.copy:
+        dest: /var/gdc-install/state/primary-root-repo.yaml
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          apiVersion: configsync.gke.io/v1beta1
+          kind: RootSync
+          metadata:
+            name: root-sync
+            namespace: config-management-system
+          spec:
+            sourceFormat: unstructured
+            sourceType: oci
+            oci:
+              image: {{ target_repo_url }}
+              dir: {{ target_sync_dir }}
+          {% if target_oci_gsa | trim | length > 0 %}
+              auth: gcpserviceaccount
+              gcpServiceAccountEmail: {{ target_oci_gsa }}@{{ target_gcp_project_id }}.iam.gserviceaccount.com
+          {% elif target_secret_name | trim | length > 0 %}
+              auth: token
+              secretRef:
+                name: {{ target_secret_name }}
+          {% else %}
+              auth: none
+          {% endif %}
+      when: target_repo_type == 'oci'
+
+    - name: "GDC-CONFIGSYNC | Apply RootSync manifest to cluster"
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /var/gdc-install/state/primary-root-repo.yaml"
+      register: rootsync_apply_res
+      changed_when: "'created' in rootsync_apply_res.stdout or 'configured' in rootsync_apply_res.stdout"
+      when: target_repo_type in ['git', 'oci']
+
+    - name: "GDC-CONFIGSYNC | Record ConfigSync evidence facts"
+      ansible.builtin.set_fact:
+        config_sync_evidence:
+          enabled: true
+          rootsync_applied: "{{ target_repo_type in ['git', 'oci'] }}"
+          source_type: "{{ target_repo_type }}"
+          cluster_sync_dir: "{{ target_sync_dir if (target_repo_type in ['git', 'oci']) else '' }}"
+          status: "completed"

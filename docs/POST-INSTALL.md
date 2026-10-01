@@ -135,3 +135,125 @@ To permanently prevent early-boot deadlocks on AMD hardware, we enforce polling-
 * **Keep `ccp` Enabled:** The AMD Cryptographic Coprocessor (`ccp`) driver is critical for CPU power management and clock transitions on Zen 4. It **must not** be blacklisted, as doing so freezes the CPU at `1.6s`.
 * **Standard Console Routing:** We use standard `console=ttyS0,115200` and avoid `earlycon` or legacy `earlyprintk` which trigger silent console handover hangs right after `hid_generic_init`.
 * **`blacklist pcie_mp2_amd` and `blacklist amd_sfh`:** Blacklisted to prevent AMD Sensor Fusion Hub bus crashes.
+
+---
+
+## 7. Stage 7: Post-Cluster ConfigSync Provisioning
+
+Following cluster creation and successful node readiness verification, the GDC state machine advances to **Stage 7 (`POST_CLUSTER`)** (managed by `src/ansible/stages/stage_post_cluster.yml` and the `post_cluster` Ansible role). In this stage, the installer validates CoreDNS and storage classes, then automatically provisions **Anthos Config Management (ACM) / ConfigSync** and the primary root synchronization repository (`primary-root-repo`).
+
+```text
+[ STAGE 7: POST-CLUSTER LIFECYCLE ]
+               │
+               ▼
+   1. Cluster Sanity Checks (Nodes Ready, CoreDNS, Storage Classes)
+               │
+               ▼
+   2. Enable Fleet Feature: `gcloud beta container fleet config-management enable`
+               │
+               ▼
+   3. Apply ACM Operator Configuration (`sourceFormat: unstructured`)
+               │
+               ▼
+   4. Wait for CRD: `rootsyncs.configsync.gke.io` condition=Established
+               │
+               ▼
+   5. Zero-Disk Secret Bootstrapping (if private Git or OCI credentials configured)
+      ├── Retrieve JSON from GSM via gcloud into in-memory facts (no_log)
+      ├── Build K8s Secret manifest and pipe directly into `kubectl apply -f -` (stdin)
+      └── Immediately purge in-memory secret facts in Ansible `always` block
+               │
+               ▼
+   6. Render and Apply Primary RootSync (`/var/gdc-install/state/primary-root-repo.yaml`)
+      ├── Resolve target dir: `config/clusters/<cluster-name>` (or `cluster_config_name`)
+      ├── Configure Git (`auth: token` | `ssh`) or OCI (`auth: gcpserviceaccount` | `token` | `none`)
+      └── Apply RootSync to namespace `config-management-system`
+               │
+               ▼
+   7. Record Evidence into `/var/gdc-install/state/post-validation.json`
+```
+
+### 1. Idempotent Fleet Feature Enablement
+The post-cluster workflow queries the GCP project to verify whether the Fleet Config Management feature is active:
+```bash
+gcloud beta container fleet config-management describe --project="${PROJECT_ID}"
+```
+*(In the Ansible task: `cmd: "gcloud beta container fleet config-management describe --project={{ target_gcp_project_id }}"`)*
+
+If not enabled, it automatically and idempotently enables the feature across the project:
+```bash
+gcloud beta container fleet config-management enable --project="${PROJECT_ID}"
+```
+*(In the Ansible task: `cmd: "gcloud beta container fleet config-management enable --project={{ target_gcp_project_id }}"`)*
+
+### 2. Applying ACM Operator Configuration
+To support modern GitOps repository layouts without rigid hierarchical directory requirements, ConfigSync is configured in **unstructured format**. The playbook renders an operator spec at `/var/gdc-install/state/acm-config.yaml`:
+```yaml
+applySpecVersion: 1
+spec:
+  configSync:
+    enabled: true
+    sourceFormat: unstructured
+```
+And applies it to the cluster's fleet membership:
+```bash
+gcloud beta container fleet config-management apply \
+  --membership="projects/${PROJECT_ID}/locations/${REGION}/memberships/${CLUSTER_NAME}" \
+  --config=/var/gdc-install/state/acm-config.yaml \
+  --project="${PROJECT_ID}"
+```
+*(In the Ansible task: `cmd: "gcloud beta container fleet config-management apply --membership=\"{{ membership }}\" --config=/var/gdc-install/state/acm-config.yaml --project=\"{{ target_gcp_project_id }}\""` where `membership` resolves to `projects/{{ target_gcp_project_id }}/locations/{{ target_gcp_region }}/memberships/{{ target_cluster_name }}`)*
+
+### 3. Waiting for RootSync CRD Readiness
+Because the ConfigSync operator asynchronously reconciles and creates its Custom Resource Definitions, immediate submission of a `RootSync` resource will fail. The playbook waits up to 180 seconds for `rootsyncs.configsync.gke.io` to reach condition `Established`:
+```bash
+kubectl --kubeconfig=/etc/kubernetes/admin.conf wait --for=condition=Established crd/rootsyncs.configsync.gke.io --timeout=180s
+```
+
+### 4. Zero-Disk Secret Bootstrapping
+When `.cluster.primary_root_repo` requires authentication (via `git.gsm_secret_name` or `oci.gsm_secret_name`), the installer avoids writing sensitive credentials to disk:
+1. **Dynamic In-Memory Retrieval:** Fetches the latest secret version from Google Secret Manager directly using `gcloud secrets versions access latest --secret="${GSM_SECRET_NAME}" --project="${PROJECT_ID}"` (Ansible task: `cmd: "gcloud secrets versions access latest --secret={{ target_secret_name }} --project={{ target_gcp_project_id }}"`). Tasks handling secret data are protected with `no_log: true`.
+2. **Direct Stdin Injection:** Formulates the Kubernetes `Secret` manifest in memory and streams it directly to `kubectl apply -f -` via stdin into the `config-management-system` namespace. No plaintext token or private key touches disk.
+3. **Immediate In-Memory Fact Purge:** An Ansible `always:` block immediately overwrites all in-memory variables (`gsm_access_res`, `gsm_secret_payload`, `secret_data_dict`, `secret_apply_res`) with empty values, preventing credential leakage in Ansible memory or state reports.
+
+### 5. Automatic RootSync (`primary-root-repo`) Creation
+The primary root repository sync is created from `/var/gdc-install/state/primary-root-repo.yaml`:
+* **Directory Resolution:** Automatically targets `config/clusters/<cluster-name>/` inside the repository. This path can be customized via `.cluster.primary_root_repo.cluster_config_name`.
+* **Git Source Types:** Configures `spec.git` with `repo`, `branch` (default `main`), `dir`, `auth: token` (or `ssh`), and links to `secretRef.name: "${GSM_SECRET_NAME}"` (populated from Ansible variable `{{ target_secret_name }}`).
+* **OCI Source Types:** Configures `spec.oci` with `image`, `dir`, and authentication:
+  * `auth: gcpserviceaccount` and `gcpServiceAccountEmail` when using a Workload Identity Google Service Account.
+  * `auth: token` with `secretRef` when using a GSM pull secret.
+  * `auth: none` for public images.
+* **Application:** Applies the manifest to the cluster:
+  ```bash
+  kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /var/gdc-install/state/primary-root-repo.yaml
+  ```
+
+### 6. Evidence Recording
+Stage 7 writes full execution evidence to `/var/gdc-install/state/post-validation.json` (and updates the `/var/gdc-install/state/post-cluster.json` symlink), capturing ConfigSync status under `post_cluster_evidence.config_sync`:
+```json
+{
+  "stage": "POST_CLUSTER",
+  "status": "completed",
+  "timestamp": "2026-09-30T12:00:00Z",
+  "evidence": {
+    "kubernetes_nodes_ready": true,
+    "coredns_operational": true,
+    "storage_classes_present": true,
+    "config_sync": {
+      "enabled": true,
+      "rootsync_applied": true,
+      "source_type": "git",
+      "cluster_sync_dir": "config/clusters/my-cluster",
+      "status": "completed"
+    },
+    "timing": {
+      "start_time": "2026-09-30T11:58:00Z",
+      "end_time": "2026-09-30T12:00:00Z",
+      "duration_seconds": 120,
+      "overall_provisioning_start_time": "2026-09-30T11:44:00Z"
+    }
+  }
+}
+```
+This evidence is gathered by `gdc-collector` and reported back to the GDC Companion service to confirm that cluster turnup and GitOps reconciliation have succeeded.
