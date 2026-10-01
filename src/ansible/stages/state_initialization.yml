@@ -197,3 +197,49 @@
 - name: "GDC-STATE | Initialize active lifecycle stage"
   ansible.builtin.set_fact:
     gdc_active_stage: "{{ lookup('gdc_state') }}"
+
+# ------------------------------------------------------------------------------
+# 6. PERSISTENT MACHINE CONFIG REHYDRATION
+# ------------------------------------------------------------------------------
+# Ensures machine_config is restored in memory for downstream stages
+# (e.g. ClusterTurnup, PostCluster) when prior stages completed previously.
+- name: "GDC-STATE | Rehydrate machine_config if undefined"
+  when: machine_config is not defined or machine_config == {}
+  block:
+    - name: "GDC-STATE | Check candidate machine_config sources on disk"
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /var/gdc-install/state/gdc-fact-manual.json
+        - /var/gdc-install/state/gdc-machine-facts-manual.json
+        - /etc/ansible/facts.d/gdc.fact
+        - /etc/gdc/machine-info-mock.json
+        - /etc/gdc/fallback-config.json
+      register: _candidate_config_stats
+
+    - name: "GDC-STATE | Find first existing candidate config"
+      ansible.builtin.set_fact:
+        _existing_config_file: "{{ (_candidate_config_stats.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists', 'equalto', true) | map(attribute='item') | list | first) | default('') }}"
+
+    - name: "GDC-STATE | Slurp machine_config from disk"
+      ansible.builtin.slurp:
+        src: "{{ _existing_config_file }}"
+      register: _slurped_existing_config
+      when: _existing_config_file | length > 0
+      ignore_errors: true
+      failed_when: false
+
+    - name: "GDC-STATE | Set machine_config fact from disk"
+      ansible.builtin.set_fact:
+        machine_config: "{{ _slurped_existing_config.content | b64decode | from_json }}"
+      when:
+        - _slurped_existing_config is defined
+        - _slurped_existing_config.content is defined
+
+    - name: "GDC-STATE | Set machine_config from ansible_local if still undefined"
+      ansible.builtin.set_fact:
+        machine_config: "{{ ansible_local.gdc }}"
+      when:
+        - (machine_config is not defined or machine_config == {})
+        - ansible_local is defined
+        - ansible_local.gdc is defined

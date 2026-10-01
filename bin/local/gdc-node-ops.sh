@@ -284,7 +284,7 @@ EOF
     temp_staging=$(mktemp -d)
     local temp_render_dir
     temp_render_dir=$(mktemp -d)
-    trap 'rm -rf "${temp_staging}" "${temp_render_dir}"' RETURN EXIT
+    trap 'rm -rf "${temp_staging:-}" "${temp_render_dir:-}"' RETURN EXIT
 
     rsync -av --exclude='.git' "${REPO_ROOT}/src/ansible/" "${temp_staging}/" > /dev/null
 

@@ -85,46 +85,21 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
 # 2. Create cluster
 /usr/local/bin/cluster/create_cluster.sh
 
-# 3. Export Verified Kubeconfig and apply config-sync (NOTE: THIS IS NOT FULLY FUNCTIONAL AS-IS)
-if [[ ! -f "${KUBECONFIG_PATH}" ]]; then
-  # Fallback if bmctl wrote flat kubeconfig in directory
-  fallback_path="/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}/${CLUSTER_NAME}-kubeconfig"
-  if [[ -f "${fallback_path}" ]]; then
-    KUBECONFIG_PATH="${fallback_path}"
-    export KUBECONFIG="${KUBECONFIG_PATH}"
+# 3. Export Verified Kubeconfig and verify ConfigSync / RootSync status
+export KUBECONFIG="/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}/${CLUSTER_NAME}-kubeconfig"
 
-    # Generate isolated apply-spec.yaml manifest
-    SPEC_DIR="/var/gdc-install/bmctl-workspace/${CLUSTER_NAME}"
-    SPEC_FILE="${SPEC_DIR}/apply-spec.yaml"
+# In the automated installation pipeline, Stage 7 (post_cluster) automatically
+# enables Fleet Config Management, applies the ACM operator configuration (unstructured format),
+# retrieves registry or Git secrets directly from GSM into memory, and creates the primary RootSync.
 
-    cat <<EOF > "${SPEC_FILE}"
-applySpecVersion: 1
-spec:
-  configSync:
-    enabled: true
-    sourceType: git
-    syncRepo: https://gitlab.com/gcp-solutions-public/retail-edge/customer-demos/dp-primary-root.git
-    syncBranch: main
-    secretType: none
-    policyDir: /config/${CLUSTER_NAME}/meta
-    preventDrift: false
-EOF
+# Verify RootSync custom resource and reconciliation status:
+kubectl get rootsync -n config-management-system
+kubectl describe rootsync root-sync -n config-management-system
 
-    # Apply Fleet Config Management via written spec file
-    gcloud beta container fleet config-management apply \
-      --membership="${CLUSTER_NAME}" \
-      --config="${SPEC_FILE}"
-
-    echo "Success"
-  else
-    echo "ERROR: Kubeconfig not found for cluster ${CLUSTER_NAME}" >&2
-    exit 1
-  fi
-fi
-
+# Verify sync status via nomos or gcloud fleet:
 nomos status --contexts="${CLUSTER_NAME}"
 # Or via gcloud fleet:
-gcloud beta container fleet config-management status --project="$(gcloud config get-value project)"
+gcloud beta container fleet config-management status --project="${PROJECT_ID}"
 ```
 
 ## Overview
@@ -174,6 +149,156 @@ gcloud projects add-iam-policy-binding anthos-bare-metal-lab-1 \
 After applying IAM policy bindings, you must account for **IAM Propagation Delay**. Google Cloud IAM changes, especially those involving Workload Identity Federation, can take **3 to 7 minutes** to fully propagate across global caches.
 
 During this time, the operator's backoff loops may generate new `403 Permission Denied` errors. **Do not apply further changes or restart operators.** Wait for the backoff loops to naturally succeed once the permissions propagate.
+
+---
+
+## ConfigSync & PrimaryRootRepo Prerequisites
+
+GDC Software-Only clusters support automated GitOps synchronization via Anthos Config Management (ConfigSync) and primary root repositories (`.cluster.primary_root_repo`). Both Git repositories and OCI registries are supported as synchronization sources.
+
+Before cluster provisioning begins, ensure the following Google Cloud IAM roles, Secret Manager secrets, and repository structures are established.
+
+### 1. Google Secret Manager (GSM) Secret Formats
+
+When syncing from private repositories requiring authentication, store credentials as a single JSON object within Google Secret Manager. The GDC installer extracts these credentials dynamically into memory and streams them directly into the `config-management-system` namespace without writing unencrypted secrets to disk.
+
+#### Create Secret Container:
+First, create the secret container in Google Secret Manager before adding versions:
+```bash
+gcloud secrets create "${GSM_SECRET_NAME}" \
+  --replication-policy="automatic" \
+  --project="${PROJECT_ID}"
+```
+
+Then add the secret version payload:
+
+#### For OCI Registry Pull:
+```bash
+echo -n '{"username":"your-registry-user","password":"your-pat-or-token"}' | \
+  gcloud secrets versions add "${GSM_SECRET_NAME}" --data-file=- --project="${PROJECT_ID}"
+```
+
+#### For Git with PAT:
+```bash
+echo -n '{"username":"git-user","token":"your-personal-access-token"}' | \
+  gcloud secrets versions add "${GSM_SECRET_NAME}" --data-file=- --project="${PROJECT_ID}"
+```
+
+#### For Git with SSH:
+```bash
+echo -n '{"ssh-privatekey":"-----BEGIN OPENSSH PRIVATE KEY-----\n..."}' | \
+  gcloud secrets versions add "${GSM_SECRET_NAME}" --data-file=- --project="${PROJECT_ID}"
+```
+
+### 2. IAM Permissions & Workload Identity Bindings
+
+#### Secret Manager Accessor Role for Node Primary GSA:
+The node's primary Google Service Account (`gcp_info.primary_gsa`) requires the `roles/secretmanager.secretAccessor` role to retrieve pull credentials during pre-flight checks and Stage 7 secret injection:
+```bash
+export PRIMARY_GSA="sa@${PROJECT_ID}.iam.gserviceaccount.com" # Full GSA email address
+
+gcloud secrets add-iam-policy-binding "${GSM_SECRET_NAME}" \
+  --member="serviceAccount:${PRIMARY_GSA}" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project="${PROJECT_ID}"
+```
+
+#### Workload Identity Binding (when using OCI with GSA):
+When using an OCI registry on Google Cloud (e.g., Artifact Registry) authenticated via Google Service Account (GSA) without static secrets, bind the GSA to the ConfigSync root reconciler Kubernetes Service Account using Workload Identity Federation:
+```bash
+gcloud iam service-accounts add-iam-policy-binding "${GSA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="serviceAccount:${PROJECT_ID}.svc.id.goog[config-management-system/root-reconciler]" \
+  --project="${PROJECT_ID}"
+```
+*(Note: ConfigSync names the reconciler ServiceAccount after the RootSync resource name: for `name: root-sync`, the ServiceAccount is `root-reconciler`).*
+
+### 3. Repository Directory Structure
+
+ConfigSync uses `sourceFormat: unstructured` and syncs cluster configurations from a designated subfolder within the repository or OCI image. By default, this directory resolves to:
+```text
+config/clusters/<cluster-name>/
+```
+You can override the target cluster directory name using `.cluster.primary_root_repo.cluster_config_name` in your machine configuration.
+
+A recommended directory layout within the repository:
+```text
+config/
+└── clusters/
+    └── <cluster-name>/        # Or <cluster_config_name> if overridden
+        ├── traits/            # Shared cluster traits (e.g. logging, monitoring)
+        ├── packages/          # Deployed applications and workloads
+        └── root/              # Base cluster definitions and namespaces
+```
+
+### 4. Machine Configuration Examples
+
+#### Git Repository with GSM Token:
+```json
+{
+  "cluster": {
+    "cluster_name": "edge-cluster-01",
+    "config_sync_enabled": true,
+    "primary_root_repo": {
+      "git": {
+        "repo_url": "https://gitlab.com/retail-edge/clusters.git",
+        "branch": "main",
+        "gsm_secret_name": "git-creds"
+      }
+    }
+  }
+}
+```
+
+#### Git Repository with SSH Key:
+```json
+{
+  "cluster": {
+    "cluster_name": "edge-cluster-01",
+    "config_sync_enabled": true,
+    "primary_root_repo": {
+      "git": {
+        "repo_url": "git@github.com:my-org/clusters.git",
+        "branch": "main",
+        "gsm_secret_name": "git-ssh-key"
+      }
+    }
+  }
+}
+```
+
+#### OCI Registry with Google Service Account (Workload Identity):
+```json
+{
+  "cluster": {
+    "cluster_name": "edge-cluster-01",
+    "config_sync_enabled": true,
+    "primary_root_repo": {
+      "cluster_config_name": "edge-tier-1",
+      "oci": {
+        "image": "us-docker.pkg.dev/my-project/edge-manifests/root:v1.0.0",
+        "gsa": "config-sync-reader"
+      }
+    }
+  }
+}
+```
+
+#### OCI Registry with GSM Credentials:
+```json
+{
+  "cluster": {
+    "cluster_name": "edge-cluster-01",
+    "config_sync_enabled": true,
+    "primary_root_repo": {
+      "oci": {
+        "image": "ghcr.io/my-org/edge-manifests:v1.0.0",
+        "gsm_secret_name": "ext-oci-secret"
+      }
+    }
+  }
+}
+```
 
 ---
 

@@ -12,6 +12,8 @@
     preflight_start_epoch: "{{ now(utc=true).strftime('%s') | int }}"
     preflight_results: []
     preflight_overall_status: "PASS"
+    gsm_secret_decoded: {}
+    gsm_secret_parse_failed: false
 
 # ------------------------------------------------------------------------------
 # 1. CORE CLI BINARIES CHECKS
@@ -137,6 +139,176 @@
         - endpoint_check_raw.rc == 0
         - endpoint_check_raw.stdout is defined
         - ((endpoint_check_raw.stdout | from_json) | selectattr('meta.fallback_recommended', 'defined') | selectattr('meta.fallback_recommended', 'equalto', true) | list | length > 0)
+
+# ------------------------------------------------------------------------------
+# 3.5. PRIMARY ROOT REPO GSM SECRET VALIDATION
+# ------------------------------------------------------------------------------
+- name: "GDC-PREFLIGHT | Check if manual facts exist to load machine_config if undefined"
+  block:
+    - name: "GDC-PREFLIGHT | Check /var/gdc-install/state/gdc-fact-manual.json"
+      ansible.builtin.stat:
+        path: /var/gdc-install/state/gdc-fact-manual.json
+      register: _preflight_manual_fact_stat
+
+    - name: "GDC-PREFLIGHT | Slurp /var/gdc-install/state/gdc-fact-manual.json"
+      ansible.builtin.slurp:
+        src: /var/gdc-install/state/gdc-fact-manual.json
+      register: _preflight_slurped_manual_fact
+      when: _preflight_manual_fact_stat.stat.exists
+
+    - name: "GDC-PREFLIGHT | Set machine_config from manual facts"
+      ansible.builtin.set_fact:
+        machine_config: "{{ _preflight_slurped_manual_fact.content | b64decode | from_json }}"
+      when:
+        - _preflight_manual_fact_stat.stat.exists
+        - _preflight_slurped_manual_fact.content is defined
+  when: machine_config is not defined
+
+- name: "GDC-PREFLIGHT | Verify Primary Root Repo GSM Secret Preflight"
+  block:
+    - name: "GDC-PREFLIGHT | Resolve primary_root_repo configuration via lookup"
+      ansible.builtin.set_fact:
+        _preflight_repo: "{{ lookup('gdc_config_sync', machine_config | default({})) }}"
+
+    - name: "GDC-PREFLIGHT | Extract primary_root_repo target secret and repo type"
+      ansible.builtin.set_fact:
+        target_repo_type: "{{ _preflight_repo.repo_type }}"
+        target_secret_name: "{{ _preflight_repo.secret_name }}"
+
+    - name: "GDC-PREFLIGHT | Check gcloud CLI availability"
+      ansible.builtin.command: which gcloud
+      register: preflight_gcloud_check
+      changed_when: false
+      failed_when: false
+
+    - name: "GDC-PREFLIGHT | Register Skipped Result when GSM Secret Not Required"
+      ansible.builtin.set_fact:
+        preflight_results: >-
+          {{
+            preflight_results + [{
+              "test_name": "gsm_secret_primary_root_repo",
+              "category": "security",
+              "status": "PASS",
+              "severity": "FATAL",
+              "notes": "No GSM secret required or configured for primary_root_repo (skipped/not required).",
+              "remediation_hint": "None required.",
+              "timestamp": now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ'),
+              "duration_ms": 0
+            }]
+          }}
+      when: target_secret_name is not defined or (target_secret_name | trim | length == 0)
+
+    - name: "GDC-PREFLIGHT | Validate GSM Secret via gcloud"
+      block:
+        - name: "GDC-PREFLIGHT | Initialize GSM secret variables"
+          ansible.builtin.set_fact:
+            gsm_secret_decoded: {}
+            gsm_secret_parse_failed: false
+          no_log: true
+
+        - name: "GDC-PREFLIGHT | Access GSM Secret payload via gcloud"
+          ansible.builtin.command: >-
+            gcloud secrets versions access latest
+            --secret={{ target_secret_name }}
+            --project={{ (machine_config.gcp_info.project_id) if (machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined) else (gcp_project_id | default('')) }}
+          register: gsm_access_res
+          changed_when: false
+          failed_when: false
+          no_log: true
+
+        - name: "GDC-PREFLIGHT | Parse and validate secret payload"
+          block:
+            - name: "GDC-PREFLIGHT | Decode secret JSON payload"
+              ansible.builtin.set_fact:
+                gsm_secret_decoded: "{{ gsm_access_res.stdout | from_json }}"
+                gsm_secret_parse_failed: false
+              no_log: true
+              when:
+                - gsm_access_res is defined
+                - gsm_access_res.rc is defined
+                - gsm_access_res.rc == 0
+                - gsm_access_res.stdout is defined
+          rescue:
+            - name: "GDC-PREFLIGHT | Mark secret JSON decoding failure"
+              ansible.builtin.set_fact:
+                gsm_secret_decoded: {}
+                gsm_secret_parse_failed: true
+              no_log: true
+
+        - name: "GDC-PREFLIGHT | Resolve secret payload validity via lookup"
+          ansible.builtin.set_fact:
+            _secret_val: "{{ lookup('gdc_config_sync', 'secret_payload', (gsm_secret_decoded | default({})), repo_type=target_repo_type) }}"
+          no_log: true
+
+        - name: "GDC-PREFLIGHT | Evaluate secret payload validity"
+          ansible.builtin.set_fact:
+            gsm_secret_is_valid: >-
+              {{
+                false if (
+                  (gsm_access_res is not defined or gsm_access_res.rc is not defined or gsm_access_res.rc != 0)
+                  or (gsm_secret_parse_failed | default(true) | bool)
+                  or not (_secret_val.valid | default(false) | bool)
+                )
+                else true
+              }}
+            gsm_secret_failure_note: >-
+              {{
+                ("Secret '" + target_secret_name + "' payload access failed (not found or permission denied in project " + ((machine_config.gcp_info.project_id if (machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined) else (gcp_project_id | default('UNKNOWN')))) + ")")
+                if (gsm_access_res is not defined or gsm_access_res.rc is not defined or gsm_access_res.rc != 0)
+                else (
+                  ("Secret '" + target_secret_name + "' payload is not valid JSON")
+                  if (gsm_secret_parse_failed | default(true) | bool)
+                  else _secret_val.failure_reason
+                )
+              }}
+
+        - name: "GDC-PREFLIGHT | Register GSM Secret Preflight Result"
+          ansible.builtin.set_fact:
+            preflight_results: >-
+              {{
+                preflight_results + [{
+                  "test_name": "gsm_secret_primary_root_repo",
+                  "category": "security",
+                  "status": "PASS" if (gsm_secret_is_valid | bool) else "FAIL",
+                  "severity": "FATAL",
+                  "notes": ("GSM secret '" + target_secret_name + "' verified successfully for " + target_repo_type + " repo.") if (gsm_secret_is_valid | bool) else gsm_secret_failure_note,
+                  "remediation_hint": "" if (gsm_secret_is_valid | bool) else ("Ensure secret '" + target_secret_name + "' exists in GSM project '" + ((machine_config.gcp_info.project_id if (machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined) else (gcp_project_id | default('')))) + "' and contains valid JSON credentials (" + ("token, password, or ssh-privatekey" if target_repo_type == 'git' else "username and password") + ")."),
+                  "timestamp": now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ'),
+                  "duration_ms": 10
+                }]
+              }}
+
+        - name: "GDC-PREFLIGHT | Purge GSM secret payload and access result from memory"
+          ansible.builtin.set_fact:
+            gsm_secret_decoded: {}
+            gsm_access_res: {}
+          no_log: true
+      when:
+        - target_secret_name is defined
+        - target_secret_name | trim | length > 0
+        - preflight_gcloud_check.rc == 0
+        - not (machine_config.is_fallback | default(false) | bool)
+        - not (offline_mode | default(false) | bool)
+
+    - name: "GDC-PREFLIGHT | Register Skipped Result if gcloud unavailable or offline/mock mode"
+      ansible.builtin.set_fact:
+        preflight_results: >-
+          {{
+            preflight_results + [{
+              "test_name": "gsm_secret_primary_root_repo",
+              "category": "security",
+              "status": "PASS",
+              "severity": "FATAL",
+              "notes": "GSM secret validation skipped (gcloud unavailable or offline/mock mode).",
+              "remediation_hint": "None required for offline or mock mode.",
+              "timestamp": now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ'),
+              "duration_ms": 0
+            }]
+          }}
+      when:
+        - target_secret_name is defined
+        - target_secret_name | trim | length > 0
+        - (preflight_gcloud_check.rc != 0 or (machine_config.is_fallback | default(false) | bool) or (offline_mode | default(false) | bool))
 
 # ------------------------------------------------------------------------------
 # 4. AGGREGATE RESULTS & SERIALIZE CONTRACT

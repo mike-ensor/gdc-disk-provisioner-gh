@@ -21,9 +21,13 @@
   changed_when: false
   failed_when: false
 
+- name: "GDC-POST | Execute ConfigSync and RootSync deployment"
+  ansible.builtin.include_tasks: config_sync.yml
+
 - name: "GDC-EVIDENCE | Structure PostCluster Evidence Facts"
   ansible.builtin.set_fact:
     post_cluster_evidence:
       kubernetes_nodes_ready: "{{ nodes_ready_check.rc == 0 }}"
       coredns_operational: "{{ coredns_rollout_check.rc == 0 }}"
       storage_classes_present: "{{ storage_class_check.rc == 0 }}"
+      config_sync: "{{ config_sync_evidence | default({}) }}"
