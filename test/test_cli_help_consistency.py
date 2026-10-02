@@ -154,10 +154,22 @@ class TestCLIHelpConsistency(unittest.TestCase):
             ["usage:", "upgrade readiness", "dracut", "grub", "cryptsetup"]
         )
 
+    def test_run_storage_benchmark_help(self):
+        self.assert_help_succeeds(
+            ["bin/cluster/run-storage-benchmark.py"],
+            ["usage:", "--storage-class", "--volume-size", "--dry-run", "--skip-guard", "--state-file"]
+        )
+
     def test_sync_schemas_help(self):
         self.assert_help_succeeds(
             ["test/bin/sync-schemas.sh"],
             ["usage:", "--check", "--companion"]
+        )
+
+    def test_update_dependencies_help(self):
+        self.assert_help_succeeds(
+            ["bin/local/update-dependencies.sh"],
+            ["usage:", "check", "update-binaries", "update-packages", "sync-gcs"]
         )
 
 if __name__ == "__main__":

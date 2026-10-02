@@ -4,19 +4,58 @@
 # Role Tasks: storage_prereqs (Longhorn v2 / SPDK / NVMe-oF Host Preparation)
 # ==============================================================================
 
-- name: "GDC-STORAGE | Configure persistent HugePages for Longhorn SPDK / NVMe-oF"
-  ansible.posix.sysctl:
-    name: vm.nr_hugepages
-    value: "{{ storage_hugepages_count | default(2048) | string }}"
-    sysctl_file: /etc/sysctl.d/99-longhorn-hugepages.conf
-    state: present
-    reload: true
-    sysctl_set: true
+- name: "GDC-STORAGE | Validate storage_engine_mode"
+  ansible.builtin.assert:
+    that:
+      - storage_engine_mode is defined
+      - storage_engine_mode in ['v1', 'v2']
+    fail_msg: "storage_engine_mode must be 'v1' or 'v2', got '{{ storage_engine_mode | default('') }}'"
   tags: ["strictly-local", "storage"]
 
+- name: "GDC-STORAGE | Ensure deprecated 99-longhorn-hugepages.conf is absent"
+  ansible.builtin.file:
+    path: "{{ storage_hugepages_file | default('/etc/sysctl.d/99-longhorn-hugepages.conf') }}"
+    state: absent
+  tags: ["strictly-local", "storage"]
+
+# ------------------------------------------------------------------------------
+# Engine Sysctl Configuration (Track A: v1 vs Track B: v2)
+# ------------------------------------------------------------------------------
+- name: "GDC-STORAGE | Deploy Longhorn engine sysctl configuration"
+  ansible.builtin.copy:
+    dest: "{{ storage_engine_sysctl_file | default('/etc/sysctl.d/99-longhorn-engine.conf') }}"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Longhorn {{ storage_engine_mode }} engine sysctl parameters
+      {% set params = storage_engine_v1_sysctl_parameters if storage_engine_mode == 'v1' else storage_engine_v2_sysctl_parameters %}
+      {% for param in params | default([]) -%}
+      {{ param.name }} = {{ param.value }}
+      {% endfor %}
+  register: _storage_engine_sysctl
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Reload Longhorn engine sysctl parameters on configuration change"
+  ansible.builtin.command:
+    cmd: "/sbin/sysctl -p {{ storage_engine_sysctl_file | default('/etc/sysctl.d/99-longhorn-engine.conf') }}"
+  when: _storage_engine_sysctl.changed
+  changed_when: false
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Ensure Longhorn v2 modules file is absent for v1 engine"
+  ansible.builtin.file:
+    path: "{{ storage_modules_file | default('/etc/modules-load.d/longhorn-v2.conf') }}"
+    state: absent
+  when: storage_engine_mode == 'v1'
+  tags: ["strictly-local", "storage"]
+
+# ------------------------------------------------------------------------------
+# Track B: Longhorn v2 Kernel Modules (SPDK / NVMe-oF)
+# ------------------------------------------------------------------------------
 - name: "GDC-STORAGE | Deploy persistent Longhorn v2 kernel modules configuration"
   ansible.builtin.copy:
-    dest: /etc/modules-load.d/longhorn-v2.conf
+    dest: "{{ storage_modules_file | default('/etc/modules-load.d/longhorn-v2.conf') }}"
     owner: root
     group: root
     mode: '0644'
@@ -25,13 +64,15 @@
       {% for mod in storage_kernel_modules | default(['nvme-tcp', 'uio', 'uio_pci_generic', 'vfio_pci']) %}
       {{ mod }}
       {% endfor %}
+  when: storage_engine_mode == 'v2'
   tags: ["strictly-local", "storage"]
 
 - name: "GDC-STORAGE | Load Longhorn v2 kernel modules into running kernel"
   community.general.modprobe:
     name: "{{ item }}"
     state: present
-  loop: "{{ storage_kernel_modules }}"
+  loop: "{{ storage_kernel_modules | default(['nvme-tcp', 'uio', 'uio_pci_generic', 'vfio_pci']) }}"
+  when: storage_engine_mode == 'v2'
   tags: ["strictly-local", "storage"]
 
 - name: "GDC-STORAGE | Ensure iscsid service is enabled and active"
@@ -40,6 +81,82 @@
     enabled: true
     state: started
   ignore_errors: true
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Deploy udev NVMe scheduler rules for Longhorn"
+  ansible.builtin.copy:
+    dest: "{{ storage_udev_rules_file | default('/etc/udev/rules.d/60-nvme-longhorn.rules') }}"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Configure NVMe scheduler and read-ahead for Longhorn performance
+      ACTION=="add|change", KERNEL=="nvme[0-9]*n[0-9]*", ATTR{queue/scheduler}="none"
+      ACTION=="add|change", KERNEL=="nvme[0-9]*n[0-9]*", ATTR{queue/read_ahead_kb}="128"
+  register: _storage_udev_rules
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Reload udev rules and trigger block subsystem"
+  ansible.builtin.shell:
+    cmd: "udevadm control --reload-rules && udevadm trigger --subsystem-match=block"
+  when: _storage_udev_rules.changed
+  changed_when: false
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Ensure multipath configuration directory exists"
+  ansible.builtin.file:
+    path: "{{ storage_multipath_dir | default('/etc/multipath/conf.d') }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Deploy Longhorn multipath blacklist configuration"
+  ansible.builtin.copy:
+    dest: "{{ storage_multipath_file | default('/etc/multipath/conf.d/longhorn.conf') }}"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Blacklist Longhorn devices from multipath management
+      blacklist {
+          devnode "^sd[a-z0-9]+"
+          device {
+              vendor "LONGHORN"
+              product ".*"
+          }
+      }
+  register: _storage_multipath_conf
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Reconfigure multipath daemon if active"
+  ansible.builtin.command: multipathd reconfigure
+  when: _storage_multipath_conf.changed
+  changed_when: false
+  failed_when: false
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Deploy common sysctl configuration for Longhorn"
+  ansible.builtin.copy:
+    dest: "{{ storage_common_sysctl_file | default('/etc/sysctl.d/90-longhorn-common.conf') }}"
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Longhorn common baseline host sysctl parameters
+      # fs.file-max, net.core.somaxconn, etc.
+      {% for param in storage_common_sysctl_parameters | default([]) -%}
+      {{ param.name }} = {{ param.value }}
+      {% endfor %}
+  register: _storage_common_sysctl
+  tags: ["strictly-local", "storage"]
+
+- name: "GDC-STORAGE | Reload common sysctl parameters on configuration change"
+  ansible.builtin.command:
+    cmd: "/sbin/sysctl -p {{ storage_common_sysctl_file | default('/etc/sysctl.d/90-longhorn-common.conf') }}"
+  when: _storage_common_sysctl.changed
+  changed_when: false
   tags: ["strictly-local", "storage"]
 
 - name: "GDC-STORAGE | Ensure storage mount path directory exists"

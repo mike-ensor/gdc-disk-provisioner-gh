@@ -647,6 +647,14 @@ autoinstall:
       curtin in-target -- systemctl enable gitea.service nexus.service gdc-provision.service gdc-provision.timer
       curtin in-target -- systemctl enable gdc-desired-state.timer || true
       curtin in-target -- systemctl enable iscsid.service || true
+      # Deploy udev NVMe scheduler rules for Longhorn performance on bare-metal target
+      mkdir -p /target/etc/udev/rules.d
+      printf '%s\n' \
+        '# Configure NVMe scheduler and read-ahead for Longhorn performance' \
+        'ACTION=="add|change", KERNEL=="nvme[0-9]*n[0-9]*", ATTR{queue/scheduler}="none"' \
+        'ACTION=="add|change", KERNEL=="nvme[0-9]*n[0-9]*", ATTR{queue/read_ahead_kb}="128"' \
+        > /target/etc/udev/rules.d/60-nvme-longhorn.rules
+      chmod 644 /target/etc/udev/rules.d/60-nvme-longhorn.rules
       curtin in-target -- git config --system --add safe.directory /var/lib/gitea/repos/gdc/bootstrap-playbooks.git || true
       curtin in-target -- git config --system --add safe.directory /var/lib/gitea/repos/gdc/system-desired-state.git || true
       curtin in-target -- git config --system --add safe.directory '*' || true

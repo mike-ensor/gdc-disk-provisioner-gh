@@ -155,7 +155,10 @@
         target_repo_url: "{{ config_sync_repo.repo_url }}"
         target_branch: "{{ config_sync_repo.branch }}"
         target_sync_dir: "{{ config_sync_repo.sync_dir }}"
-        target_secret_name: "{{ config_sync_repo.secret_name }}"
+        target_gsm_secret_name: "{{ config_sync_repo.gsm_secret_name }}"
+        target_gsm_location: "{{ config_sync_repo.gsm_location | default('global') }}"
+        target_k8s_secret_name: "{{ config_sync_repo.k8s_secret_name }}"
+        target_k8s_namespace: "{{ config_sync_repo.k8s_namespace | default('config-management-system') }}"
         target_oci_gsa: "{{ config_sync_repo.oci_gsa }}"
         target_git_auth: "{{ config_sync_repo.auth_type }}"
 
@@ -164,8 +167,13 @@
         - (config_sync_repo.requires_secret | default(false) | bool)
       block:
         - name: "GDC-CONFIGSYNC | Access GSM Secret payload via gcloud"
-          ansible.builtin.command:
-            cmd: "gcloud secrets versions access latest --secret={{ target_secret_name }} --project={{ target_gcp_project_id }}"
+          ansible.builtin.command: >-
+            gcloud secrets versions access latest
+            --secret={{ target_gsm_secret_name }}
+            --project={{ target_gcp_project_id }}
+            {% if target_gsm_location is defined and target_gsm_location | trim | length > 0 and target_gsm_location != 'global' %}
+            --location={{ target_gsm_location }}
+            {% endif %}
           register: gsm_access_res
           changed_when: false
           no_log: true
@@ -193,14 +201,31 @@
               apiVersion: v1
               kind: Secret
               metadata:
-                name: {{ target_secret_name }}
-                namespace: config-management-system
+                name: {{ target_k8s_secret_name }}
+                namespace: {{ target_k8s_namespace }}
               type: Opaque
               stringData:
               {{ secret_data_dict | to_nice_yaml(indent=2) | indent(12, first=true) }}
           register: secret_apply_res
           no_log: true
           changed_when: "'created' in secret_apply_res.stdout or 'configured' in secret_apply_res.stdout"
+
+        - name: "GDC-CONFIGSYNC | Mirror GSM named secret in config-management-system if different from K8s name"
+          ansible.builtin.command:
+            cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f -"
+            stdin: |
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: {{ target_gsm_secret_name }}
+                namespace: {{ target_k8s_namespace }}
+              type: Opaque
+              stringData:
+              {{ secret_data_dict | to_nice_yaml(indent=2) | indent(12, first=true) }}
+          when:
+            - target_gsm_secret_name | trim | length > 0
+            - target_gsm_secret_name != target_k8s_secret_name
+          no_log: true
       always:
         - name: "GDC-CONFIGSYNC | Purge in-memory secret facts"
           ansible.builtin.set_fact:
@@ -231,9 +256,9 @@
               branch: {{ target_branch }}
               dir: {{ target_sync_dir }}
               auth: {{ target_git_auth }}
-          {% if target_secret_name | trim | length > 0 %}
+          {% if target_k8s_secret_name | trim | length > 0 %}
               secretRef:
-                name: {{ target_secret_name }}
+                name: {{ target_k8s_secret_name }}
           {% endif %}
       when: target_repo_type == 'git'
 
@@ -258,10 +283,10 @@
           {% if target_oci_gsa | trim | length > 0 %}
               auth: gcpserviceaccount
               gcpServiceAccountEmail: {{ target_oci_gsa }}@{{ target_gcp_project_id }}.iam.gserviceaccount.com
-          {% elif target_secret_name | trim | length > 0 %}
+          {% elif target_k8s_secret_name | trim | length > 0 %}
               auth: token
               secretRef:
-                name: {{ target_secret_name }}
+                name: {{ target_k8s_secret_name }}
           {% else %}
               auth: none
           {% endif %}

@@ -32,6 +32,13 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 WORKSPACE = os.path.join(PROJECT_ROOT, "build-workspace")
 RESULTS_JSON = os.path.join(WORKSPACE, "test_results.json")
 
+# Ensure virtual environment site-packages are loaded if running with bare python3
+for venv_dir in (".venv", "venv", "src/build/.venv"):
+    py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    venv_site = os.path.join(PROJECT_ROOT, venv_dir, "lib", py_ver, "site-packages")
+    if os.path.isdir(venv_site) and venv_site not in sys.path:
+        sys.path.insert(0, venv_site)
+
 class JSONTestResult(unittest.TextTestResult):
     def __init__(self, stream, descriptions, verbosity):
         super().__init__(stream, descriptions, verbosity)

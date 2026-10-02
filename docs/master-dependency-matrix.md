@@ -59,6 +59,7 @@ Executed on the builder workstation or CI/CD runner. It assemblies the remastere
     *   `nexus` (v3.68.0+): Standalone Sonatype Nexus Repository Manager package.
     *   `openjdk-17-jre-headless`: Standalone Java JVM required by Nexus.
     *   `helm` (v3.22.0+, Go-based): Standalone Kubernetes Package Manager CLI.
+    *   `kubestr` (v0.4.48, Go-based): Standalone Kubernetes Storage Capability & Benchmarking CLI.
     *   `bootstrap-playbooks.git`: Bare mirror of GDC playbooks cloned from `UPSTREAM_PLAYBOOKS_REPO`.
     *   `packages/*.deb`: Native Debian packages and recursively resolved dependencies cached from GCS (including `nfs-common`, `open-iscsi`, `nvme-cli`, and supporting Longhorn v2 libraries).
 
@@ -135,6 +136,7 @@ The final turnup phase executed on the bootstrapped hardware node.
     *   `bmctl` (v1.29.0+): Google Distributed Cloud Bare Metal deployment and control CLI.
     *   `kubectl` (v1.29.0+): Kubernetes cluster controller.
     *   `helm` (v3.22.0+): Kubernetes Package Manager CLI.
+    *   `kubestr` (v0.4.48): Kubernetes storage capability benchmarking tool (`kubestr fio`).
 *   **Container Runtimes:**
     *   `containerd` (v1.7.12+): High-performance container runtime engine.
     *   `docker-ce` (v25.0.3+): Standalone container engine for workstation operations.

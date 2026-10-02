@@ -173,7 +173,8 @@
     - name: "GDC-PREFLIGHT | Extract primary_root_repo target secret and repo type"
       ansible.builtin.set_fact:
         target_repo_type: "{{ _preflight_repo.repo_type }}"
-        target_secret_name: "{{ _preflight_repo.secret_name }}"
+        target_gsm_secret_name: "{{ _preflight_repo.gsm_secret_name }}"
+        target_gsm_location: "{{ _preflight_repo.gsm_location | default('global') }}"
 
     - name: "GDC-PREFLIGHT | Check gcloud CLI availability"
       ansible.builtin.command: which gcloud
@@ -196,7 +197,7 @@
               "duration_ms": 0
             }]
           }}
-      when: target_secret_name is not defined or (target_secret_name | trim | length == 0)
+      when: target_gsm_secret_name is not defined or (target_gsm_secret_name | trim | length == 0)
 
     - name: "GDC-PREFLIGHT | Validate GSM Secret via gcloud"
       block:
@@ -209,8 +210,11 @@
         - name: "GDC-PREFLIGHT | Access GSM Secret payload via gcloud"
           ansible.builtin.command: >-
             gcloud secrets versions access latest
-            --secret={{ target_secret_name }}
+            --secret={{ target_gsm_secret_name }}
             --project={{ (machine_config.gcp_info.project_id) if (machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined) else (gcp_project_id | default('')) }}
+            {% if target_gsm_location is defined and target_gsm_location | trim | length > 0 and target_gsm_location != 'global' %}
+            --location={{ target_gsm_location }}
+            {% endif %}
           register: gsm_access_res
           changed_when: false
           failed_when: false
@@ -253,10 +257,10 @@
               }}
             gsm_secret_failure_note: >-
               {{
-                ("Secret '" + target_secret_name + "' payload access failed (not found or permission denied in project " + ((machine_config.gcp_info.project_id if (machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined) else (gcp_project_id | default('UNKNOWN')))) + ")")
+                ("Secret '" + target_gsm_secret_name + "' payload access failed (not found or permission denied in project " + ((machine_config.gcp_info.project_id if (machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined) else (gcp_project_id | default('UNKNOWN')))) + ")")
                 if (gsm_access_res is not defined or gsm_access_res.rc is not defined or gsm_access_res.rc != 0)
                 else (
-                  ("Secret '" + target_secret_name + "' payload is not valid JSON")
+                  ("Secret '" + target_gsm_secret_name + "' payload is not valid JSON")
                   if (gsm_secret_parse_failed | default(true) | bool)
                   else _secret_val.failure_reason
                 )
@@ -271,8 +275,8 @@
                   "category": "security",
                   "status": "PASS" if (gsm_secret_is_valid | bool) else "FAIL",
                   "severity": "FATAL",
-                  "notes": ("GSM secret '" + target_secret_name + "' verified successfully for " + target_repo_type + " repo.") if (gsm_secret_is_valid | bool) else gsm_secret_failure_note,
-                  "remediation_hint": "" if (gsm_secret_is_valid | bool) else ("Ensure secret '" + target_secret_name + "' exists in GSM project '" + ((machine_config.gcp_info.project_id if (machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined) else (gcp_project_id | default('')))) + "' and contains valid JSON credentials (" + ("token, password, or ssh-privatekey" if target_repo_type == 'git' else "username and password") + ")."),
+                  "notes": ("GSM secret '" + target_gsm_secret_name + "' verified successfully for " + target_repo_type + " repo.") if (gsm_secret_is_valid | bool) else gsm_secret_failure_note,
+                  "remediation_hint": "" if (gsm_secret_is_valid | bool) else ("Ensure secret '" + target_gsm_secret_name + "' exists in GSM project '" + ((machine_config.gcp_info.project_id if (machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined) else (gcp_project_id | default('')))) + "' and contains valid JSON credentials (" + ("token, password, or ssh-privatekey" if target_repo_type == 'git' else "username and password") + ")."),
                   "timestamp": now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ'),
                   "duration_ms": 10
                 }]

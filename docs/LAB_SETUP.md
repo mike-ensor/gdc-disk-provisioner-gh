@@ -135,7 +135,56 @@ To rotate the deployment secret without interrupting continuous Ansible synchron
        --location="${REGION}" \
        --project="${PROJECT_ID}"
    ```
-   * Delete the old public key from GitLab/GitHub.
+    * Delete the old public key from GitLab/GitHub.
+
+### 3.4 Secret Manager & ConfigSync Primary Root Repo Credentials (`es-git-creds`)
+
+To allow Anthos Config Management (ACM) / ConfigSync to synchronize cluster manifests from a private Git repository (such as `dp-primary-root.git`), store a read-only Git Personal Access Token (PAT) or deploy token in Google Cloud Secret Manager (GSM).
+
+Stage 7 (`post_cluster`) and pre-flight validation automatically fetch this secret to inject bootstrap credentials into the `config-management-system` namespace on the cluster.
+
+#### 1. Create the Secret in Google Cloud Secret Manager
+Create the secret with regional (or global) user-managed replication:
+```bash
+gcloud secrets create es-git-creds \
+    --project="${PROJECT_ID}" \
+    --labels="config-sync=primary-root" \
+    --replication-policy="user-managed" \
+    --location="${REGION}"
+```
+*(Note: If using global replication, omit `--location="${REGION}"` and `--replication-policy="user-managed"`).*
+
+#### 2. Add Credentials Payload (JSON)
+The secret payload must be valid JSON containing a `token` (or `password`) and an optional `username`:
+```bash
+echo -n "{\"username\":\"gdc-pat-user\",\"token\":\"<GITLAB_OR_GITHUB_PAT>\"}" | \
+    gcloud secrets versions add es-git-creds \
+        --project="${PROJECT_ID}" \
+        --location="${REGION}" \
+        --data-file=-
+```
+
+#### 3. Grant IAM Secret Accessor to the Node Service Account
+Ensure the node's primary Google Service Account (`primary_gsa`, e.g. `sa-companion`) has permissions to access the secret:
+```bash
+gcloud secrets add-iam-policy-binding es-git-creds \
+    --project="${PROJECT_ID}" \
+    --location="${REGION}" \
+    --member="serviceAccount:${PRIMARY_GSA:-sa-companion@${PROJECT_ID}.iam.gserviceaccount.com}" \
+    --role="roles/secretmanager.secretAccessor"
+```
+
+#### 4. Updating and Rotating the Token
+To rotate the credentials, simply add a new version to the existing secret:
+```bash
+echo -n "{\"username\":\"gdc-pat-user\",\"token\":\"<NEW_PAT_VALUE>\"}" | \
+    gcloud secrets versions add es-git-creds \
+        --project="${PROJECT_ID}" \
+        --location="${REGION}" \
+        --data-file=-
+```
+Both the GDC bootstrap installer and the in-cluster External Secrets Operator will resolve and sync the latest version.
+
 ## 4. Local Lab Services Setup
 
 ### 4.1 Step CA (mTLS Zero-Touch Provisioning)

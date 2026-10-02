@@ -329,11 +329,32 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     FACT_ADMIN_USER_EMAIL=$(get_json_val "${FACTS_FILE}" ".cluster.admin_user_email")
 
     # Safely extract primary_root_repo: Git -> OCI -> scalar string -> empty
-    FACT_PRIMARY_ROOT_REPO=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.git.repo_url")
+    FACT_PRIMARY_ROOT_REPO=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.git["repo-url"]')
+    if [[ -z "${FACT_PRIMARY_ROOT_REPO}" ]]; then
+        FACT_PRIMARY_ROOT_REPO=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.git.repo_url")
+    fi
     if [[ -n "${FACT_PRIMARY_ROOT_REPO}" ]]; then
         FACT_ROOT_REPO_TYPE="git"
         FACT_ROOT_REPO_BRANCH=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.git.branch")
-        FACT_ROOT_REPO_SECRET=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.git.gsm_secret_name")
+        FACT_ROOT_REPO_GSM_SECRET=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.git["gsm-auth-secret"]["gsm-name"]')
+        if [[ -z "${FACT_ROOT_REPO_GSM_SECRET}" ]]; then
+            FACT_ROOT_REPO_GSM_SECRET=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.git["gsm-auth-secret"].gsm_name')
+        fi
+        if [[ -z "${FACT_ROOT_REPO_GSM_SECRET}" ]]; then
+            FACT_ROOT_REPO_GSM_SECRET=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.git.gsm_secret_name")
+        fi
+
+        FACT_ROOT_REPO_K8S_SECRET=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.git["gsm-auth-secret"]["k8s-name"]')
+        if [[ -z "${FACT_ROOT_REPO_K8S_SECRET}" ]]; then
+            FACT_ROOT_REPO_K8S_SECRET=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.git["gsm-auth-secret"].k8s_name')
+        fi
+        if [[ -z "${FACT_ROOT_REPO_K8S_SECRET}" ]]; then
+            FACT_ROOT_REPO_K8S_SECRET=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo_auth_secret")
+        fi
+        if [[ -z "${FACT_ROOT_REPO_K8S_SECRET}" ]]; then
+            FACT_ROOT_REPO_K8S_SECRET="${FACT_ROOT_REPO_GSM_SECRET}"
+        fi
+        FACT_ROOT_REPO_SECRET="${FACT_ROOT_REPO_K8S_SECRET}"
     else
         FACT_PRIMARY_ROOT_REPO=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.oci.image")
         if [[ -n "${FACT_PRIMARY_ROOT_REPO}" ]]; then
@@ -354,7 +375,10 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     if [[ -z "${FACT_ROOT_REPO_SECRET}" ]]; then
         FACT_ROOT_REPO_SECRET=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo_auth_secret")
     fi
-    FACT_CLUSTER_CONFIG_NAME=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.cluster_config_name")
+    FACT_CLUSTER_CONFIG_NAME=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo["cluster-config-name"]')
+    if [[ -z "${FACT_CLUSTER_CONFIG_NAME}" ]]; then
+        FACT_CLUSTER_CONFIG_NAME=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.cluster_config_name")
+    fi
     FACT_CONFIG_SYNC_ENABLED=$(get_json_val "${FACTS_FILE}" ".cluster.config_sync_enabled")
 
     FACT_ANTHOS_VERSION=$(get_json_val "${FACTS_FILE}" ".cluster.anthos_bare_metal_version")
@@ -765,6 +789,16 @@ EOF
 		echo "[OK] ClusterRoleBinding 'dynamic-installed-cluster-admin-list' applied successfully."
 	else
 		echo "[-] No cluster admin emails defined in facts. Skipping dynamic-installed-cluster-admin-list creation."
+	fi
+
+	# 5c. Enable Google Managed Service for Prometheus (GMP) for applications
+	echo "[-] Enabling Google Managed Prometheus (GMP) for applications in Stackdriver..."
+	if sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl get stackdriver stackdriver -n kube-system &>/dev/null; then
+		sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl patch stackdriver stackdriver -n kube-system \
+			--type=merge -p '{"spec":{"enableGMPForApplications":true}}'
+		echo "[OK] Stackdriver GMP for applications enabled."
+	else
+		echo "[-] Notice: Stackdriver resource not found in kube-system. Skipping GMP enablement."
 	fi
 
 	# 6. Deploy Config Sync

@@ -756,10 +756,20 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
             if "Create or update Kubernetes secret" in t.get("name", "")
         )
         cls.env = jinja2.Environment()
-        from ansible.plugins.filter.core import combine, to_nice_yaml
-
-        cls.env.filters["combine"] = combine
-        cls.env.filters["to_nice_yaml"] = to_nice_yaml
+        try:
+            from ansible.plugins.filter.core import (  # type: ignore[import-not-found]
+                combine,
+                to_nice_yaml,
+            )
+            cls.env.filters["combine"] = combine
+            cls.env.filters["to_nice_yaml"] = to_nice_yaml
+        except ImportError:
+            cls.env.filters["combine"] = lambda *dicts, **kwargs: {
+                k: v for d in dicts if isinstance(d, dict) for k, v in d.items()
+            }
+            cls.env.filters["to_nice_yaml"] = lambda val, indent=2, **kwargs: (
+                yaml.dump(val, default_flow_style=False, indent=indent)
+            )
 
     def _render(self, tmpl_str: str, **kwargs) -> str:
         return self.env.from_string(tmpl_str).render(**kwargs).strip()
@@ -923,7 +933,7 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
         self.assertEqual(val, "")
 
     def test_oci_gsa_suppresses_target_secret_name(self):
-        """When OCI has a valid GSA, target_secret_name MUST be empty even if gsm_secret_name is set."""
+        """When OCI has a valid GSA, target_gsm_secret_name and target_k8s_secret_name MUST be empty."""
         mc = {
             "cluster": {
                 "primary_root_repo": {
@@ -934,8 +944,10 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
                 }
             }
         }
-        val = self._resolve_repo("target_secret_name", machine_config=mc)
-        self.assertEqual(val, "")
+        val_gsm = self._resolve_repo("target_gsm_secret_name", machine_config=mc)
+        val_k8s = self._resolve_repo("target_k8s_secret_name", machine_config=mc)
+        self.assertEqual(val_gsm, "")
+        self.assertEqual(val_k8s, "")
 
     def test_oci_target_secret_name_with_secret_and_no_gsa(self):
         mc = {
@@ -947,8 +959,10 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
                 }
             }
         }
-        val = self._resolve_repo("target_secret_name", machine_config=mc)
-        self.assertEqual(val, "dockerhub-token")
+        val_gsm = self._resolve_repo("target_gsm_secret_name", machine_config=mc)
+        val_k8s = self._resolve_repo("target_k8s_secret_name", machine_config=mc)
+        self.assertEqual(val_gsm, "dockerhub-token")
+        self.assertEqual(val_k8s, "dockerhub-token")
 
     def test_oci_target_secret_name_with_null_secret(self):
         mc = {
@@ -960,9 +974,10 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
                 }
             }
         }
-        val = self._resolve_repo("target_secret_name", machine_config=mc)
-        self.assertEqual(val, "")
-        self.assertNotIn("None", val)
+        val_gsm = self._resolve_repo("target_gsm_secret_name", machine_config=mc)
+        val_k8s = self._resolve_repo("target_k8s_secret_name", machine_config=mc)
+        self.assertEqual(val_gsm, "")
+        self.assertEqual(val_k8s, "")
 
     def test_git_target_secret_name_with_secret(self):
         mc = {
@@ -974,8 +989,10 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
                 }
             }
         }
-        val = self._resolve_repo("target_secret_name", machine_config=mc)
-        self.assertEqual(val, "git-deploy-token")
+        val_gsm = self._resolve_repo("target_gsm_secret_name", machine_config=mc)
+        val_k8s = self._resolve_repo("target_k8s_secret_name", machine_config=mc)
+        self.assertEqual(val_gsm, "git-deploy-token")
+        self.assertEqual(val_k8s, "git-deploy-token")
 
     def test_git_target_secret_name_with_null_secret(self):
         mc = {
@@ -987,9 +1004,10 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
                 }
             }
         }
-        val = self._resolve_repo("target_secret_name", machine_config=mc)
-        self.assertEqual(val, "")
-        self.assertNotIn("None", val)
+        val_gsm = self._resolve_repo("target_gsm_secret_name", machine_config=mc)
+        val_k8s = self._resolve_repo("target_k8s_secret_name", machine_config=mc)
+        self.assertEqual(val_gsm, "")
+        self.assertEqual(val_k8s, "")
 
     def test_git_target_secret_name_public(self):
         mc = {
@@ -999,8 +1017,10 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
                 }
             }
         }
-        val = self._resolve_repo("target_secret_name", machine_config=mc)
-        self.assertEqual(val, "")
+        val_gsm = self._resolve_repo("target_gsm_secret_name", machine_config=mc)
+        val_k8s = self._resolve_repo("target_k8s_secret_name", machine_config=mc)
+        self.assertEqual(val_gsm, "")
+        self.assertEqual(val_k8s, "")
 
     # Exact RootSync template rendering
     def test_git_rootsync_template_with_secret(self):
@@ -1009,7 +1029,7 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
             target_repo_url="https://git.example.com/repo.git",
             target_branch="release-1.0",
             target_sync_dir="config/clusters/edge-01",
-            target_secret_name="git-token-secret",
+            target_k8s_secret_name="git-token-secret",
             target_git_auth="token",
         )
         parsed = yaml.safe_load(rendered)
@@ -1029,7 +1049,7 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
             target_repo_url="https://git.example.com/repo.git",
             target_branch="main",
             target_sync_dir="config/clusters/edge-01",
-            target_secret_name="",
+            target_k8s_secret_name="",
             target_git_auth="none",
         )
         parsed = yaml.safe_load(rendered)
@@ -1047,7 +1067,7 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
             target_sync_dir="config/clusters/edge-01",
             target_oci_gsa="sa-configsync",
             target_gcp_project_id="my-proj",
-            target_secret_name="",
+            target_k8s_secret_name="",
         )
         parsed = yaml.safe_load(rendered)
         oci_spec = parsed["spec"]["oci"]
@@ -1061,14 +1081,14 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
         self.assertNotIn("secretRef", oci_spec)
 
     def test_oci_rootsync_template_gsa_ignores_secret_ref(self):
-        """Even if target_secret_name is set, OCI with GSA does NOT emit secretRef."""
+        """Even if target_k8s_secret_name is set, OCI with GSA does NOT emit secretRef."""
         rendered = self._render(
             self.oci_copy["content"],
             target_repo_url="us-docker.pkg.dev/my-proj/repo/cfg:v1",
             target_sync_dir="config/clusters/edge-01",
             target_oci_gsa="sa-configsync",
             target_gcp_project_id="my-proj",
-            target_secret_name="ignored-secret",
+            target_k8s_secret_name="ignored-secret",
         )
         parsed = yaml.safe_load(rendered)
         oci_spec = parsed["spec"]["oci"]
@@ -1086,7 +1106,7 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
             target_sync_dir="config/clusters/edge-01",
             target_oci_gsa="",
             target_gcp_project_id="my-proj",
-            target_secret_name="oci-creds",
+            target_k8s_secret_name="oci-creds",
         )
         parsed = yaml.safe_load(rendered)
         oci_spec = parsed["spec"]["oci"]
@@ -1103,7 +1123,7 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
             target_sync_dir="config/clusters/edge-01",
             target_oci_gsa="",
             target_gcp_project_id="my-proj",
-            target_secret_name="",
+            target_k8s_secret_name="",
         )
         parsed = yaml.safe_load(rendered)
         oci_spec = parsed["spec"]["oci"]
@@ -1119,9 +1139,19 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
             target_repo_url="git@github.com:org/repo.git",
             target_branch="main",
             target_sync_dir="config/clusters/edge-01",
-            target_secret_name="git-ssh-secret",
+            target_k8s_secret_name="git-ssh-secret",
             target_git_auth="ssh",
         )
+        parsed = yaml.safe_load(rendered)
+        self.assertEqual(parsed["apiVersion"], "configsync.gke.io/v1beta1")
+        self.assertEqual(parsed["kind"], "RootSync")
+        self.assertEqual(parsed["spec"]["sourceType"], "git")
+        git_spec = parsed["spec"]["git"]
+        self.assertEqual(git_spec["repo"], "git@github.com:org/repo.git")
+        self.assertEqual(git_spec["branch"], "main")
+        self.assertEqual(git_spec["dir"], "config/clusters/edge-01")
+        self.assertEqual(git_spec["auth"], "ssh")
+        self.assertEqual(git_spec["secretRef"]["name"], "git-ssh-secret")
         parsed = yaml.safe_load(rendered)
         self.assertEqual(parsed["apiVersion"], "configsync.gke.io/v1beta1")
         self.assertEqual(parsed["kind"], "RootSync")
@@ -1191,7 +1221,8 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
         stdin_tmpl = self.secret_apply_task["ansible.builtin.command"]["stdin"]
         rendered = self._render(
             stdin_tmpl,
-            target_secret_name="git-creds",
+            target_k8s_secret_name="git-creds",
+            target_k8s_namespace="config-management-system",
             secret_data_dict={"token": "ghp_123"},
         )
         parsed = yaml.safe_load(rendered)
@@ -1207,7 +1238,8 @@ class TestConfigSyncJinjaRendering(unittest.TestCase):
         stdin_tmpl = self.secret_apply_task["ansible.builtin.command"]["stdin"]
         rendered = self._render(
             stdin_tmpl,
-            target_secret_name="oci-creds",
+            target_k8s_secret_name="oci-creds",
+            target_k8s_namespace="config-management-system",
             secret_data_dict={"username": "user", "password": "password"},
         )
         parsed = yaml.safe_load(rendered)

@@ -170,6 +170,84 @@ class TestMachineSchema(unittest.TestCase):
         data["cluster"]["primary_root_repo"] = None
         jsonschema.validate(instance=data, schema=self.schema)
 
+    def test_schema_validates_gsm_auth_secret_object(self):
+        """Verify that primary_root_repo with gsm-auth-secret validates successfully."""
+        data = {
+            "hostname": "test-host",
+            "bmctl_version": "1.35.300-gke.87",
+            "network": {
+                "management_network": {"dhcp_v4": True, "dns_servers": ["8.8.8.8"]},
+                "cluster_network": {"vlan_id": 9, "dhcp_v4": True},
+            },
+            "gcp_info": {
+                "project_id": "test-proj",
+                "region": "us-west1",
+                "primary_gsa": "sa@test-proj.iam.gserviceaccount.com",
+            },
+            "cluster": {
+                "cluster_name": "test-cluster",
+                "config_sync_enabled": True,
+                "primary_root_repo": {
+                    "cluster-config-name": "custom-folder",
+                    "git": {
+                        "repo-url": "https://gitlab.com/test-org/test-repo.git",
+                        "branch": "main",
+                        "gsm-auth-secret": {
+                            "gsm-name": "es-git-creds",
+                            "gsm-location": "global",
+                            "k8s-name": "git-creds",
+                            "k8s-namespace": "config-management-system",
+                        },
+                    },
+                },
+                "networking": {
+                    "cluster_vip": "192.168.9.100",
+                    "cluster_ingress": "192.168.9.101",
+                    "cluster_lb_range": "192.168.9.101-192.168.9.109",
+                },
+                "fleet_cluster_labels": ["type=test"],
+            },
+            "peers": [],
+        }
+        jsonschema.validate(instance=data, schema=self.schema)
+
+    def test_schema_validates_gsm_auth_secret_regional_location(self):
+        """Verify that gsm-auth-secret with regional gsm-location validates."""
+        data = {
+            "hostname": "test-host",
+            "bmctl_version": "1.35.300-gke.87",
+            "network": {
+                "management_network": {"dhcp_v4": True, "dns_servers": ["8.8.8.8"]},
+                "cluster_network": {"vlan_id": 9, "dhcp_v4": True},
+            },
+            "gcp_info": {
+                "project_id": "test-proj",
+                "region": "us-west1",
+                "primary_gsa": "sa@test-proj.iam.gserviceaccount.com",
+            },
+            "cluster": {
+                "cluster_name": "test-cluster",
+                "primary_root_repo": {
+                    "git": {
+                        "repo_url": "https://gitlab.com/test-org/test-repo.git",
+                        "gsm_auth_secret": {
+                            "gsm_name": "regional-secret",
+                            "gsm_location": "us-west1",
+                            "k8s_name": "k8s-secret",
+                        },
+                    },
+                },
+                "networking": {
+                    "cluster_vip": "192.168.9.100",
+                    "cluster_ingress": "192.168.9.101",
+                    "cluster_lb_range": "192.168.9.101-192.168.9.109",
+                },
+                "fleet_cluster_labels": ["type=test"],
+            },
+            "peers": [],
+        }
+        jsonschema.validate(instance=data, schema=self.schema)
+
     def test_schema_validates_optional_primary_root_repo_auth_secret(self):
         """Verify that primary_root_repo_auth_secret is optional."""
         data = {

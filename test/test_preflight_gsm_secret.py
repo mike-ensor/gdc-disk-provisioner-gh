@@ -49,10 +49,20 @@ def extract_gsm_secret_info(machine_config):
         return None, None
 
     if "git" in primary_root_repo and isinstance(primary_root_repo["git"], dict):
-        secret_name = primary_root_repo["git"].get("gsm_secret_name")
+        git_cfg = primary_root_repo["git"]
+        secret_obj = git_cfg.get("gsm-auth-secret") or git_cfg.get("gsm_auth_secret")
+        if isinstance(secret_obj, dict):
+            secret_name = secret_obj.get("gsm-name") or secret_obj.get("gsm_name")
+        else:
+            secret_name = git_cfg.get("gsm_secret_name")
         return (str(secret_name).strip() if secret_name else None), "git"
     if "oci" in primary_root_repo and isinstance(primary_root_repo["oci"], dict):
-        secret_name = primary_root_repo["oci"].get("gsm_secret_name")
+        oci_cfg = primary_root_repo["oci"]
+        secret_obj = oci_cfg.get("gsm-auth-secret") or oci_cfg.get("gsm_auth_secret")
+        if isinstance(secret_obj, dict):
+            secret_name = secret_obj.get("gsm-name") or secret_obj.get("gsm_name")
+        else:
+            secret_name = oci_cfg.get("gsm_secret_name")
         return (str(secret_name).strip() if secret_name else None), "oci"
 
     return None, None
@@ -147,6 +157,25 @@ class TestExtractGsmSecretInfo(unittest.TestCase):
         }
         secret_name, repo_type = extract_gsm_secret_info(config)
         self.assertEqual(secret_name, "git-creds")
+        self.assertEqual(repo_type, "git")
+
+    def test_extract_git_with_structured_gsm_auth_secret(self):
+        """Verifies extracting secret from structured gsm-auth-secret object."""
+        config = {
+            "cluster": {
+                "primary_root_repo": {
+                    "git": {
+                        "repo-url": "https://gitlab.com/example/repo.git",
+                        "gsm-auth-secret": {
+                            "gsm-name": "es-git-creds",
+                            "k8s-name": "git-creds",
+                        },
+                    }
+                }
+            }
+        }
+        secret_name, repo_type = extract_gsm_secret_info(config)
+        self.assertEqual(secret_name, "es-git-creds")
         self.assertEqual(repo_type, "git")
 
     def test_extract_oci_secret_name_and_repo_type(self):
