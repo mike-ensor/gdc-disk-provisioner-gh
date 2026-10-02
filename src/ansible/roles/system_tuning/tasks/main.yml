@@ -462,3 +462,56 @@
     group: root
     force: true
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10D | Ensure kubestr install directory exists"
+  ansible.builtin.file:
+    path: "{{ gdc_kubestr_install_dir | default('/var/gdc-install/tools/kubestr') }}"
+    state: directory
+    owner: "{{ gdc_admin_user | default('gdc-admin') }}"
+    group: "{{ gdc_admin_group | default('gdc-admin') }}"
+    mode: '0755'
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10D | Check if kubestr binary is present in tools staging directory"
+  ansible.builtin.stat:
+    path: "{{ gdc_kubestr_install_dir | default('/var/gdc-install/tools/kubestr') }}/kubestr"
+  register: kubestr_staging_stat
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10D | Copy kubestr binary from ISO cache if missing"
+  ansible.builtin.copy:
+    src: "/var/gdc-install/iso-cache/tools/kubestr/kubestr"
+    dest: "{{ gdc_kubestr_install_dir | default('/var/gdc-install/tools/kubestr') }}/kubestr"
+    owner: "{{ gdc_admin_user | default('gdc-admin') }}"
+    group: "{{ gdc_admin_group | default('gdc-admin') }}"
+    mode: '0755'
+    remote_src: true
+  when: not kubestr_staging_stat.stat.exists
+  ignore_errors: true
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10D | Ensure kubestr binary has executable permissions"
+  ansible.builtin.file:
+    path: "{{ gdc_kubestr_install_dir | default('/var/gdc-install/tools/kubestr') }}/kubestr"
+    mode: '0755'
+  when: kubestr_staging_stat.stat.exists
+  ignore_errors: true
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10D | Create symlink for kubestr in /usr/local/bin"
+  ansible.builtin.file:
+    src: "{{ gdc_kubestr_install_dir | default('/var/gdc-install/tools/kubestr') }}/kubestr"
+    dest: "/usr/local/bin/kubestr"
+    state: link
+    owner: root
+    group: root
+    force: true
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10E | Install operator-specified customer packages"
+  ansible.builtin.apt:
+    name: "{{ customer_install_packages }}"
+    state: present
+    update_cache: false
+  when: customer_install_packages is defined and customer_install_packages | length > 0
+  tags: ["machine:connected", "machine:private-mode-normal"]

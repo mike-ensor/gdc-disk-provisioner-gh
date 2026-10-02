@@ -93,11 +93,19 @@ gdc_install_directories:
   - "tools/google-cloud-sdk"
   - "tools/node-agent"
   - "tools/helm"
+  - "tools/kubestr"
   - "vmruntime-configs"
 
 # Helm CLI Configuration Settings
 gdc_helm_install_dir: "/var/gdc-install/tools/helm"
 gdc_helm_version: "3.22.0"
+
+# Kubestr Storage Benchmark CLI Configuration Settings
+gdc_kubestr_install_dir: "/var/gdc-install/tools/kubestr"
+gdc_kubestr_version: "0.4.48"
+
+# Customer/Operator Specified Packages to Pre-install
+customer_install_packages: []
 
 # NodeAgent Configuration Settings
 gdc_nodeagent_install_dir: "/var/gdc-install/tools/node-agent"

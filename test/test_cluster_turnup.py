@@ -874,5 +874,15 @@ class TestClusterTurnupAnsibleIntegration(unittest.TestCase):
         self.assertTrue(any("Evidence" in name for name in task_names))
 
 
+    def test_create_cluster_sh_contains_gmp_enablement(self):
+        """Verify that create_cluster.sh contains the step to enable GMP for applications in Stackdriver."""
+        with open(CREATE_CLUSTER_SCRIPT, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        self.assertIn("enableGMPForApplications", content)
+        self.assertIn("kubectl patch stackdriver stackdriver -n kube-system", content)
+        self.assertIn("'{\"spec\":{\"enableGMPForApplications\":true}}'", content)
+
+
 if __name__ == "__main__":
     unittest.main()

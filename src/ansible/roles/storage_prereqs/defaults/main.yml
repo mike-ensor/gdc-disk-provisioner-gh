@@ -4,6 +4,18 @@
 # Role Defaults: storage_prereqs (Longhorn v2 / SPDK / NVMe-oF Prereqs)
 # ==============================================================================
 
+storage_engine_mode: "v2"
+storage_engine_sysctl_file: "/etc/sysctl.d/99-longhorn-engine.conf"
+storage_engine_v1_sysctl_parameters:
+  - { name: "vm.dirty_background_ratio", value: "5" }
+  - { name: "vm.dirty_ratio", value: "10" }
+  - { name: "vm.nr_hugepages", value: "0" }
+  - { name: "net.core.rmem_max", value: "16777216" }
+  - { name: "net.core.wmem_max", value: "16777216" }
+  - { name: "net.ipv4.tcp_rmem", value: "4096 87380 16777216" }
+  - { name: "net.ipv4.tcp_wmem", value: "4096 65536 16777216" }
+storage_engine_v2_sysctl_parameters:
+  - { name: "vm.nr_hugepages", value: "{{ storage_hugepages_count | default(2048) }}" }
 storage_hugepages_count: 2048
 storage_hugepages_file: /etc/sysctl.d/99-longhorn-hugepages.conf
 storage_modules_file: /etc/modules-load.d/longhorn-v2.conf
@@ -13,3 +25,15 @@ storage_kernel_modules:
   - "uio_pci_generic"
   - "vfio_pci"
 storage_sds_directory: /customer/sds
+storage_udev_rules_file: /etc/udev/rules.d/60-nvme-longhorn.rules
+storage_multipath_dir: /etc/multipath/conf.d
+storage_multipath_file: /etc/multipath/conf.d/longhorn.conf
+storage_common_sysctl_file: /etc/sysctl.d/90-longhorn-common.conf
+storage_common_sysctl_parameters:
+  - { name: "fs.file-max", value: "2097152" }
+  - { name: "fs.inotify.max_user_watches", value: "524288" }
+  - { name: "fs.inotify.max_user_instances", value: "8192" }
+  - { name: "net.core.somaxconn", value: "32768" }
+  - { name: "net.core.netdev_max_backlog", value: "16384" }
+  - { name: "net.ipv4.tcp_max_syn_backlog", value: "16384" }
+

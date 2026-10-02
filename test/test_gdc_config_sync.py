@@ -23,6 +23,12 @@ LOOKUP_PLUGIN_DIR = os.path.join(PROJECT_ROOT, "src", "ansible", "lookup_plugins
 if LOOKUP_PLUGIN_DIR not in sys.path:
     sys.path.insert(0, LOOKUP_PLUGIN_DIR)
 
+for venv_dir in (".venv", "venv", "src/build/.venv"):
+    py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    venv_site = os.path.join(PROJECT_ROOT, venv_dir, "lib", py_ver, "site-packages")
+    if os.path.isdir(venv_site) and venv_site not in sys.path:
+        sys.path.insert(0, venv_site)
+
 from gdc_config_sync_resolver import (  # pylint: disable=wrong-import-position,import-error # type: ignore[import-not-found]
     extract_gsm_secret_info,
     resolve_primary_root_repo,
@@ -42,7 +48,8 @@ class TestPrimaryRootRepoResolution(unittest.TestCase):
             self.assertEqual(res["repo_url"], "")
             self.assertEqual(res["branch"], "")
             self.assertEqual(res["sync_dir"], "")
-            self.assertEqual(res["secret_name"], "")
+            self.assertEqual(res["gsm_secret_name"], "")
+            self.assertEqual(res["k8s_secret_name"], "")
             self.assertFalse(res["requires_secret"])
             self.assertEqual(res["auth_type"], "none")
 
@@ -66,7 +73,8 @@ class TestPrimaryRootRepoResolution(unittest.TestCase):
         self.assertEqual(res["repo_url"], "https://gitlab.com/retail/edge-config.git")
         self.assertEqual(res["branch"], "main")
         self.assertEqual(res["sync_dir"], "config/clusters/edge-01")
-        self.assertEqual(res["secret_name"], "")
+        self.assertEqual(res["gsm_secret_name"], "")
+        self.assertEqual(res["k8s_secret_name"], "")
         self.assertFalse(res["requires_secret"])
         self.assertEqual(res["auth_type"], "none")
 
@@ -81,7 +89,8 @@ class TestPrimaryRootRepoResolution(unittest.TestCase):
         }
         res = resolve_primary_root_repo(config)
         self.assertEqual(res["repo_type"], "git")
-        self.assertEqual(res["secret_name"], "git-creds-gsm")
+        self.assertEqual(res["gsm_secret_name"], "git-creds-gsm")
+        self.assertEqual(res["k8s_secret_name"], "git-creds-gsm")
         self.assertTrue(res["requires_secret"])
         self.assertEqual(res["auth_type"], "token")
 
@@ -126,7 +135,8 @@ class TestPrimaryRootRepoResolution(unittest.TestCase):
         self.assertEqual(res["repo_url"], "https://gitlab.com/org/repo.git")
         self.assertEqual(res["branch"], "release-v2")
         self.assertEqual(res["sync_dir"], "config/clusters/edge-01")
-        self.assertEqual(res["secret_name"], "git-pat-secret")
+        self.assertEqual(res["gsm_secret_name"], "git-pat-secret")
+        self.assertEqual(res["k8s_secret_name"], "git-pat-secret")
         self.assertTrue(res["requires_secret"])
         self.assertEqual(res["auth_type"], "token")
 
@@ -166,7 +176,8 @@ class TestPrimaryRootRepoResolution(unittest.TestCase):
         self.assertEqual(res["repo_type"], "oci")
         self.assertEqual(res["oci_gsa"], "sa-companion")
         self.assertEqual(res["auth_type"], "gcpserviceaccount")
-        self.assertEqual(res["secret_name"], "")
+        self.assertEqual(res["gsm_secret_name"], "")
+        self.assertEqual(res["k8s_secret_name"], "")
         self.assertFalse(res["requires_secret"])
 
     def test_structured_oci_with_gsm_secret_and_no_gsa(self):
@@ -184,7 +195,8 @@ class TestPrimaryRootRepoResolution(unittest.TestCase):
         }
         res = resolve_primary_root_repo(config)
         self.assertEqual(res["repo_type"], "oci")
-        self.assertEqual(res["secret_name"], "dockerhub-secret")
+        self.assertEqual(res["gsm_secret_name"], "dockerhub-secret")
+        self.assertEqual(res["k8s_secret_name"], "dockerhub-secret")
         self.assertEqual(res["auth_type"], "token")
         self.assertTrue(res["requires_secret"])
 
@@ -225,7 +237,8 @@ class TestPrimaryRootRepoResolution(unittest.TestCase):
         res = resolve_primary_root_repo(config)
         self.assertEqual(res["repo_type"], "git")
         self.assertEqual(res["repo_url"], "https://gitlab.com/primary.git")
-        self.assertEqual(res["secret_name"], "git-secret")
+        self.assertEqual(res["gsm_secret_name"], "git-secret")
+        self.assertEqual(res["k8s_secret_name"], "git-secret")
 
     def test_fallback_cluster_name_param(self):
         """Verifies fallback_cluster_name is used when cluster_name is missing from config."""
@@ -239,14 +252,97 @@ class TestPrimaryRootRepoResolution(unittest.TestCase):
         res = resolve_primary_root_repo(config, cluster_name="fallback-node-42")
         self.assertEqual(res["sync_dir"], "config/clusters/fallback-node-42")
 
+    def test_resolve_git_with_gsm_auth_secret_object(self):
+        """Verifies resolving git repo with structured gsm-auth-secret object."""
+        config = {
+            "cluster": {
+                "cluster_name": "edge-01",
+                "primary_root_repo": {
+                    "cluster-config-name": "custom-override",
+                    "git": {
+                        "repo-url": "https://gitlab.com/retail-edge/repo.git",
+                        "branch": "main",
+                        "gsm-auth-secret": {
+                            "gsm-name": "es-git-creds",
+                            "gsm-location": "global",
+                            "k8s-name": "git-creds",
+                            "k8s-namespace": "config-management-system",
+                        },
+                    },
+                },
+            }
+        }
+        res = resolve_primary_root_repo(config)
+        self.assertEqual(res["repo_type"], "git")
+        self.assertEqual(res["repo_url"], "https://gitlab.com/retail-edge/repo.git")
+        self.assertEqual(res["branch"], "main")
+        self.assertEqual(res["sync_dir"], "config/clusters/custom-override")
+        self.assertEqual(res["gsm_secret_name"], "es-git-creds")
+        self.assertEqual(res["k8s_secret_name"], "git-creds")
+        self.assertEqual(res["k8s_namespace"], "config-management-system")
+        self.assertEqual(res["gsm_location"], "global")
+        self.assertTrue(res["requires_secret"])
+        self.assertEqual(res["auth_type"], "token")
+
+    def test_resolve_git_with_regional_gsm_location(self):
+        """Verifies resolving regional gsm-location."""
+        config = {
+            "cluster": {
+                "cluster_name": "edge-01",
+                "primary_root_repo": {
+                    "git": {
+                        "repo_url": "https://gitlab.com/retail-edge/repo.git",
+                        "gsm_auth_secret": {
+                            "gsm_name": "regional-scm-creds",
+                            "gsm_location": "us-west1",
+                            "k8s_name": "scm-creds",
+                        },
+                    },
+                },
+            }
+        }
+        res = resolve_primary_root_repo(config)
+        self.assertEqual(res["gsm_secret_name"], "regional-scm-creds")
+        self.assertEqual(res["gsm_location"], "us-west1")
+        self.assertEqual(res["k8s_secret_name"], "scm-creds")
+
+    def test_resolve_git_legacy_with_primary_root_repo_auth_secret(self):
+        """Verifies legacy facts with gsm_secret_name and primary_root_repo_auth_secret."""
+        config = {
+            "cluster": {
+                "cluster_name": "edge-01",
+                "primary_root_repo": {
+                    "git": {
+                        "repo_url": "https://gitlab.com/retail-edge/repo.git",
+                        "gsm_secret_name": "es-git-creds",
+                    },
+                },
+                "primary_root_repo_auth_secret": "git-creds",
+            }
+        }
+        res = resolve_primary_root_repo(config)
+        self.assertEqual(res["gsm_secret_name"], "es-git-creds")
+        self.assertEqual(res["k8s_secret_name"], "git-creds")
+
     def test_extract_gsm_secret_info_compatibility(self):
-        """Verifies extract_gsm_secret_info returns (secret_name, repo_type)."""
+        """Verifies extract_gsm_secret_info returns (gsm_secret_name, repo_type)."""
         git_cfg = {
             "cluster": {
                 "primary_root_repo": {"git": {"gsm_secret_name": "git-sec"}}
             }
         }
         self.assertEqual(extract_gsm_secret_info(git_cfg), ("git-sec", "git"))
+
+        git_structured = {
+            "cluster": {
+                "primary_root_repo": {
+                    "git": {
+                        "gsm-auth-secret": {"gsm-name": "structured-sec"}
+                    }
+                }
+            }
+        }
+        self.assertEqual(extract_gsm_secret_info(git_structured), ("structured-sec", "git"))
 
         oci_cfg = {
             "cluster": {

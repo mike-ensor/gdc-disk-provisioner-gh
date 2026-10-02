@@ -17,17 +17,52 @@ def _resolve_git_repo(
     legacy_auth_secret: str,
 ) -> Dict[str, Any]:
     """Resolves a structured Git primary_root_repo configuration."""
-    repo_url = _clean_str(git_cfg.get("repo_url"))
+    repo_url = _clean_str(git_cfg.get("repo-url")) or _clean_str(git_cfg.get("repo_url"))
     branch = _clean_str(git_cfg.get("branch")) or "main"
-    secret_name = _clean_str(git_cfg.get("gsm_secret_name")) or legacy_auth_secret
-    has_secret = bool(secret_name)
+
+    # Check for structured gsm-auth-secret object (or snake_case/alias)
+    secret_obj = (
+        git_cfg.get("gsm-auth-secret")
+        or git_cfg.get("gsm_auth_secret")
+        or git_cfg.get("gsm-git-creds-secret")
+        or git_cfg.get("gsm_git_creds_secret")
+    )
+
+    if isinstance(secret_obj, dict):
+        gsm_secret_name = _clean_str(secret_obj.get("gsm-name")) or _clean_str(secret_obj.get("gsm_name"))
+        gsm_location = _clean_str(secret_obj.get("gsm-location")) or _clean_str(secret_obj.get("gsm_location")) or "global"
+        k8s_secret_name = (
+            _clean_str(secret_obj.get("k8s-name"))
+            or _clean_str(secret_obj.get("k8s_name"))
+            or legacy_auth_secret
+            or gsm_secret_name
+        )
+        k8s_namespace = (
+            _clean_str(secret_obj.get("k8s-namespace"))
+            or _clean_str(secret_obj.get("k8s_namespace"))
+            or "config-management-system"
+        )
+    else:
+        gsm_secret_name = (
+            _clean_str(git_cfg.get("gsm_secret_name"))
+            or _clean_str(git_cfg.get("gsm-secret-name"))
+            or legacy_auth_secret
+        )
+        k8s_secret_name = legacy_auth_secret or gsm_secret_name
+        gsm_location = "global"
+        k8s_namespace = "config-management-system"
+
+    has_secret = bool(gsm_secret_name)
 
     return {
         "repo_type": "git",
         "repo_url": repo_url,
         "branch": branch,
         "sync_dir": sync_dir,
-        "secret_name": secret_name,
+        "gsm_secret_name": gsm_secret_name,
+        "k8s_secret_name": k8s_secret_name,
+        "k8s_namespace": k8s_namespace,
+        "gsm_location": gsm_location,
         "oci_gsa": "",
         "requires_secret": has_secret,
         "auth_type": "token" if has_secret else "none",
@@ -42,7 +77,31 @@ def _resolve_oci_repo(
     """Resolves a structured OCI primary_root_repo configuration."""
     image = _clean_str(oci_cfg.get("image"))
     oci_gsa = _clean_str(oci_cfg.get("gsa"))
-    gsm_secret = _clean_str(oci_cfg.get("gsm_secret_name")) or legacy_auth_secret
+
+    secret_obj = oci_cfg.get("gsm-auth-secret") or oci_cfg.get("gsm_auth_secret")
+    if isinstance(secret_obj, dict):
+        gsm_secret_name = _clean_str(secret_obj.get("gsm-name")) or _clean_str(secret_obj.get("gsm_name"))
+        gsm_location = _clean_str(secret_obj.get("gsm-location")) or _clean_str(secret_obj.get("gsm_location")) or "global"
+        k8s_secret_name = (
+            _clean_str(secret_obj.get("k8s-name"))
+            or _clean_str(secret_obj.get("k8s_name"))
+            or legacy_auth_secret
+            or gsm_secret_name
+        )
+        k8s_namespace = (
+            _clean_str(secret_obj.get("k8s-namespace"))
+            or _clean_str(secret_obj.get("k8s_namespace"))
+            or "config-management-system"
+        )
+    else:
+        gsm_secret_name = (
+            _clean_str(oci_cfg.get("gsm_secret_name"))
+            or _clean_str(oci_cfg.get("gsm-secret-name"))
+            or legacy_auth_secret
+        )
+        k8s_secret_name = legacy_auth_secret or gsm_secret_name
+        gsm_location = "global"
+        k8s_namespace = "config-management-system"
 
     if oci_gsa:
         return {
@@ -50,19 +109,25 @@ def _resolve_oci_repo(
             "repo_url": image,
             "branch": "",
             "sync_dir": sync_dir,
-            "secret_name": "",
+            "gsm_secret_name": "",
+            "k8s_secret_name": "",
+            "k8s_namespace": k8s_namespace,
+            "gsm_location": "global",
             "oci_gsa": oci_gsa,
             "requires_secret": False,
             "auth_type": "gcpserviceaccount",
         }
 
-    has_secret = bool(gsm_secret)
+    has_secret = bool(gsm_secret_name)
     return {
         "repo_type": "oci",
         "repo_url": image,
         "branch": "",
         "sync_dir": sync_dir,
-        "secret_name": gsm_secret,
+        "gsm_secret_name": gsm_secret_name,
+        "k8s_secret_name": k8s_secret_name,
+        "k8s_namespace": k8s_namespace,
+        "gsm_location": gsm_location,
         "oci_gsa": "",
         "requires_secret": has_secret,
         "auth_type": "token" if has_secret else "none",
@@ -88,7 +153,10 @@ def _resolve_legacy_string_repo(
             "repo_url": clean_repo,
             "branch": "main",
             "sync_dir": sync_dir,
-            "secret_name": legacy_auth_secret,
+            "gsm_secret_name": legacy_auth_secret,
+            "k8s_secret_name": legacy_auth_secret,
+            "k8s_namespace": "config-management-system",
+            "gsm_location": "global",
             "oci_gsa": "",
             "requires_secret": has_secret,
             "auth_type": "token" if has_secret else "none",
@@ -99,7 +167,10 @@ def _resolve_legacy_string_repo(
         "repo_url": clean_repo,
         "branch": "",
         "sync_dir": sync_dir,
-        "secret_name": legacy_auth_secret,
+        "gsm_secret_name": legacy_auth_secret,
+        "k8s_secret_name": legacy_auth_secret,
+        "k8s_namespace": "config-management-system",
+        "gsm_location": "global",
         "oci_gsa": "",
         "requires_secret": has_secret,
         "auth_type": "token" if has_secret else "none",
@@ -113,7 +184,10 @@ def _empty_repo_result() -> Dict[str, Any]:
         "repo_url": "",
         "branch": "",
         "sync_dir": "",
-        "secret_name": "",
+        "gsm_secret_name": "",
+        "k8s_secret_name": "",
+        "k8s_namespace": "config-management-system",
+        "gsm_location": "global",
         "oci_gsa": "",
         "requires_secret": False,
         "auth_type": "none",
@@ -126,7 +200,7 @@ def _resolve_dict_repo(
     legacy_secret: str,
 ) -> Dict[str, Any]:
     """Resolves a dictionary primary_root_repo configuration."""
-    override_dir = _clean_str(primary_repo.get("cluster_config_name"))
+    override_dir = _clean_str(primary_repo.get("cluster-config-name")) or _clean_str(primary_repo.get("cluster_config_name"))
     target_dir = override_dir if override_dir else effective_cluster
     sync_dir = f"config/clusters/{target_dir}" if target_dir else ""
 
@@ -270,5 +344,5 @@ def extract_gsm_secret_info(
     """Helper returning (gsm_secret_name, repo_type) for pre-flight backward compatibility."""
     resolved = resolve_primary_root_repo(machine_config)
     repo_type = resolved["repo_type"]
-    secret_name = resolved["secret_name"]
-    return (secret_name if secret_name else None), (repo_type if repo_type != "none" else None)
+    gsm_secret_name = resolved["gsm_secret_name"]
+    return (gsm_secret_name if gsm_secret_name else None), (repo_type if repo_type != "none" else None)

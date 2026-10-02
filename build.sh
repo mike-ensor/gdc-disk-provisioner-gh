@@ -30,6 +30,18 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Locate active or local virtual environment Python
+PYTHON_BIN="python3"
+if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python3" ]]; then
+    PYTHON_BIN="${VIRTUAL_ENV}/bin/python3"
+elif [[ -x "${PROJECT_ROOT}/venv/bin/python3" ]]; then
+    PYTHON_BIN="${PROJECT_ROOT}/venv/bin/python3"
+elif [[ -x "${PROJECT_ROOT}/.venv/bin/python3" ]]; then
+    PYTHON_BIN="${PROJECT_ROOT}/.venv/bin/python3"
+elif [[ -x "${PROJECT_ROOT}/src/build/.venv/bin/python3" ]]; then
+    PYTHON_BIN="${PROJECT_ROOT}/src/build/.venv/bin/python3"
+fi
+
 # Global tracking variables for report compiling in cleanup trap
 RECORDED_STATUS="FAILED"
 COMPILED_TARGET_REPORTS=()
@@ -626,7 +638,7 @@ if [[ "${SKIP_TESTS}" != "true" ]]; then
     echo "  [x] Ansible playbooks and roles passed linting and syntax checks."
 
     echo "[-] Gate 2/2: Executing Python test suite (unittest discover -s test)..."
-    if ! python3 -m unittest discover -s "${PROJECT_ROOT}/test"; then
+    if ! "${PYTHON_BIN}" -m unittest discover -s "${PROJECT_ROOT}/test"; then
         echo -e "\033[91m[!] Pre-flight failure: Unit tests failed! Halting build.\033[0m" >&2
         exit 1
     fi
@@ -734,7 +746,7 @@ if [[ "${BUILD_MODE}" == "cloud" ]]; then
 
     # Save tracking file to .cache/build-state.json
     mkdir -p "${PROJECT_ROOT}/.cache"
-    python3 -c '
+    "${PYTHON_BIN}" -c '
 import json, sys
 data = {
     "project_id": sys.argv[1],
@@ -831,7 +843,7 @@ with open(sys.argv[6], "w") as f:
             gcloud builds log "${b_id}" --project="${PROJECT_ID}" 2>&1 | tail -n 60 >&2 || true
 
             # Compile failure report
-            python3 "${PROJECT_ROOT}/test/bin/generate_build_report.py" \
+            "${PYTHON_BIN}" "${PROJECT_ROOT}/test/bin/generate_build_report.py" \
                 --build-id "${b_id}" \
                 --project-id "${PROJECT_ID}" \
                 --gcs-bucket "gs://${GCS_BUCKET_NAME}" \
@@ -876,7 +888,7 @@ else
             SUCCESSFUL_ISOS+=("${t_iso}")
 
             # Compile local report
-            python3 "${PROJECT_ROOT}/test/bin/generate_build_report.py" \
+            "${PYTHON_BIN}" "${PROJECT_ROOT}/test/bin/generate_build_report.py" \
                 --local \
                 --iso-version "${t_ver}" \
                 --iso-environment "${t_env}" \
@@ -887,7 +899,7 @@ else
             echo -e "\033[91m  [!] Local Make failed for ${t_iso}\033[0m" >&2
             FAILED_TARGETS+=("${t_iso}")
 
-            python3 "${PROJECT_ROOT}/test/bin/generate_build_report.py" \
+            "${PYTHON_BIN}" "${PROJECT_ROOT}/test/bin/generate_build_report.py" \
                 --local \
                 --iso-version "${t_ver}" \
                 --iso-environment "${t_env}" \
@@ -911,12 +923,12 @@ if [[ "${RUN_BOOTIMUS}" == "true" ]]; then
 
     for iso_name in "${SUCCESSFUL_ISOS[@]}"; do
         echo "[-] Deploying to Bootimus: ${iso_name}..."
-        timeout 180s python3 "${PROJECT_ROOT}/src/build/bootimus.py" "${iso_name}" || true
+        timeout 180s "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" "${iso_name}" || true
     done
 
     echo "[-] Running Bootimus stability auditor & settings healer..."
     for i in {1..30}; do
-        if python3 "${PROJECT_ROOT}/test/bin/check-bootimus-settings.py"; then
+        if "${PYTHON_BIN}" "${PROJECT_ROOT}/test/bin/check-bootimus-settings.py"; then
             echo -e "\033[92m[x] Bootimus configuration locked and verified successfully.\033[0m"
             break
         fi
@@ -925,7 +937,7 @@ if [[ "${RUN_BOOTIMUS}" == "true" ]]; then
     done
 
     echo "[-] Querying current Bootimus boot menu tree:"
-    python3 "${PROJECT_ROOT}/src/build/bootimus.py" --list || true
+    "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" --list || true
     echo -e "\033[92m[x] Bootimus deployment complete for all targets.\033[0m"
 else
     echo -e "\n[-] Notice: Bootimus deployment skipped (pass --bootimus to enable)."

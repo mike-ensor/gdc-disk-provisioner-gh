@@ -150,6 +150,16 @@ class TestBuildScript(unittest.TestCase):
             "build-builder.sh must be preserved",
         )
 
+    def test_python_bin_virtualenv_resolution(self):
+        """Verifies build.sh resolves Python from virtualenv before falling back to system."""
+        with open(BUILD_SH, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        self.assertIn("PYTHON_BIN=", content)
+        self.assertIn("${PROJECT_ROOT}/venv/bin/python3", content)
+        self.assertIn("${PROJECT_ROOT}/.venv/bin/python3", content)
+        self.assertIn('"${PYTHON_BIN}" -m unittest discover', content)
+
 
 if __name__ == "__main__":
     unittest.main()

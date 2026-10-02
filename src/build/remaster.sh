@@ -196,6 +196,19 @@ else
     echo "  [!] WARNING: Helm package not found in cache! Run 'make deps' first." >&2
 fi
 
+echo "[-] Extracting and staging Kubestr CLI binary..."
+mkdir -p "${EXTRACT_DIR}/custom-data/tools/kubestr"
+if [[ -f "${BIN_CACHE_DIR}/${KUBESTR_PACKAGE_FILENAME}" ]]; then
+    TEMP_KUBESTR_DIR=$(mktemp -d)
+    tar -xzf "${BIN_CACHE_DIR}/${KUBESTR_PACKAGE_FILENAME}" -C "${TEMP_KUBESTR_DIR}"
+    cp "${TEMP_KUBESTR_DIR}/kubestr" "${EXTRACT_DIR}/custom-data/tools/kubestr/kubestr"
+    chmod +x "${EXTRACT_DIR}/custom-data/tools/kubestr/kubestr"
+    rm -rf "${TEMP_KUBESTR_DIR}"
+    echo "  [x] Kubestr CLI staged successfully at /custom-data/tools/kubestr/kubestr."
+else
+    echo "  [!] WARNING: Kubestr package not found in cache! Run 'make deps' first." >&2
+fi
+
 echo "[-] Copying pre-seeded offline Debian packages..."
 mkdir -p "${EXTRACT_DIR}/custom-data/packages"
 if ls "${PROJECT_ROOT}/.cache/packages"/*.deb &>/dev/null; then
