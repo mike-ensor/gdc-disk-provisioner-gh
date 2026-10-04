@@ -5,6 +5,10 @@
     first_boot_start_time: "{{ first_boot_start_time | default(now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')) }}"
     first_boot_start_epoch: "{{ first_boot_start_epoch | default(now(utc=true).strftime('%s') | int) }}"
 
+- name: Run local_dns role
+  ansible.builtin.include_role:
+    name: local_dns
+
 - name: Run service_hubs role
   ansible.builtin.include_role:
     name: service_hubs

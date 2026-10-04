@@ -9,6 +9,15 @@
   ansible.builtin.include_role:
     name: machine_orchestration
 
+- name: "GDC-CR-DNS | Refresh network facts after cluster network reconfiguration"
+  ansible.builtin.setup:
+    gather_subset:
+      - "network"
+
+- name: "GDC-CR-DNS | Re-sync local_dns with active cluster network configuration"
+  ansible.builtin.include_role:
+    name: local_dns
+
 - name: "GDC-CR-GSM | Resolve ConfigSync and GSM secret requirements"
   ansible.builtin.set_fact:
     _cr_config_sync_enabled: "{{ (machine_config.cluster.config_sync_enabled | default(true) | bool) and not (offline_mode | default(false) | bool) }}"

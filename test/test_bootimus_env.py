@@ -214,6 +214,58 @@ class TestBootimusEnvironment(unittest.TestCase):
         self.assertIn("API_HOST: custom-pxe.domain.corp", res.stdout)
         self.assertIn("API_PORT: 29999", res.stdout)
 
+    def test_check_bootimus_settings_target_validation(self):
+        """Verifies check-bootimus-settings.py flags missing target images."""
+        cmd = [
+            "python3", "-c",
+            "import sys, os, unittest.mock as mock\n"
+            "sys.path.insert(0, 'src/build')\n"
+            "sys.path.insert(0, 'test/bin')\n"
+            "check_mod = __import__('check-bootimus-settings')\n"
+            "with mock.patch.object(check_mod, 'get_bootimus_credentials', return_value=('u', 'p')):\n"
+            "    with mock.patch.object(check_mod, 'api_request') as mock_req:\n"
+            "        mock_req.side_effect = [\n"
+            "            {'data': {'token': 'dummy'}},\n"
+            "            {'data': [{'filename': 'sync/gdc-labs-24.04-v0.9.26-debug.iso', 'distro': 'ubuntu', 'boot_method': 'kernel', 'enabled': True, 'extracted': True, 'boot_params': 'autoinstall ds=nocloud-net'}]}\n"
+            "        ]\n"
+            "        with mock.patch.object(check_mod, 'auto_heal_boot_params'):\n"
+            "            sys.argv = ['check-bootimus-settings.py', 'missing-v1.0.0.iso']\n"
+            "            try:\n"
+            "                check_mod.main()\n"
+            "                print('UNEXPECTED_PASS')\n"
+            "            except SystemExit as e:\n"
+            "                print(f'EXIT_CODE_{e.code}')\n"
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("EXIT_CODE_1", res.stdout)
+
+    def test_check_bootimus_settings_target_success(self):
+        """Verifies check-bootimus-settings.py succeeds when specified target image is verified."""
+        cmd = [
+            "python3", "-c",
+            "import sys, os, unittest.mock as mock\n"
+            "sys.path.insert(0, 'src/build')\n"
+            "sys.path.insert(0, 'test/bin')\n"
+            "check_mod = __import__('check-bootimus-settings')\n"
+            "with mock.patch.object(check_mod, 'get_bootimus_credentials', return_value=('u', 'p')):\n"
+            "    with mock.patch.object(check_mod, 'api_request') as mock_req:\n"
+            "        mock_req.side_effect = [\n"
+            "            {'data': {'token': 'dummy'}},\n"
+            "            {'data': [{'filename': 'sync/gdc-labs-24.04-v0.9.26-debug.iso', 'distro': 'ubuntu', 'boot_method': 'kernel', 'enabled': True, 'extracted': True, 'boot_params': 'autoinstall ds=nocloud-net'}]}\n"
+            "        ]\n"
+            "        with mock.patch.object(check_mod, 'auto_heal_boot_params'):\n"
+            "            sys.argv = ['check-bootimus-settings.py', 'gdc-labs-24.04-v0.9.26-debug.iso']\n"
+            "            try:\n"
+            "                check_mod.main()\n"
+            "                print('SUCCESS')\n"
+            "            except SystemExit as e:\n"
+            "                print(f'EXIT_CODE_{e.code}')\n"
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("EXIT_CODE_0", res.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

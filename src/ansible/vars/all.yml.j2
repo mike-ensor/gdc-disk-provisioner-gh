@@ -38,6 +38,7 @@ gdc_core_packages:
   - "arp-scan"
   - "linux-generic-hwe-24.04"
   - "nfs-common"
+  - "dnsmasq"
 
 # Packages to purge for OS slimming & security reduction
 gdc_purge_packages:
@@ -66,12 +67,26 @@ gdc_sysctl_parameters:
   - { name: "net.ipv4.conf.all.arp_ignore", value: "1" }
   - { name: "net.ipv4.conf.all.arp_announce", value: "2" }
 
+# Local Service Hub & DNS Configurations
+gdc_local_dns_loopback: "127.0.0.10"
+gdc_nexus_domain: "nexus.internal.gdc.local"
+gdc_nexus_alias: "nexus.gdc.local"
+gdc_gitea_domain: "git.internal.gdc.local"
+gdc_gitea_alias: "git.gdc.local"
+gdc_internal_dns_domains:
+  - "~internal.gdc.local"
+  - "~gdc.local"
+gdc_local_dns_upstream_servers:
+  - "1.1.1.1"
+  - "8.8.8.8"
+
 # Local Docker daemon registry-mirror address pointing to local Nexus Docker Group Port
-gdc_docker_registry_mirror: "http://nexus.gdc.local:5001"
+gdc_docker_registry_mirror: "http://nexus.internal.gdc.local:5001"
 
 # Administrative user details
 gdc_admin_user: "gdc-admin"
 gdc_admin_group: "gdc-admin"
+gdc_admin_uid: 995
 gdc_admin_additional_groups:
   - "sudo"
   - "docker"
@@ -111,7 +126,7 @@ customer_install_packages: []
 gdc_nodeagent_install_dir: "/var/gdc-install/tools/node-agent"
 gdc_nodeagent_version: "1.33.0"
 # Local loopback GGD Nexus raw path or authenticated GCS bucket source
-gdc_nodeagent_binary_source_url: "http://nexus.gdc.local:8081/repository/gdc-raw-hosted/nodeagent/nodeagentd"
+gdc_nodeagent_binary_source_url: "http://nexus.internal.gdc.local:8081/repository/gdc-raw-hosted/nodeagent/nodeagentd"
 
 # Google Cloud SDK Configuration (Non-apt setup)
 # (Ref: https://docs.cloud.google.com/sdk/docs/install-sdk#latest-version)

@@ -143,7 +143,7 @@ def load_env_vars(env_path="/tmp/allocated_ips.env"):
         elif "K8S_IP_CIDR" in env:
             env["K8S_IP"] = env["K8S_IP_CIDR"].split('/')[0]
         else:
-            env["K8S_IP"] = "172.31.250.10"
+            env["K8S_IP"] = "172.31.250.253"
 
     return env
 
@@ -168,7 +168,7 @@ def main(template_path=None, target_path=None, sys_class_net='/sys/class/net', e
     machine_cidr_raw = env_vars.get("BOOTSTRAP_MACHINE_IP_CIDR", env_vars.get("MACHINE_IP_CIDR", "192.168.4.11/24"))
     machine_mask = machine_cidr_raw.split('/')[1] if '/' in machine_cidr_raw else "24"
     
-    k8s_cidr_raw = env_vars.get("BOOTSTRAP_K8S_IP_CIDR", env_vars.get("K8S_IP_CIDR", "172.31.250.10/24"))
+    k8s_cidr_raw = env_vars.get("BOOTSTRAP_K8S_IP_CIDR", env_vars.get("K8S_IP_CIDR", "172.31.250.253/24"))
     k8s_mask = k8s_cidr_raw.split('/')[1] if '/' in k8s_cidr_raw else "24"
     
     # Construct complete CIDR addresses

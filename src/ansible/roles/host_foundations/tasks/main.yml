@@ -69,6 +69,7 @@
 - name: "GDC-TASK-04 | Ensure administrative system user exists"
   ansible.builtin.user:
     name: "{{ gdc_admin_user }}"
+    uid: "{{ gdc_admin_uid | default(995) | int }}"
     group: "{{ gdc_admin_group }}"
     groups: "{{ gdc_admin_additional_groups }}"
     append: true
@@ -226,7 +227,7 @@
       # Local GDC Hosted (Sideloaded Update) Repository
       Enabled: yes
       Types: deb
-      URIs: http://nexus.gdc.local:8081/repository/gdc-apt-hosted/
+      URIs: http://{{ gdc_nexus_domain | default('nexus.internal.gdc.local') }}:8081/repository/gdc-apt-hosted/
       Suites: noble
       Components: main
       Signed-By: /etc/apt/keyrings/gdc-nexus.gpg
@@ -235,7 +236,7 @@
       # Local GDC Proxy (Upstream Cache) Repository
       Enabled: yes
       Types: deb
-      URIs: http://nexus.gdc.local:8081/repository/gdc-apt-proxy/
+      URIs: http://{{ gdc_nexus_domain | default('nexus.internal.gdc.local') }}:8081/repository/gdc-apt-proxy/
       Suites: noble noble-updates noble-backports noble-security
       Components: main restricted universe multiverse
       Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg

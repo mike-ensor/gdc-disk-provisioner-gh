@@ -51,6 +51,7 @@ gdc_purge_packages:
 
 gdc_admin_user: "gdc-admin"
 gdc_admin_group: "gdc-admin"
+gdc_admin_uid: 995
 gdc_admin_additional_groups:
   - "sudo"
   - "docker"

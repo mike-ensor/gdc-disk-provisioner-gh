@@ -1,0 +1,28 @@
+---
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+# ==============================================================================
+# Role Defaults: local_dns (dnsmasq & systemd-resolved host resolution)
+# ==============================================================================
+
+local_dns_loopback_ip: "{{ gdc_local_dns_loopback | default('127.0.0.10') }}"
+local_dns_conf_dir: "/etc/dnsmasq.d"
+local_dns_platform_conf: "/etc/dnsmasq.d/platform.conf"
+local_dns_internal_conf: "/etc/dnsmasq.d/internal-gdc.conf"
+local_dns_resolved_dropin_dir: "/etc/systemd/resolved.conf.d"
+local_dns_resolved_conf: "/etc/systemd/resolved.conf.d/dnsmasq.conf"
+
+local_dns_upstream_servers: "{{ gdc_local_dns_upstream_servers | default(['1.1.1.1', '8.8.8.8']) }}"
+
+local_dns_nexus_domain: "{{ gdc_nexus_domain | default('nexus.internal.gdc.local') }}"
+local_dns_nexus_alias: "{{ gdc_nexus_alias | default('nexus.gdc.local') }}"
+local_dns_gitea_domain: "{{ gdc_gitea_domain | default('git.internal.gdc.local') }}"
+local_dns_gitea_alias: "{{ gdc_gitea_alias | default('git.gdc.local') }}"
+
+local_dns_routing_domains: "{{ gdc_internal_dns_domains | default(['~internal.gdc.local', '~gdc.local']) }}"
+
+# Platform DNS records (defaults pointing to companion/step-ca from vars/all.yml)
+platform_dns_records:
+  - name: "gdc-companion.ensor-labs.com"
+    ip: "{{ gdc_companion_ip | default('192.168.20.102') }}"
+  - name: "step-ca.ensor-labs.com"
+    ip: "{{ gdc_step_ca_ip | default('192.168.20.102') }}"

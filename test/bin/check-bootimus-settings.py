@@ -33,8 +33,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from bootimus import BOOTIMUS_API_HOST, BOOTIMUS_API_PORT, API_BASE, get_bootimus_credentials, api_request, auto_heal_boot_params
 
 def main():
+    target_args = [arg for arg in sys.argv[1:] if not arg.startswith("-")]
+
     print("==============================================================================")
     print(" GDC BOOTIMUS INTERACTIVE-MODE PREVENTION AUDITOR")
+    if target_args:
+        print(f" Target Image(s): {', '.join(target_args)}")
     print("==============================================================================")
 
     # 1. Authenticate
@@ -50,7 +54,7 @@ def main():
         print("[+] Authentication successful.")
         
         # Run self-healing audit to automatically restore any clobbered/disabled GDC image configs
-        auto_heal_boot_params(token)
+        auto_heal_boot_params(token, target_images=target_args)
     except Exception as e:
         print(f"[!] Authentication failed: {e}")
         sys.exit(1)
@@ -70,7 +74,13 @@ def main():
     print("-" * 90)
 
     failures = 0
-    total_ubuntu = 0
+    total_audited = 0
+    matched_targets = set()
+
+    def matches_target(filename, target):
+        fn_base = os.path.basename(filename)
+        tgt_base = os.path.basename(target)
+        return filename == target or fn_base == tgt_base or filename == f"sync/{tgt_base}" or target in filename
 
     for img in images:
         filename = img.get("filename", "")
@@ -79,6 +89,7 @@ def main():
             continue
             
         distro = img.get("distro", "unknown")
+        boot_method = img.get("boot_method", "")
         boot_params = img.get("boot_params", "")
         enabled = img.get("enabled", False)
         extracted = img.get("extracted", False)
@@ -97,9 +108,25 @@ def main():
         if group_name.lower() in ["windows", "linux"]:
             continue
 
-        # We are specifically concerned with Ubuntu OS images
-        if distro == "ubuntu":
-            total_ubuntu += 1
+        is_target = False
+        if target_args:
+            for t in target_args:
+                if matches_target(filename, t):
+                    is_target = True
+                    matched_targets.add(t)
+                    break
+
+        is_gdc_or_ubuntu = (
+            distro == "ubuntu" or 
+            "gdc-" in filename or 
+            "honeywell" in filename or 
+            filename.startswith("sync/") or
+            is_target
+        )
+
+        # Audit if it is an explicit target, or if auditing general Ubuntu/GDC images
+        if is_gdc_or_ubuntu:
+            total_audited += 1
             has_autoinstall = "autoinstall" in boot_params
             has_ds = "ds=nocloud-net" in boot_params
             
@@ -119,6 +146,8 @@ def main():
                     if not enabled:
                         autoinstall_status = "🔒 LOCKED"
                         is_failed = True
+                    elif boot_method != "kernel" or distro != "ubuntu":
+                        is_failed = True
                     else:
                         is_failed = False
                 else:
@@ -132,23 +161,33 @@ def main():
 
             if is_failed:
                 if not extracted:
-                    pass
+                    print(f"    [ALERT] Image '{filename}' is still extracting in Bootimus.")
+                    print("-" * 90)
                 elif not enabled and (has_autoinstall and has_ds):
                     print(f"    [ALERT] Image is LOCKED/DISABLED in database but has valid boot params. Clobbering detected!")
                     print("-" * 90)
                 else:
-                    print(f"    [ALERT] Invalid boot params found:")
-                    print(f"            {boot_params}")
+                    print(f"    [ALERT] Invalid boot params or configuration found:")
+                    print(f"            distro={distro}, method={boot_method}, params={boot_params}")
                     print("-" * 90)
+
+    # Check for any targets that were not registered in Bootimus at all
+    if target_args:
+        for t in target_args:
+            if t not in matched_targets and not any(matches_target(m, t) for m in matched_targets):
+                failures += 1
+                print(f"{t:<40} | {'unknown':<10} | {'FALSE':<7} | {'NOT FOUND':<11} | {'PENDING':<11}")
+                print(f"    [ALERT] Target ISO '{t}' is not yet discovered or registered in Bootimus database!")
+                print("-" * 90)
 
     print("==========================================================================================")
     print(f"AUDIT SUMMARY:")
-    print(f"  Total Ubuntu Images Checked: {total_ubuntu}")
-    print(f"  Interactive Mode/Locked Failures: {failures}")
+    print(f"  Total Images Audited: {total_audited}")
+    print(f"  Interactive Mode/Locked/Pending Failures: {failures}")
     print("==========================================================================================")
 
     if failures > 0:
-        print("[!] Warning: Some Ubuntu images are locked or missing autoinstall parameters!")
+        print("[!] Warning: Some images are pending extraction, locked, or missing autoinstall parameters!")
         print("    These nodes could fail to boot or launch in interactive mode.")
         sys.exit(1)
     else:

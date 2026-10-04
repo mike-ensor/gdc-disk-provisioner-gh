@@ -1,0 +1,6 @@
+# ==============================================================================
+# GDC systemd-resolved Routing Domain Drop-In (Managed by Ansible - local_dns role)
+# ==============================================================================
+[Resolve]
+DNS={{ gdc_local_dns_loopback }}
+Domains={{ gdc_internal_dns_domains | join(' ') }}

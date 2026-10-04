@@ -20,16 +20,19 @@
 # ==============================================================================
 
 # --------------------------------------------------------------------------
-# Task 00: DNS & Domain Mappings (Vanity Feature)
+# Task 00: DNS & Domain Mappings (Managed via local_dns and fallback)
 # --------------------------------------------------------------------------
-- name: "GDC-TASK-00 | Ensure GDC domain mappings are present in /etc/hosts"
+- name: "GDC-TASK-00 | Ensure GDC domain mappings are present in /etc/hosts as fallback"
   ansible.builtin.lineinfile:
     path: /etc/hosts
-    line: "127.0.0.1 {{ item }}"
+    line: "{{ gdc_service_hub_ip | default('127.0.0.1') }} {{ item }}"
+    regexp: '^.*?\s+{{ item | regex_escape }}(?:\s+|$)'
     state: present
   loop:
-    - "nexus.gdc.local"
-    - "git.gdc.local"
+    - "{{ gdc_nexus_domain }}"
+    - "{{ gdc_nexus_alias }}"
+    - "{{ gdc_gitea_domain }}"
+    - "{{ gdc_gitea_alias }}"
   tags: ["strictly-local"]
 
 # --------------------------------------------------------------------------
@@ -37,7 +40,7 @@
 # --------------------------------------------------------------------------
 - name: "GDC-TASK-01 | Check Gitea Service Hub Readiness (Port 3000)"
   ansible.builtin.wait_for:
-    host: git.gdc.local
+    host: "{{ gdc_gitea_domain }}"
     port: 3000
     state: started
     timeout: 300
@@ -46,7 +49,7 @@
 
 - name: "GDC-TASK-01 | Check Nexus Service Hub Readiness (Port 8081)"
   ansible.builtin.wait_for:
-    host: nexus.gdc.local
+    host: "{{ gdc_nexus_domain }}"
     port: 8081
     state: started
     timeout: 300

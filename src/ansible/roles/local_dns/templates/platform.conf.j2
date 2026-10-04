@@ -1,0 +1,21 @@
+# ==============================================================================
+# GDC Platform DNS Configuration (Managed by Ansible - local_dns role)
+# ==============================================================================
+# Listen only on alternate loopback and host cluster/service interface
+listen-address={{ gdc_local_dns_loopback }}{% if gdc_service_hub_ip is defined and gdc_service_hub_ip != gdc_local_dns_loopback and gdc_service_hub_ip != '127.0.0.1' %},{{ gdc_service_hub_ip }}{% endif %}
+
+bind-interfaces
+
+# Do not read /etc/resolv.conf or /etc/hosts to isolate from OS defaults
+no-resolv
+no-hosts
+
+# Upstream recursive DNS forwarders
+{% for server in gdc_local_dns_upstream_servers %}
+server={{ server }}
+{% endfor %}
+
+# Platform host records
+{% for record in platform_dns_records %}
+address=/{{ record.name }}/{{ record.ip }}
+{% endfor %}
