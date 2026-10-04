@@ -68,6 +68,7 @@ packages_to_include:
     - "util-linux"
     - "libnvme1"
     - "nvme-cli"
+    - "dnsmasq"
 
   # Optional packages specified by the customer/operator for target environments
   customer_added: []

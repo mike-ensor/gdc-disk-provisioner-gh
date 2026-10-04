@@ -1,0 +1,235 @@
+---
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+# ==============================================================================
+# Role Tasks: local_dns (dnsmasq & systemd-resolved Split-DNS Configuration)
+# ==============================================================================
+
+# --------------------------------------------------------------------------
+# Step 1: Interface Discovery & Target IP Resolution
+# --------------------------------------------------------------------------
+- name: "LOCAL-DNS | Discover active cluster VLAN interface if present"
+  ansible.builtin.set_fact:
+    gdc_vlan_interface: "{{ (ansible_interfaces | default([]) | select('match', '^' + (gdc_primary_interface | default('')) + '\\.\\d+$') | list | first) | default('') }}"
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Resolve candidate VLAN and primary IPs"
+  ansible.builtin.set_fact:
+    _raw_vlan_ip: "{{ ansible_facts[gdc_vlan_interface]['ipv4']['address'] if (gdc_vlan_interface != '' and ansible_facts[gdc_vlan_interface] is defined and ansible_facts[gdc_vlan_interface]['ipv4'] is defined and ansible_facts[gdc_vlan_interface]['ipv4']['address'] is defined) else '' }}"
+    _raw_primary_ip: "{{ ansible_facts[gdc_primary_interface]['ipv4']['address'] if (gdc_primary_interface is defined and ansible_facts[gdc_primary_interface] is defined and ansible_facts[gdc_primary_interface]['ipv4'] is defined and ansible_facts[gdc_primary_interface]['ipv4']['address'] is defined) else '' }}"
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Resolve GDC Service Hub target IP (cluster VLAN preferred over primary, rejecting .0/.255 subnet wire addresses)"
+  ansible.builtin.set_fact:
+    gdc_service_hub_ip: >-
+      {{
+        _raw_vlan_ip
+        if (_raw_vlan_ip != '' and not _raw_vlan_ip.endswith('.0') and not _raw_vlan_ip.endswith('.255'))
+        else (_raw_primary_ip if (_raw_primary_ip != '' and not _raw_primary_ip.endswith('.0') and not _raw_primary_ip.endswith('.255')) else '127.0.0.1')
+      }}
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Step 2: Ingest Build-time add-hosts Records if Available
+# --------------------------------------------------------------------------
+- name: "LOCAL-DNS | Check for add-hosts file"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "/etc/gdc/add-hosts"
+    - "/var/gdc-install/add-hosts"
+    - "/var/gdc-install/iso-cache/add-hosts"
+  register: add_hosts_stat_results
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Set path to existing add-hosts file"
+  ansible.builtin.set_fact:
+    active_add_hosts_path: "{{ (add_hosts_stat_results.results | selectattr('stat.exists', 'equalto', true) | map(attribute='item') | list | first) | default('') }}"
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Read custom add-hosts file content"
+  ansible.builtin.slurp:
+    src: "{{ active_add_hosts_path }}"
+  register: slurped_add_hosts
+  when: active_add_hosts_path != ''
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Parse custom add-hosts entries into structured records"
+  ansible.builtin.set_fact:
+    custom_add_hosts_records: >-
+      {{
+        custom_add_hosts_records | default([]) + [
+          {
+            'ip': (item.split() | first),
+            'name': (item.split()[1])
+          }
+        ]
+      }}
+  loop: "{{ (slurped_add_hosts.content | b64decode).splitlines() }}"
+  when:
+    - active_add_hosts_path != ''
+    - slurped_add_hosts is defined
+    - item | trim != ''
+    - not (item | trim).startswith('#')
+    - (item.split() | length) >= 2
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Step 3: Ensure dnsmasq Package is Installed
+# --------------------------------------------------------------------------
+- name: "LOCAL-DNS | Check if dnsmasq is already installed"
+  ansible.builtin.command: dpkg -s dnsmasq
+  register: dnsmasq_installed_check
+  failed_when: false
+  changed_when: false
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Install pre-seeded dnsmasq packages from disk if missing"
+  ansible.builtin.shell: |
+    if ls /var/gdc-install/packages/*dnsmasq*.deb 1>/dev/null 2>&1; then
+      dpkg -i /var/gdc-install/packages/*dnsmasq*.deb || true
+    fi
+  when: dnsmasq_installed_check.rc != 0
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Re-check if dnsmasq is installed after pre-seeded install"
+  ansible.builtin.command: dpkg -s dnsmasq
+  register: dnsmasq_final_check
+  failed_when: false
+  changed_when: false
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Fallback to apt install if dnsmasq still missing and apt available"
+  ansible.builtin.apt:
+    name: dnsmasq
+    state: present
+    update_cache: false
+  environment:
+    NEEDRESTART_MODE: l
+  when: dnsmasq_final_check.rc != 0
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Step 4: Configure dnsmasq Conf Directories and Files
+# --------------------------------------------------------------------------
+- name: "LOCAL-DNS | Ensure dnsmasq configuration directory exists"
+  ansible.builtin.file:
+    path: "{{ local_dns_conf_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Ensure custom-dns.conf is NOT present"
+  ansible.builtin.file:
+    path: "{{ local_dns_conf_dir }}/custom-dns.conf"
+    state: absent
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Deploy /etc/dnsmasq.d/platform.conf"
+  ansible.builtin.template:
+    src: platform.conf.j2
+    dest: "{{ local_dns_platform_conf }}"
+    owner: root
+    group: root
+    mode: '0644'
+  register: platform_conf_deploy
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Deploy /etc/dnsmasq.d/internal-gdc.conf"
+  ansible.builtin.template:
+    src: internal-gdc.conf.j2
+    dest: "{{ local_dns_internal_conf }}"
+    owner: root
+    group: root
+    mode: '0644'
+  register: internal_conf_deploy
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Step 5: Configure systemd-resolved Routing Domain Drop-in
+# --------------------------------------------------------------------------
+- name: "LOCAL-DNS | Ensure systemd-resolved drop-in directory exists"
+  ansible.builtin.file:
+    path: "{{ local_dns_resolved_dropin_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Deploy /etc/systemd/resolved.conf.d/dnsmasq.conf"
+  ansible.builtin.template:
+    src: resolved-dnsmasq.conf.j2
+    dest: "{{ local_dns_resolved_conf }}"
+    owner: root
+    group: root
+    mode: '0644'
+  register: resolved_conf_deploy
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Step 6: Restart and Enable Services
+# --------------------------------------------------------------------------
+- name: "LOCAL-DNS | Restart and enable dnsmasq service"
+  ansible.builtin.systemd:
+    name: dnsmasq
+    state: restarted
+    enabled: true
+  when: platform_conf_deploy.changed or internal_conf_deploy.changed or not ansible_check_mode
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Restart and enable systemd-resolved service"
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: restarted
+    enabled: true
+  when: resolved_conf_deploy.changed or not ansible_check_mode
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Step 7: Verify DNS Health and Split-Resolution
+# --------------------------------------------------------------------------
+- name: "LOCAL-DNS | Verify dnsmasq is listening on loopback port 53"
+  ansible.builtin.wait_for:
+    host: "{{ gdc_local_dns_loopback }}"
+    port: 53
+    timeout: 10
+  when: not ansible_check_mode
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Verify direct resolution via dnsmasq loopback listener"
+  ansible.builtin.command:
+    cmd: "dig @{{ gdc_local_dns_loopback }} {{ gdc_nexus_domain }} +short"
+  register: dig_loopback_result
+  changed_when: false
+  when: not ansible_check_mode
+  failed_when:
+    - dig_loopback_result.rc != 0
+    - dig_loopback_result.stdout | trim != gdc_service_hub_ip
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Verify systemd-resolved routing domain resolution"
+  ansible.builtin.command:
+    cmd: "resolvectl query {{ gdc_nexus_domain }}"
+  register: resolvectl_result
+  changed_when: false
+  when: not ansible_check_mode
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Step 8: Clean up Obsolete /etc/hosts Entries Post-LiveCD
+# --------------------------------------------------------------------------
+- name: "LOCAL-DNS | Remove obsolete static host overrides from /etc/hosts"
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^(?:\d+\.\d+\.\d+\.\d+|::1)\s+.*(?:nexus\.gdc\.local|git\.gdc\.local|nexus\.internal\.gdc\.local|git\.internal\.gdc\.local).*'
+    state: absent
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Flush systemd-resolved DNS caches"
+  ansible.builtin.command: resolvectl flush-caches
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode
+  tags: ["strictly-local"]

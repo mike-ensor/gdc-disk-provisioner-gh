@@ -1,0 +1,23 @@
+# ==============================================================================
+# GDC Internal Domain Configuration (Managed by Ansible - local_dns role)
+# ==============================================================================
+# Explicit static records for local service hubs and cluster resolution
+
+# Nexus Package & Container Repository
+address=/{{ gdc_nexus_domain }}/{{ gdc_service_hub_ip }}
+{% if gdc_nexus_alias is defined and gdc_nexus_alias %}
+address=/{{ gdc_nexus_alias }}/{{ gdc_service_hub_ip }}
+{% endif %}
+
+# Gitea Boundary Service Hub
+address=/{{ gdc_gitea_domain }}/{{ gdc_service_hub_ip }}
+{% if gdc_gitea_alias is defined and gdc_gitea_alias %}
+address=/{{ gdc_gitea_alias }}/{{ gdc_service_hub_ip }}
+{% endif %}
+
+# Ingested records from add-hosts
+{% if custom_add_hosts_records is defined and custom_add_hosts_records %}
+{% for record in custom_add_hosts_records %}
+address=/{{ record.name }}/{{ record.ip }}
+{% endfor %}
+{% endif %}

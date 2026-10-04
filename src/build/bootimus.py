@@ -96,7 +96,7 @@ BOOTIMUS_API_HOST = _get_str_env(["BOOTIMUS_API_HOST", "PXE_SERVER_HOST"], "192.
 BOOTIMUS_API_PORT = _get_int_env(["BOOTIMUS_API_PORT", "PXE_SERVER_PORT"], 26000)
 BOOTIMUS_HTTP_PORT = _get_int_env(["BOOTIMUS_HTTP_PORT"], 16000)
 API_BASE = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_API_PORT}/api"
-BOOTIMUS_SCAN_RETRIES = _get_int_env(["BOOTIMUS_SCAN_RETRIES"], 24)
+BOOTIMUS_SCAN_RETRIES = _get_int_env(["BOOTIMUS_SCAN_RETRIES"], 80)
 BOOTIMUS_SCAN_DELAY = _get_int_env(["BOOTIMUS_SCAN_DELAY", "BOOTIMUS_SCAN_INTERVAL_SECONDS"], 15)
 
 def get_bootimus_credentials():
@@ -204,11 +204,12 @@ def show_help():
     print("  BOOTIMUS_PASS              API password (falls back to Infisical 'bootimus_creds')")
     print("==============================================================================")
 
-def auto_heal_boot_params(token):
+def auto_heal_boot_params(token, target_images=None):
     """Scans all registered Ubuntu images on Bootimus and ensures they have correct autoinstall boot parameters."""
     print("[-] Running self-healing audit on Bootimus image database...")
     try:
         images_res = api_request(f"{API_BASE}/images", token=token)
+        target_basenames = [os.path.basename(t) for t in (target_images or [])]
         for img in images_res.get("data", []):
             filename = img.get("filename", "")
             distro = img.get("distro", "")
@@ -221,7 +222,8 @@ def auto_heal_boot_params(token):
             is_gdc_image = filename and (
                 "gdc-bootstrap" in filename or 
                 "honeywell" in filename or 
-                filename.startswith("sync/")
+                filename.startswith("sync/") or
+                any(tb in filename for tb in target_basenames)
             )
             
             if is_gdc_image:
@@ -252,7 +254,7 @@ def auto_heal_boot_params(token):
                 elif boot_method != "kernel" or distro != "ubuntu" or not has_correct_params or not enabled:
                     print(f"[!] Alert: GDC Image '{img.get('name')}' configuration is missing or clobbered! Healing...")
                     
-                    iso_name_no_ext = filename[:-4]
+                    iso_name_no_ext = filename[:-4] if filename.endswith(".iso") else filename
                     iso_url = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_HTTP_PORT}/isos/{filename}"
                     seed_url = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_HTTP_PORT}/isos/{iso_name_no_ext}/iso/nocloud/"
                     

@@ -30,7 +30,7 @@ Below is the targeted, production-grade segmented interface specification design
 
 ### 2. Kubernetes Interface (Cluster Control Plane Segment)
 * **VLAN Interface:** `enp1s0.109` (VLAN tag `109` on the primary NIC)
-* **IP Address Allocation:** `172.31.250.10/24` (or dynamically allocated within `172.31.250.0/24`)
+* **IP Address Allocation:** `172.31.250.253/24` (or dynamically allocated within `172.31.250.0/24` as a bootstrap sentinel)
 * **Gateway:** `none` (confined to local L2 switch domain by default) or `172.31.250.1`
 * **DNS Nameservers:** `none` (or designated cluster DNS servers)
 
@@ -86,7 +86,7 @@ network:
       id: 109
       link: enp1s0
       addresses:
-        - 172.31.250.10/24
+        - 172.31.250.253/24
 ```
 
 ---
@@ -127,7 +127,7 @@ The build pipeline injects these parameters dynamically into the cloud-init netw
 | **Machine Gateway** | `BOOTSTRAP_MACHINE_GATEWAY` | `192.168.4.1` | Management Network | Gateway for host management |
 | **Machine VLAN ID** | `BOOTSTRAP_MACHINE_VLAN_ID` | `0` | Physical 802.1Q tag | `0` = Flat, untagged native network (non-VLAN) |
 | **Machine DNS** | `BOOTSTRAP_MACHINE_DNS` | `192.168.4.1, 8.8.8.8, 8.8.4.4` | Management Network | Host nameservers |
-| **Kubernetes IP / Subnet** | `BOOTSTRAP_K8S_IP_CIDR` | `172.31.250.10/24` | Kubernetes Network (VLAN) | High-end RFC 1918 space (`172.31.250.0/24`) |
+| **Kubernetes IP / Subnet** | `BOOTSTRAP_K8S_IP_CIDR` | `172.31.250.253/24` | Kubernetes Network (VLAN) | High-end RFC 1918 space (`172.31.250.0/24`) bootstrap sentinel |
 | **Kubernetes Gateway** | `BOOTSTRAP_K8S_GATEWAY` | `none` | Kubernetes Network (VLAN) | `none` confines cluster VLAN to local L2 switch domain |
 | **Kubernetes VLAN ID** | `BOOTSTRAP_K8S_VLAN_ID` | `109` | Physical 802.1Q tag | Tagged 802.1Q VLAN (`0` disables VLAN tagging) |
 | **Kubernetes DNS** | `BOOTSTRAP_K8S_DNS` | `none` | Kubernetes Network (VLAN) | Nameservers for cluster segment (`none` if unrouted) |
@@ -150,19 +150,91 @@ ip route show
 ping -c 3 8.8.8.8
 
 # 4. Perform a cluster control plane ping via the VLAN interface
-ping -I enp1s0.109 -c 3 172.31.250.10
+ping -I enp1s0.109 -c 3 172.31.250.253
 ```
 
 ---
 
-## 5. Hub-and-Spoke Sideloading boundaries
+## 5. Hub-and-Spoke Sideloading Boundaries & Split-DNS Architecture
 
-The offline local service hubs bind to the loopback interface (`127.0.0.1`), allowing local system processes (like Kubelet or containerd) to fetch code, packages, and container images locally without external network exposure:
+To support offline, air-gapped node operation without port 53 collisions on Ubuntu 24.04 LTS, GDC implements a hybrid **Split-DNS** architecture co-locating `dnsmasq` with `systemd-resolved`.
 
-* **Gitea Git Server (Port 3000):** Exposes configurations at `http://127.0.0.1:3000/gdc/bootstrap-playbooks.git`.
-* **Nexus APT Repository (Port 8081):** Exposes debian package mirrors at `http://127.0.0.1:8081/repository/gdc-apt-proxy/`.
-* **Nexus OCI Docker Registry Group (Port 5001):** Consolidates local and cached images at `http://127.0.0.1:5001`.
-* **Nexus LLM Model Proxy & Raw Store (Port 8081/raw):** Serves raw GGUF neural weights locally.
+```text
++--------------------------------------------------------------------------------------------------+
+| HOST OS (Ubuntu 24.04 Noble)                                                                    |
+|                                                                                                  |
+|   Standard Outbound DNS (e.g. google.com, archive.ubuntu.com)                                   |
+|         │                                                                                        |
+|         ▼                                                                                        |
+|   systemd-resolved (127.0.0.53:53) ──────► Primary Uplink Nameservers (DHCP / 8.8.8.8)          |
+|         │                                                                                        |
+|         │ Split-DNS routing (~internal.gdc.local, ~gdc.local via /etc/systemd/resolved.conf.d/) |
+|         ▼                                                                                        |
+|   dnsmasq (127.0.0.10:53 + Cluster VLAN IP:53)                                                   |
+|     ├── /etc/dnsmasq.d/platform.conf     (loopback, upstream forwarders, platform hosts)         |
+|     └── /etc/dnsmasq.d/internal-gdc.conf (nexus.internal.gdc.local, git.internal.gdc.local)      |
+|              │                                                                                   |
+|              └── Resolves to: Cluster VLAN IP (e.g. 192.168.109.12 / bootstrap 172.31.250.253)   |
++───────────────────────────────────────────────┬──────────────────────────────────────────────────+
+                                                │
+       ┌────────────────────────────────────────┴────────────────────────────────────────┐
+       ▼                                                                                 ▼
+Host Network Daemons                                                           Kubernetes Pods & Workloads
+(dockerd, containerd, apt, nodeagentd)                                         (longhorn-system, bmctl, etc.)
+ • Query: 127.0.0.53 -> 127.0.0.10                                              • Query: CoreDNS -> Node
+ • Connect: VLAN IP:8081 / :5001                                                • Connect: VLAN IP:8081 / :5001
+ • Kernel routes via 'local' table (dev lo, bus speed)                          • CNI routes via gateway
+```
+
+### 5.1. Split-DNS Implementation Details
+
+1. **Alternate Loopback Binding (`/etc/dnsmasq.d/platform.conf`):**
+   * `dnsmasq` binds exclusively to an alternate loopback address (`127.0.0.10`) and the active cluster interface with `bind-interfaces`. This eliminates port 53 bind conflicts with `systemd-resolved` (which listens on `127.0.0.53:53`).
+   * It runs with `no-resolv` and `no-hosts` to isolate local resolution from OS default files.
+   * Upstream recursive forwarders (e.g. `1.1.1.1`, `8.8.8.8`) are declared explicitly.
+
+2. **Systemd-Resolved Routing Domain Drop-In (`/etc/systemd/resolved.conf.d/dnsmasq.conf`):**
+   ```ini
+   [Resolve]
+   DNS=127.0.0.10
+   Domains=~internal.gdc.local ~gdc.local
+   ```
+   The tilde (`~`) prefix designates a **routing domain**: queries ending in `.internal.gdc.local` or `.gdc.local` are routed exclusively to `127.0.0.10`. All other queries (public internet, corporate subnets) route through the interface uplink DNS.
+
+3. **Migrated Service Hub Domains (`/etc/dnsmasq.d/internal-gdc.conf`):**
+   * **Nexus Repository Manager:** `nexus.internal.gdc.local` (with backward-compatible alias `nexus.gdc.local`).
+     * APT Hosted / Proxy: `http://nexus.internal.gdc.local:8081/repository/`
+     * OCI Container Registry Mirror: `http://nexus.internal.gdc.local:5001`
+     * Raw Binary Store: `http://nexus.internal.gdc.local:8081/repository/gdc-raw-hosted/`
+   * **Gitea Git Server:** `git.internal.gdc.local` (with backward-compatible alias `git.gdc.local`).
+     * System Desired State & Playbooks: `http://git.internal.gdc.local:3000/gdc/`
+
+### 5.2. Why Service Hubs Resolve to the Cluster VLAN IP (Host vs Container Reachability)
+
+In Linux, network namespaces strictly isolate the loopback interface (`lo`):
+* If `nexus.internal.gdc.local` resolved to `127.0.0.1`, containerized workloads (such as Kubernetes pods, KIND bootstrap clusters, or standalone Docker bridge containers) would attempt to connect to port 8081 on their *own* container loopback, failing with `ECONNREFUSED (111)`.
+* By resolving to the **Cluster VLAN IP** (`enp1s0.109` / `192.168.109.X` or bootstrap sentinel `172.31.250.253`):
+  * **Host Daemons:** When host processes (`apt`, `dockerd`, `containerd`, `nodeagentd`) connect to the VLAN IP, the Linux kernel's `local` routing table intercepts the packet and routes it internally via `dev lo` at hardware bus speed without traversing the physical network.
+  * **Containers & Pods:** Packets from containers exit the container namespace via the CNI default gateway and route to the host's cluster VLAN interface, allowing pods to pull packages and images seamlessly.
+  * **Multi-Node Clusters:** Peer nodes across the rack can reach the Service Hub over the shared Layer 2 cluster network.
+
+### 5.3. Bootstrap Sentinel (`.253`) & Dynamic Lifecycle Re-Sync
+
+To manage the lifecycle transition between initial bare-metal boot and final cluster network configuration:
+
+1. **First Boot (Bootstrap Sentinel):**
+   * Before GDC Companion is queried, the node boots with `BOOTSTRAP_K8S_IP_CIDR=172.31.250.253/24` with `GATEWAY="none"`.
+   * The high-number `.253` host octet clearly identifies the address as a temporary bootstrap sentinel. Setting `GATEWAY="none"` guarantees the cluster VLAN cannot hijack default routing from the management interface.
+   * `local_dns` initializes in `stage_first_boot.yml`, sanitizing any `.0` (network) or `.255` (broadcast) addresses to ensure unroutable wire addresses are never published.
+
+2. **Stage 5 Re-Sync (`CLUSTER_READY`):**
+   * During Stage 5, `machine_orchestration` pulls the node's permanent configuration from GDC Companion and applies `99-gdc-cluster-network.yaml` (e.g. assigning static cluster IP `192.168.109.12/24` on VLAN 109).
+   * Immediately following network reconfiguration, `stage_cluster_ready.yml` re-executes `local_dns` with freshly gathered network facts.
+   * `local_dns` updates `/etc/dnsmasq.d/internal-gdc.conf` and `/etc/hosts` to point `nexus.internal.gdc.local` to the permanent cluster IP (`192.168.109.12`) and restarts `dnsmasq`, ensuring that `bmctl create cluster` and subsequent container builds find an active repository.
+
+3. **Deterministic `/etc/hosts` Fallback (`PERSIST_ADD_HOSTS`):**
+   * Private lab endpoints defined in `src/build/add-hosts` (e.g., `step-ca.ensor-labs.com`, `gdc-companion.ensor-labs.com`) are injected into `/etc/hosts` with `PERSIST_ADD_HOSTS=true`.
+   * The `local_dns` cleanup phase preserves these platform overrides, ensuring glibc `nsswitch.conf` (`hosts: files dns`) resolves private infrastructure endpoints even during early boot before DNS daemons are fully converged.
 
 ---
 

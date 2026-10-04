@@ -921,20 +921,36 @@ if [[ "${RUN_BOOTIMUS}" == "true" ]]; then
     echo -e "\033[93m\033[1m[STAGE: BOOTIMUS] INGESTING & PROVISIONING ISO(S) IN BOOTIMUS PXE...\033[0m"
     echo "=============================================================================="
 
-    for iso_name in "${SUCCESSFUL_ISOS[@]}"; do
-        echo "[-] Deploying to Bootimus: ${iso_name}..."
-        timeout 180s "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" "${iso_name}" || true
+    for i in "${!SUCCESSFUL_ISOS[@]}"; do
+        iso_name="${SUCCESSFUL_ISOS[$i]}"
+        # Find corresponding environment profile
+        t_env="local"
+        for j in "${!TARGET_ISO_NAMES[@]}"; do
+            if [[ "${TARGET_ISO_NAMES[$j]}" == "${iso_name}" ]]; then
+                t_env="${TARGET_ENVS[$j]}"
+                break
+            fi
+        done
+        echo "[-] Deploying to Bootimus: ${iso_name} (profile: ${t_env})..."
+        ISO_ENVIRONMENT="${t_env}" timeout 1200s "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" "${iso_name}" || true
     done
 
     echo "[-] Running Bootimus stability auditor & settings healer..."
-    for i in {1..30}; do
-        if "${PYTHON_BIN}" "${PROJECT_ROOT}/test/bin/check-bootimus-settings.py"; then
+    BOOTIMUS_VERIFIED=false
+    for i in {1..80}; do
+        if "${PYTHON_BIN}" "${PROJECT_ROOT}/test/bin/check-bootimus-settings.py" "${SUCCESSFUL_ISOS[@]}"; then
             echo -e "\033[92m[x] Bootimus configuration locked and verified successfully.\033[0m"
+            BOOTIMUS_VERIFIED=true
             break
         fi
-        echo "    Waiting 15s for backend extraction to settle... ($i/30)"
+        echo "    Waiting 15s for backend extraction to settle... ($i/80)"
         sleep 15
     done
+
+    if [[ "${BOOTIMUS_VERIFIED}" != "true" ]]; then
+        echo -e "\033[91m[!] Error: Bootimus failed to lock boot parameters for target ISOs within allotted timeout.\033[0m" >&2
+        exit 1
+    fi
 
     echo "[-] Querying current Bootimus boot menu tree:"
     "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" --list || true
