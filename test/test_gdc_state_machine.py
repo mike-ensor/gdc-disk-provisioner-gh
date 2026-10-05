@@ -39,6 +39,9 @@ from gdc_state_machine import GdcStage, get_current_stage
 
 class TestGdcStateMachine(unittest.TestCase):
     def setUp(self):
+        self.orig_env = os.environ.copy()
+        os.environ.pop("MACHINE_STATE_STOP_STAGE", None)
+        os.environ.pop("STOP_STAGE", None)
         self.test_dir = tempfile.mkdtemp()
         self.state_dir = os.path.join(self.test_dir, "state")
         os.makedirs(self.state_dir, exist_ok=True)
@@ -46,6 +49,8 @@ class TestGdcStateMachine(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.test_dir)
+        os.environ.clear()
+        os.environ.update(self.orig_env)
 
     def write_state(self, stage_file, status="completed"):
         path = os.path.join(self.state_dir, stage_file)
@@ -177,6 +182,67 @@ class TestGdcStateMachine(unittest.TestCase):
         self.write_state("first-boot.json")
         result = lookup.run([], state_dir=self.state_dir, fstab_path=fstab)
         self.assertEqual(result, ["second-boot"])
+
+    def test_get_stop_stage_from_env_var(self):
+        """Verifies stop_stage resolves from environment variable when configs absent."""
+        os.environ["MACHINE_STATE_STOP_STAGE"] = "CLUSTER_READY"
+        from gdc_state_machine import get_stop_stage
+        self.assertEqual(get_stop_stage(), "CLUSTER_READY")
+
+    def test_get_stop_stage_from_manual_fact_file(self):
+        """Verifies stop_stage resolves from candidate config file on disk."""
+        manual_fact = os.path.join(self.test_dir, "gdc-fact-manual.json")
+        with open(manual_fact, "w", encoding="utf-8") as f:
+            json.dump({"machine_state_stop_stage": "LINUX_READY"}, f)
+
+        from gdc_state_machine import get_stop_stage
+        self.assertEqual(get_stop_stage(candidate_config_paths=[manual_fact]), "LINUX_READY")
+
+    def test_get_stop_stage_normalization(self):
+        """Verifies hyphenated or lowercase stop stages are normalized."""
+        from gdc_state_machine import get_stop_stage
+        self.assertEqual(get_stop_stage(explicit_stop_stage="cluster-ready"), "CLUSTER_READY")
+        self.assertEqual(get_stop_stage(explicit_stop_stage="  linux-ready  "), "LINUX_READY")
+        self.assertEqual(get_stop_stage(explicit_stop_stage="invalid_stage"), "")
+
+    def test_gdc_stop_stage_lookup_plugin(self):
+        """Verifies the gdc_stop_stage LookupModule returns resolved stop stage."""
+        from gdc_stop_stage import LookupModule as StopStageLookup
+        lookup = StopStageLookup()
+        # Case 1: explicit term
+        self.assertEqual(lookup.run(["CLUSTER_READY"]), ["CLUSTER_READY"])
+        # Case 2: from variables
+        self.assertEqual(lookup.run([], variables={"stop_stage": "SECOND_BOOT"}), ["SECOND_BOOT"])
+        # Case 3: from machine_config in variables
+        self.assertEqual(lookup.run([], variables={"machine_config": {"machine_state_stop_stage": "FIRST_BOOT"}}), ["FIRST_BOOT"])
+        # Case 4: default empty
+        self.assertEqual(lookup.run([]), [""])
+
+    def test_stop_stage_halts_at_cluster_ready(self):
+        """Verifies state machine halts at COMPLETE when cluster-ready completes with CLUSTER_READY stop stage."""
+        fstab = os.path.join(self.test_dir, "fstab")
+        with open(fstab, "w", encoding="utf-8") as f:
+            f.write("# dummy fstab")
+        self.write_state("first-boot.json", status="completed")
+        self.write_state("second-boot.json", status="completed")
+        self.write_state("linux-ready.json", status="completed")
+
+        # Before cluster-ready completes
+        stage = get_current_stage(
+            self.state_dir,
+            fstab_path=fstab,
+            stop_stage="CLUSTER_READY",
+        )
+        self.assertEqual(stage, GdcStage.CLUSTER_READY)
+
+        # After cluster-ready completes
+        self.write_state("cluster-ready.json", status="completed")
+        stage = get_current_stage(
+            self.state_dir,
+            fstab_path=fstab,
+            stop_stage="CLUSTER_READY",
+        )
+        self.assertEqual(stage, GdcStage.COMPLETE)
 
 
 if __name__ == "__main__":

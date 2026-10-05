@@ -355,7 +355,7 @@ REMOTE_EOF
         fi
 
         echo "  [-] Restarting gdc-provision.service to execute updates..."
-        ssh "${ssh_opts[@]}" "${ssh_user}@$node" "sudo systemctl restart gdc-provision.service"
+        ssh "${ssh_opts[@]}" "${ssh_user}@$node" "sudo systemctl restart --no-block gdc-provision.service"
         echo "  [+] Node update sequence complete!"
 
         if [[ ${#ip_array[@]} -eq 1 ]]; then

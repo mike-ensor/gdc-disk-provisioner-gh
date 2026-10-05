@@ -330,7 +330,7 @@ if __name__ == "__main__":
     env['k8s_gateway'] = env.get('BOOTSTRAP_K8S_GATEWAY', '192.168.4.9')
     env['k8s_dns'] = env.get('BOOTSTRAP_K8S_DNS', '192.168.1.1, 8.8.8.8, 8.8.4.4')
     env['bootstrap_host_name'] = env.get('BOOTSTRAP_HOST_NAME', 'gdc-default')
-    env['fallback_machine_state_stop_stage'] = env.get('FALLBACK_MACHINE_STATE_STOP_STAGE', '')
+    env['machine_state_stop_stage'] = env.get('MACHINE_STATE_STOP_STAGE', '')
     env['bootstrap_bmctl_version'] = env.get('BOOTSTRAP_BMCTL_VERSION', '1.35.300-gke.87')
     env['upstream_apt_mirror'] = env.get('UPSTREAM_APT_MIRROR', 'http://archive.ubuntu.com/ubuntu/')
     env['upstream_security_mirror'] = env.get('UPSTREAM_SECURITY_MIRROR', 'http://security.ubuntu.com/ubuntu/')

@@ -98,26 +98,9 @@
     cluster_ready_state: { "status": "pending" }
     cluster_turnup_state: { "status": "pending" }
 
-- name: "GDC-ORCH | Check if fallback-config.json exists"
-  ansible.builtin.stat:
-    path: /etc/gdc/fallback-config.json
-  register: fallback_config_stat
-
-- name: "GDC-ORCH | Load fallback-config.json"
-  ansible.builtin.slurp:
-    src: /etc/gdc/fallback-config.json
-  register: slurped_fallback_config
-  when: fallback_config_stat.stat.exists
-
-- name: "GDC-STATE | Set machine state stopper fact"
+- name: "GDC-STATE | Resolve machine state stop stage"
   ansible.builtin.set_fact:
-    stop_stage: "{{ (slurped_fallback_config.content | b64decode | from_json).machine_state_stop_stage | default('') | upper | replace('-', '_') }}"
-  when: fallback_config_stat.stat.exists
-
-- name: "GDC-STATE | Set machine state stopper fact (default fallback)"
-  ansible.builtin.set_fact:
-    stop_stage: ""
-  when: not fallback_config_stat.stat.exists
+    stop_stage: "{{ lookup('gdc_stop_stage') }}"
 
 - name: "GDC-STATE | Load FirstBoot State if exists"
   ansible.builtin.slurp:

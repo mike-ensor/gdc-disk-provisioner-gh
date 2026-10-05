@@ -30,7 +30,7 @@ import json
 
 # Add project src to path so we can reuse bootimus module methods
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src/build')))
-from bootimus import BOOTIMUS_API_HOST, BOOTIMUS_API_PORT, API_BASE, get_bootimus_credentials, api_request, auto_heal_boot_params
+from bootimus import BOOTIMUS_API_HOST, BOOTIMUS_API_PORT, API_BASE, get_bootimus_credentials, api_request, auto_heal_boot_params, extract_images
 
 def main():
     target_args = [arg for arg in sys.argv[1:] if not arg.startswith("-")]
@@ -63,7 +63,7 @@ def main():
     print("[-] Fetching all registered images from Bootimus...")
     try:
         images_res = api_request(f"{API_BASE}/images", token=token)
-        images = images_res.get("data", [])
+        images = extract_images(images_res)
     except Exception as e:
         print(f"[!] Failed to fetch images: {e}")
         sys.exit(1)

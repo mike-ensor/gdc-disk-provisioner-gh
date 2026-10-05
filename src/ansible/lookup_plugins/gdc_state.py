@@ -17,14 +17,17 @@ from gdc_state_machine import get_current_stage
 class LookupModule(LookupBase):
     """Lookup plugin providing on-demand current GDC stage."""
 
-    def run(self, terms, variables=None, **kwargs):
+    def run(self, terms, variables=None, **kwargs):  # type: ignore[override]
         state_dir = kwargs.get("state_dir", "/var/gdc-install/state")
         fallback_config = kwargs.get("fallback_config", "/etc/gdc/fallback-config.json")
         fstab_path = kwargs.get("fstab_path", "/etc/fstab")
+        stop_stage = terms[0] if (terms and len(terms) > 0) else kwargs.get("stop_stage")
 
         stage = get_current_stage(
             state_dir=state_dir,
             fallback_config_path=fallback_config,
             fstab_path=fstab_path,
+            stop_stage=stop_stage,
+            variables=variables,
         )
         return [stage.value]

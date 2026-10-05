@@ -415,6 +415,13 @@
         "bundle_url",
         "sha256"
       ]
+    },
+    "machine_state_stop_stage": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Optional lifecycle stage at which to gracefully halt provisioning (e.g. FIRST_BOOT, SECOND_BOOT, LINUX_READY, CLUSTER_READY, CLUSTER_TURNUP, POST_CLUSTER, UPKEEP)."
     }
   }
 }

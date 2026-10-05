@@ -74,7 +74,7 @@ During the ISO build process, variables under the **GDC COMPANION FALLBACK CONFI
 
 Relevant fallback variables include:
 *   `BOOTSTRAP_HOST_NAME`
-*   `FALLBACK_MACHINE_STATE_STOP_STAGE`
+*   `MACHINE_STATE_STOP_STAGE` (optional; halts provisioning after specified stage)
 *   `BOOTSTRAP_BMCTL_VERSION`
 *   `FALLBACK_CLUSTER_VLAN_ID`
 *   `FALLBACK_PEERS_JSON`

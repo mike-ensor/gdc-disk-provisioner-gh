@@ -31,6 +31,8 @@ import urllib.parse
 import urllib.error
 import subprocess
 
+getattr(sys.stdout, "reconfigure", lambda **kwargs: None)(line_buffering=True)
+
 def _parse_env_file(filepath):
     """Safely parses a simple KEY=VALUE bash env file."""
     if not os.path.exists(filepath):
@@ -122,7 +124,7 @@ def get_bootimus_credentials():
         print("[!] Please export BOOTIMUS_USER and BOOTIMUS_PASS in your environment.")
         sys.exit(1)
 
-def api_request(url, method="GET", data=None, token=None, retries=5, retry_delay=5, timeout=30):
+def api_request(url, method="GET", data=None, token=None, retries=5, retry_delay=5, timeout=30, allow_404=False):
     """Utility wrapper to perform HTTP API requests with automatic network retry for intermittent connectivity."""
     encoded_data = None
     if data is not None:
@@ -139,6 +141,12 @@ def api_request(url, method="GET", data=None, token=None, retries=5, retry_delay
             with urllib.request.urlopen(req, data=encoded_data, timeout=timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
+            if allow_404 and e.code == 404:
+                try:
+                    err_body = e.read().decode("utf-8")
+                    return json.loads(err_body)
+                except Exception:
+                    return {"success": False, "error": "Not Found", "data": None}
             # 4xx client errors (except 429) usually shouldn't be blindly retried unless it's a 408/429/5xx
             if e.code in (408, 429) or e.code >= 500:
                 print(f"[!] HTTP Error {e.code} on attempt {attempt}/{retries}. Retrying in {retry_delay}s...")
@@ -154,6 +162,30 @@ def api_request(url, method="GET", data=None, token=None, retries=5, retry_delay
                 print(f"[!] Request Error: {e} (all {retries} attempts failed)")
                 raise
     raise RuntimeError(f"[!] Request to {url} failed after all {retries} retry attempts.")
+
+def extract_images(res):
+    """Safely extracts a list of image dicts from an API response across Bootimus versions.
+    
+    Handles Bootimus 0.1.69 (data is a list of image objects) and 0.1.79+ (data is a single
+    image object when queried with ?filename=..., or a list when queried as /images).
+    """
+    if not res:
+        return []
+    if isinstance(res, list):
+        return [img for img in res if isinstance(img, dict)]
+    if isinstance(res, dict):
+        if "data" in res:
+            data = res.get("data")
+            if isinstance(data, list):
+                return [img for img in data if isinstance(img, dict)]
+            elif isinstance(data, dict):
+                if "filename" in data or "id" in data or "name" in data:
+                    return [data]
+                return []
+            return []
+        if "filename" in res or "id" in res or "name" in res:
+            return [res]
+    return []
 
 def print_tree(grouped_images, group_filter=None):
     """Renders grouped images in a beautiful Unicode tree format."""
@@ -210,7 +242,7 @@ def auto_heal_boot_params(token, target_images=None):
     try:
         images_res = api_request(f"{API_BASE}/images", token=token)
         target_basenames = [os.path.basename(t) for t in (target_images or [])]
-        for img in images_res.get("data", []):
+        for img in extract_images(images_res):
             filename = img.get("filename", "")
             distro = img.get("distro", "")
             boot_method = img.get("boot_method", "")
@@ -288,31 +320,30 @@ def auto_heal_boot_params(token, target_images=None):
                     
                     for verify_attempt in range(1, max_attempts + 1):
                         time.sleep(5)
-                        verify_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
-                        if verify_res.get("success") and verify_res.get("data"):
-                            matching = [m for m in verify_res["data"] if m.get("filename") == filename]
-                            if matching:
-                                current_img = matching[0]
-                                current_params = current_img.get("boot_params", "")
-                                current_method = current_img.get("boot_method", "")
-                                current_enabled = current_img.get("enabled", False)
-                                
-                                is_correct = (
-                                    current_params == fixed_params and 
-                                    current_method == "kernel" and 
-                                    current_enabled is False
-                                )
-                                
-                                if is_correct:
-                                    consecutive_verifications += 1
-                                    if consecutive_verifications >= required_consecutive:
-                                        print(f"    [+] Parameters verified stable! (Attempt {verify_attempt})")
-                                        verified = True
-                                        break
-                                else:
-                                    consecutive_verifications = 0
-                                    current_img.update(stage1_data)
-                                    api_request(update_url, method="PUT", data=current_img, token=token)
+                        verify_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token, allow_404=True)
+                        matching = [m for m in extract_images(verify_res) if m.get("filename") == filename]
+                        if matching:
+                            current_img = matching[0]
+                            current_params = current_img.get("boot_params", "")
+                            current_method = current_img.get("boot_method", "")
+                            current_enabled = current_img.get("enabled", False)
+                            
+                            is_correct = (
+                                current_params == fixed_params and 
+                                current_method == "kernel" and 
+                                current_enabled is False
+                            )
+                            
+                            if is_correct:
+                                consecutive_verifications += 1
+                                if consecutive_verifications >= required_consecutive:
+                                    print(f"    [+] Parameters verified stable! (Attempt {verify_attempt})")
+                                    verified = True
+                                    break
+                            else:
+                                consecutive_verifications = 0
+                                current_img.update(stage1_data)
+                                api_request(update_url, method="PUT", data=current_img, token=token)
                                     
                     if not verified:
                         print(f"    [!] Warning: Failed to stabilize parameters for '{img.get('name')}'. Aborting healing.")
@@ -425,7 +456,7 @@ def main():
         try:
             images_res = api_request(f"{API_BASE}/images", token=token)
             grouped_images = {}
-            for img in images_res.get("data", []):
+            for img in extract_images(images_res):
                 filename_val = img.get("filename", "unknown.iso")
                 # Filter out extracted test/internal ISO files nested inside other ISOs
                 if "/iso/" in filename_val or "/extracted/" in filename_val or "tests/" in filename_val:
@@ -460,11 +491,10 @@ def main():
     print("[-] Querying Bootimus to see if the image is already registered...")
     images_res = api_request(f"{API_BASE}/images", token=token)
     image_already_registered = False
-    if images_res.get("success") and images_res.get("data"):
-        matching = [img for img in images_res["data"] if img.get("filename") == filename]
-        if matching:
-            image_already_registered = True
-            print(f"[x] Image is already registered in Bootimus database. Bypassing heavy filesystem scan.")
+    matching = [img for img in extract_images(images_res) if img.get("filename") == filename]
+    if matching:
+        image_already_registered = True
+        print(f"[x] Image is already registered in Bootimus database. Bypassing heavy filesystem scan.")
             
     if not image_already_registered:
         print("[-] Ingesting new image. Triggering Bootimus file scanner for newly synchronized GCS ISOs...")
@@ -479,45 +509,44 @@ def main():
     last_size = -1
     stable_count = 0
     while retries > 0:
-        images_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
-        if images_res.get("success") and images_res.get("data"):
-            # Manually filter returned images by exact filename to avoid defaulting to the first item (cascade1)
-            matching_images = [img for img in images_res["data"] if img.get("filename") == filename]
-            if matching_images:
-                current_image = matching_images[0]
-                current_size = current_image.get("size", 0)
-                print(f"    [-] Found image: {current_image['name']} (Current Size: {current_size} bytes)")
-                
-                if current_size > 0:
-                    if current_size == last_size:
-                        stable_count += 1
-                        print(f"    [-] Image size is stable ({stable_count}/2)...")
-                    else:
-                        stable_count = 0
-                        last_size = current_size
-                    
-                    if stable_count >= 2:
-                        image_data = current_image
-                        print(f"[x] Located fully loaded image: {image_data['name']} (Size: {image_data['size']} bytes)")
-                        
-                        # Immediately disable to prevent premature booting of unconfigured/unextracted image
-                        if image_data.get("enabled", True) and not image_data.get("extracted", False):
-                            print("[-] Temporarily disabling image during extraction and configuration to prevent premature PXE boots...")
-                            disable_data = {
-                                "boot_method": image_data.get("boot_method", "iso"),
-                                "distro": image_data.get("distro", ""),
-                                "boot_params": image_data.get("boot_params", ""),
-                                "enabled": False
-                            }
-                            try:
-                                api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", method="PUT", data=disable_data, token=token)
-                            except Exception as e:
-                                print(f"[!] Warning: Failed to temporarily disable image: {e}")
-                        break
+        images_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token, allow_404=True)
+        # Manually filter returned images by exact filename to avoid defaulting to the first item (cascade1)
+        matching_images = [img for img in extract_images(images_res) if img.get("filename") == filename]
+        if matching_images:
+            current_image = matching_images[0]
+            current_size = current_image.get("size", 0)
+            print(f"    [-] Found image: {current_image['name']} (Current Size: {current_size} bytes)")
+            
+            if current_size > 0:
+                if current_size == last_size:
+                    stable_count += 1
+                    print(f"    [-] Image size is stable ({stable_count}/2)...")
                 else:
-                    print("    [-] Image size is 0 bytes (still registering/transferring)...")
                     stable_count = 0
-                    last_size = 0
+                    last_size = current_size
+                
+                if stable_count >= 2:
+                    image_data = current_image
+                    print(f"[x] Located fully loaded image: {image_data['name']} (Size: {image_data['size']} bytes)")
+                    
+                    # Immediately disable to prevent premature booting of unconfigured/unextracted image
+                    if image_data.get("enabled", True) and not image_data.get("extracted", False):
+                        print("[-] Temporarily disabling image during extraction and configuration to prevent premature PXE boots...")
+                        disable_data = {
+                            "boot_method": image_data.get("boot_method", "iso"),
+                            "distro": image_data.get("distro", ""),
+                            "boot_params": image_data.get("boot_params", ""),
+                            "enabled": False
+                        }
+                        try:
+                            api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", method="PUT", data=disable_data, token=token)
+                        except Exception as e:
+                            print(f"[!] Warning: Failed to temporarily disable image: {e}")
+                    break
+            else:
+                print("    [-] Image size is 0 bytes (still registering/transferring)...")
+                stable_count = 0
+                last_size = 0
         print(f"[-] Still searching/loading... ({retries} retries left)")
         time.sleep(BOOTIMUS_SCAN_DELAY)
         retries -= 1
@@ -609,7 +638,7 @@ def main():
     
     # We must fetch the current full object state so the PUT API does not reject missing fields
     images_res = api_request(f"{API_BASE}/images", token=token)
-    img_match = [i for i in images_res.get("data", []) if i.get("filename") == filename]
+    img_match = [i for i in extract_images(images_res) if i.get("filename") == filename]
     
     if img_match:
         current_img_state = img_match[0]
@@ -630,33 +659,32 @@ def main():
     
     for verify_attempt in range(1, max_attempts + 1):
         time.sleep(5)
-        verify_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token)
-        if verify_res.get("success") and verify_res.get("data"):
-            matching_images = [img for img in verify_res["data"] if img.get("filename") == filename]
-            if matching_images:
-                current_image = matching_images[0]
-                current_params = current_image.get("boot_params", "")
-                current_method = current_image.get("boot_method", "")
-                current_enabled = current_image.get("enabled", False)
-                
-                is_correct = (
-                    current_params == boot_params and 
-                    current_method == "kernel" and 
-                    current_enabled is True
-                )
-                
-                if is_correct:
-                    consecutive_verifications += 1
-                    print(f"    [-] Attempt {verify_attempt}/{max_attempts}: Custom parameters verified ({consecutive_verifications}/{required_consecutive} stable)...")
-                    if consecutive_verifications >= required_consecutive:
-                        print(f"    [+] Success: Custom parameters verified and locked stable in database after {verify_attempt} attempts!")
-                        verified = True
-                        break
-                else:
-                    print(f"    [!] Warning: Attempt {verify_attempt}/{max_attempts}: Detected parameter clobbering or mismatch! Re-applying custom configurations...")
-                    consecutive_verifications = 0
-                    current_image.update(update_data)
-                    api_request(update_url, method="PUT", data=current_image, token=token)
+        verify_res = api_request(f"{API_BASE}/images?filename={urllib.parse.quote(filename)}", token=token, allow_404=True)
+        matching_images = [img for img in extract_images(verify_res) if img.get("filename") == filename]
+        if matching_images:
+            current_image = matching_images[0]
+            current_params = current_image.get("boot_params", "")
+            current_method = current_image.get("boot_method", "")
+            current_enabled = current_image.get("enabled", False)
+            
+            is_correct = (
+                current_params == boot_params and 
+                current_method == "kernel" and 
+                current_enabled is True
+            )
+            
+            if is_correct:
+                consecutive_verifications += 1
+                print(f"    [-] Attempt {verify_attempt}/{max_attempts}: Custom parameters verified ({consecutive_verifications}/{required_consecutive} stable)...")
+                if consecutive_verifications >= required_consecutive:
+                    print(f"    [+] Success: Custom parameters verified and locked stable in database after {verify_attempt} attempts!")
+                    verified = True
+                    break
+            else:
+                print(f"    [!] Warning: Attempt {verify_attempt}/{max_attempts}: Detected parameter clobbering or mismatch! Re-applying custom configurations...")
+                consecutive_verifications = 0
+                current_image.update(update_data)
+                api_request(update_url, method="PUT", data=current_image, token=token)
                     
     if not verified:
         print("[!] CRITICAL ERROR: Failed to establish a stable, un-clobbered boot configuration in Bootimus!")
