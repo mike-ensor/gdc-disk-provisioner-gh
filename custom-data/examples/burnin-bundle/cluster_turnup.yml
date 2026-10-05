@@ -1,0 +1,5 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "BURNIN-TURNUP | Log custom cluster turnup post-hook execution"
+  ansible.builtin.debug:
+    msg: "Custom cluster turnup post-hook executed successfully for cluster inception."

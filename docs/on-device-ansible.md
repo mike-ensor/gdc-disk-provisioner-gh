@@ -52,10 +52,13 @@ The `gdc-provision.service` enforces the following execution sequence during eve
 5. **State-Driven Execution (`local.yml`):**
    * Reads `/var/gdc-install/state/provisioning-timing.json` to preserve global provisioning start time.
    * Checks `/var/gdc-install/state/*.json` to skip any stages already marked `completed`.
-   * Executes the next pending stage (`first-boot` $\rightarrow$ `second-boot` $\rightarrow$ `linux-ready` $\rightarrow$ `cluster-ready` $\rightarrow$ `cluster-turnup`).
+   * Executes the next pending stage (`first-boot` $\rightarrow$ `second-boot` $\rightarrow$ `linux-ready` $\rightarrow$ `cluster-ready` $\rightarrow$ `cluster-turnup` $\rightarrow$ `post-cluster`).
    * Writes the completion state, error details (if failed), and start/end timing metrics to `/var/gdc-install/state/<stage>.json`.
    * Calls `/usr/local/bin/gdc-collector` in the `always` block to compile `report.json` and upload diagnostic telemetry.
 6. **Transition / Reboot Handshake:** If the stage completed an unsealing phase or installed an HWE kernel requiring a reboot, it initiates a clean system restart before continuing to the subsequent stage.
+
+### 1.6. Custom Playbook Lifecycle Extensions
+For hardware burn-in validation, storage stress-testing, and post-deployment customization, the provisioning framework supports external playbook bundles. For complete configuration, bundle ingestion, lifecycle hook execution, and operational best practices, refer to the [Custom Playbook Lifecycle Extensions Guide](custom-playbook-extensions.md).
 
 ---
 

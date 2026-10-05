@@ -84,6 +84,10 @@
       reason: "ConfigSync disabled or no GSM secret required for primary_root_repo"
   when: not (_cr_config_sync_enabled | default(false) | bool) or not (_cr_repo_info.requires_secret | default(false) | bool)
 
+- name: "GDC-CR-EXT | Ingest and evaluate custom extensions"
+  ansible.builtin.include_role:
+    name: custom_extensions
+
 - name: "GDC-TIMING | Calculate ClusterReady timing facts"
   ansible.builtin.set_fact:
     cluster_ready_end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
@@ -101,7 +105,8 @@
               'duration_seconds': cluster_ready_duration_seconds | int,
               'overall_provisioning_start_time': provisioning_start_time | default(cluster_ready_start_time)
             },
-            'config_sync_secret': (_cr_secret_evidence | default({}))
+            'config_sync_secret': (_cr_secret_evidence | default({})),
+            'custom_extension': (custom_extension_evidence | default({}))
           })
       }}
 

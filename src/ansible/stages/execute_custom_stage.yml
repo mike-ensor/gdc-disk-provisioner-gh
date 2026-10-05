@@ -1,0 +1,39 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "GDC-EXTENSION | Reset custom extension evidence for {{ target_custom_stage | default('unknown') }}"
+  ansible.builtin.set_fact:
+    custom_extension_evidence: {}
+
+- name: "GDC-EXTENSION | Check for custom tasks: {{ target_custom_stage }}"
+  ansible.builtin.stat:
+    path: "/var/gdc-install/custom-playbooks/{{ target_custom_stage }}.yml"
+  register: _custom_stage_file_stat
+
+- name: "GDC-EXTENSION | Execute custom {{ target_custom_stage }} tasks"
+  when: _custom_stage_file_stat.stat.exists
+  block:
+    - name: "GDC-EXTENSION | Run {{ target_custom_stage }}.yml"
+      ansible.builtin.include_tasks:
+        file: "/var/gdc-install/custom-playbooks/{{ target_custom_stage }}.yml"
+
+    - name: "GDC-EXTENSION | Record successful custom extension execution in evidence"
+      ansible.builtin.set_fact:
+        custom_extension_evidence:
+          executed: true
+          custom_stage: "{{ target_custom_stage }}"
+          custom_file: "/var/gdc-install/custom-playbooks/{{ target_custom_stage }}.yml"
+          status: "SUCCESS"
+  rescue:
+    - name: "GDC-EXTENSION | Record failure evidence attributing external playbook"
+      ansible.builtin.set_fact:
+        custom_extension_evidence:
+          failed_in_custom_extension: true
+          executed: true
+          custom_stage: "{{ target_custom_stage }}"
+          custom_file: "/var/gdc-install/custom-playbooks/{{ target_custom_stage }}.yml"
+          message: "Execution failed within external custom playbook ({{ target_custom_stage }}.yml). Inspect /var/log/gdc-ansible-pull.log for details."
+          error_detail: "{{ ansible_failed_result | default({}) }}"
+
+    - name: "GDC-EXTENSION | Fail stage due to external playbook failure"
+      ansible.builtin.fail:
+        msg: "Execution failed within external custom playbook ({{ target_custom_stage }}.yml). Inspect /var/log/gdc-ansible-pull.log for details."

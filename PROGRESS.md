@@ -216,6 +216,7 @@ The table below maps project capabilities across **Functional Domains** (columns
   - [x] Standardize stage completion facts to lowercase (`ready-linux`, `linux-ready`)
   - [x] Dynamic companion binary fetch: pull latest binary from GCS bucket into `PATH`
   - [x] Manual Fact Override & State Reset: upstream ingestion of `/var/gdc-install/state/gdc-fact-manual.json` bypassing Companion API, automated workstation operator script (`bin/local/gdc-node-ops.sh push-facts`), and runbook in `docs/on-device-ansible.md`
+  - [x] **Custom Playbook Bundle Ingestion (Issue #19 / `GDC-SPEC-017`):** Sideloaded tarball (`/var/gdc-install/custom-bundle.tar.gz`) or remote mTLS download, SHA-256 verification, and dependency resolution (`requirements.yml`) via `roles/custom_extensions/`
 - [x] **Cluster Pre-Flight Automation**
   - [x] Pre-Flight Lab Dependency Auditor (`check-lab-setup.py`): validates Step CA mTLS, GCP IAM, 19 mandatory GDC APIs, Bootimus, and VRFs
   - [x] Cluster creation script (`create_cluster.sh`) packaging and deployment to `/usr/local/bin/create_cluster.sh`
@@ -238,6 +239,7 @@ The table below maps project capabilities across **Functional Domains** (columns
   - [ ] **Configuration Generation:** Automate creation of `cluster-config.yaml` defining target networks, VIPs, and storage paths
   - [ ] **Registry Mirror Redirection:** Redirect container registry mirror to local Nexus Group loopback Port 5001
   - [x] **Hands-off Turnup Execution:** Fully orchestrate `bmctl create cluster` from within Ansible playbooks via Stage 6 `CLUSTER_TURNUP`
+  - [x] **Custom Playbook Lifecycle Extension Hooks (Issue #19 / `GDC-SPEC-017`):** Integrated post-turnup custom playbooks (`cluster_turnup.yml`) via reusable runner `execute_custom_stage.yml` with external failure attribution.
   - [ ] **Version Alignment Guardrails:** Strictly assert Node Agent version matches target deployed `bmctl` release
 - [-] **Security & NodeAgent Integration**
   - [ ] **Keyless Security Profile:** Enforce NodeAgent TPM-bound federation in place of static JSON service account keys
@@ -250,6 +252,20 @@ The table below maps project capabilities across **Functional Domains** (columns
   - [ ] Inter-node reachability handshakes and pre-requisite package triggers (`socat`, `conntrack`)
 - [ ] **Post-Turnup Target Sanitization (`GDC-SPEC-009`)**
   - [ ] Remove temporary installer account (`temporary-installer`) after cluster transitions to healthy state
+
+---
+
+### Stage 7: Post-Cluster (Validation & Workload Extensions)
+*Ref: `GDC-SPEC-005` (Post-Cluster), `GDC-SPEC-014` (ConfigSync), `GDC-SPEC-017` (Custom Playbook Extensions)*
+
+- [x] **Cluster Health & Platform Validation**
+  - [x] Automated sanity validation: node readiness, CoreDNS resolution, StorageClass verification, MetalLB VIPs
+  - [x] ConfigSync primary root repo deployment and secret injection without disk persistence
+- [x] **Custom Playbook Lifecycle Extension Hooks (Issue #19 / `GDC-SPEC-017`)**
+  - [x] Integrated post-stage extension execution (`execute_custom_stage.yml` targeting `post_cluster.yml`)
+  - [x] External failure attribution in `/var/gdc-install/state/post-cluster.json` and `/var/log/gdc-ansible-pull.log`
+  - [x] Reference burn-in test bundle under `custom-data/examples/burnin-bundle/`
+  - [x] Operator guide in `docs/custom-playbook-extensions.md`
 
 ---
 
@@ -293,5 +309,8 @@ The table below maps project capabilities across **Functional Domains** (columns
 | **GDC-SPEC-013** | Dynamic Boot ID & Primary MAC Telemetry (`13-dynamic-boot-id-and-mac-telemetry.md`) | `Stage 1: LiveCD` | Approved / Implemented |
 | **GDC-SPEC-014** | Companion ConfigSync Integration (`14-gdc-companion-configsync-spec.md`) | `Stage 5: Cluster Ready` | Approved / In Progress |
 | **GDC-SPEC-015** | Dual Console Display & Debug TTY (`15-dual-console-display-and-debug-tty.md`) | `Stage 1: LiveCD` | Planned (Low Priority) |
+| **GDC-SPEC-016** | Companion GSM Auth Secret Spec (`16-gdc-companion-gsm-auth-secret-spec.md`) | `Stage 5: Cluster Ready` | Approved / Implemented |
+| **GDC-SPEC-017** | Custom Playbook Lifecycle Extensions (`17-custom-playbook-lifecycle-extensions.md`) | `Stages 5–7` | Approved / Implemented |
+| **GDC-SPEC-018** | GDC Companion Bundle Service Spec (`18-gdc-companion-bundle-service-spec.md`) | `Stage 5: Cluster Ready` | Approved |
 | **GDC-SPEC-DEP-001** | GDC Master Dependency Matrix | `All Stages` | Approved / Implemented |
 | **GDC-SPEC-READY-LINUX**| GDC Ready-Linux & Idempotent Post-Install Plan | `Stages 2–4` | Approved / Implemented |

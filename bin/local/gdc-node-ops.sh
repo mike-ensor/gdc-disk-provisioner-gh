@@ -735,19 +735,22 @@ cmd_reset_pxe() {
     local ssh_user="gdc-admin"
     local ssh_key=""
     local auto_yes=false
+    local skip_fleet=false
 
     reset_usage() {
         cat <<EOF
 Usage: $(basename "$0") reset-pxe [OPTIONS]
 
 Schedules a one-time UEFI PXE boot (BootNext) on target nodes and triggers a reboot.
+Optionally unregisters the active cluster from Google Cloud Fleet/GKE Hub if present.
 
 Options:
-  --nodes <IPs>     Comma-separated list or space-separated IPs (defaults to TARGET_TEST_MACHINES)
-  --user <USER>     SSH user (default: gdc-admin)
-  --key <KEY_PATH>  Path to SSH private key
-  -y, --yes         Skip confirmation prompt
-  -h, --help        Display this help message
+  --nodes <IPs>       Comma-separated list or space-separated IPs (defaults to TARGET_TEST_MACHINES)
+  --user <USER>       SSH user (default: gdc-admin)
+  --key <KEY_PATH>    Path to SSH private key
+  --skip-fleet        Skip unregistering cluster from Google Cloud Fleet / GKE Hub
+  -y, --yes           Skip confirmation prompt
+  -h, --help          Display this help message
 EOF
         exit "${1:-0}"
     }
@@ -765,6 +768,14 @@ EOF
             --key)
                 ssh_key="$2"
                 shift 2
+                ;;
+            --skip-fleet|--no-fleet)
+                skip_fleet=true
+                shift
+                ;;
+            --unregister-fleet)
+                skip_fleet=false
+                shift
                 ;;
             -y|--yes)
                 auto_yes=true
@@ -823,6 +834,53 @@ EOF
         if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "${ssh_opts[@]}" "${ssh_user}@$ip" "echo 'OK'" &>/dev/null; then
             echo "  [!] ERROR: Cannot connect to $ip as ${ssh_user}. Skipping."
             continue
+        fi
+
+        # 1. Check and unregister from Google Cloud Fleet if membership exists
+        if [[ "${skip_fleet}" != "true" ]]; then
+            echo "  [-] Checking for Fleet membership on $ip..."
+            ssh "${ssh_opts[@]}" "${ssh_user}@$ip" bash -s << 'FLEET_EOF' || true
+set -uo pipefail
+if sudo test -f /etc/kubernetes/admin.conf; then
+    if sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get membership membership --request-timeout=5s &>/dev/null; then
+        echo "  [-] Deleting in-cluster 'membership' custom resource..."
+        sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf delete membership membership --ignore-not-found=true --timeout=30s 2>/dev/null || true
+        echo "  [+] In-cluster Fleet membership custom resource deleted."
+    else
+        echo -e "  \033[93m[!] Notice: No in-cluster 'membership' resource found.\033[0m"
+    fi
+else
+    echo -e "  \033[93m[!] Notice: No active Kubernetes cluster found on node.\033[0m"
+fi
+FLEET_EOF
+
+            # Also attempt to unregister from Google Cloud GKE Hub if gcloud is authenticated
+            if command -v gcloud &>/dev/null; then
+                local node_meta
+                node_meta=$(ssh "${ssh_opts[@]}" "${ssh_user}@$ip" "cat /etc/ansible/facts.d/gdc.fact 2>/dev/null || cat /var/gdc-install/state/gdc.fact 2>/dev/null || true" 2>/dev/null || true)
+                if [[ -n "$node_meta" ]] && command -v jq &>/dev/null; then
+                    local cluster_name
+                    local project_id
+                    cluster_name=$(echo "$node_meta" | jq -r '.cluster.cluster_name // .hostname // empty' 2>/dev/null || true)
+                    project_id=$(echo "$node_meta" | jq -r '.gcp_info.project_id // empty' 2>/dev/null || true)
+                    if [[ -n "$cluster_name" && -n "$project_id" ]]; then
+                        local mem_loc
+                        mem_loc=$(gcloud container fleet memberships list --project="${project_id}" --filter="name:${cluster_name}" --format="value(LOCATION)" 2>/dev/null | head -n 1 || true)
+                        if [[ -n "$mem_loc" ]]; then
+                            echo "  [-] Unregistering '${cluster_name}' (${mem_loc}) from Google Cloud Fleet in project '${project_id}'..."
+                            if gcloud container fleet memberships delete "${cluster_name}" --location="${mem_loc}" --project="${project_id}" --quiet 2>/dev/null; then
+                                echo "  [+] Fleet membership '${cluster_name}' removed from Google Cloud GKE Hub."
+                            else
+                                echo -e "  \033[93m[!] WARNING: Could not remove membership '${cluster_name}' from GKE Hub. Continuing.\033[0m"
+                            fi
+                        else
+                            echo -e "  \033[93m[!] WARNING: Cluster '${cluster_name}' was not found in Google Cloud Fleet (project '${project_id}'). Skipping Fleet unregistration.\033[0m"
+                        fi
+                    else
+                        echo -e "  \033[93m[!] WARNING: Could not determine cluster name or project ID from node facts. Skipping Fleet unregistration.\033[0m"
+                    fi
+                fi
+            fi
         fi
 
         echo "  [-] Querying network interfaces and scheduling PXE boot on $ip..."

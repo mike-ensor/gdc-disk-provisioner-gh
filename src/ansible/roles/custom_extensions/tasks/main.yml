@@ -1,0 +1,109 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "GDC-EXTENSION | Resolve custom extension configuration from machine_config"
+  ansible.builtin.set_fact:
+    _custom_ext_config: "{{ (machine_config | default({})).custom_extensions | default({}) }}"
+    _custom_bundle_tarball: "{{ custom_extensions_sideload_tarball }}"
+    _custom_playbooks_path: "{{ custom_extensions_playbooks_dir }}"
+
+- name: "GDC-EXTENSION | Check if sideloaded bundle exists on local filesystem"
+  ansible.builtin.stat:
+    path: "{{ _custom_bundle_tarball }}"
+  register: _sideload_bundle_stat
+
+- name: "GDC-EXTENSION | Download remote bundle if URL specified and not sideloaded"
+  when:
+    - not _sideload_bundle_stat.stat.exists
+    - _custom_ext_config.bundle_url is defined
+    - (_custom_ext_config.bundle_url | trim | length) > 0
+  block:
+    - name: "GDC-EXTENSION | Ensure client certificates presence is verified"
+      ansible.builtin.stat:
+        path: "/var/gdc-install/keys/client.crt"
+      register: _ext_client_cert_stat
+
+    - name: "GDC-EXTENSION | Resolve normalized bundle URL"
+      ansible.builtin.set_fact:
+        _resolved_bundle_url: >-
+          {{
+            (_custom_ext_config.bundle_url | trim)
+            if (_custom_ext_config.bundle_url | trim is match('^https?://'))
+            else (
+              ((gdc_companion_base_url | default('https://gdc-companion.internal/')) | trim('/')) + '/' + ((_custom_ext_config.bundle_url | trim) | regex_replace('^/+', ''))
+            )
+          }}
+
+    - name: "GDC-EXTENSION | Fetch bundle tarball from configured URL"
+      ansible.builtin.get_url:
+        url: "{{ _resolved_bundle_url }}"
+        dest: "{{ _custom_bundle_tarball }}"
+        headers:
+          Authorization: "Bearer {{ gdc_companion_api_key | default('') }}"
+        client_cert: "{{ '/var/gdc-install/keys/client.crt' if _ext_client_cert_stat.stat.exists else omit }}"
+        client_key: "{{ '/var/gdc-install/keys/client.key' if _ext_client_cert_stat.stat.exists else omit }}"
+        validate_certs: false
+        timeout: "{{ custom_extensions_download_timeout | default(300) }}"
+        mode: '0640'
+        owner: root
+        group: root
+      register: _bundle_download_result
+
+- name: "GDC-EXTENSION | Re-check bundle presence after retrieval"
+  ansible.builtin.stat:
+    path: "{{ _custom_bundle_tarball }}"
+    checksum_algorithm: sha256
+  register: _active_bundle_stat
+
+- name: "GDC-EXTENSION | Validate SHA-256 checksum if specified in configuration"
+  when:
+    - _active_bundle_stat.stat.exists
+    - _custom_ext_config.sha256 is defined
+    - (_custom_ext_config.sha256 | trim | length) > 0
+  block:
+    - name: "GDC-EXTENSION | Assert SHA-256 digest matches expected configuration"
+      ansible.builtin.assert:
+        that:
+          - _active_bundle_stat.stat.checksum | lower == _custom_ext_config.sha256 | lower
+        fail_msg: >-
+          Security Alert: Checksum mismatch for custom extension bundle {{ _custom_bundle_tarball }}!
+          Expected: {{ _custom_ext_config.sha256 | lower }}
+          Actual:   {{ _active_bundle_stat.stat.checksum | lower }}
+        success_msg: "Custom extension bundle integrity verified against SHA-256 checksum."
+
+- name: "GDC-EXTENSION | Unpack and install bundle when present"
+  when: _active_bundle_stat.stat.exists
+  block:
+    - name: "GDC-EXTENSION | Ensure destination playbooks directory exists"
+      ansible.builtin.file:
+        path: "{{ _custom_playbooks_path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0750'
+
+    - name: "GDC-EXTENSION | Extract custom extension bundle into playbooks directory"
+      ansible.builtin.unarchive:
+        src: "{{ _custom_bundle_tarball }}"
+        dest: "{{ _custom_playbooks_path }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: 'u=rwX,g=rX,o='
+
+    - name: "GDC-EXTENSION | Check for requirements.yml in unpacked bundle"
+      ansible.builtin.stat:
+        path: "{{ _custom_playbooks_path }}/requirements.yml"
+      register: _requirements_stat
+
+    - name: "GDC-EXTENSION | Install Ansible dependencies via galaxy if requirements.yml present"
+      ansible.builtin.command:
+        cmd: "ansible-galaxy install -r {{ _custom_playbooks_path }}/requirements.yml"
+      when: _requirements_stat.stat.exists
+      register: _galaxy_install_result
+      changed_when: _galaxy_install_result.rc == 0
+
+- name: "GDC-EXTENSION | Execute Stage 5 post-hook if cluster_ready.yml is present"
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/stages/execute_custom_stage.yml"
+  vars:
+    target_custom_stage: "cluster_ready"
