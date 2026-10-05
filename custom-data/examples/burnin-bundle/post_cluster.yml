@@ -1,0 +1,29 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "BURNIN-POST | Execute post-cluster burn-in workload suite"
+  block:
+    - name: "BURNIN-POST | Deploy burn-in test namespace"
+      ansible.builtin.shell: |
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf create namespace gdc-burnin --dry-run=client -o yaml | \
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f -
+      register: _burnin_ns_create
+      changed_when: _burnin_ns_create.rc == 0
+
+    - name: "BURNIN-POST | Deploy lightweight nginx burn-in pod"
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf run burnin-smoke --image=nginx:alpine --namespace=gdc-burnin --restart=Never"
+      register: _burnin_pod_run
+      changed_when: _burnin_pod_run.rc == 0
+
+    - name: "BURNIN-POST | Wait for burn-in pod to reach Running condition (timeout: 120s)"
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf wait --for=condition=Ready pod/burnin-smoke --namespace=gdc-burnin --timeout=120s"
+      register: _burnin_pod_wait
+      changed_when: false
+  always:
+    - name: "BURNIN-POST | Tear down burn-in test namespace"
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf delete namespace gdc-burnin --timeout=60s"
+      register: _burnin_ns_delete
+      changed_when: _burnin_ns_delete.rc == 0
+      failed_when: false

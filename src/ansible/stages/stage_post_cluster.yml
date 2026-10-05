@@ -9,6 +9,12 @@
   ansible.builtin.include_role:
     name: post_cluster
 
+- name: "GDC-PC-EXT | Execute custom post-cluster burn-in and workload extensions"
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/stages/execute_custom_stage.yml"
+  vars:
+    target_custom_stage: "post_cluster"
+
 - name: "GDC-TIMING | Calculate PostCluster timing facts"
   ansible.builtin.set_fact:
     post_cluster_end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
@@ -16,7 +22,19 @@
 
 - name: "GDC-EVIDENCE | Update PostCluster Evidence Timing"
   ansible.builtin.set_fact:
-    post_cluster_evidence: "{{ (post_cluster_evidence | default({})) | combine({'timing': {'start_time': post_cluster_start_time, 'end_time': post_cluster_end_time, 'duration_seconds': post_cluster_duration_seconds | int, 'overall_provisioning_start_time': provisioning_start_time | default(post_cluster_start_time)}}) }}"
+    post_cluster_evidence: >-
+      {{
+        (post_cluster_evidence | default({}))
+        | combine({
+            'timing': {
+              'start_time': post_cluster_start_time,
+              'end_time': post_cluster_end_time,
+              'duration_seconds': post_cluster_duration_seconds | int,
+              'overall_provisioning_start_time': provisioning_start_time | default(post_cluster_start_time)
+            },
+            'custom_extension': (custom_extension_evidence | default({}))
+          })
+      }}
 
 - name: "GDC-STATE | Write PostCluster completion state"
   ansible.builtin.copy:

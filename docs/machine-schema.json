@@ -392,6 +392,29 @@
           }
         }
       }
+    },
+    "custom_extensions": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Optional custom Ansible playbook lifecycle extension configuration.",
+      "properties": {
+        "bundle_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "HTTPS URL from which the edge node downloads the playbook tarball."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "description": "Hex-encoded SHA-256 checksum of the bundle tarball."
+        }
+      },
+      "required": [
+        "bundle_url",
+        "sha256"
+      ]
     }
   }
 }
