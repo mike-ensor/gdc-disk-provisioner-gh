@@ -39,6 +39,7 @@ ENV_ROOT_REPO_BRANCH="${ROOT_REPO_BRANCH:-}"
 ENV_ROOT_REPO_SECRET="${ROOT_REPO_SECRET:-}"
 ENV_ROOT_REPO_GSA="${ROOT_REPO_GSA:-}"
 ENV_CLUSTER_CONFIG_NAME="${CLUSTER_CONFIG_NAME:-}"
+ENV_ROOT_SYNC_DIR="${ROOT_SYNC_DIR:-}"
 ENV_CONFIG_SYNC_ENABLED="${CONFIG_SYNC_ENABLED:-}"
 ENV_ANTHOS_VERSION="${ANTHOS_VERSION:-${ANTHOS_BARE_METAL_VERSION:-}}"
 ENV_POD_CIDR="${POD_CIDR:-}"
@@ -59,6 +60,7 @@ CLI_ROOT_REPO_BRANCH=""
 CLI_ROOT_REPO_SECRET=""
 CLI_ROOT_REPO_GSA=""
 CLI_CLUSTER_CONFIG_NAME=""
+CLI_ROOT_SYNC_DIR=""
 CLI_CONFIG_SYNC_ENABLED=""
 CLI_ANTHOS_VERSION=""
 CLI_POD_CIDR=""
@@ -97,6 +99,7 @@ Options:
   --root-repo-secret <SECRET>
                          GSM secret name containing registry or git credentials
   --root-repo-gsa <GSA>  Google Service Account name for OCI Workload Identity
+  --root-sync-dir <DIR>  Directory path in repository for RootSync (default: ${ENV_ROOT_SYNC_DIR:-config/clusters/<cluster-config-name|cluster-name>})
   --cluster-config-name <NAME>
                          Subfolder override under config/clusters/ (default: cluster name)
   --admin-email <EMAIL>  Administrator email for ClusterRoleBinding (optional)
@@ -179,6 +182,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --root-repo-gsa)
             CLI_ROOT_REPO_GSA="$2"
+            shift 2
+            ;;
+        --root-sync-dir)
+            CLI_ROOT_SYNC_DIR="$2"
             shift 2
             ;;
         --cluster-config-name)
@@ -303,6 +310,7 @@ FACT_ROOT_REPO_BRANCH=""
 FACT_ROOT_REPO_SECRET=""
 FACT_ROOT_REPO_GSA=""
 FACT_CLUSTER_CONFIG_NAME=""
+FACT_ROOT_SYNC_DIR=""
 FACT_ANTHOS_VERSION=""
 FACT_POD_CIDR=""
 FACT_SERVICE_CIDR=""
@@ -379,6 +387,10 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     if [[ -z "${FACT_CLUSTER_CONFIG_NAME}" ]]; then
         FACT_CLUSTER_CONFIG_NAME=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.cluster_config_name")
     fi
+    FACT_ROOT_SYNC_DIR=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo["root-sync-dir"]')
+    if [[ -z "${FACT_ROOT_SYNC_DIR}" ]]; then
+        FACT_ROOT_SYNC_DIR=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.root_sync_dir")
+    fi
     FACT_CONFIG_SYNC_ENABLED=$(get_json_val "${FACTS_FILE}" ".cluster.config_sync_enabled")
 
     FACT_ANTHOS_VERSION=$(get_json_val "${FACTS_FILE}" ".cluster.anthos_bare_metal_version")
@@ -433,7 +445,8 @@ else
     fi
 fi
 CLUSTER_CONFIG_NAME="${CLI_CLUSTER_CONFIG_NAME:-${ENV_CLUSTER_CONFIG_NAME:-${FACT_CLUSTER_CONFIG_NAME:-}}}"
-ROOT_SYNC_DIR="config/clusters/${CLUSTER_CONFIG_NAME:-${CLUSTER_NAME}}"
+DEFAULT_ROOT_SYNC_DIR="config/clusters/${CLUSTER_CONFIG_NAME:-${CLUSTER_NAME}}"
+ROOT_SYNC_DIR="${CLI_ROOT_SYNC_DIR:-${ENV_ROOT_SYNC_DIR:-${FACT_ROOT_SYNC_DIR:-${DEFAULT_ROOT_SYNC_DIR}}}}"
 CONFIG_SYNC_ENABLED="${CLI_CONFIG_SYNC_ENABLED:-${ENV_CONFIG_SYNC_ENABLED:-${FACT_CONFIG_SYNC_ENABLED:-true}}}"
 if [[ "${CONFIG_SYNC_ENABLED}" != "false" ]]; then
     CONFIG_SYNC_ENABLED="true"
