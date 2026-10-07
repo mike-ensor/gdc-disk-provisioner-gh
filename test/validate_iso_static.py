@@ -160,6 +160,7 @@ def main():
         "/custom-data/nexus/nexus-bin/bin/nexus",
         "/custom-data/tools/helm/helm",
         "/custom-data/tools/kubestr/kubestr",
+        "/custom-data/tools/oras/oras",
         "/boot/grub/grub.cfg"
     ]
 

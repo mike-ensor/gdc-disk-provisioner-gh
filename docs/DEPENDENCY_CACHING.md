@@ -46,14 +46,14 @@ OCI container image layers (Kubernetes system images, MetalLB, CSI provisioners,
 ## 3. Standalone Offline Service Binaries & CLI Tools
 
 ### 3.1. How Binaries are Cached in GCS
-Offline binaries (`gitea`, `nexus`, `jre`, `google-cloud-sdk`, `step-cli`, `helm`, `kubestr`, and `gdc-collector`) are declared in `src/dependencies.env` with pinned cryptographic SHA-256 signatures.
+Offline binaries (`gitea`, `nexus`, `jre`, `google-cloud-sdk`, `step-cli`, `helm`, `kubestr`, `oras`, and `gdc-collector`) are declared in `src/dependencies.env` with pinned cryptographic SHA-256 signatures.
 *   **GCS Prefix:** `gs://${DEPENDENCY_CACHE_GCS_BUCKET}/binaries/`
 *   **Integrity Verification:** Every downloaded binary is verified against its pinned SHA-256 digest before being injected into the ISO or uploaded to GCS.
 
 ### 3.2. Usage During the ISO Build Process
-1.  **Extraction & Staging:** During `src/build/remaster.sh`, standalone binaries are unpacked or copied into target paths on the ISO (e.g. `/custom-data/tools/helm/helm`, `/custom-data/tools/kubestr/kubestr`, `/custom-data/gitea/gitea`).
+1.  **Extraction & Staging:** During `src/build/remaster.sh`, standalone binaries are unpacked or copied into target paths on the ISO (e.g. `/custom-data/tools/helm/helm`, `/custom-data/tools/kubestr/kubestr`, `/custom-data/tools/oras/oras`, `/custom-data/gitea/gitea`).
 2.  **Subiquity / Cloud-Init Propagation:** `user-data.j2` copies all tools from `/cdrom/custom-data/tools/` directly into `/target/var/gdc-install/tools/` and `/target/var/gdc-install/iso-cache/tools/`.
-3.  **Ansible Symlink:** In `roles/system_tuning`, the Ansible playbook verifies permissions and symlinks executables into `/usr/local/bin/` (`helm`, `kubestr`, `bmctl`, `gcloud`).
+3.  **Ansible Symlink:** In `roles/system_tuning`, the Ansible playbook verifies permissions and symlinks executables into `/usr/local/bin/` (`helm`, `kubestr`, `oras`, `bmctl`, `gcloud`).
 
 ---
 

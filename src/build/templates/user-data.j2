@@ -761,6 +761,40 @@ autoinstall:
         'fi' \
         'export PATH' > /target/etc/profile.d/gdc-paths.sh
       chmod 0644 /target/etc/profile.d/gdc-paths.sh
+
+      printf '%s\n' \
+        '# Configured by GDC Disk Provisioner' \
+        '# POSIX-compliant: compatible with both /bin/sh and /bin/bash' \
+        'if [ -z "${MACHINE_IP:-}" ]; then' \
+        '  if [ -f "/etc/ansible/facts.d/gdc.fact" ] && command -v jq >/dev/null 2>&1; then' \
+        '    _k8s_cidr=$(jq -r ".network.cluster_network.ip_cidr // \"\"" /etc/ansible/facts.d/gdc.fact 2>/dev/null)' \
+        '    if [ -n "$_k8s_cidr" ] && [ "$_k8s_cidr" != "null" ]; then' \
+        '      MACHINE_IP="${_k8s_cidr%%/*}"' \
+        '    fi' \
+        '  fi' \
+        '  if [ -z "${MACHINE_IP:-}" ] && command -v ip >/dev/null 2>&1; then' \
+        '    _vlan_ip=$(ip -4 -o addr show 2>/dev/null | awk '\''$2 ~ /\.[0-9]+$/ {print $4}'\'' | cut -d/ -f1 | head -n 1)' \
+        '    if [ -n "$_vlan_ip" ]; then' \
+        '      MACHINE_IP="$_vlan_ip"' \
+        '    fi' \
+        '  fi' \
+        '  if [ -z "${MACHINE_IP:-}" ] && [ -f "/etc/hosts" ]; then' \
+        '    _hosts_ip=$(awk '\''/nexus\.internal\.gdc\.local/ {print $1; exit}'\'' /etc/hosts 2>/dev/null)' \
+        '    if [ -n "$_hosts_ip" ] && [ "$_hosts_ip" != "127.0.0.1" ]; then' \
+        '      MACHINE_IP="$_hosts_ip"' \
+        '    fi' \
+        '  fi' \
+        '  if [ -z "${MACHINE_IP:-}" ] && command -v ip >/dev/null 2>&1; then' \
+        '    _default_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '\''{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}'\'')' \
+        '    if [ -n "$_default_ip" ]; then' \
+        '      MACHINE_IP="$_default_ip"' \
+        '    fi' \
+        '  fi' \
+        'fi' \
+        'if [ -n "${MACHINE_IP:-}" ]; then' \
+        '  export MACHINE_IP' \
+        'fi' > /target/etc/profile.d/gdc-machine-ip.sh
+      chmod 0644 /target/etc/profile.d/gdc-machine-ip.sh
     # Ssh and passwordless root-unlock setup for transition gap
     - |
       echo "=============================================================================="

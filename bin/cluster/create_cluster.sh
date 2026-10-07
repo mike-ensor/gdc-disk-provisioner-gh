@@ -40,6 +40,13 @@ ENV_ROOT_REPO_SECRET="${ROOT_REPO_SECRET:-}"
 ENV_ROOT_REPO_GSA="${ROOT_REPO_GSA:-}"
 ENV_CLUSTER_CONFIG_NAME="${CLUSTER_CONFIG_NAME:-}"
 ENV_ROOT_SYNC_DIR="${ROOT_SYNC_DIR:-}"
+ENV_REPO_SYNC_REPO="${REPO_SYNC_REPO:-}"
+ENV_REPO_SYNC_NAMESPACE="${REPO_SYNC_NAMESPACE:-}"
+ENV_REPO_SYNC_TYPE="${REPO_SYNC_TYPE:-}"
+ENV_REPO_SYNC_BRANCH="${REPO_SYNC_BRANCH:-}"
+ENV_REPO_SYNC_SECRET="${REPO_SYNC_SECRET:-}"
+ENV_REPO_SYNC_GSA="${REPO_SYNC_GSA:-}"
+ENV_REPO_SYNC_DIR="${REPO_SYNC_DIR:-}"
 ENV_CONFIG_SYNC_ENABLED="${CONFIG_SYNC_ENABLED:-}"
 ENV_CONFIGURE_CLUSTER_DNS="${CONFIGURE_CLUSTER_DNS:-}"
 ENV_ANTHOS_VERSION="${ANTHOS_VERSION:-${ANTHOS_BARE_METAL_VERSION:-}}"
@@ -62,6 +69,13 @@ CLI_ROOT_REPO_SECRET=""
 CLI_ROOT_REPO_GSA=""
 CLI_CLUSTER_CONFIG_NAME=""
 CLI_ROOT_SYNC_DIR=""
+CLI_REPO_SYNC_REPO=""
+CLI_REPO_SYNC_NAMESPACE=""
+CLI_REPO_SYNC_TYPE=""
+CLI_REPO_SYNC_BRANCH=""
+CLI_REPO_SYNC_SECRET=""
+CLI_REPO_SYNC_GSA=""
+CLI_REPO_SYNC_DIR=""
 CLI_CONFIG_SYNC_ENABLED=""
 CLI_CONFIGURE_CLUSTER_DNS=""
 CLI_ANTHOS_VERSION=""
@@ -106,6 +120,18 @@ Options:
   --root-sync-dir <DIR>  Directory path in repository for RootSync (default: ${ENV_ROOT_SYNC_DIR:-config/clusters/<cluster-config-name|cluster-name>})
   --cluster-config-name <NAME>
                          Subfolder override under config/clusters/ (default: cluster name)
+  --repo-sync-repo <REPO>
+                         Git repo URL or OCI image for RepoSync (default: ${ENV_REPO_SYNC_REPO:-none})
+  --repo-sync-namespace <NAMESPACE>
+                         Namespace of the RepoSync object (required with --repo-sync-repo)
+  --repo-sync-type <TYPE>
+                         Repository type: 'git' or 'oci' (default: auto-detected)
+  --repo-sync-branch <BRANCH>
+                         Git branch for RepoSync (default: main)
+  --repo-sync-secret <SECRET>
+                         Existing Kubernetes Secret name (in the RepoSync namespace) with git or registry credentials
+  --repo-sync-gsa <GSA>  Google Service Account name for OCI Workload Identity
+  --repo-sync-dir <DIR>  Directory path in repository for RepoSync (default: repository root)
   --admin-email <EMAIL>  Administrator email for ClusterRoleBinding (optional)
   --dry-run              Validate configuration and simulate inception without modifying system
   -y, --yes              Skip confirmation prompt
@@ -198,6 +224,34 @@ while [[ $# -gt 0 ]]; do
             ;;
         --cluster-config-name)
             CLI_CLUSTER_CONFIG_NAME="$2"
+            shift 2
+            ;;
+        --repo-sync-repo)
+            CLI_REPO_SYNC_REPO="$2"
+            shift 2
+            ;;
+        --repo-sync-namespace)
+            CLI_REPO_SYNC_NAMESPACE="$2"
+            shift 2
+            ;;
+        --repo-sync-type)
+            CLI_REPO_SYNC_TYPE="$2"
+            shift 2
+            ;;
+        --repo-sync-branch)
+            CLI_REPO_SYNC_BRANCH="$2"
+            shift 2
+            ;;
+        --repo-sync-secret)
+            CLI_REPO_SYNC_SECRET="$2"
+            shift 2
+            ;;
+        --repo-sync-gsa)
+            CLI_REPO_SYNC_GSA="$2"
+            shift 2
+            ;;
+        --repo-sync-dir)
+            CLI_REPO_SYNC_DIR="$2"
             shift 2
             ;;
         --admin-email)
@@ -487,6 +541,54 @@ elif [[ "${ROOT_REPO_TYPE}" == "git" ]]; then
         fi
     fi
 fi
+
+# RepoSync (namespace-scoped) precedence: CLI arguments > Environment variables.
+# RepoSync settings are not read from the facts file.
+REPO_SYNC_REPO="${CLI_REPO_SYNC_REPO:-${ENV_REPO_SYNC_REPO:-}}"
+if [[ "${REPO_SYNC_REPO}" == "none" ]]; then
+    REPO_SYNC_REPO=""
+fi
+REPO_SYNC_NAMESPACE="${CLI_REPO_SYNC_NAMESPACE:-${ENV_REPO_SYNC_NAMESPACE:-}}"
+REPO_SYNC_TYPE="${CLI_REPO_SYNC_TYPE:-${ENV_REPO_SYNC_TYPE:-}}"
+REPO_SYNC_BRANCH="${CLI_REPO_SYNC_BRANCH:-${ENV_REPO_SYNC_BRANCH:-main}}"
+REPO_SYNC_SECRET="${CLI_REPO_SYNC_SECRET:-${ENV_REPO_SYNC_SECRET:-}}"
+REPO_SYNC_GSA="${CLI_REPO_SYNC_GSA:-${ENV_REPO_SYNC_GSA:-}}"
+REPO_SYNC_DIR="${CLI_REPO_SYNC_DIR:-${ENV_REPO_SYNC_DIR:-}}"
+if [[ -n "${REPO_SYNC_REPO}" && -z "${REPO_SYNC_TYPE}" ]]; then
+    if [[ "${REPO_SYNC_REPO}" == *.git || "${REPO_SYNC_REPO}" == http* || "${REPO_SYNC_REPO}" == git@* || "${REPO_SYNC_REPO}" == ssh://* ]]; then
+        REPO_SYNC_TYPE="git"
+    else
+        REPO_SYNC_TYPE="oci"
+    fi
+fi
+if [[ "${CONFIG_SYNC_ENABLED}" == "true" && -n "${REPO_SYNC_REPO}" ]]; then
+    if [[ "${REPO_SYNC_TYPE}" != "git" && "${REPO_SYNC_TYPE}" != "oci" ]]; then
+        echo "[!] ERROR: Invalid RepoSync type '${REPO_SYNC_TYPE}' (--repo-sync-type). Must be 'git' or 'oci'." >&2
+        exit 1
+    fi
+    if [[ -z "${REPO_SYNC_NAMESPACE}" ]]; then
+        echo "[!] ERROR: A RepoSync repo was specified but no namespace. Set --repo-sync-namespace (or REPO_SYNC_NAMESPACE)." >&2
+        exit 1
+    fi
+fi
+
+REPO_SYNC_AUTH_DISPLAY="none (public)"
+if [[ "${REPO_SYNC_TYPE}" == "oci" ]]; then
+    if [[ -n "${REPO_SYNC_GSA}" ]]; then
+        REPO_SYNC_AUTH_DISPLAY="Workload Identity (GSA: ${REPO_SYNC_GSA})"
+    elif [[ -n "${REPO_SYNC_SECRET}" ]]; then
+        REPO_SYNC_AUTH_DISPLAY="Secret ('${REPO_SYNC_SECRET}')"
+    fi
+elif [[ "${REPO_SYNC_TYPE}" == "git" ]]; then
+    if [[ -n "${REPO_SYNC_SECRET}" ]]; then
+        if [[ "${REPO_SYNC_REPO}" == git@* || "${REPO_SYNC_REPO}" == ssh://* ]]; then
+            REPO_SYNC_AUTH_DISPLAY="SSH Key ('${REPO_SYNC_SECRET}')"
+        else
+            REPO_SYNC_AUTH_DISPLAY="Secret ('${REPO_SYNC_SECRET}')"
+        fi
+    fi
+fi
+
 ANTHOS_VERSION="${CLI_ANTHOS_VERSION:-${ENV_ANTHOS_VERSION:-${FACT_ANTHOS_VERSION:-1.35.300-gke.87}}}"
 POD_CIDR="${CLI_POD_CIDR:-${ENV_POD_CIDR:-${FACT_POD_CIDR:-172.28.0.0/16}}}"
 SERVICE_CIDR="${CLI_SERVICE_CIDR:-${ENV_SERVICE_CIDR:-${FACT_SERVICE_CIDR:-172.29.0.0/20}}}"
@@ -570,7 +672,7 @@ TOKEN=$(gcloud auth print-access-token 2>/dev/null || true)
 if [[ -n "$TOKEN" ]]; then
     TOKEN_INFO=$(curl -s "https://oauth2.googleapis.com/tokeninfo?access_token=$TOKEN" || true)
     EXPIRES_IN=$(echo "$TOKEN_INFO" | grep -o '"expires_in": [0-9]*' | grep -o '[0-9]*' || true)
-    
+
     if [[ -n "$EXPIRES_IN" ]]; then
         EXPIRES_MIN=$(( EXPIRES_IN / 60 ))
         GCLOUD_TOKEN_AUTH="true (expires in ~${EXPIRES_MIN}m)"
@@ -604,6 +706,16 @@ if [[ "${CONFIG_SYNC_ENABLED}" == "true" && -n "${PRIMARY_ROOT_REPO}" && "${PRIM
     fi
     printf "  %-35s %s\n" "Target Sync Directory:" "${ROOT_SYNC_DIR}"
     printf "  %-35s %s\n" "Root Repo Authentication:" "${ROOT_REPO_AUTH_DISPLAY}"
+fi
+printf "  %-35s %s\n" "RepoSync Repo:" "${REPO_SYNC_REPO:-none}"
+if [[ "${CONFIG_SYNC_ENABLED}" == "true" && -n "${REPO_SYNC_REPO}" ]]; then
+    printf "  %-35s %s\n" "RepoSync Namespace:" "${REPO_SYNC_NAMESPACE}"
+    printf "  %-35s %s\n" "RepoSync Type:" "${REPO_SYNC_TYPE}"
+    if [[ "${REPO_SYNC_TYPE}" == "git" ]]; then
+        printf "  %-35s %s\n" "RepoSync Branch:" "${REPO_SYNC_BRANCH}"
+    fi
+    printf "  %-35s %s\n" "RepoSync Directory:" "${REPO_SYNC_DIR:-/ (repository root)}"
+    printf "  %-35s %s\n" "RepoSync Authentication:" "${REPO_SYNC_AUTH_DISPLAY}"
 fi
 printf "  %-35s %s\n" "Admin User Email (automated):" "${ADMIN_USER_EMAIL:-none}"
 if [[ ${#CLUSTER_ADMIN_EMAILS[@]} -gt 0 ]]; then
@@ -845,6 +957,9 @@ kind: ClusterDNS
 metadata:
   name: default
 spec:
+  upstreamNameservers:
+  - serverIP: ${MACHINE_IP}
+    serverPort: 53
   domains:
   - name: gdc.local
     nameservers:
@@ -978,6 +1093,106 @@ EOF
 		fi
 	else
 		echo "[-] No primary root repo specified. Skipping RootSync deployment."
+	fi
+
+	# 8. Deploy RepoSync (if specified)
+	if [[ "${CONFIG_SYNC_ENABLED}" != "true" ]]; then
+		echo "[-] Config Sync disabled. Skipping RepoSync deployment."
+	elif [[ -n "${REPO_SYNC_REPO}" ]]; then
+		REPOSYNC_FILE="${CLUSTER_CONFIG_DIR}/reposync.yaml"
+		echo "[-] Generating RepoSync manifest (${REPO_SYNC_TYPE}) for namespace '${REPO_SYNC_NAMESPACE}': ${REPO_SYNC_REPO}..."
+		if [[ "${REPO_SYNC_TYPE}" == "git" ]]; then
+			REPO_SYNC_GIT_AUTH="none"
+			if [[ -n "${REPO_SYNC_SECRET}" ]]; then
+				if [[ "${REPO_SYNC_REPO}" == git@* || "${REPO_SYNC_REPO}" == ssh://* ]]; then
+					REPO_SYNC_GIT_AUTH="ssh"
+				else
+					REPO_SYNC_GIT_AUTH="token"
+				fi
+			fi
+			cat <<EOF >"${REPOSYNC_FILE}"
+apiVersion: configsync.gke.io/v1beta1
+kind: RepoSync
+metadata:
+  name: repo-sync
+  namespace: ${REPO_SYNC_NAMESPACE}
+spec:
+  sourceFormat: unstructured
+  sourceType: git
+  git:
+    repo: ${REPO_SYNC_REPO}
+    branch: ${REPO_SYNC_BRANCH}
+    auth: ${REPO_SYNC_GIT_AUTH}
+EOF
+			if [[ -n "${REPO_SYNC_DIR}" ]]; then
+				cat <<EOF >>"${REPOSYNC_FILE}"
+    dir: ${REPO_SYNC_DIR}
+EOF
+			fi
+			if [[ -n "${REPO_SYNC_SECRET}" ]]; then
+				cat <<EOF >>"${REPOSYNC_FILE}"
+    secretRef:
+      name: ${REPO_SYNC_SECRET}
+EOF
+			fi
+		else
+			cat <<EOF >"${REPOSYNC_FILE}"
+apiVersion: configsync.gke.io/v1beta1
+kind: RepoSync
+metadata:
+  name: repo-sync
+  namespace: ${REPO_SYNC_NAMESPACE}
+spec:
+  sourceFormat: unstructured
+  sourceType: oci
+  oci:
+    image: ${REPO_SYNC_REPO}
+EOF
+			if [[ -n "${REPO_SYNC_DIR}" ]]; then
+				cat <<EOF >>"${REPOSYNC_FILE}"
+    dir: ${REPO_SYNC_DIR}
+EOF
+			fi
+			if [[ -n "${REPO_SYNC_GSA}" ]]; then
+				cat <<EOF >>"${REPOSYNC_FILE}"
+    auth: gcpserviceaccount
+    gcpServiceAccountEmail: ${REPO_SYNC_GSA}@${PROJECT_ID}.iam.gserviceaccount.com
+EOF
+			elif [[ -n "${REPO_SYNC_SECRET}" ]]; then
+				cat <<EOF >>"${REPOSYNC_FILE}"
+    auth: token
+    secretRef:
+      name: ${REPO_SYNC_SECRET}
+EOF
+			else
+				cat <<EOF >>"${REPOSYNC_FILE}"
+    auth: none
+EOF
+			fi
+		fi
+
+		echo "[-] Waiting for RepoSync CRD to be established..."
+		crd_found=false
+		for _ in {1..30}; do
+			if sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl get crd reposyncs.configsync.gke.io &>/dev/null; then
+				crd_found=true
+				break
+			fi
+			sleep 2
+		done
+
+		if [[ "${crd_found}" != "true" ]]; then
+			echo "[!] Warning: Timed out waiting for reposyncs.configsync.gke.io CRD to be established. Apply ${REPOSYNC_FILE} manually once Config Sync is ready."
+		else
+			echo "[-] Applying RepoSync 'repo-sync' to namespace '${REPO_SYNC_NAMESPACE}'..."
+			if sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl apply -f "${REPOSYNC_FILE}"; then
+				echo "[OK] RepoSync deployed successfully."
+			else
+				echo "[!] Warning: Failed to apply RepoSync manifest. Verify namespace '${REPO_SYNC_NAMESPACE}' exists, then re-apply ${REPOSYNC_FILE}."
+			fi
+		fi
+	else
+		echo "[-] No RepoSync repo specified. Skipping RepoSync deployment."
 	fi
 else
 	echo "[!] Warning: /etc/kubernetes/admin.conf not found. Ensure the cluster creation completed successfully."

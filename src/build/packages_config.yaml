@@ -72,6 +72,7 @@ packages_to_include:
 
   # Optional packages specified by the customer/operator for target environments
   customer_added:
+    - "nvidia-driver-580-open"
     - "nvidia-driver-580-server"
     - "nvidia-utils-580-server"
     - "nvidia-container-toolkit"

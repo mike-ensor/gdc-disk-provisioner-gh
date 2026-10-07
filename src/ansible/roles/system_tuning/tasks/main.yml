@@ -508,6 +508,54 @@
     force: true
   tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
 
+# --------------------------------------------------------------------------
+# Task 10F: ORAS CLI Setup and Symlink Verification
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-10F | Ensure oras install directory exists"
+  ansible.builtin.file:
+    path: "{{ gdc_oras_install_dir | default('/var/gdc-install/tools/oras') }}"
+    state: directory
+    owner: "{{ gdc_admin_user | default('gdc-admin') }}"
+    group: "{{ gdc_admin_group | default('gdc-admin') }}"
+    mode: '0755'
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10F | Check if oras binary is present in tools staging directory"
+  ansible.builtin.stat:
+    path: "{{ gdc_oras_install_dir | default('/var/gdc-install/tools/oras') }}/oras"
+  register: oras_staging_stat
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10F | Copy oras binary from ISO cache if missing"
+  ansible.builtin.copy:
+    src: "/var/gdc-install/iso-cache/tools/oras/oras"
+    dest: "{{ gdc_oras_install_dir | default('/var/gdc-install/tools/oras') }}/oras"
+    owner: "{{ gdc_admin_user | default('gdc-admin') }}"
+    group: "{{ gdc_admin_group | default('gdc-admin') }}"
+    mode: '0755'
+    remote_src: true
+  when: not oras_staging_stat.stat.exists
+  ignore_errors: true
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10F | Ensure oras binary has executable permissions"
+  ansible.builtin.file:
+    path: "{{ gdc_oras_install_dir | default('/var/gdc-install/tools/oras') }}/oras"
+    mode: '0755'
+  when: oras_staging_stat.stat.exists
+  ignore_errors: true
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
+- name: "GDC-TASK-10F | Create symlink for oras in /usr/local/bin"
+  ansible.builtin.file:
+    src: "{{ gdc_oras_install_dir | default('/var/gdc-install/tools/oras') }}/oras"
+    dest: "/usr/local/bin/oras"
+    state: link
+    owner: root
+    group: root
+    force: true
+  tags: ["machine:connected", "machine:private-mode-normal", "external-dependency"]
+
 - name: "GDC-TASK-10E | Install operator-specified customer packages"
   ansible.builtin.apt:
     name: "{{ customer_install_packages }}"

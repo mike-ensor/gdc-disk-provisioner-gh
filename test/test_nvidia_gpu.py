@@ -33,7 +33,7 @@ class TestNvidiaGPU(unittest.TestCase):
             cfg = yaml.safe_load(f)
 
         packages = set(cfg.get("packages_to_include", {}).get("customer_added", []))
-        self.assertIn("nvidia-driver-580-server", packages, "Missing 'nvidia-driver-580-server' in packages_config.yaml customer_added")
+        self.assertIn("nvidia-driver-580-open", packages, "Missing 'nvidia-driver-580-open' in packages_config.yaml customer_added")
         self.assertIn("nvidia-utils-580-server", packages, "Missing 'nvidia-utils-580-server' in packages_config.yaml customer_added")
         self.assertIn("nvidia-container-toolkit", packages, "Missing 'nvidia-container-toolkit' in packages_config.yaml customer_added")
 
@@ -44,7 +44,7 @@ class TestNvidiaGPU(unittest.TestCase):
             with open(vars_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            self.assertIn("nvidia_driver_package: \"nvidia-driver-580-server\"", content, f"{filename} missing nvidia_driver_package")
+            self.assertIn("nvidia_driver_package: \"nvidia-driver-580-open\"", content, f"{filename} missing nvidia_driver_package")
             self.assertIn("nvidia_utils_package: \"nvidia-utils-580-server\"", content, f"{filename} missing nvidia_utils_package")
             self.assertIn("nvidia_container_toolkit_package: \"nvidia-container-toolkit\"", content, f"{filename} missing nvidia_container_toolkit_package")
             self.assertIn("nvidia_gpu_enable_persistence: true", content, f"{filename} missing nvidia_gpu_enable_persistence")
