@@ -60,6 +60,7 @@ Executed on the builder workstation or CI/CD runner. It assemblies the remastere
     *   `openjdk-17-jre-headless`: Standalone Java JVM required by Nexus.
     *   `helm` (v3.22.0+, Go-based): Standalone Kubernetes Package Manager CLI.
     *   `kubestr` (v0.4.48, Go-based): Standalone Kubernetes Storage Capability & Benchmarking CLI.
+    *   `oras` (v1.3.4, Go-based): Standalone OCI Registry As Storage CLI.
     *   `bootstrap-playbooks.git`: Bare mirror of GDC playbooks cloned from `UPSTREAM_PLAYBOOKS_REPO`.
     *   `packages/*.deb`: Native Debian packages and recursively resolved dependencies cached from GCS (including `nfs-common`, `open-iscsi`, `nvme-cli`, and supporting Longhorn v2 libraries).
 

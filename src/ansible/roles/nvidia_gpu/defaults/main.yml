@@ -1,7 +1,7 @@
 ---
 # Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
 
-nvidia_driver_package: "nvidia-driver-580-server"
+nvidia_driver_package: "nvidia-driver-580-open"
 nvidia_utils_package: "nvidia-utils-580-server"
 nvidia_container_toolkit_package: "nvidia-container-toolkit"
 nvidia_gpu_enable_persistence: true

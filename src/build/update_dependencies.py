@@ -206,12 +206,28 @@ def check_upstream_versions(current_deps):
             "current": curr_nexus,
             "latest": latest_nexus,
             "update_available": latest_nexus != curr_nexus,
-            "repo": "sonatype/nexus-public",
+            "repo": "Sonatype Official",
             "url": f"https://download.sonatype.com/nexus/3/nexus-{latest_nexus}-unix.tar.gz",
             "filename": f"nexus-{latest_nexus}-unix.tar.gz",
         }
     except Exception as e:
         results["nexus"] = {"current": curr_nexus, "latest": f"Error: {e}", "update_available": False}
+
+    # 8. ORAS CLI
+    curr_oras = current_deps.get("ORAS_VERSION", "unknown")
+    try:
+        data = http_get_json("https://api.github.com/repos/oras-project/oras/releases/latest")
+        tag = data.get("tag_name", "").lstrip("v")
+        results["oras"] = {
+            "current": curr_oras,
+            "latest": tag,
+            "update_available": tag != curr_oras and tag != "",
+            "repo": "oras-project/oras",
+            "url": f"https://github.com/oras-project/oras/releases/download/v{tag}/oras_{tag}_linux_amd64.tar.gz",
+            "filename": f"oras_{tag}_linux_amd64.tar.gz",
+        }
+    except Exception as e:
+        results["oras"] = {"current": curr_oras, "latest": f"Error: {e}", "update_available": False}
 
     return results
 
@@ -277,6 +293,11 @@ def update_dependencies_env(binary_name, new_info):
         content = re.sub(r"KUBESTR_PACKAGE_URL=.*", f"KUBESTR_PACKAGE_URL={url}", content)
         content = re.sub(r"KUBESTR_PACKAGE_FILENAME=.*", f"KUBESTR_PACKAGE_FILENAME={filename}", content)
         content = re.sub(r"KUBESTR_PACKAGE_SHA256=.*", f"KUBESTR_PACKAGE_SHA256={sha256}", content)
+    elif binary_name == "oras":
+        content = re.sub(r"ORAS_VERSION=.*", f"ORAS_VERSION={latest_ver}", content)
+        content = re.sub(r"ORAS_PACKAGE_URL=.*", f"ORAS_PACKAGE_URL={url}", content)
+        content = re.sub(r"ORAS_PACKAGE_FILENAME=.*", f"ORAS_PACKAGE_FILENAME={filename}", content)
+        content = re.sub(r"ORAS_PACKAGE_SHA256=.*", f"ORAS_PACKAGE_SHA256={sha256}", content)
     elif binary_name == "helm":
         content = re.sub(r"HELM_VERSION=.*", f"HELM_VERSION={latest_ver}", content)
         content = re.sub(r"HELM_PACKAGE_URL=.*", f"HELM_PACKAGE_URL={url}", content)

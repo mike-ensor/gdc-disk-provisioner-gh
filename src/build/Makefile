@@ -63,6 +63,11 @@ KUBESTR_PACKAGE_SHA256 := $(call get_env,KUBESTR_PACKAGE_SHA256)
 KUBESTR_PACKAGE_URL := $(call get_env,KUBESTR_PACKAGE_URL)
 KUBESTR_VERSION := $(call get_env,KUBESTR_VERSION)
 
+ORAS_PACKAGE_FILENAME := $(call get_env,ORAS_PACKAGE_FILENAME)
+ORAS_PACKAGE_SHA256 := $(call get_env,ORAS_PACKAGE_SHA256)
+ORAS_PACKAGE_URL := $(call get_env,ORAS_PACKAGE_URL)
+ORAS_VERSION := $(call get_env,ORAS_VERSION)
+
 TEMPORARY_INSTALLER_PASSWORD := $(call get_env,TEMPORARY_INSTALLER_PASSWORD)
 DEBUG_EXTRA_USER := $(call get_env,DEBUG_EXTRA_USER)
 DEBUG_EXTRA_PASSWORD := $(call get_env,DEBUG_EXTRA_PASSWORD)
@@ -193,7 +198,7 @@ deps:
 		echo "  [-] GCS cache active. Pulling artifacts from $(DEPENDENCY_CACHE_GCS_BUCKET)..."; \
 		BUCKET_NAME=$$(echo "$(DEPENDENCY_CACHE_GCS_BUCKET)" | sed 's/^gs:\/\///'); \
 		if [ -n "$$BUCKET_NAME" ]; then \
-			for file in "$(SOURCE_ISO_FILENAME)" "gdc-collector" "gdc-collector.sha256" "bmctl" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)" "$(CIS_TARBALL_FILENAME)" "$(HELM_PACKAGE_FILENAME)" "$(KUBESTR_PACKAGE_FILENAME)"; do \
+			for file in "$(SOURCE_ISO_FILENAME)" "gdc-collector" "gdc-collector.sha256" "bmctl" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)" "$(CIS_TARBALL_FILENAME)" "$(HELM_PACKAGE_FILENAME)" "$(KUBESTR_PACKAGE_FILENAME)" "$(ORAS_PACKAGE_FILENAME)"; do \
 				if [ "$$file" = "$(SOURCE_ISO_FILENAME)" ]; then \
 					local_path="$(CACHE_DIR)/isos/$$file"; \
 					gcs_path="gs://$$BUCKET_NAME/source/$$file"; \
@@ -332,12 +337,21 @@ json.dump(data, open(meta_file, "w"), indent=2)' 2>/dev/null || true; \
 	@echo "  [-] Verifying Kubestr CLI integrity..."
 	@echo "$(KUBESTR_PACKAGE_SHA256)  $(BIN_CACHE_DIR)/$(KUBESTR_PACKAGE_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Kubestr package hash mismatch!" >&2; exit 1)
 	@echo "  [x] Kubestr CLI binary integrity verified."
+	@# 9. Oras CLI
+	@if [ ! -f "$(BIN_CACHE_DIR)/$(ORAS_PACKAGE_FILENAME)" ]; then \
+		echo "  [-] Oras CLI cache missing. Downloading from: $(ORAS_PACKAGE_URL)..."; \
+		curl -L -o "$(BIN_CACHE_DIR)/$(ORAS_PACKAGE_FILENAME)" "$(ORAS_PACKAGE_URL)"; \
+		python3 -c "import json, os; f='$(CACHE_DIR)/binary_sources.json'; d=json.load(open(f)) if os.path.exists(f) else {}; d['$(ORAS_PACKAGE_FILENAME)']='Upstream Network'; json.dump(d, open(f, 'w'))" 2>/dev/null; \
+	fi
+	@echo "  [-] Verifying Oras CLI integrity..."
+	@echo "$(ORAS_PACKAGE_SHA256)  $(BIN_CACHE_DIR)/$(ORAS_PACKAGE_FILENAME)" | sha256sum --check --status || (echo "[!] ERROR: Oras package hash mismatch!" >&2; exit 1)
+	@echo "  [x] Oras CLI binary integrity verified."
 	@# GCS Seed Cache Phase
 	@if [ "$(ENABLE_GCS)" = "true" ] && [ "$(GCLOUD_PRESENT)" = "true" ]; then \
 		echo "  [-] Synchronizing verified local cache back to GCS..."; \
 		BUCKET_NAME=$$(echo "$(DEPENDENCY_CACHE_GCS_BUCKET)" | sed 's/^gs:\/\///'); \
 		if [ -n "$$BUCKET_NAME" ]; then \
-			for file in "gdc-collector" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)" "$(CIS_TARBALL_FILENAME)" "$(HELM_PACKAGE_FILENAME)" "$(KUBESTR_PACKAGE_FILENAME)"; do \
+			for file in "gdc-collector" "$(GITEA_BINARY_FILENAME)" "$(JRE_PACKAGE_FILENAME)" "$(NEXUS_PACKAGE_FILENAME)" "$(GCLOUD_SDK_FILENAME)" "$(STEP_CLI_FILENAME)" "$(CIS_TARBALL_FILENAME)" "$(HELM_PACKAGE_FILENAME)" "$(KUBESTR_PACKAGE_FILENAME)" "$(ORAS_PACKAGE_FILENAME)"; do \
 				local_path="$(BIN_CACHE_DIR)/$$file"; \
 				gcs_path="gs://$$BUCKET_NAME/binaries/$$file"; \
 				if [ -f "$$local_path" ]; then \
@@ -676,6 +690,11 @@ publish:
 	echo "      \"version\": \"$(KUBESTR_VERSION)\"," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "      \"filename\": \"$(KUBESTR_PACKAGE_FILENAME)\"," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "      \"sha256\": \"$(KUBESTR_PACKAGE_SHA256)\"" >> "$(PROVENANCE_MANIFEST)"; \
+	echo "    }," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "    \"oras\": {" >> "$(PROVENANCE_MANIFEST)"; \
+	echo "      \"version\": \"$(ORAS_VERSION)\"," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "      \"filename\": \"$(ORAS_PACKAGE_FILENAME)\"," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "      \"sha256\": \"$(ORAS_PACKAGE_SHA256)\"" >> "$(PROVENANCE_MANIFEST)"; \
 	echo "    }" >> "$(PROVENANCE_MANIFEST)"; \
 	echo "  }," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "  \"output_cryptographic_signatures\": {" >> "$(PROVENANCE_MANIFEST)"; \

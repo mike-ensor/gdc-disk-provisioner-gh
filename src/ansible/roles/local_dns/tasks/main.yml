@@ -49,6 +49,34 @@
   tags: ["strictly-local"]
 
 # --------------------------------------------------------------------------
+# Step 1b: Configure MACHINE_IP System-Wide Profile & Environment
+# --------------------------------------------------------------------------
+- name: "LOCAL-DNS | Configure MACHINE_IP in /etc/profile.d/gdc-machine-ip.sh"
+  ansible.builtin.copy:
+    dest: /etc/profile.d/gdc-machine-ip.sh
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Configured by GDC Disk Provisioner
+      # POSIX-compliant: compatible with both /bin/sh and /bin/bash
+      MACHINE_IP="{{ gdc_service_hub_ip }}"
+      export MACHINE_IP
+  tags: ["strictly-local"]
+
+- name: "LOCAL-DNS | Ensure MACHINE_IP is configured system-wide in /etc/environment"
+  ansible.builtin.lineinfile:
+    path: /etc/environment
+    regexp: '^MACHINE_IP='
+    line: 'MACHINE_IP="{{ gdc_service_hub_ip }}"'
+    state: present
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
 # Step 2: Ingest Build-time add-hosts Records if Available
 # --------------------------------------------------------------------------
 - name: "LOCAL-DNS | Check for add-hosts file"

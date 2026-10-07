@@ -112,6 +112,7 @@ gdc_install_directories:
   - "tools/node-agent"
   - "tools/helm"
   - "tools/kubestr"
+  - "tools/oras"
   - "vmruntime-configs"
 
 # Helm CLI Configuration Settings
@@ -122,8 +123,13 @@ gdc_helm_version: "3.22.0"
 gdc_kubestr_install_dir: "/var/gdc-install/tools/kubestr"
 gdc_kubestr_version: "0.4.48"
 
+# ORAS CLI Configuration Settings
+gdc_oras_install_dir: "/var/gdc-install/tools/oras"
+gdc_oras_version: "1.3.4"
+
 # Customer/Operator Specified Packages to Pre-install
-customer_install_packages: []
+customer_install_packages:
+  - "nvidia-driver-580-open"
 
 # NodeAgent Configuration Settings
 gdc_nodeagent_install_dir: "/var/gdc-install/tools/node-agent"
@@ -206,7 +212,7 @@ gdc_step_ca_fingerprint: ""
 # NVIDIA GPU Provisioning Configuration
 # ==============================================================================
 # Target driver packages
-nvidia_driver_package: "nvidia-driver-580-server"
+nvidia_driver_package: "nvidia-driver-580-open"
 nvidia_utils_package: "nvidia-utils-580-server"
 nvidia_container_toolkit_package: "nvidia-container-toolkit"
 

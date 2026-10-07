@@ -209,6 +209,19 @@ else
     echo "  [!] WARNING: Kubestr package not found in cache! Run 'make deps' first." >&2
 fi
 
+echo "[-] Extracting and staging Oras CLI binary..."
+mkdir -p "${EXTRACT_DIR}/custom-data/tools/oras"
+if [[ -f "${BIN_CACHE_DIR}/${ORAS_PACKAGE_FILENAME}" ]]; then
+    TEMP_ORAS_DIR=$(mktemp -d)
+    tar -xzf "${BIN_CACHE_DIR}/${ORAS_PACKAGE_FILENAME}" -C "${TEMP_ORAS_DIR}"
+    cp "${TEMP_ORAS_DIR}/oras" "${EXTRACT_DIR}/custom-data/tools/oras/oras"
+    chmod +x "${EXTRACT_DIR}/custom-data/tools/oras/oras"
+    rm -rf "${TEMP_ORAS_DIR}"
+    echo "  [x] Oras CLI staged successfully at /custom-data/tools/oras/oras."
+else
+    echo "  [!] WARNING: Oras package not found in cache! Run 'make deps' first." >&2
+fi
+
 echo "[-] Copying pre-seeded offline Debian packages..."
 mkdir -p "${EXTRACT_DIR}/custom-data/packages"
 if ls "${PROJECT_ROOT}/.cache/packages"/*.deb &>/dev/null; then
