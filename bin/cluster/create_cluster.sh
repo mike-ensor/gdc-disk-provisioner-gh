@@ -41,6 +41,7 @@ ENV_ROOT_REPO_GSA="${ROOT_REPO_GSA:-}"
 ENV_CLUSTER_CONFIG_NAME="${CLUSTER_CONFIG_NAME:-}"
 ENV_ROOT_SYNC_DIR="${ROOT_SYNC_DIR:-}"
 ENV_CONFIG_SYNC_ENABLED="${CONFIG_SYNC_ENABLED:-}"
+ENV_CONFIGURE_CLUSTER_DNS="${CONFIGURE_CLUSTER_DNS:-}"
 ENV_ANTHOS_VERSION="${ANTHOS_VERSION:-${ANTHOS_BARE_METAL_VERSION:-}}"
 ENV_POD_CIDR="${POD_CIDR:-}"
 ENV_SERVICE_CIDR="${SERVICE_CIDR:-}"
@@ -62,6 +63,7 @@ CLI_ROOT_REPO_GSA=""
 CLI_CLUSTER_CONFIG_NAME=""
 CLI_ROOT_SYNC_DIR=""
 CLI_CONFIG_SYNC_ENABLED=""
+CLI_CONFIGURE_CLUSTER_DNS=""
 CLI_ANTHOS_VERSION=""
 CLI_POD_CIDR=""
 CLI_SERVICE_CIDR=""
@@ -89,6 +91,8 @@ Options:
   --version <VERSION>    Anthos bare metal version (default: ${ENV_ANTHOS_VERSION:-1.35.300-gke.87})
   --pod-cidr <CIDR>      Pods CIDR block (default: ${ENV_POD_CIDR:-172.28.0.0/16})
   --service-cidr <CIDR>  Services CIDR block (default: ${ENV_SERVICE_CIDR:-172.29.0.0/20})
+  --configure-cluster-dns
+                         Configure default ClusterDNS pointing Nexus/GDC domains to local dnsmasq
   --config-sync          Explicitly enable Config Sync (default: true)
   --no-config-sync       Disable Config Sync installation
   --root-repo <REPO>     Git repo URL or OCI image for primary RootSync (default: ${ENV_PRIMARY_ROOT_REPO:-none})
@@ -155,6 +159,10 @@ while [[ $# -gt 0 ]]; do
         --service-cidr)
             CLI_SERVICE_CIDR="$2"
             shift 2
+            ;;
+        --configure-cluster-dns)
+            CLI_CONFIGURE_CLUSTER_DNS="true"
+            shift
             ;;
         --config-sync|--enable-config-sync)
             CLI_CONFIG_SYNC_ENABLED="true"
@@ -311,6 +319,7 @@ FACT_ROOT_REPO_SECRET=""
 FACT_ROOT_REPO_GSA=""
 FACT_CLUSTER_CONFIG_NAME=""
 FACT_ROOT_SYNC_DIR=""
+FACT_CONFIGURE_CLUSTER_DNS=""
 FACT_ANTHOS_VERSION=""
 FACT_POD_CIDR=""
 FACT_SERVICE_CIDR=""
@@ -392,6 +401,10 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
         FACT_ROOT_SYNC_DIR=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.root_sync_dir")
     fi
     FACT_CONFIG_SYNC_ENABLED=$(get_json_val "${FACTS_FILE}" ".cluster.config_sync_enabled")
+    FACT_CONFIGURE_CLUSTER_DNS=$(get_json_val "${FACTS_FILE}" ".cluster.networking.configure_cluster_dns")
+    if [[ -z "${FACT_CONFIGURE_CLUSTER_DNS}" ]]; then
+        FACT_CONFIGURE_CLUSTER_DNS=$(get_json_val "${FACTS_FILE}" ".cluster.configure_cluster_dns")
+    fi
 
     FACT_ANTHOS_VERSION=$(get_json_val "${FACTS_FILE}" ".cluster.anthos_bare_metal_version")
     FACT_POD_CIDR=$(get_json_val "${FACTS_FILE}" ".cluster.networking.pod_cidr")
@@ -450,6 +463,12 @@ ROOT_SYNC_DIR="${CLI_ROOT_SYNC_DIR:-${ENV_ROOT_SYNC_DIR:-${FACT_ROOT_SYNC_DIR:-$
 CONFIG_SYNC_ENABLED="${CLI_CONFIG_SYNC_ENABLED:-${ENV_CONFIG_SYNC_ENABLED:-${FACT_CONFIG_SYNC_ENABLED:-true}}}"
 if [[ "${CONFIG_SYNC_ENABLED}" != "false" ]]; then
     CONFIG_SYNC_ENABLED="true"
+fi
+CONFIGURE_CLUSTER_DNS="${CLI_CONFIGURE_CLUSTER_DNS:-${ENV_CONFIGURE_CLUSTER_DNS:-${FACT_CONFIGURE_CLUSTER_DNS:-false}}}"
+if [[ "${CONFIGURE_CLUSTER_DNS}" == "true" ]]; then
+    CONFIGURE_CLUSTER_DNS="true"
+else
+    CONFIGURE_CLUSTER_DNS="false"
 fi
 
 ROOT_REPO_AUTH_DISPLAY="none (public)"
@@ -510,6 +529,7 @@ export CLUSTER_INGRESS
 export PRIMARY_LOAD_BALANCER
 export ADMIN_USER_EMAIL
 export PRIMARY_ROOT_REPO
+export CONFIGURE_CLUSTER_DNS
 export ANTHOS_VERSION
 export POD_CIDR
 export SERVICE_CIDR
@@ -574,6 +594,7 @@ printf "  %-35s %s\n" "Cluster Ingress:" "${CLUSTER_INGRESS}"
 printf "  %-35s %s\n" "Pod CIDR:" "${POD_CIDR}"
 printf "  %-35s %s\n" "Service CIDR:" "${SERVICE_CIDR}"
 printf "  %-35s %s\n" "Primary Load Balancer:" "${PRIMARY_LOAD_BALANCER}"
+printf "  %-35s %s\n" "Configure ClusterDNS:" "${CONFIGURE_CLUSTER_DNS}"
 printf "  %-35s %s\n" "Config Sync:" "${CONFIG_SYNC_ENABLED}"
 printf "  %-35s %s\n" "Primary Root Repo:" "${PRIMARY_ROOT_REPO:-none}"
 if [[ "${CONFIG_SYNC_ENABLED}" == "true" && -n "${PRIMARY_ROOT_REPO}" && "${PRIMARY_ROOT_REPO}" != "none" ]]; then
@@ -812,6 +833,33 @@ EOF
 		echo "[OK] Stackdriver GMP for applications enabled."
 	else
 		echo "[-] Notice: Stackdriver resource not found in kube-system. Skipping GMP enablement."
+	fi
+
+	# 5d. Configure ClusterDNS for local Nexus / GDC domain resolution
+	if [[ "${CONFIGURE_CLUSTER_DNS}" == "true" ]]; then
+		echo "[-] Configuring default ClusterDNS for local GDC domains (-> ${MACHINE_IP})..."
+		CLUSTER_DNS_FILE="${CLUSTER_CONFIG_DIR}/cluster-dns.yaml"
+		cat <<EOF >"${CLUSTER_DNS_FILE}"
+apiVersion: networking.gke.io/v1alpha1
+kind: ClusterDNS
+metadata:
+  name: default
+spec:
+  domains:
+  - name: gdc.local
+    nameservers:
+    - serverIP: ${MACHINE_IP}
+  - name: internal.gdc.local
+    nameservers:
+    - serverIP: ${MACHINE_IP}
+EOF
+		if sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl apply -f "${CLUSTER_DNS_FILE}"; then
+			echo "[OK] ClusterDNS 'default' configured with upstream dnsmasq (${MACHINE_IP})."
+		else
+			echo "[!] Warning: Failed to apply ClusterDNS manifest."
+		fi
+	else
+		echo "[-] Configure ClusterDNS disabled. Skipping ClusterDNS configuration."
 	fi
 
 	# 6. Deploy Config Sync
