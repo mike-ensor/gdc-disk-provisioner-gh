@@ -1,0 +1,18 @@
+---
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
+- name: "GDC-GPU | Probe PCI bus for NVIDIA display/compute controllers"
+  ansible.builtin.shell: |
+    lspci -nn | grep -E '\[(0300|0302|0380)\]:.*10de:' || true
+  register: pci_gpu_probe
+  changed_when: false
+
+- name: "GDC-GPU | Evaluate NVIDIA GPU presence and PCI address"
+  ansible.builtin.set_fact:
+    nvidia_gpu_present: "{{ (pci_gpu_probe.stdout | trim | length) > 0 }}"
+    nvidia_gpu_pci_id: "{{ (pci_gpu_probe.stdout | trim).split()[0] if ((pci_gpu_probe.stdout | trim | length) > 0) else 'NONE' }}"
+    nvidia_reboot_required: false
+
+- name: "GDC-GPU | Log detection outcome"
+  ansible.builtin.debug:
+    msg: "NVIDIA GPU Detected: {{ nvidia_gpu_present }} (PCI: {{ nvidia_gpu_pci_id }})"

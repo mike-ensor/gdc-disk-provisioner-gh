@@ -28,6 +28,26 @@
       }}
   tags: ["strictly-local"]
 
+- name: "LOCAL-DNS | Resolve dynamic upstream nameservers from machine-info, DHCP, and gateway"
+  ansible.builtin.set_fact:
+    local_dns_effective_upstream_servers: >-
+      {{
+        (
+          (
+            (machine_config.network.management_network.dns_servers if (machine_config is defined and machine_config.network is defined and machine_config.network.management_network is defined and machine_config.network.management_network.dns_servers is defined and machine_config.network.management_network.dns_servers is sequence and machine_config.network.management_network.dns_servers is not string) else [])
+            + (ansible_dns.nameservers if (ansible_dns is defined and ansible_dns.nameservers is defined and ansible_dns.nameservers is sequence and ansible_dns.nameservers is not string) else [])
+            + ([ansible_default_ipv4.gateway] if (ansible_default_ipv4 is defined and ansible_default_ipv4.gateway is defined and ansible_default_ipv4.gateway and ansible_default_ipv4.gateway != 'none' and ansible_default_ipv4.gateway != '0.0.0.0') else [])
+          )
+          | reject('match', '^127\\.')
+          | reject('equalto', '::1')
+          | list
+          + (local_dns_upstream_servers | default(gdc_local_dns_upstream_servers | default(['8.8.8.8', '8.8.4.4', '1.1.1.1'])))
+        )
+        | unique
+        | list
+      }}
+  tags: ["strictly-local"]
+
 # --------------------------------------------------------------------------
 # Step 2: Ingest Build-time add-hosts Records if Available
 # --------------------------------------------------------------------------
@@ -211,7 +231,7 @@
 
 - name: "LOCAL-DNS | Verify systemd-resolved routing domain resolution"
   ansible.builtin.command:
-    cmd: "resolvectl query {{ gdc_nexus_domain }}"
+    cmd: "resolvectl query --type=A {{ gdc_nexus_domain }}"
   register: resolvectl_result
   changed_when: false
   when: not ansible_check_mode

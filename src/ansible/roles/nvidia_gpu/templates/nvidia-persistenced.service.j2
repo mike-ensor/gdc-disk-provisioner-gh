@@ -1,0 +1,16 @@
+[Unit]
+Description=NVIDIA Persistence Daemon
+Before=containerd.service kubelet.service
+
+[Service]
+Type=forking
+PIDFile=/var/run/nvidia-persistenced/nvidia-persistenced.pid
+ExecStart=/usr/bin/nvidia-persistenced --user root
+{% if nvidia_gpu_lock_memory_clock | default(true) %}
+ExecStartPost=-/usr/bin/nvidia-smi -lmc {{ nvidia_gpu_memory_clock_mhz | default(7000) }}
+{% endif %}
+ExecStopPost=/bin/rm -rf /var/run/nvidia-persistenced
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

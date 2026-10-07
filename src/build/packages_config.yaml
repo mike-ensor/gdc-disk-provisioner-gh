@@ -71,7 +71,10 @@ packages_to_include:
     - "dnsmasq"
 
   # Optional packages specified by the customer/operator for target environments
-  customer_added: []
+  customer_added:
+    - "nvidia-driver-580-server"
+    - "nvidia-utils-580-server"
+    - "nvidia-container-toolkit"
 
 # Core system libraries and utilities already pre-installed on the base OS.
 # These MUST be excluded from recursive downloads to prevent mismatched library

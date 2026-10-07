@@ -84,7 +84,7 @@ The table below maps project capabilities across **Functional Domains** (columns
   - [x] Dynamic test runner and reporting pipeline (`bin/run_all_tests.py`, `generate_build_report.py`)
 - [-] **In Progress & Planned Build Enhancements**
   - [-] **Multi-LTS Target Compilation Architecture:** Parameterize Docker builder and GCS cache prefixes to build both 22.04 Jammy and 26.04 Noble/Plucky targets
-  - [ ] **GCS Cache Retention Sweeper:** Automated pruning of older ISO builds in `gs://gdc-disk-provisioner-isos/sync/` and `/archived/`
+  - [x] **GCS Cache Retention Sweeper:** Automated pruning and archiving of older ISO builds in `gs://gdc-disk-provisioner-isos/sync/` (implemented in `src/build/clean_gcs_isos.py` and `bin/clean-gcs-isos.py`)
   - [ ] **Static Boot Banner:** Replace dynamic `generate_banner.py` execution with static `boot-banner.txt` template
   - [ ] **Automated GCS Package Cache via Cloud Build (`GDC-SPEC-012`):** Implement `cloudbuild-packages.yaml` and un-hardcode `ENABLE_GCS` to automate cache updates using native IAM context.
 

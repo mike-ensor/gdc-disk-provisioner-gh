@@ -2,7 +2,9 @@
 #cloud-config
 
 bootcmd:
+  {% if companion_ip and companion_ip != companion_host and companion_ip != '127.0.0.1' %}
   - echo "{{ companion_ip }} {{ companion_host }}" >> /etc/hosts
+  {% endif %}
   - echo "127.0.0.1 security.ubuntu.com" >> /etc/hosts
   - echo "127.0.0.1 geoip.ubuntu.com" >> /etc/hosts
   - echo "127.0.0.1 geoip.canonical.com" >> /etc/hosts
@@ -448,7 +450,9 @@ autoinstall:
       fi
       
       # [GDC-INSTALL-STEP 6/12] Mapping GDC Companion static IP DNS overrides...
+      {% if companion_ip and companion_ip != companion_host and companion_ip != '127.0.0.1' %}
       echo "{{ companion_ip }} {{ companion_host }}" >> /etc/hosts
+      {% endif %}
       echo "127.0.0.1 security.ubuntu.com" >> /etc/hosts
       echo "127.0.0.1 geoip.ubuntu.com" >> /etc/hosts
       echo "127.0.0.1 geoip.canonical.com" >> /etc/hosts
@@ -888,7 +892,9 @@ autoinstall:
       
       # Ensure local hostname and GDC companion gateway mappings are present in /etc/hosts to prevent resolver hangs on boot
       echo "127.0.1.1 ${NEW_HOSTNAME}" >> /target/etc/hosts
+      {% if companion_ip and companion_ip != companion_host and companion_ip != '127.0.0.1' %}
       echo "{{ companion_ip }} {{ companion_host }}" >> /target/etc/hosts
+      {% endif %}
       
       # Append custom local host mappings from add-hosts to target OS
       {% if persist_add_hosts and add_hosts_lines %}

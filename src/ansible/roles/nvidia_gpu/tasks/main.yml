@@ -1,0 +1,23 @@
+---
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
+# 1. Probe hardware for NVIDIA GPU
+- name: "GDC-GPU | Detect GPU hardware"
+  ansible.builtin.import_tasks: detect.yml
+
+# 2. Execute configuration ONLY if NVIDIA GPU is present
+- name: "GDC-GPU | Provision NVIDIA Driver Stack"
+  block:
+    - name: "GDC-GPU | Suppress Nouveau"
+      ansible.builtin.import_tasks: blacklist_nouveau.yml
+
+    - name: "GDC-GPU | Install Driver & Toolkit Packages"
+      ansible.builtin.import_tasks: install_driver.yml
+
+    - name: "GDC-GPU | Configure Persistence Daemon & Clock Locking"
+      ansible.builtin.import_tasks: configure_persistence.yml
+  when: nvidia_gpu_present | bool
+
+# 3. Always collect structured evidence
+- name: "GDC-GPU | Collect Structured Telemetry Evidence"
+  ansible.builtin.import_tasks: collect_evidence.yml

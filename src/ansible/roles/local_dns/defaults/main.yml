@@ -11,7 +11,7 @@ local_dns_internal_conf: "/etc/dnsmasq.d/internal-gdc.conf"
 local_dns_resolved_dropin_dir: "/etc/systemd/resolved.conf.d"
 local_dns_resolved_conf: "/etc/systemd/resolved.conf.d/dnsmasq.conf"
 
-local_dns_upstream_servers: "{{ gdc_local_dns_upstream_servers | default(['1.1.1.1', '8.8.8.8']) }}"
+local_dns_upstream_servers: "{{ gdc_local_dns_upstream_servers | default(['8.8.8.8', '8.8.4.4', '1.1.1.1']) }}"
 
 local_dns_nexus_domain: "{{ gdc_nexus_domain | default('nexus.internal.gdc.local') }}"
 local_dns_nexus_alias: "{{ gdc_nexus_alias | default('nexus.gdc.local') }}"

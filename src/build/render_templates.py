@@ -303,22 +303,38 @@ if __name__ == "__main__":
     env['step_provisioner_name'] = env.get('STEP_PROVISIONER_NAME', 'tpm')
     env['step_provisioner_password'] = env.get('STEP_PROVISIONER_PASSWORD', '')
     from urllib.parse import urlparse
+    import ipaddress
+
+    def _is_ip(val):
+        try:
+            ipaddress.ip_address(val)
+            return True
+        except (ValueError, TypeError):
+            return False
+
     u = urlparse(env['companion_url'])
     env['companion_host'] = env.get('COMPANION_HOST', u.netloc)
     
-    # Extract companion IP from add-hosts if available, to bypass early DNS lookups
-    companion_ip = '127.0.0.1'
-    if u.hostname:
-        companion_ip = u.hostname
-        for line in add_hosts_lines:
-            parts = line.split()
-            if len(parts) >= 2 and parts[1] == u.hostname:
-                companion_ip = parts[0]
-                break
-    env['companion_ip'] = env.get('COMPANION_IP', companion_ip)
+    # Extract companion IP from add-hosts or explicit COMPANION_IP to bypass early DNS lookups
+    companion_ip = ''
+    if env.get('COMPANION_IP') and _is_ip(env.get('COMPANION_IP')):
+        companion_ip = env['COMPANION_IP']
+    elif u.hostname:
+        if _is_ip(u.hostname):
+            companion_ip = u.hostname
+        else:
+            for line in add_hosts_lines:
+                parts = line.split()
+                if len(parts) >= 2 and parts[1] == u.hostname and _is_ip(parts[0]):
+                    companion_ip = parts[0]
+                    break
+    env['companion_ip'] = companion_ip
     
-    # Generate IP-based report URL to bypass early boot-time DNS resolutions
-    env['companion_report_url'] = env['companion_url'].replace(env['companion_host'], env['companion_ip'])
+    # Generate IP-based report URL if a valid IP override exists to bypass early boot-time DNS resolutions
+    if env['companion_ip']:
+        env['companion_report_url'] = env['companion_url'].replace(env['companion_host'], env['companion_ip'])
+    else:
+        env['companion_report_url'] = env['companion_url']
     env['machine_vlan'] = env.get('BOOTSTRAP_MACHINE_VLAN_ID', '0')
     env['k8s_vlan'] = env.get('BOOTSTRAP_K8S_VLAN_ID', '0')
     env['machine_dhcp4'] = env.get('BOOTSTRAP_MACHINE_DHCP4', 'true').lower()

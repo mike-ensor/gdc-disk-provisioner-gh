@@ -77,8 +77,9 @@ gdc_internal_dns_domains:
   - "~internal.gdc.local"
   - "~gdc.local"
 gdc_local_dns_upstream_servers:
-  - "1.1.1.1"
   - "8.8.8.8"
+  - "8.8.4.4"
+  - "1.1.1.1"
 
 # Local Docker daemon registry-mirror address pointing to local Nexus Docker Group Port
 gdc_docker_registry_mirror: "http://nexus.internal.gdc.local:5001"
@@ -198,3 +199,17 @@ gdc_step_ca_url: "{{ step_ca_url }}"
 gdc_step_provisioner_name: "{{ step_provisioner_name }}"
 gdc_step_provisioner_password: "{{ step_provisioner_password }}"
 gdc_step_ca_fingerprint: "{{ step_ca_fingerprint }}"
+
+# ==============================================================================
+# NVIDIA GPU Provisioning Configuration
+# ==============================================================================
+# Target driver packages
+nvidia_driver_package: "nvidia-driver-580-server"
+nvidia_utils_package: "nvidia-utils-580-server"
+nvidia_container_toolkit_package: "nvidia-container-toolkit"
+
+# Persistence & Performance Tuning
+nvidia_gpu_enable_persistence: true
+nvidia_gpu_lock_memory_clock: true
+nvidia_gpu_memory_clock_mhz: 7000
+

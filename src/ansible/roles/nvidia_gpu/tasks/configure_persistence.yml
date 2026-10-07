@@ -1,0 +1,39 @@
+---
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
+- name: "GDC-GPU | Deploy nvidia-persistenced systemd service unit"
+  ansible.builtin.template:
+    src: nvidia-persistenced.service.j2
+    dest: /etc/systemd/system/nvidia-persistenced.service
+    owner: root
+    group: root
+    mode: '0644'
+  register: persistenced_service_result
+
+- name: "GDC-GPU | Reload systemd daemon if persistence unit changed"
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: persistenced_service_result.changed
+
+- name: "GDC-GPU | Enable nvidia-persistenced service"
+  ansible.builtin.systemd:
+    name: nvidia-persistenced
+    enabled: "{{ nvidia_gpu_enable_persistence | bool }}"
+
+- name: "GDC-GPU | Start nvidia-persistenced service (if driver already active without pending reboot)"
+  ansible.builtin.systemd:
+    name: nvidia-persistenced
+    state: started
+  when:
+    - nvidia_gpu_enable_persistence | bool
+    - not (nvidia_reboot_required | default(false))
+  ignore_errors: true
+
+- name: "GDC-GPU | Mark reboot-required flag for Stage 4.5"
+  ansible.builtin.copy:
+    dest: /var/run/reboot-required
+    content: "NVIDIA driver installation and Nouveau blacklisting require reboot before ClusterReady\n"
+    owner: root
+    group: root
+    mode: '0644'
+  when: nvidia_reboot_required | default(false)
