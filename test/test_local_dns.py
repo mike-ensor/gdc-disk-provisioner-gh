@@ -103,6 +103,9 @@ class TestLocalDNS(unittest.TestCase):
         self.assertIn("address=/nexus.gdc.local/192.168.109.12", rendered_internal)
         self.assertIn("address=/git.internal.gdc.local/192.168.109.12", rendered_internal)
         self.assertIn("address=/git.gdc.local/192.168.109.12", rendered_internal)
+        self.assertIn("local=/nexus.internal.gdc.local/", rendered_internal)
+        self.assertIn("local=/internal.gdc.local/", rendered_internal)
+        self.assertIn("local=/gdc.local/", rendered_internal)
 
         # Render resolved-dnsmasq.conf.j2
         with open(os.path.join(role_dir, "templates/resolved-dnsmasq.conf.j2"), "r", encoding="utf-8") as f:
@@ -172,6 +175,8 @@ class TestLocalDNS(unittest.TestCase):
 
         self.assertIn("endswith('.0')", content)
         self.assertIn("endswith('.255')", content)
+        self.assertIn("resolvectl query --type=A", content)
+        self.assertIn("local_dns_effective_upstream_servers", content)
 
 
 if __name__ == "__main__":

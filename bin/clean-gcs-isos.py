@@ -1,0 +1,1 @@
+../src/build/clean_gcs_isos.py

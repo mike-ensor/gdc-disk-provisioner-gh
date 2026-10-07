@@ -11,7 +11,7 @@ no-resolv
 no-hosts
 
 # Upstream recursive DNS forwarders
-{% for server in gdc_local_dns_upstream_servers %}
+{% for server in local_dns_effective_upstream_servers | default(local_dns_upstream_servers | default(gdc_local_dns_upstream_servers | default(['8.8.8.8', '8.8.4.4', '1.1.1.1']))) %}
 server={{ server }}
 {% endfor %}
 

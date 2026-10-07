@@ -1,0 +1,57 @@
+---
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
+- name: "GDC-GPU | Check if nvidia-container-toolkit package is available in apt cache"
+  ansible.builtin.command: "apt-cache show {{ nvidia_container_toolkit_package }}"
+  register: _nct_cache_check
+  failed_when: false
+  changed_when: false
+
+- name: "GDC-GPU | Configure NVIDIA Container Toolkit repository if package not cached"
+  when: _nct_cache_check.rc != 0
+  block:
+    - name: "GDC-GPU | Download NVIDIA Container Toolkit GPG keyring"
+      ansible.builtin.get_url:
+        url: "https://nvidia.github.io/libnvidia-container/gpgkey"
+        dest: "/tmp/nvidia-container-toolkit.gpg"
+        mode: '0644'
+      ignore_errors: true
+      register: _nct_key_download
+
+    - name: "GDC-GPU | Dearmor NVIDIA GPG key to system keyring"
+      ansible.builtin.shell: |
+        gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg < /tmp/nvidia-container-toolkit.gpg
+        rm -f /tmp/nvidia-container-toolkit.gpg
+      when: _nct_key_download is success
+      changed_when: true
+
+    - name: "GDC-GPU | Configure NVIDIA container toolkit apt sources list"
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+        content: |
+          deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/deb/amd64 /
+        owner: root
+        group: root
+        mode: '0644'
+      when: _nct_key_download is success
+
+    - name: "GDC-GPU | Update apt cache after adding repository"
+      ansible.builtin.apt:
+        update_cache: true
+      when: _nct_key_download is success
+
+- name: "GDC-GPU | Install NVIDIA server driver, headers, and container toolkit"
+  ansible.builtin.apt:
+    name:
+      - "linux-headers-{{ ansible_kernel }}"
+      - "{{ nvidia_driver_package }}"
+      - "{{ nvidia_utils_package }}"
+      - "{{ nvidia_container_toolkit_package }}"
+    state: present
+    update_cache: false
+  register: gpu_packages_installed
+
+- name: "GDC-GPU | Flag system reboot required if packages were installed or upgraded"
+  ansible.builtin.set_fact:
+    nvidia_reboot_required: true
+  when: gpu_packages_installed.changed

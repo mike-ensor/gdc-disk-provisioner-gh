@@ -137,3 +137,29 @@ export BOOTIMUS_PASS="your-bootimus-password"
 # Filter the image tree to show only a specific group/folder
 ./src/build/bootimus.py --list --filter sync
 ```
+
+---
+
+## GCS ISO Retention & Archive Sweeper (`clean_gcs_isos.py`)
+
+When repeatedly building and publishing ISOs, the GCS release bucket's `sync/` directory can become crowded. The helper CLI `src/build/clean_gcs_isos.py` (also available via `bin/clean-gcs-isos.py` or `bin/local/clean-gcs-isos.py`) provides automated series-aware retention management:
+
+1. **Series-Aware Retention:** Groups ISOs by prefix and build variant (e.g. `honeywell-24.04-debug`, `gdc-labs-24.04-debug`), sorting them by semantic version (`vX.Y.Z`).
+2. **Deterministic Retention:** Retains the newest $N$ builds (default: **3**) per series, even if version numbers contain gaps (e.g., retaining `0.10.9`, `0.10.8`, and `0.10.6` when `0.10.7` was not built).
+3. **Safe Archiving:** Moves older ISOs out of `sync/` into `archived/` using `gcloud storage mv`, ensuring local PXE/Synology syncs only pull the latest active images.
+4. **Dry-Run & Confirmation Gates:** Supports `--dry-run` to preview actions and requires user confirmation before issuing operations unless `--yes` is specified.
+
+**Usage Examples:**
+```bash
+# Preview retention cleanup in sync/ (keeping 3 newest per series)
+./bin/clean-gcs-isos.py --dry-run
+
+# Execute archiving with interactive confirmation
+./bin/clean-gcs-isos.py
+
+# Non-interactive execution keeping top 3 per series
+./bin/clean-gcs-isos.py --yes
+
+# Keep top 5 per series for honeywell builds only
+./bin/clean-gcs-isos.py --keep 5 --series-filter honeywell --dry-run
+```

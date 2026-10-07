@@ -3,6 +3,18 @@
 # ==============================================================================
 # Explicit static records for local service hubs and cluster resolution
 
+# Authoritative local boundaries (prevents upstream leaks/timeouts on AAAA queries)
+local=/{{ gdc_nexus_domain }}/
+{% if gdc_nexus_alias is defined and gdc_nexus_alias %}
+local=/{{ gdc_nexus_alias }}/
+{% endif %}
+local=/{{ gdc_gitea_domain }}/
+{% if gdc_gitea_alias is defined and gdc_gitea_alias %}
+local=/{{ gdc_gitea_alias }}/
+{% endif %}
+local=/internal.gdc.local/
+local=/gdc.local/
+
 # Nexus Package & Container Repository
 address=/{{ gdc_nexus_domain }}/{{ gdc_service_hub_ip }}
 {% if gdc_nexus_alias is defined and gdc_nexus_alias %}

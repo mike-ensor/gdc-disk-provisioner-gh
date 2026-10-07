@@ -1,0 +1,13 @@
+---
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
+- name: "GDC-GPU | Record GPU evidence facts"
+  ansible.builtin.set_fact:
+    nvidia_gpu_evidence:
+      present: "{{ nvidia_gpu_present | bool }}"
+      status: "{{ 'CONFIGURED' if (nvidia_gpu_present | bool) else 'SKIPPED_NO_GPU' }}"
+      pci_bus: "{{ nvidia_gpu_pci_id | default('NONE') }}"
+      driver_package: "{{ nvidia_driver_package if (nvidia_gpu_present | bool) else 'NONE' }}"
+      memory_clock_locked_mhz: "{{ (nvidia_gpu_memory_clock_mhz | int) if (nvidia_gpu_present and nvidia_gpu_lock_memory_clock) else 0 }}"
+      persistence_service_configured: "{{ (nvidia_gpu_enable_persistence | bool) if (nvidia_gpu_present | bool) else false }}"
+      reboot_pending: "{{ nvidia_reboot_required | default(false) | bool }}"

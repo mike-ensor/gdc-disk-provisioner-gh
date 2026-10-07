@@ -1,0 +1,37 @@
+---
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+
+- name: "GDC-GPU | Deploy Nouveau modprobe blacklist configuration"
+  ansible.builtin.template:
+    src: blacklist-nouveau.conf.j2
+    dest: /etc/modprobe.d/blacklist-nouveau.conf
+    owner: root
+    group: root
+    mode: '0644'
+  register: nouveau_blacklist_result
+
+- name: "GDC-GPU | Check if Nouveau kernel module is currently loaded"
+  ansible.builtin.shell: |
+    lsmod | grep -q nouveau
+  register: nouveau_loaded_check
+  failed_when: false
+  changed_when: false
+
+- name: "GDC-GPU | Rebuild initramfs and schedule reboot if Nouveau was newly blacklisted or active"
+  when: nouveau_blacklist_result.changed or nouveau_loaded_check.rc == 0
+  block:
+    - name: "GDC-GPU | Regenerate initramfs"
+      ansible.builtin.shell: |
+        if command -v dracut >/dev/null 2>&1; then
+          dracut -f
+        elif command -v update-initramfs >/dev/null 2>&1; then
+          update-initramfs -u
+        else
+          echo "No supported initramfs generator found" >&2
+          exit 1
+        fi
+      changed_when: true
+
+    - name: "GDC-GPU | Flag system reboot required due to Nouveau suppression"
+      ansible.builtin.set_fact:
+        nvidia_reboot_required: true

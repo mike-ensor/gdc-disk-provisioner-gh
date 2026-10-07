@@ -17,6 +17,10 @@
   ansible.builtin.include_role:
     name: storage_prereqs
 
+- name: Run nvidia_gpu role
+  ansible.builtin.include_role:
+    name: nvidia_gpu
+
 - name: Run security_hardening role
   ansible.builtin.include_role:
     name: security_hardening
@@ -89,6 +93,7 @@
         cryptenroll_success: "{{ luks_tpm_check.rc == 0 }}"
         luks_tpm_token_present: "{{ luks_tpm_check.rc == 0 }}"
       cis_benchmarks: "{{ cis_benchmark_facts | default({'status': 'NOT_EVALUATED'}) }}"
+      nvidia_gpu: "{{ nvidia_gpu_evidence | default({'status': 'SKIPPED_NO_GPU', 'present': false}) }}"
 
 - name: "GDC-STATE | Write LinuxReady completion state"
   ansible.builtin.copy:

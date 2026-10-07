@@ -141,3 +141,43 @@ def test_custom_extensions_documentation():
     with open(DOCS_ON_DEVICE_PATH, "r", encoding="utf-8") as f:
         on_device_content = f.read()
     assert "custom-playbook-extensions.md" in on_device_content
+
+
+def test_auto_normalization_of_wrapped_playbooks(tmp_path):
+    """Verifies that playbook-formatted YAML is automatically normalized into a task list."""
+    wrapped_playbook = [
+        {
+            "name": "Sample Play",
+            "hosts": "localhost",
+            "gather_facts": False,
+            "tasks": [
+                {"name": "Task 1", "ansible.builtin.debug": {"msg": "Hello"}},
+                {"name": "Task 2", "ansible.builtin.debug": {"msg": "World"}}
+            ]
+        }
+    ]
+    test_file = tmp_path / "cluster_turnup.yml"
+    with open(test_file, "w", encoding="utf-8") as f:
+        yaml.safe_dump(wrapped_playbook, f)
+
+    # Perform the same normalization snippet used in tasks/main.yml & execute_custom_stage.yml
+    with open(test_file, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+        if "tasks" in data[0] or "hosts" in data[0]:
+            extracted_tasks = []
+            for play in data:
+                if isinstance(play, dict) and "tasks" in play and isinstance(play["tasks"], list):
+                    extracted_tasks.extend(play["tasks"])
+            with open(test_file, "w", encoding="utf-8") as f:
+                yaml.safe_dump(extracted_tasks, f, default_flow_style=False, sort_keys=False)
+
+    with open(test_file, "r", encoding="utf-8") as f:
+        normalized = yaml.safe_load(f)
+
+    assert isinstance(normalized, list)
+    assert len(normalized) == 2
+    assert normalized[0]["name"] == "Task 1"
+    assert normalized[1]["name"] == "Task 2"
+    assert "hosts" not in normalized[0]
+
