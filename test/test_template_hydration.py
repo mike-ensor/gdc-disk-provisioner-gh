@@ -52,7 +52,7 @@ class TestGgdTemplateHydration(unittest.TestCase):
             'BOOTSTRAP_K8S_DNS': 'none',
             'INSTALL_COMPANION_URL': 'http://gdc-companion.ensor-labs.com:8080/v1/install-logs',
             'GITEA_BINARY_FILENAME': 'gitea-1.22.1-linux-amd64',
-            'NEXUS_PACKAGE_FILENAME': 'nexus-3.69.0-02-unix.tar.gz',
+            'NEXUS_PACKAGE_FILENAME': 'nexus-3.96.4-01-linux-x86_64.tar.gz',
             'JRE_PACKAGE_FILENAME': 'OpenJDK17U-jre_x64_linux_hotspot_17.0.11_9.tar.gz',
             'SINGLE_DISK': 'false',
             'DISK1': 'vda',

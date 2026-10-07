@@ -260,10 +260,10 @@ To establish 100% auditable traceability, every successful build publishes a sig
       "sha256": "b8043324545eec269fc8f18c22b49fc365ed367e0dd41e081b79832de2570f9c"
     },
     "nexus": {
-      "version": "3.69.0-02",
-      "filename": "nexus-3.69.0-02-unix.tar.gz",
-      "source_url": "https://download.sonatype.com/nexus/3/nexus-3.69.0-02-unix.tar.gz",
-      "sha256": "eec80b3ee33dde61443e54dddea258f851951c4aef81c4c6256c1205ca818162"
+      "version": "3.96.4-01",
+      "filename": "nexus-3.96.4-01-linux-x86_64.tar.gz",
+      "source_url": "https://download.sonatype.com/nexus/3/nexus-3.96.4-01-linux-x86_64.tar.gz",
+      "sha256": "b4be574def830eeef97ca13fe206c458ba0a60631af441e8b128231ad7e002d0"
     },
     "java_jre": {
       "version": "17.0.11+9",
