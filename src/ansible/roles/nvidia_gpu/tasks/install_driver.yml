@@ -40,7 +40,7 @@
         update_cache: true
       when: _nct_key_download is success
 
-- name: "GDC-GPU | Install NVIDIA server driver, headers, and container toolkit"
+- name: "GDC-GPU | Install NVIDIA open driver, headers, and container toolkit"
   ansible.builtin.apt:
     name:
       - "linux-headers-{{ ansible_kernel }}"

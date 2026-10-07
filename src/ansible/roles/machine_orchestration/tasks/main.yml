@@ -461,6 +461,21 @@
   changed_when: false
   failed_when: false
 
+- name: "GDC-ORCH | Deploy NVIDIA verification script"
+  ansible.builtin.copy:
+    src: verify-nvidia.sh
+    dest: /usr/local/bin/verify-nvidia.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "GDC-EVIDENCE | Execute NVIDIA verification check"
+  ansible.builtin.command:
+    cmd: "/usr/local/bin/verify-nvidia.sh --json"
+  register: verify_nvidia_cr
+  changed_when: false
+  failed_when: false
+
 - name: "GDC-EVIDENCE | Stat mTLS Client Certificate"
   ansible.builtin.stat:
     path: /var/gdc-install/keys/client.crt
@@ -537,6 +552,12 @@
         sds_directory_present: "{{ (storage_prereqs_val.stdout is defined and 'OK: /customer/sds exists' in storage_prereqs_val.stdout) | bool }}"
         validation_status: "{{ 'PASS' if (storage_prereqs_val.rc is defined and storage_prereqs_val.rc == 0) else 'FAIL' }}"
         details: "{{ storage_prereqs_val.stdout_lines | default([]) }}"
+      nvidia_gpu: >-
+        {{
+          (verify_nvidia_cr.stdout | from_json)
+          if (verify_nvidia_cr.stdout is defined and (verify_nvidia_cr.stdout | trim | length > 0) and (verify_nvidia_cr.stdout | trim).startswith('{'))
+          else {'status': 'SKIPPED_NO_GPU', 'present': false}
+        }}
 
 - name: "GDC-ORCH | Verify peer hostname resolution"
   ansible.builtin.command:

@@ -1,13 +1,46 @@
 ---
 # Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
 
-- name: "GDC-GPU | Record GPU evidence facts"
+- name: "GDC-GPU | Deploy NVIDIA verification script to /usr/local/bin"
+  ansible.builtin.copy:
+    src: verify-nvidia.sh
+    dest: /usr/local/bin/verify-nvidia.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "GDC-GPU | Execute NVIDIA verification script"
+  ansible.builtin.command:
+    cmd: "/usr/local/bin/verify-nvidia.sh --json"
+  register: verify_nvidia_cmd
+  changed_when: false
+  failed_when: false
+
+- name: "GDC-GPU | Parse verification results into evidence facts"
   ansible.builtin.set_fact:
-    nvidia_gpu_evidence:
-      present: "{{ nvidia_gpu_present | bool }}"
-      status: "{{ 'CONFIGURED' if (nvidia_gpu_present | bool) else 'SKIPPED_NO_GPU' }}"
-      pci_bus: "{{ nvidia_gpu_pci_id | default('NONE') }}"
-      driver_package: "{{ nvidia_driver_package if (nvidia_gpu_present | bool) else 'NONE' }}"
-      memory_clock_locked_mhz: "{{ (nvidia_gpu_memory_clock_mhz | int) if (nvidia_gpu_present and nvidia_gpu_lock_memory_clock) else 0 }}"
-      persistence_service_configured: "{{ (nvidia_gpu_enable_persistence | bool) if (nvidia_gpu_present | bool) else false }}"
-      reboot_pending: "{{ nvidia_reboot_required | default(false) | bool }}"
+    nvidia_gpu_evidence: >-
+      {{
+        (verify_nvidia_cmd.stdout | from_json)
+        if (verify_nvidia_cmd.stdout is defined and (verify_nvidia_cmd.stdout | trim | length > 0) and (verify_nvidia_cmd.stdout | trim).startswith('{'))
+        else {
+          'present': nvidia_gpu_present | bool,
+          'status': ('CONFIGURED' if (nvidia_gpu_present | bool) else 'SKIPPED_NO_GPU'),
+          'pci_bus': nvidia_gpu_pci_id | default('NONE'),
+          'driver_package': (nvidia_driver_package if (nvidia_gpu_present | bool) else 'NONE'),
+          'reboot_pending': nvidia_reboot_required | default(false) | bool
+        }
+      }}
+
+- name: "GDC-GPU | Merge structured telemetry facts into evidence"
+  ansible.builtin.set_fact:
+    nvidia_gpu_evidence: >-
+      {{
+        nvidia_gpu_evidence | combine({
+          'present': (nvidia_gpu_evidence.gpu_present if nvidia_gpu_evidence.gpu_present is defined else (nvidia_gpu_present | bool)),
+          'pci_bus': (nvidia_gpu_evidence.pci_bus if (nvidia_gpu_evidence.pci_bus is defined and nvidia_gpu_evidence.pci_bus != 'NONE') else (nvidia_gpu_pci_id | default('NONE'))),
+          'driver_package': (nvidia_driver_package if (nvidia_gpu_present | bool) else 'NONE'),
+          'reboot_pending': nvidia_reboot_required | default(false) | bool,
+          'memory_clock_locked_mhz': ((nvidia_gpu_memory_clock_mhz | int) if (nvidia_gpu_present and nvidia_gpu_lock_memory_clock) else 0),
+          'persistence_service_configured': ((nvidia_gpu_enable_persistence | bool) if (nvidia_gpu_present | bool) else false)
+        })
+      }}

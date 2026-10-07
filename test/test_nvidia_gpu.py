@@ -34,7 +34,7 @@ class TestNvidiaGPU(unittest.TestCase):
 
         packages = set(cfg.get("packages_to_include", {}).get("customer_added", []))
         self.assertIn("nvidia-driver-580-open", packages, "Missing 'nvidia-driver-580-open' in packages_config.yaml customer_added")
-        self.assertIn("nvidia-utils-580-server", packages, "Missing 'nvidia-utils-580-server' in packages_config.yaml customer_added")
+        self.assertIn("nvidia-utils-580", packages, "Missing 'nvidia-utils-580' in packages_config.yaml customer_added")
         self.assertIn("nvidia-container-toolkit", packages, "Missing 'nvidia-container-toolkit' in packages_config.yaml customer_added")
 
     def test_vars_all_nvidia_settings(self):
@@ -45,7 +45,7 @@ class TestNvidiaGPU(unittest.TestCase):
                 content = f.read()
 
             self.assertIn("nvidia_driver_package: \"nvidia-driver-580-open\"", content, f"{filename} missing nvidia_driver_package")
-            self.assertIn("nvidia_utils_package: \"nvidia-utils-580-server\"", content, f"{filename} missing nvidia_utils_package")
+            self.assertIn("nvidia_utils_package: \"nvidia-utils-580\"", content, f"{filename} missing nvidia_utils_package")
             self.assertIn("nvidia_container_toolkit_package: \"nvidia-container-toolkit\"", content, f"{filename} missing nvidia_container_toolkit_package")
             self.assertIn("nvidia_gpu_enable_persistence: true", content, f"{filename} missing nvidia_gpu_enable_persistence")
             self.assertIn("nvidia_gpu_lock_memory_clock: true", content, f"{filename} missing nvidia_gpu_lock_memory_clock")
@@ -125,6 +125,41 @@ class TestNvidiaGPU(unittest.TestCase):
 
         self.assertIn("name: nvidia_gpu", content, "stage_linux_ready.yml does not include role nvidia_gpu")
         self.assertIn("nvidia_gpu: \"{{ nvidia_gpu_evidence", content, "stage_linux_ready.yml does not record nvidia_gpu evidence")
+
+    def test_verify_nvidia_script_exists_and_executable(self):
+        """Verifies verify-nvidia.sh exists in files directories and passes syntax check."""
+        import subprocess
+        for rel_path in (
+            "src/ansible/roles/nvidia_gpu/files/verify-nvidia.sh",
+            "src/ansible/roles/machine_orchestration/files/verify-nvidia.sh",
+        ):
+            script_path = os.path.join(PROJECT_ROOT, rel_path)
+            self.assertTrue(os.path.isfile(script_path), f"Missing {rel_path}")
+            proc = subprocess.run(["bash", "-n", script_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertEqual(proc.returncode, 0, f"Syntax error in {rel_path}: {proc.stderr}")
+
+    def test_verify_nvidia_local_json_output(self):
+        """Verifies verify-nvidia.sh --json outputs valid parseable JSON."""
+        import json
+        import subprocess
+        script_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/nvidia_gpu/files/verify-nvidia.sh")
+        proc = subprocess.run([script_path, "--json"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.assertEqual(proc.returncode, 0, f"verify-nvidia.sh failed: {proc.stderr}")
+        data = json.loads(proc.stdout)
+        self.assertIn("status", data)
+        self.assertIn("gpu_present", data)
+        self.assertIn("checks", data)
+        self.assertIn("details", data)
+
+    def test_collect_evidence_deploys_and_executes_verify_script(self):
+        """Verifies collect_evidence.yml deploys verify-nvidia.sh and executes it for evidence."""
+        evidence_task_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/nvidia_gpu/tasks/collect_evidence.yml")
+        with open(evidence_task_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        self.assertIn("dest: /usr/local/bin/verify-nvidia.sh", content)
+        self.assertIn("/usr/local/bin/verify-nvidia.sh --json", content)
+        self.assertIn("nvidia_gpu_evidence:", content)
 
 
 if __name__ == "__main__":
