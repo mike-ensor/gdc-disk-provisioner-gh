@@ -160,7 +160,7 @@ for disk in ${RAW_DISKS}; do
     # Get sector size of block device
     if [[ -f "/sys/block/${disk}/size" ]]; then
         SECTORS=$(cat "/sys/block/${disk}/size")
-        # 560 GiB = 1174405120 sectors (512-byte blocks) to guarantee 100GB logs and 300GB+ Nexus
+        # 560 GiB = 1174405120 sectors (512-byte blocks) to guarantee 40GB root, 100GB logs, and 300GB+ Nexus
         if [[ ${SECTORS} -ge 1174405120 ]]; then
             DETECTED_DISKS+=("${disk}")
         else

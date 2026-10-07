@@ -78,7 +78,7 @@ The primary target SSD/NVMe drive is formatted with three partitions:
 
 | Volume Name | Mount Point | Size | Filesystem | Mount Options | GDC Compliance Role / Isolated Metric |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `lv_root` | `/` | 20 GiB | EXT4 | `defaults` | Base system files & temporary tools |
+| `lv_root` | `/` | 40 GiB | EXT4 | `defaults` | Base system files & temporary tools |
 | `lv_var` | `/var` | 25 GiB | EXT4 | `defaults,noatime` | Kubelet states and runtime data |
 | `lv_var_log` | `/var/log` | 100 GiB | EXT4 | `defaults,noatime` | **Logs Isolation:** Fluent-bit buffers and journald logs |
 | `lv_metrics` | `/var/opt/buffered-metrics` | 10 GiB | EXT4 | `defaults,noatime` | **Metrics Isolation:** GDC metrics buffers (10,016 MiB req) |

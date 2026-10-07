@@ -23,7 +23,7 @@ config:
   - {type: lvm_volgroup, id: vg-system, name: vg_system, devices: [crypt-system]}
   
   # Scaled Logical Volumes for Single Disk
-  - {type: lvm_partition, id: lv-root, volgroup: vg-system, name: lv_root, size: 15G}
+  - {type: lvm_partition, id: lv-root, volgroup: vg-system, name: lv_root, size: 40G}
   - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 25G}
   - {type: lvm_partition, id: lv-varlog, volgroup: vg-system, name: lv_var_log, size: 100G}
   - {type: lvm_partition, id: lv-metrics, volgroup: vg-system, name: lv_var_opt_metrics, size: 10G}
@@ -64,7 +64,7 @@ config:
   - {type: lvm_volgroup, id: vg-data, name: vg_data, devices: [crypt-data]}
   
   # LVs System
-  - {type: lvm_partition, id: lv-root, volgroup: vg-system, name: lv_root, size: 20G}
+  - {type: lvm_partition, id: lv-root, volgroup: vg-system, name: lv_root, size: 40G}
   - {type: lvm_partition, id: lv-var, volgroup: vg-system, name: lv_var, size: 25G}
   - {type: lvm_partition, id: lv-varlog, volgroup: vg-system, name: lv_var_log, size: 100G}
   - {type: lvm_partition, id: lv-metrics, volgroup: vg-system, name: lv_var_opt_metrics, size: 10G}

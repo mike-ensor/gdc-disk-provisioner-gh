@@ -69,7 +69,7 @@ The primary target drives are partitioned and formatted based on the detected to
 
 | Logical Volume | Mount Point | Default Size | Filesystem | Mount Options | GDC Compliance Role & Tuning |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `lv_root` | `/` | 20 GiB | EXT4 | `defaults` | Host operating system binaries & basic tools. |
+| `lv_root` | `/` | 40 GiB | EXT4 | `defaults` | Host operating system binaries & basic tools. |
 | `lv_var` | `/var` | 20 GiB | EXT4 | `defaults,noatime` | Kubelet states and runtime data directories. |
 | `lv_var_log` | `/var/log` | 100 GiB | EXT4 | `defaults,noatime` | **Logs Isolation:** Fluent-bit buffers and journald logs isolated from system root. |
 | `lv_var_opt_metrics` | `/var/opt/buffered-metrics` | 10 GiB | EXT4 | `defaults,noatime` | **Metrics Isolation:** GDC metrics collection buffer (10,016 MiB required). |
@@ -79,7 +79,7 @@ The primary target drives are partitioned and formatted based on the detected to
 | `lv_gitea` | `/var/lib/gitea` | 20 GiB | EXT4 | `defaults,noatime` | Local Gitea mirror git repositories storage boundary. |
 | `lv_nexus` | `/var/lib/nexus` | 300 GiB* | EXT4 | `defaults,noatime` | Local Nexus cache and blob stores (APT, OCI registry layers, LLMs). |
 
-*\* Note: On Single-Disk topologies, `lv_var_log` is 100 GiB, `lv_gitea` is scaled to 15 GiB, `lv_nexus` to 300 GiB, and `lv_root`/`lv_var` to 15 GiB/25 GiB. On Dual-Disk topologies, `lv_nexus` consumes the entire remainder of Disk 1 (`size: -1`, guaranteed $\ge 300\text{ GiB}$ on compliant drives).*
+*\* Note: On Single-Disk topologies, `lv_var_log` is 100 GiB, `lv_gitea` is scaled to 15 GiB, `lv_nexus` to 300 GiB, and `lv_root`/`lv_var` to 40 GiB/25 GiB. On Dual-Disk topologies, `lv_root` is 40 GiB and `lv_nexus` consumes the entire remainder of Disk 1 (`size: -1`, guaranteed $\ge 300\text{ GiB}$ on compliant drives).*
 
 ### Data Volume Group (`vg_data`) - Mounted on Disk 2 (Multi-Disk Only)
 

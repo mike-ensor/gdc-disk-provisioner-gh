@@ -116,7 +116,7 @@ A GRUB display parameter (`video=efifb:1280x1024`) that forces a standard 16:9 1
 
 ### Enterprise LVM Partitioning
 A GDC Bare Metal compliant storage partitioning standard. It isolates system partitions (EFI, boot) from 9 to 11 dedicated Logical Volumes inside an encrypted Volume Group (`vg_system`), preventing single-filesystem saturation from impacting Kubernetes operations:
-* `/` (`lv_root`): 20 GiB — Base operating system.
+* `/` (`lv_root`): 40 GiB — Base operating system.
 * `/var` (`lv_var`): 20 GiB — Kubelet states and runtime data.
 * `/var/log` (`lv_var_log`): 100 GiB — Fluent-bit, journald, and system log isolation.
 * `/var/opt/buffered-metrics` (`lv_var_opt_metrics`): 10 GiB — GDC telemetry metrics buffer.

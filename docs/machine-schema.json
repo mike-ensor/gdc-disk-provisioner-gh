@@ -310,6 +310,10 @@
                       "type": "string",
                       "description": "OCI image reference."
                     },
+                    "dir-path": {
+                      "type": "string",
+                      "description": "Optional directory path to sync from inside the container filesystem."
+                    },
                     "gsa": {
                       "type": "string",
                       "description": "GCP Service Account name for Workload Identity Artifact Registry access."
