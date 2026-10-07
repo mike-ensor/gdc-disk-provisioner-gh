@@ -123,7 +123,7 @@ Options:
   --repo-sync-repo <REPO>
                          Git repo URL or OCI image for RepoSync (default: ${ENV_REPO_SYNC_REPO:-none})
   --repo-sync-namespace <NAMESPACE>
-                         Namespace of the RepoSync object (required with --repo-sync-repo)
+                         Namespace of the RepoSync object; created if it does not exist (required with --repo-sync-repo)
   --repo-sync-type <TYPE>
                          Repository type: 'git' or 'oci' (default: auto-detected)
   --repo-sync-branch <BRANCH>
@@ -1169,6 +1169,17 @@ EOF
     auth: none
 EOF
 			fi
+		fi
+
+		# A RepoSync is namespace-scoped: applying it into a namespace that does not exist fails with
+		# NotFound, so make sure the namespace exists first (created only when missing).
+		echo "[-] Ensuring namespace '${REPO_SYNC_NAMESPACE}' exists for RepoSync..."
+		if sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl get namespace "${REPO_SYNC_NAMESPACE}" &>/dev/null; then
+			echo "[OK] Namespace '${REPO_SYNC_NAMESPACE}' already exists."
+		elif sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl create namespace "${REPO_SYNC_NAMESPACE}"; then
+			echo "[OK] Namespace '${REPO_SYNC_NAMESPACE}' created."
+		else
+			echo "[!] Warning: Failed to create namespace '${REPO_SYNC_NAMESPACE}'. The RepoSync cannot be applied until it exists."
 		fi
 
 		echo "[-] Waiting for RepoSync CRD to be established..."
