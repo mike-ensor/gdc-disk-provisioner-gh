@@ -197,8 +197,8 @@ def check_upstream_versions(current_deps):
 
     # 7. Sonatype Nexus
     nexus_fn = current_deps.get("NEXUS_PACKAGE_FILENAME", "")
-    m_nx = re.search(r"nexus-([\d.-]+)-unix\.tar\.gz", nexus_fn)
-    curr_nexus = m_nx.group(1) if m_nx else "3.69.0-02"
+    m_nx = re.search(r"nexus-([\d.-]+)(?:-unix|-linux-x86_64)?\.tar\.gz", nexus_fn)
+    curr_nexus = m_nx.group(1) if m_nx else "3.96.4-01"
     try:
         tags = http_get_json("https://api.github.com/repos/sonatype/nexus-public/tags?per_page=5")
         latest_nexus = tags[0]["name"].replace("release-", "")
@@ -207,8 +207,8 @@ def check_upstream_versions(current_deps):
             "latest": latest_nexus,
             "update_available": latest_nexus != curr_nexus,
             "repo": "Sonatype Official",
-            "url": f"https://download.sonatype.com/nexus/3/nexus-{latest_nexus}-unix.tar.gz",
-            "filename": f"nexus-{latest_nexus}-unix.tar.gz",
+            "url": f"https://download.sonatype.com/nexus/3/nexus-{latest_nexus}-linux-x86_64.tar.gz",
+            "filename": f"nexus-{latest_nexus}-linux-x86_64.tar.gz",
         }
     except Exception as e:
         results["nexus"] = {"current": curr_nexus, "latest": f"Error: {e}", "update_available": False}

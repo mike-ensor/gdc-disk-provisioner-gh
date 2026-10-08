@@ -28,7 +28,7 @@ To achieve absolute determinism and eliminate environmental version drift, the p
 ### 3.1. Local Service Hub Binaries
 *   **Gitea Core Engine:** `v1.22.1` (checksummed Go binary)
 *   **Java JRE Headless:** OpenJDK JRE `17.0.11+9` (adoptium JRE for Sonatype Nexus)
-*   **Sonatype Nexus Repository Manager:** `v3.69.0-02` (H2 DB backend configuration for Java 17 compatibility)
+*   **Sonatype Nexus Repository Manager:** `v3.96.4-01` (H2 DB backend configuration for Java 21 compatibility)
 
 ### 3.2. Administrative Tools
 *   **Google Cloud SDK (gcloud CLI):** `v481.0.0` (google-cloud-cli-linux-x86_64.tar.gz standalone archive)
@@ -62,7 +62,7 @@ gs://gdc-disk-provisioner-isos/              <-- Existing central bucket (e.g., 
 ├── binaries/                                <-- [NEW] High-performance build caching folder
 │   ├── gitea-1.22.1-linux-amd64             <-- Gitea engine (Go binary)
 │   ├── OpenJDK17U-jre_x64_linux_hotspot...  <-- JVM headless runtime for Nexus
-│   ├── nexus-3.69.0-02-unix.tar.gz          <-- Sonatype Nexus binary
+│   ├── nexus-3.96.4-01-linux-x86_64.tar.gz  <-- Sonatype Nexus binary
 │   └── google-cloud-cli-481.0.0-linux-...   <-- Standalone gcloud CLI tool
 ├── packages/                                <-- [NEW] Pre-resolved/cached GDC APT packages
 │   └── *.deb                                <-- Offline Chrony, Docker, TPM, Step-cli suite

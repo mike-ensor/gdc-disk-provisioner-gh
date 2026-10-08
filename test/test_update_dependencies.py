@@ -32,7 +32,7 @@ class TestUpdateDependenciesEngine(unittest.TestCase):
             "STEP_CLI_FILENAME": "step-cli_0.26.1_amd64.deb",
             "GCLOUD_SDK_FILENAME": "google-cloud-cli-575.0.0-linux-x86_64.tar.gz",
             "JRE_PACKAGE_FILENAME": "OpenJDK17U-jre_x64_linux_hotspot_17.0.11_9.tar.gz",
-            "NEXUS_PACKAGE_FILENAME": "nexus-3.69.0-02-unix.tar.gz",
+            "NEXUS_PACKAGE_FILENAME": "nexus-3.96.4-01-linux-x86_64.tar.gz",
         }
 
     def test_parse_env_file(self):
@@ -88,6 +88,12 @@ class TestUpdateDependenciesEngine(unittest.TestCase):
         self.assertIn("gitea", results)
         self.assertEqual(results["gitea"]["latest"], "1.22.6")
         self.assertTrue(results["gitea"]["update_available"])
+
+        self.assertIn("nexus", results)
+        self.assertEqual(results["nexus"]["current"], "3.96.4-01")
+        self.assertEqual(results["nexus"]["latest"], "3.96.4-01")
+        self.assertEqual(results["nexus"]["filename"], "nexus-3.96.4-01-linux-x86_64.tar.gz")
+        self.assertIn("nexus-3.96.4-01-linux-x86_64.tar.gz", results["nexus"]["url"])
 
     def test_update_dependencies_env_rewrites_file(self):
         with tempfile.NamedTemporaryFile("w", delete=False) as tf:

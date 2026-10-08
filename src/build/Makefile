@@ -662,7 +662,7 @@ publish:
 	echo "      \"sha256\": \"$(GITEA_BINARY_SHA256)\"" >> "$(PROVENANCE_MANIFEST)"; \
 	echo "    }," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "    \"nexus\": {" >> "$(PROVENANCE_MANIFEST)"; \
-	echo "      \"version\": \"3.69.0-02\"," >> "$(PROVENANCE_MANIFEST)"; \
+	echo "      \"version\": \"3.96.4-01\"," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "      \"filename\": \"$(NEXUS_PACKAGE_FILENAME)\"," >> "$(PROVENANCE_MANIFEST)"; \
 	echo "      \"sha256\": \"$(NEXUS_PACKAGE_SHA256)\"" >> "$(PROVENANCE_MANIFEST)"; \
 	echo "    }," >> "$(PROVENANCE_MANIFEST)"; \

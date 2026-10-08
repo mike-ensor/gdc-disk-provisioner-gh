@@ -247,6 +247,16 @@ cp -a "${TEMP_NEXUS_DIR}"/nexus-*/. "${EXTRACT_DIR}/custom-data/nexus/nexus-bin/
 cp -a "${TEMP_NEXUS_DIR}"/sonatype-work/. "${EXTRACT_DIR}/custom-data/nexus/sonatype-work/"
 rm -rf "${TEMP_NEXUS_DIR}"
 
+# Detect if Nexus distribution bundles its own JDK 21 runtime (Nexus 3.78+)
+BUNDLED_JDK_DIR=$(find "${EXTRACT_DIR}/custom-data/nexus/nexus-bin/jdk" -mindepth 2 -maxdepth 2 -type d -name "jdk-21*" 2>/dev/null | head -n 1)
+if [[ -n "${BUNDLED_JDK_DIR}" && -d "${BUNDLED_JDK_DIR}" ]]; then
+    echo "[-] Configuring bundled Java 21 runtime for Sonatype Nexus..."
+    rm -rf "${EXTRACT_DIR}/custom-data/nexus/jre"
+    JDK_REL_PATH=$(realpath --relative-to="${EXTRACT_DIR}/custom-data/nexus" "${BUNDLED_JDK_DIR}")
+    ln -sfn "${JDK_REL_PATH}" "${EXTRACT_DIR}/custom-data/nexus/jre"
+    echo "  [x] Symlinked /custom-data/nexus/jre -> ${JDK_REL_PATH}"
+fi
+
 # Optimize Nexus VM options for Java 17 compatibility
 VM_OPTIONS_FILE="${EXTRACT_DIR}/custom-data/nexus/nexus-bin/bin/nexus.vmoptions"
 if [[ -f "${VM_OPTIONS_FILE}" ]]; then
