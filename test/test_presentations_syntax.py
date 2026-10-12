@@ -1,5 +1,6 @@
 """Unit tests for presentation suite syntax and Marp styling."""
 import os
+import re
 
 PRESENTATIONS_DIR = os.path.join(
     os.path.dirname(__file__), "..", "docs", "presentations"
@@ -34,5 +35,32 @@ def test_flagship_deck():
     # Ensure all 8 stages are listed
     for stage_num in range(1, 9):
         assert f"Stage {stage_num}" in content
+
+    # Parse slides (split by \n---\n). The first block after header is Slide 1.
+    parts = content.split("\n---\n")
+    header = parts[0]
+    slides = parts[1:]
+
+    expected_slide_count = 22
+    assert len(slides) == expected_slide_count, (
+        f"Expected exactly {expected_slide_count} slides without trailing blank slides, got {len(slides)}"
+    )
+
+    for i, slide in enumerate(slides, start=1):
+        stripped = slide.strip()
+        assert stripped, f"Slide {i} must not be empty"
+
+        # Verify every content slide has non-empty text outside presenter notes
+        text_outside_notes = re.sub(r"<!--(?!\s*_class).*?-->", "", slide, flags=re.DOTALL).strip()
+        assert text_outside_notes, f"Slide {i} has no content text outside presenter notes"
+
+        # Verify every content slide contains its own <!-- comment with required sections
+        assert "<!--" in slide, f"Slide {i} must contain presenter notes opening '<!--'"
+        assert "[VISUAL]:" in slide, f"Slide {i} must contain '[VISUAL]:' presenter notes"
+        assert "[VOICEOVER]:" in slide, f"Slide {i} must contain '[VOICEOVER]:' presenter notes"
+        assert (
+            "[LIVE DEMO / TERMINAL CUE]:" in slide
+        ), f"Slide {i} must contain '[LIVE DEMO / TERMINAL CUE]:' presenter notes"
+
 
 
