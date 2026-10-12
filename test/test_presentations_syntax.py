@@ -122,3 +122,32 @@ def test_developer_deck():
         assert "[LIVE DEMO / TERMINAL CUE]:" in slide, f"Slide {i} missing [LIVE DEMO / TERMINAL CUE]:"
 
 
+def test_observability_deck():
+    path = os.path.join(PRESENTATIONS_DIR, "03-observability-and-companion.marp.md")
+    assert os.path.isfile(path), "03-observability-and-companion.marp.md must exist"
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+    assert "theme: gdc-brand" in content
+    assert "Private Mode" in content
+    assert "airgapped" not in content.lower(), "Must NOT use airgapped, use Private Mode"
+    assert "build_id" in content
+    assert "mac" in content
+    assert "/var/gdc-install/state" in content
+
+    # Verify per-slide Marp scoping
+    raw_slides = content.split("\n---\n")
+    slides = raw_slides[1:]
+    assert len(slides) >= 12, "Must contain at least 12 slides"
+    for i, slide in enumerate(slides, start=1):
+        clean_slide = slide.strip()
+        assert clean_slide, f"Slide {i} cannot be blank"
+        text_outside_notes = re.sub(
+            r"<!--(?! _class:).*?-->", "", slide, flags=re.DOTALL
+        ).strip()
+        assert text_outside_notes, f"Slide {i} has no content text outside presenter notes"
+        assert "[VISUAL]:" in slide, f"Slide {i} missing [VISUAL]:"
+        assert "[VOICEOVER]:" in slide, f"Slide {i} missing [VOICEOVER]:"
+        assert "[LIVE DEMO / TERMINAL CUE]:" in slide, f"Slide {i} missing [LIVE DEMO / TERMINAL CUE]:"
+
+
+
