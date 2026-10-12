@@ -509,14 +509,14 @@ This flagship presentation introduces the foundation. Explore our modular deep-d
 
 <!-- _class: lead -->
 
-## Summary & Repository Resources
+# Summary & Repository Resources
 
 ### Autonomous Bare-Metal Edge Provisioning
 * **Repository:** `gitlab.com/gcp-solutions-public/retail-edge/gdc-disk-provisioner`
 * **Documentation:** `docs/ARCHITECTURE.md` & `docs/superpowers/specs/`
 * **Companion Gateway:** `gdc-companion`
 
-```
+```text
 Ready to build? Run:
 ./build.sh --version <version> --env barn --bootimus --yes
 ```

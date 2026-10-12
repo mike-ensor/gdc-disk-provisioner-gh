@@ -25,7 +25,11 @@ section.lead {
   text-align: center;
 }
 
-section.lead h1 {
+section.lead h1,
+section.lead h2,
+section.lead h3,
+section.lead p,
+section.lead li {
   color: #FFFFFF;
 }
 
