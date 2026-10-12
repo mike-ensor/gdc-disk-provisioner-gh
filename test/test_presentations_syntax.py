@@ -182,3 +182,10 @@ def test_security_deck():
         assert "[LIVE DEMO / TERMINAL CUE]:" in slide, f"Slide {i} missing [LIVE DEMO / TERMINAL CUE]:"
 
 
+def test_render_script_exists_and_executable():
+    script_path = os.path.join(PRESENTATIONS_DIR, "render_decks.sh")
+    assert os.path.isfile(script_path), "render_decks.sh must exist"
+    assert os.access(script_path, os.X_OK), "render_decks.sh must be executable"
+
+
+
