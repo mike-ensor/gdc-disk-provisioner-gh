@@ -17,7 +17,7 @@
 - Create: `docs/presentations/README.md`
 - Test: `test/test_presentations_syntax.py`
 
-- [ ] **Step 1: Write the test verifying presentation directory structure and theme existence**
+- [x] **Step 1: Write the test verifying presentation directory structure and theme existence**
 
 ```python
 # test/test_presentations_syntax.py
@@ -36,12 +36,12 @@ def test_presentations_directory_and_theme():
     assert "--color-google-blue" in content, "theme.css must define Google blue brand variable"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest test/test_presentations_syntax.py -v`
 Expected: FAIL (Directory or file not found)
 
-- [ ] **Step 3: Implement `theme.css` and presentation `README.md`**
+- [x] **Step 3: Implement `theme.css` and presentation `README.md`**
 
 Create `docs/presentations/common/theme.css`:
 ```css
@@ -143,12 +143,12 @@ pre {
 
 Create `docs/presentations/README.md` detailing Marp rendering commands (`npx @marp-team/marp-cli@latest --html --theme common/theme.css <deck>.marp.md -o <deck>.html`).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest test/test_presentations_syntax.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/presentations/ test/test_presentations_syntax.py
