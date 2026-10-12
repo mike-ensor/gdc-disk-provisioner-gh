@@ -14,8 +14,8 @@ for arg in "$@"; do
         -h|--help)
             echo "Usage: $0 [--pdf]"
             echo "Options:"
-            echo "  --pdf    Also compile decks to PDF format"
-            echo "  -h       Show this help message"
+            echo "  --pdf        Also compile decks to PDF format"
+            echo "  -h, --help   Show this help message"
             exit 0
             ;;
         *)
@@ -89,7 +89,7 @@ for deck in decks:
     with open(deck, "r", encoding="utf-8") as f:
         content = f.read()
 
-    parts = content.split("\n---\n")
+    parts = re.split(r"\r?\n---\r?\n", content)
     if len(parts) <= 1:
         print(f"ERROR: {deck_name} does not contain multiple slides separated by '---'", file=sys.stderr)
         has_error = True
@@ -102,15 +102,40 @@ for deck in decks:
             has_error = True
             continue
 
-        text_outside_notes = re.sub(r"<!--(?!\s*_class).*?-->", "", slide, flags=re.DOTALL).strip()
+        text_outside_notes = re.sub(r"<!--(?!\s*_\w+:).*?-->", "", slide, flags=re.DOTALL).strip()
         if not text_outside_notes:
             print(f"ERROR: {deck_name} - Slide {idx} has no content text outside presenter notes", file=sys.stderr)
             has_error = True
 
-        notes = re.findall(r"<!--(?!\s*_class)(.*?)-->", slide, flags=re.DOTALL)
+        # Mermaid fence validation: Check that every opening ```mermaid block has a matching closing ``` fence
+        in_mermaid = False
+        for line in slide.splitlines():
+            if not in_mermaid:
+                if re.match(r"^\s*```mermaid\b", line):
+                    in_mermaid = True
+            else:
+                if re.match(r"^\s*```+\s*$", line):
+                    in_mermaid = False
+                elif re.match(r"^\s*```mermaid\b", line):
+                    print(f"ERROR: {deck_name} - Slide {idx} has unclosed ```mermaid block", file=sys.stderr)
+                    has_error = True
+        if in_mermaid:
+            print(f"ERROR: {deck_name} - Slide {idx} has unclosed ```mermaid block", file=sys.stderr)
+            has_error = True
+
+        # Slide note checks: Verify each slide contains the actual note tokens,
+        # ignoring any Marp directive comments <!--\s*_\w+:.*?-->.
+        slide_without_directives = re.sub(r"<!--\s*_\w+:.*?-->", "", slide, flags=re.DOTALL)
+        notes = re.findall(r"<!--(.*?)-->", slide_without_directives, flags=re.DOTALL)
         if not notes or not any(n.strip() for n in notes):
             print(f"ERROR: {deck_name} - Slide {idx} is missing presenter notes", file=sys.stderr)
             has_error = True
+        else:
+            notes_text = "\n".join(notes)
+            for token in ["[VISUAL]:", "[VOICEOVER]:", "[LIVE DEMO / TERMINAL CUE]:"]:
+                if token not in notes_text:
+                    print(f"ERROR: {deck_name} - Slide {idx} presenter notes missing '{token}'", file=sys.stderr)
+                    has_error = True
 
 if has_error:
     print("FAILURE: Slide structure check failed.", file=sys.stderr)

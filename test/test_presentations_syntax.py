@@ -1,6 +1,7 @@
 """Unit tests for presentation suite syntax and Marp styling."""
 import os
 import re
+import subprocess
 
 PRESENTATIONS_DIR = os.path.join(
     os.path.dirname(__file__), "..", "docs", "presentations"
@@ -186,6 +187,8 @@ def test_render_script_exists_and_executable():
     script_path = os.path.join(PRESENTATIONS_DIR, "render_decks.sh")
     assert os.path.isfile(script_path), "render_decks.sh must exist"
     assert os.access(script_path, os.X_OK), "render_decks.sh must be executable"
-
-
-
+    result = subprocess.run([script_path, "--help"], capture_output=True, text=True)
+    assert result.returncode == 0, f"render_decks.sh --help failed: {result.stderr}"
+    assert (
+        "Usage:" in result.stdout
+    ), "render_decks.sh --help stdout must contain 'Usage:'"
