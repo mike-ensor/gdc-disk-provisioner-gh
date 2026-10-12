@@ -51,9 +51,9 @@ The `gdc-disk-provisioner` repository bridges low-level Linux systems engineerin
 ```
 gdc-disk-provisioner/
 ├── src/build/                      # ISO remastering toolchain & PXE test runners
-│   ├── remaster.sh                 # Core pipeline: un-squashfs, inject payload, xorriso repack
+│   ├── remaster.sh                 # Core pipeline: SquashFS separation, payload staging, xorriso repack
 │   └── bootimus.py                 # Multi-target BMC/PXE orchestrator & next-boot daemon
-├── custom-data/                    # Injected offline payloads & configuration sources
+├── custom-data/                    # Injected offline payloads staged in outer ISO directory
 │   ├── gitea/                      # Pre-seeded bare Git repositories for node-local GitOps
 │   ├── nexus/                      # Offline apt repositories & OCI container registry mirrors
 │   └── examples/burnin-bundle/     # Hardware validation playbooks & stress test hooks
@@ -63,9 +63,14 @@ gdc-disk-provisioner/
 └── test/                           # Python unit, integration, and syntax verification suite
 ```
 
+* **Core Architectural Design — SquashFS Separation Strategy:**
+  * Base Ubuntu `casper/filesystem.squashfs` remains **pristine and untouched**, avoiding slow unpack/repack cycles.
+  * Custom payloads (Gitea bare repos, Nexus blobs, scripts, systemd units, Subiquity templates) stage in outer `/custom-data/` and `/boot/`.
+  * Enables lightning-fast **sub-10-second ISO compilation** via `xorriso`!
+
 <!--
-[VISUAL]: Repository file tree highlighting src/build/, custom-data/, agents/, and test/ directories with callouts showing component responsibilities.
-[VOICEOVER]: Here is the anatomy of the codebase. The src/build directory houses the core remastering engine and our Bootimus hardware test runner. custom-data holds offline payloads, including bare Git repositories pre-seeded into Gitea and container mirrors destined for Nexus. The agents directory contains specialized diagnostic agents and domain skills for troubleshooting kernel hangs and TPM locks, while test enforces rigorous syntax, schema, and build verification.
+[VISUAL]: Repository file tree highlighting src/build/, custom-data/, agents/, and test/ directories, with an architectural callout on the SquashFS Separation Strategy.
+[VOICEOVER]: Here is the anatomy of the codebase. The src/build directory houses our remastering engine and Bootimus test runner. Notice our core architectural principle: the SquashFS Separation Strategy. The base Ubuntu casper/filesystem.squashfs is left pristine and untouched, avoiding slow unpack and repack cycles. All custom payloads—Gitea bare repos, Nexus packages, scripts, systemd units, and autoinstall templates—are staged directly in the uncompressed outer ISO under /custom-data/ and /boot/, enabling sub-10-second ISO compilation with xorriso.
 [LIVE DEMO / TERMINAL CUE]: Open terminal and run `tree -L 2 src/build custom-data agents test/` to verify directory structure.
 -->
 
@@ -77,7 +82,8 @@ A reliable development workbench provides reproducible hermetic builds and isola
 
 * **Host Workstation Dependencies:**
   * Linux environment (Ubuntu 22.04/24.04 or Debian) with KVM hardware virtualization enabled.
-  * Toolchain packages: `xorriso`, `squashfs-tools`, `isolinux`, `mtools`, `ipmitool`, `dosfstools`, `python3-venv`.
+  * Toolchain packages: `xorriso`, `isolinux`, `mtools`, `ipmitool`, `dosfstools`, `python3-venv`.
+  * *Note:* `squashfs-tools` is eliminated from requirements due to the pristine SquashFS separation design.
 * **Lab Environment Profiles (`build.env`):**
   * Target profile configurations decouple developer workstations from specific test rigs.
   * Lab profiles (such as `barn` or `lab-west`) define BMC endpoints, IPMI credentials, target MAC addresses, and static test subnets.
@@ -87,7 +93,7 @@ A reliable development workbench provides reproducible hermetic builds and isola
 
 <!--
 [VISUAL]: Diagram contrasting the local developer workstation running build.sh against an isolated lab rack environment containing target bare-metal servers managed via IPMI/OOB.
-[VOICEOVER]: Before compiling images, the developer workstation is configured with essential toolchains: xorriso for ISO mastering, squashfs-tools for root filesystem manipulation, and ipmitool for BMC orchestration. Environment settings in build.env define our lab profiles—like our internal 'barn' test lab—mapping target server MACs, IPMI credentials, and test subnets so builds can deploy directly to live silicon.
+[VOICEOVER]: Before compiling images, the developer workstation is configured with essential toolchains: xorriso for ISO mastering, isolinux and mtools for boot sectors, and ipmitool for BMC orchestration. Notably, squashfs-tools is completely removed from our workstation requirements because our SquashFS separation leaves the upstream root filesystem untouched. Environment settings in build.env define our lab profiles—like our internal 'barn' test lab—mapping target server MACs, IPMI credentials, and test subnets so builds can deploy directly to live silicon.
 [LIVE DEMO / TERMINAL CUE]: Display sample `build.env` configuration snippet and run `kvm-ok` in developer terminal.
 -->
 
@@ -95,28 +101,28 @@ A reliable development workbench provides reproducible hermetic builds and isola
 
 ## The Remastering Engine (`remaster.sh`)
 
-`remaster.sh` is the deterministic core that transforms upstream Ubuntu 24.04 Server ISOs into hardened GDC node appliances:
+`remaster.sh` implements the **SquashFS Separation Strategy** to produce hardened GDC appliances in seconds:
 
 ```mermaid
 flowchart LR
-    A[Upstream Ubuntu 24.04 ISO] --> B[Unpack ISO & SquashFS]
-    B --> C[Inject Subiquity Autoinstall]
-    C --> D[Embed Custom Payloads & Offline Mirrors]
-    D --> E[Kernel Patching & Bootloader Hooks]
-    E --> F[xorriso Repackaging with UEFI MBR/GPT]
-    F --> G[Custom GDC Appliance ISO]
+    A[Upstream Ubuntu 24.04 ISO] --> B[Leave SquashFS Pristine]
+    B --> C[Stage Autoinstall in /boot/]
+    C --> D[Stage Payloads in /custom-data/]
+    D --> E[Kernel Flags & GRUB Hooks]
+    E --> F[Sub-10s xorriso Repack]
+    F --> G[Hardened GDC Node ISO]
 ```
 
-* **1. Extract:** Unpacks ISO filesystem and unsquashes `casper/minimal.standard.live.squashfs`.
-* **2. Template:** Generates cloud-init and Subiquity `user-data` injecting partitioning, LUKS encryption, and systemd units.
-* **3. Payload Sideload:** Copies offline apt debs, container tarballs, and local service binaries into `/custom-data`.
-* **4. Kernel & Bootloader:** Modifies GRUB configurations with kernel boot flags and silicon errata blacklists.
-* **5. Hermetic xorriso Repack:** Produces a hybrid UEFI/BIOS bootable ISO with exact El Torito boot catalog signatures.
+* **1. SquashFS Separation:** Base Ubuntu `casper/filesystem.squashfs` remains **pristine and untouched** (eliminating slow, multi-minute unpack/repack cycles).
+* **2. Autoinstall Staging:** Subiquity `user-data` and cloud-init templates are staged directly in the uncompressed outer ISO directory under `/boot/`.
+* **3. Outer Payload Sideload:** Gitea bare repos, Nexus package blobs, scripts, and systemd units are copied directly into `/custom-data/`.
+* **4. Kernel & Bootloader:** Injects outer GRUB configurations (`/boot/grub/`) with Zen 4 silicon errata blacklists and serial console flags.
+* **5. Sub-10-Second Compilation:** Invokes `xorriso` to produce a hybrid UEFI/MBR bootable ISO in **under 10 seconds**!
 
 <!--
-[VISUAL]: Pipeline diagram illustrating remaster.sh phases from upstream ISO ingestion to squashfs decompression, autoinstall templating, payload injection, and xorriso mastering.
-[VOICEOVER]: At the heart of our build process is remaster.sh. It begins by mounting the upstream Ubuntu 24.04 LiveCD and extracting its minimal squashfs root filesystem. The script templates our Subiquity autoinstall configurations, embeds offline payloads into custom-data, applies necessary kernel parameters, and repacks the entire appliance using xorriso with hybrid UEFI partition tables ready for USB and PXE boot.
-[LIVE DEMO / TERMINAL CUE]: Terminal command showing dry-run inspection of xorriso flags in `src/build/remaster.sh`.
+[VISUAL]: Pipeline diagram illustrating remaster.sh SquashFS separation: pristine casper/filesystem.squashfs, outer /boot/ and /custom-data/ staging, and sub-10-second xorriso compilation.
+[VOICEOVER]: At the heart of our build process is remaster.sh, driven by the SquashFS Separation Strategy. The base Ubuntu casper/filesystem.squashfs is left pristine and untouched, avoiding slow, multi-minute squashfs unpack and repack cycles. Instead, custom payloads—including Gitea bare repos, Nexus package blobs, scripts, systemd units, and Subiquity autoinstall templates—are staged directly in the uncompressed outer ISO directory under /custom-data/ and /boot/. This architectural design enables lightning-fast sub-10-second ISO compilation via xorriso.
+[LIVE DEMO / TERMINAL CUE]: Terminal command showing dry-run inspection of xorriso flags in `src/build/remaster.sh` and sub-10-second repack duration.
 -->
 
 ---
@@ -169,27 +175,31 @@ Developers can build, validate, and dispatch new appliance images to bare-metal 
 
 ## Rapid Target Booting with `bootimus.py`
 
-`bootimus.py` orchestrates multi-target bare-metal recycling via out-of-band IPMI and iPXE automation:
+`bootimus.py` is an HTTP client interacting with the Bootimus PXE REST API on port 26000:
 
 ```bash
-# Configure all lab servers to boot the newly built ISO on next reboot
-./src/build/bootimus.py --next-boot gdc-node-v0.4.12.iso --all-targets
+# Set next boot ISO across all targets or specific node
+./src/build/bootimus.py --next-boot gdc-labs-24.04-v0.10.19-debug.iso --all-targets
+./src/build/bootimus.py --next-boot gdc-labs-24.04-v0.10.19-debug.iso --targets 192.168.9.242
 
-# Target a specific test bench chassis and stream serial-over-LAN logs
-./src/build/bootimus.py --target node-01.barn --power-cycle --sol
+# List registered images and PXE menu states
+./src/build/bootimus.py --list
 ```
 
-* **Dynamic iPXE Menu Generation:**
-  * Bootimus updates the target MAC's iPXE chainload script to point to the new kernel, initrd, and ISO loopback mount.
-* **BMC & IPMI Power Management:**
-  * Issues `ipmitool chassis bootdev pxe options=efiboot` followed by a chassis power cycle.
+* **Bootimus REST API Client (Port 26000):**
+  * Issues authenticated HTTP requests to query registered images, extraction progress, and client MAC records.
+  * Dynamically updates the target MAC's iPXE chainload script to point to the selected kernel and ISO image.
+* **Out-of-Band Chassis Power Management:**
+  * Chassis power control is decoupled from the PXE daemon and handled via out-of-band IPMI:
+    * Direct IPMI: `ipmitool -I lanplus -H <BMC_IP> -U <USER> -P <PASS> chassis power reset`
+    * Scripted automation: `./bin/local/gdc-node-ops.sh reset-pxe --nodes 192.168.9.242`
 * **Instantaneous Hardware Recycling:**
-  * Avoids manual USB re-flashing or physical presence in the lab; enables unattended CI/CD test automation.
+  * Avoids manual USB re-flashing or physical lab intervention; enables unattended CI/CD test automation.
 
 <!--
-[VISUAL]: Sequence diagram showing bootimus.py sending IPMI chassis commands to a target server BMC, writing an iPXE boot recipe, and capturing serial-over-LAN telemetry.
-[VOICEOVER]: Bootimus is our automation weapon for bare-metal targets. Running bootimus.py allows engineers to set the next-boot image across an entire rack or a specific server with a single command. It configures iPXE recipes dynamically and commands the chassis BMC over IPMI to execute a one-time network boot. This completely removes the need for physical USB drives or manual BIOS menu toggles in the lab.
-[LIVE DEMO / TERMINAL CUE]: Terminal execution of `python3 src/build/bootimus.py --list-targets` displaying lab nodes and active boot configurations.
+[VISUAL]: Architecture diagram showing bootimus.py making REST API calls to port 26000 for iPXE menu overrides, alongside out-of-band IPMI chassis reset commands.
+[VOICEOVER]: Bootimus is our automation weapon for bare-metal targets. bootimus.py is an HTTP client interacting directly with the Bootimus PXE REST API on port 26000. It allows engineers to list registered images and set one-time next-boot overrides across all targets or a specific node. Chassis power control is handled out-of-band via IPMI—either directly with ipmitool chassis power reset or using our gdc-node-ops.sh reset-pxe wrapper—completely eliminating manual USB flashing.
+[LIVE DEMO / TERMINAL CUE]: Terminal execution of `./src/build/bootimus.py --list` followed by `./src/build/bootimus.py --next-boot gdc-labs-24.04-v0.10.19-debug.iso --targets 192.168.9.242`.
 -->
 
 ---
@@ -323,18 +333,21 @@ Key commands and workflows for the daily engineering inner loop:
 | Goal | Command | Description |
 | :--- | :--- | :--- |
 | **Fast Build & Deploy** | `./build.sh --version <V> --env barn --bootimus --yes` | Build ISO, register to Bootimus, arm lab targets |
-| **Target Management** | `./src/build/bootimus.py --next-boot <iso> --all-targets` | Set one-time network boot across all lab servers |
-| **Direct Target BMC** | `./src/build/bootimus.py --target node-01.barn --power-cycle --sol` | Power cycle specific node and attach serial console |
-| **Run Node RCA** | `python3 -m agents.diagnostics_agent.run --target <IP>` | Analyze stalled node and output structured `rca-*.md` |
+| **Bootimus REST API** | `./src/build/bootimus.py --next-boot <iso> --all-targets` | Set one-time network boot via REST API (port 26000) |
+| **Chassis Power Reset** | `./bin/local/gdc-node-ops.sh reset-pxe --nodes <IP>` | OOB IPMI chassis reboot to one-time network boot |
+| **Run Node RCA** | `python3 agents/diagnostics_agent/run.py --ip <NODE_IP>` | Analyze stalled node and output structured `rca-*.md` |
+| **Fetch Forensics** | `./bin/local/gdc-forensics.sh fetch --node <NODE_IP>` | Remotely pull installer logs and diagnostic bundle |
 | **Execute Test Suite** | `pytest test/ -v` | Run full unit, integration, and syntax validation |
 
 * **Remember:**
-  * Always test in Private Mode without external WAN gateways.
-  * Day-2 runtime upkeep is decentralized on the node via `ansible-pull`.
-  * AMD Zen 4 silicon requires `modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp`.
+  * **SquashFS Separation:** `casper/filesystem.squashfs` remains untouched; outer staging enables sub-10s `xorriso` builds.
+  * **Bootimus Client:** `bootimus.py` uses REST API port 26000; power control uses IPMI or `gdc-node-ops.sh reset-pxe`.
+  * **Autonomous Diagnostics:** Triage stalled nodes via `diagnostics_agent/run.py --ip` or `gdc-forensics.sh fetch --node`.
+  * **Private Mode & Upkeep:** Always test without WAN; Day-2 runtime upkeep is decentralized on-node via `ansible-pull`.
+  * **Zen 4 Silicon Quirk:** AMD Zen 4 requires `modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp`.
 
 <!--
 [VISUAL]: Quick reference cheat-sheet summarizing essential developer CLI commands with links to documentation and skill files.
-[VOICEOVER]: To summarize: the developer workbench empowers rapid bare-metal engineering by combining fast remastering builds with automated Bootimus target recycling. Keep in mind the core architectural tenets: maintain strict Private Mode isolation, rely on decentralized node-local Day-2 upkeep, and ensure Zen 4 kernel parameters are preserved. With these tools, you can prototype and ship bare-metal edge features with speed and confidence.
+[VOICEOVER]: To summarize: the developer workbench empowers rapid bare-metal engineering by combining sub-10-second SquashFS separation builds with automated Bootimus PXE REST orchestration and out-of-band IPMI power management. Keep in mind the core architectural tenets: maintain strict Private Mode isolation, rely on decentralized node-local Day-2 upkeep, leverage autonomous diagnostics and forensics CLI tools, and ensure Zen 4 kernel parameters are preserved.
 [LIVE DEMO / TERMINAL CUE]: Display final summary slide and prompt for developer questions.
 -->
