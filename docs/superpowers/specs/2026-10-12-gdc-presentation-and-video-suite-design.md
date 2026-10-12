@@ -15,24 +15,27 @@ At edge environments (retail locations, fulfillment centers, remote facilities),
 - **Planning for Outages as a Core Design Principle:** The system is explicitly architected so that WAN outages are a non-event. If a node can provision, secure, and maintain itself in complete isolation, standard connectivity drops will never stall cluster inception.
 - **Private Mode Terminology:** The project strictly uses the term **"Private Mode"** (never "airgapped") to describe 100% offline, self-contained, and local boundary operations.
 
-### 1.2 Dual System Boundaries
-The presentation suite and accompanying documentation articulate the distinct roles of the two interconnected systems:
+### 1.2 Dual System Boundaries: Day-0/Day-1 Provisioning vs. Node-Local Day-2 Upkeep
+The presentation suite and accompanying documentation articulate the distinct roles of the two interconnected systems, with a clear boundary between initial provisioning (Day-0/Day-1) and ongoing runtime upkeep (Day-2):
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │                   GDC FLEET & PROVISIONING ECOSYSTEM                   │
 ├───────────────────────────────────┬────────────────────────────────────┤
 │       gdc-disk-provisioner        │           gdc-companion            │
-│         (The Node Engine)         │      (The Fleet Coordinator)       │
+│         (The Node Engine)         │ (Day-0/Day-1 Config & Gateway)     │
 ├───────────────────────────────────┼────────────────────────────────────┤
 │ • Custom Offline-First ISO Engine │ • Central Telemetry & Webhook Sink │
 │ • UEFI Automated Bootloader Flip  │ • Ephemeral Boot ID & MAC Tracking │
-│ • TPM 2.0 LUKS Disk Encryption    │ • Central Machine Configuration    │
+│ • TPM 2.0 LUKS Disk Encryption    │ • Machine Configurations & Templating│
 │ • Local Boundary (Gitea & Nexus)  │ • Step CA / mTLS Token Brokering   │
-│ • 8-Stage Node State Machine      │ • Cluster Inception Orchestration  │
-│ • systemd / ansible-pull Upkeep   │ • Fleet Health & Audit Dashboard   │
+│ • 8-Stage Node State Machine      │ • Stage 5/6 Turnup Gating Endpoint │
+│ • Autonomous Day-2 Upkeep         │ • Read-Only Provisioning Status    │
+│   (systemd / ansible-pull / Gitea)│   (Note: NO Day-2 Fleet Ops/Actions)│
 └───────────────────────────────────┴────────────────────────────────────┘
 ```
+
+> **Important Boundary Clarification:** `gdc-companion` is specifically a **Day-0 and Day-1 configuration, attestation, and provisioning gateway**. It does **NOT** perform Day-2 runtime cluster fleet management, real-time workload operations, or active remote remediation. Ongoing Day-2 configuration alignment and drift correction are intentionally decentralized—handled autonomously on each physical node via systemd timers and `ansible-pull` querying the node-local Gitea instance.
 
 ---
 
@@ -85,7 +88,7 @@ docs/presentations/
   1. *Title Slide:* Autonomous Bare-Metal Edge Provisioning for Google Distributed Cloud.
   2. *The Reality of the Edge:* Network volatility, WAN outages, and the breakdown of traditional cloud-tethered installers.
   3. *Core Principle: Outage-First in Private Mode:* How planning for complete network failure enables 100% offline-first provisioning.
-  4. *The Two Systems:* Demarcation between `gdc-disk-provisioner` (Node Engine) and `gdc-companion` (Fleet Coordinator).
+  4. *The Two Systems:* Demarcation between `gdc-disk-provisioner` (Node Engine) and `gdc-companion` (Day-0/Day-1 Config & Provisioning Gateway; clarifying that Day-2 is decentralized node-local).
   5. *Persona Lens:* How operators, developers, support analysts, and security officers interact with the system.
   6. *The 8-Stage State Machine:* LiveCD $\rightarrow$ First Boot $\rightarrow$ Second Boot $\rightarrow$ Linux Ready $\rightarrow$ Cluster Ready $\rightarrow$ Cluster Turnup $\rightarrow$ Post Cluster $\rightarrow$ Upkeep.
   7. *Stages 1–3 (Hardware Foundation):* Automated partitioning, TPM 2.0 LUKS sealing, and NVRAM bootloader flip.
@@ -181,7 +184,7 @@ Each slide deck includes presenter notes structured for video production:
 ### Video Episode Roadmap
 
 1. **Episode 1: The Outage-Proof Edge (15–18 min)**  
-   *Overview:* The problem with edge bare metal, the Private Mode philosophy, the 8-stage state machine, and the roles of `gdc-disk-provisioner` and `gdc-companion`.
+   *Overview:* The problem with edge bare metal, the Private Mode philosophy, the 8-stage state machine, and the distinct roles of `gdc-disk-provisioner` (node provisioning & local Day-2 upkeep) and `gdc-companion` (Day-0/Day-1 config & provisioning gateway).
 2. **Episode 2: The Zero-Touch Operator Experience (10–12 min)**  
    *Hands-on:* Setting up Bootimus PXE, racking a server, observing the automated 2-reboot sequence, and verifying cluster turnup.
 3. **Episode 3: The Developer Inner Loop (12–15 min)**  
