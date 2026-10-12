@@ -18,72 +18,6 @@
   ansible.builtin.include_role:
     name: local_dns
 
-- name: "GDC-CR-GSM | Resolve ConfigSync and GSM secret requirements"
-  ansible.builtin.set_fact:
-    _cr_config_sync_enabled: "{{ (machine_config.cluster.config_sync_enabled | default(true) | bool) and not (offline_mode | default(false) | bool) }}"
-    _cr_repo_info: "{{ lookup('gdc_config_sync', machine_config | default({})) }}"
-    _cr_target_project_id: >-
-      {{
-        (machine_config.gcp_info.project_id)
-        if (machine_config is defined and machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined and (machine_config.gcp_info.project_id | trim | length > 0))
-        else (gcp_project_id | default(''))
-      }}
-
-- name: "GDC-CR-GSM | Check GSM Secret presence when ConfigSync is enabled"
-  when:
-    - _cr_config_sync_enabled | bool
-    - _cr_repo_info.requires_secret | default(false) | bool
-  block:
-    - name: "GDC-CR-GSM | Verify secret accessibility via gcloud"
-      ansible.builtin.command: >-
-        gcloud secrets versions access latest
-        --secret={{ _cr_repo_info.gsm_secret_name }}
-        --project={{ _cr_target_project_id }}
-        {% if _cr_repo_info.gsm_location is defined and _cr_repo_info.gsm_location | trim | length > 0 and _cr_repo_info.gsm_location != 'global' %}
-        --location={{ _cr_repo_info.gsm_location }}
-        {% endif %}
-      register: _cr_gsm_check
-      changed_when: false
-      failed_when: false
-      no_log: true
-
-    - name: "GDC-CR-GSM | Assert GSM secret exists and is accessible"
-      ansible.builtin.assert:
-        that:
-          - _cr_gsm_check is defined
-          - _cr_gsm_check.rc is defined
-          - _cr_gsm_check.rc == 0
-        fail_msg: >-
-          ConfigSync is enabled and requires GSM secret '{{ _cr_repo_info.gsm_secret_name }}', but it could not be accessed in project '{{ _cr_target_project_id }}'{% if _cr_repo_info.gsm_location | default('global') != 'global' %} (location: '{{ _cr_repo_info.gsm_location }}'){% endif %}.
-          Remediation:
-          1. Create the secret:
-             gcloud secrets create {{ _cr_repo_info.gsm_secret_name }} --project="{{ _cr_target_project_id }}" --labels="config-sync=primary-root" --replication-policy="user-managed"{% if _cr_repo_info.gsm_location | default('global') != 'global' %} --location="{{ _cr_repo_info.gsm_location }}"{% endif %}
-          2. Add credentials payload (JSON):
-             echo -n '{"username":"gdc-pat-user","token":"<GIT_TOKEN>"}' | gcloud secrets versions add {{ _cr_repo_info.gsm_secret_name }} --project="{{ _cr_target_project_id }}"{% if _cr_repo_info.gsm_location | default('global') != 'global' %} --location="{{ _cr_repo_info.gsm_location }}"{% endif %} --data-file=-
-          3. Grant Secret Accessor to node GSA:
-             gcloud secrets add-iam-policy-binding {{ _cr_repo_info.gsm_secret_name }} --project="{{ _cr_target_project_id }}"{% if _cr_repo_info.gsm_location | default('global') != 'global' %} --location="{{ _cr_repo_info.gsm_location }}"{% endif %} --member="serviceAccount:{{ (machine_config.gcp_info.primary_gsa) if (machine_config is defined and machine_config.gcp_info is defined and machine_config.gcp_info.primary_gsa is defined) else ('sa-companion@' + _cr_target_project_id + '.iam.gserviceaccount.com') }}" --role="roles/secretmanager.secretAccessor"
-
-    - name: "GDC-CR-GSM | Record verified secret evidence"
-      ansible.builtin.set_fact:
-        _cr_secret_evidence:
-          enabled: true
-          requires_secret: true
-          gsm_secret_name: "{{ _cr_repo_info.gsm_secret_name }}"
-          gsm_location: "{{ _cr_repo_info.gsm_location | default('global') }}"
-          k8s_secret_name: "{{ _cr_repo_info.k8s_secret_name }}"
-          status: "PASS"
-          verified: true
-
-- name: "GDC-CR-GSM | Record skipped secret evidence when secret not required"
-  ansible.builtin.set_fact:
-    _cr_secret_evidence:
-      enabled: "{{ _cr_config_sync_enabled | default(false) | bool }}"
-      requires_secret: false
-      status: "SKIPPED"
-      verified: true
-      reason: "ConfigSync disabled or no GSM secret required for primary_root_repo"
-  when: not (_cr_config_sync_enabled | default(false) | bool) or not (_cr_repo_info.requires_secret | default(false) | bool)
-
 - name: "GDC-CR-EXT | Ingest and evaluate custom extensions"
   ansible.builtin.include_role:
     name: custom_extensions
@@ -105,7 +39,6 @@
               'duration_seconds': cluster_ready_duration_seconds | int,
               'overall_provisioning_start_time': provisioning_start_time | default(cluster_ready_start_time)
             },
-            'config_sync_secret': (_cr_secret_evidence | default({})),
             'custom_extension': (custom_extension_evidence | default({}))
           })
       }}

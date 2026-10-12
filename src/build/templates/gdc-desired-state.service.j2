@@ -1,6 +1,7 @@
 [Unit]
 Description=GDC System Desired State Sync
-After=network.target
+After=network.target gitea.service
+RequiresMountsFor=/var/lib/gitea /var/gdc-install
 
 [Service]
 Type=oneshot
@@ -9,12 +10,24 @@ Environment=PYTHONUNBUFFERED=1
 Environment=ANSIBLE_FORCE_COLOR=1
 StandardOutput=journal
 StandardError=journal
+Restart=on-failure
+RestartSec=30s
 ExecStartPre=/usr/bin/git config --system --add safe.directory /var/lib/gitea/repos/gdc/system-desired-state.git
+ExecStartPre=/usr/bin/git config --system --add safe.directory '*'
 ExecStartPre=/bin/bash -c "mkdir -p /var/gdc-install/logs; ln -sf /var/gdc-install/logs/gdc-desired-state.log /var/log/gdc-desired-state.log || true"
+ExecStartPre=/bin/bash -c "if [ -d /var/gdc-install/playbooks/desired-state ]; then \
+  if [ ! -s /var/gdc-install/playbooks/desired-state/local.yml ] || \
+     ! git -C /var/gdc-install/playbooks/desired-state rev-parse --verify HEAD &>/dev/null || \
+     ! git -C /var/gdc-install/playbooks/desired-state status &>/dev/null; then \
+    echo '[!] Warning: Detected corrupt or incomplete desired-state working tree in /var/gdc-install/playbooks/desired-state. Purging for clean re-clone...'; \
+    rm -rf /var/gdc-install/playbooks/desired-state; \
+  fi; \
+fi"
 ExecStart=/bin/bash -c "flock -n /var/run/gdc-desired-state.lock /usr/bin/ansible-pull \
   -d /var/gdc-install/playbooks/desired-state \
   -U /var/lib/gitea/repos/gdc/system-desired-state.git \
   -C main \
   -i localhost, \
   $ANSIBLE_PULL_FLAGS \
-  local.yml 2>&1 | tee -a /var/gdc-install/logs/gdc-desired-state.log"
+  local.yml 2>&1 | tee -a /var/gdc-install/logs/gdc-desired-state.log; \
+sync"

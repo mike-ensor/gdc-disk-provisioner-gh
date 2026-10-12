@@ -356,6 +356,23 @@ class TestGgdTemplateHydration(unittest.TestCase):
         self.assertIn("StandardOutput=journal", rendered, "StandardOutput must be configured to journal.")
         self.assertIn("StandardError=journal", rendered, "StandardError must be configured to journal.")
         self.assertNotIn("StandardOutput=file:", rendered, "Raw file log streams must be completely removed.")
+        self.assertIn("RequiresMountsFor=", rendered, "Must require mounts for local storage.")
+        self.assertIn("RestartSec=30s", rendered, "Must use fast restart backoff.")
+        self.assertIn("rev-parse --verify HEAD", rendered, "Must check repository integrity.")
+        self.assertIn("rm -rf /var/gdc-install/playbooks/bootstrap", rendered, "Must auto-purge corrupt repo.")
+
+    def test_gdc_desired_state_service_rendering(self):
+        """Exercises and validates templates/gdc-desired-state.service.j2 rendering."""
+        ctx = self.get_context()
+        template = self.jinja_env.get_template('gdc-desired-state.service.j2')
+        rendered = template.render(ctx)
+        
+        self.assert_no_unrendered_jinja_or_placeholders(rendered, "gdc-desired-state.service")
+        self.assertIn("[Unit]", rendered)
+        self.assertIn("[Service]", rendered)
+        self.assertIn("RequiresMountsFor=", rendered)
+        self.assertIn("RestartSec=30s", rendered)
+        self.assertIn("rm -rf /var/gdc-install/playbooks/desired-state", rendered)
 
     def test_gdc_provision_timer_rendering(self):
         """Exercises and validates templates/gdc-provision.timer.j2 rendering."""

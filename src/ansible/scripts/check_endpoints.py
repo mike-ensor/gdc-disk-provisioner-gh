@@ -302,11 +302,40 @@ def load_manifest(config_input: str) -> dict:
     return json.loads(content)
 
 
+STAGE_ORDER = {
+    "livecd": 0,
+    "live_cd": 0,
+    "live-cd": 0,
+    "preflight": 0,
+    "first_boot": 1,
+    "first-boot": 1,
+    "second_boot": 2,
+    "second-boot": 2,
+    "linux_ready": 3,
+    "linux-ready": 3,
+    "cluster_ready": 4,
+    "cluster-ready": 4,
+    "cluster_turnup": 5,
+    "cluster-turnup": 5,
+    "post_cluster": 6,
+    "post-cluster": 6,
+    "post_validation": 6,
+    "post-validation": 6,
+    "upkeep": 7,
+    "update_upkeep": 7,
+    "update-upkeep": 7,
+    "complete": 8,
+    "all": 999,
+    "*": 999,
+}
+
+
 def build_targets_from_manifest(manifest: dict, current_stage: str = "preflight") -> List[dict]:
     """Constructs test target specifications from a loaded manifest and stage filter."""
     targets = []
     current_stage_normalized = current_stage.lower().strip()
     is_all_stage = current_stage_normalized in ("all", "*")
+    current_idx = STAGE_ORDER.get(current_stage_normalized, 0)
 
     for scope in ("system", "platform"):
         scope_data = manifest.get(scope, {})
@@ -338,7 +367,8 @@ def build_targets_from_manifest(manifest: dict, current_stage: str = "preflight"
                 if not isinstance(stage_items, list):
                     continue
                 stage_normalized = stage_name.lower().strip()
-                should_execute = is_all_stage or (stage_normalized == current_stage_normalized)
+                target_idx = STAGE_ORDER.get(stage_normalized, 999)
+                should_execute = is_all_stage or (target_idx <= current_idx)
 
                 for raw_item in stage_items:
                     items_to_process = raw_item if isinstance(raw_item, list) else [raw_item]

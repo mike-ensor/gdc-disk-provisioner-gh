@@ -44,7 +44,7 @@ During a concurrent 5-node PXE boot session:
 ## 3. Root Cause Analysis
 
 ### 3.1 Kernel Command-Line Namespace Collision (`url=`)
-The primary culprit is a parameter namespace collision between **Casper** (Ubuntu's early initramfs live-boot environment) and **Curtin** (Subiquity's low-level installation engine):
+The primary culprit is a parameter namespace collision between **Casper** (Ubuntu's early initramfs live-boot environment), **Curtin** (Subiquity's low-level installation engine), and **Cloud-init**:
 
 ```text
 boot_params: boot=casper initrd=initrd ip=dhcp netboot=url url=http://192.168.254.12:16000/isos/...iso ...
@@ -57,6 +57,12 @@ boot_params: boot=casper initrd=initrd ip=dhcp netboot=url url=http://192.168.25
    - Once Casper pivots to the live environment, Subiquity launches Curtin (`curtin install`).
    - Curtin independently parses `/proc/cmdline`. When it detects `url=http://...`, Curtin registers this as a remote installation source (`LayeredSourceHandler`).
    - Curtin's `url_helper.download()` initiates a second HTTP GET request to pull the entire ISO again to extract the root filesystem into `/target`, completely ignoring that the ISO was already downloaded and mounted at `/cdrom`.
+3. **Cloud-init Crash & OOM Killer Intervention:**
+   - In `cloudinit.cmd.main`, `attempt_cmdline_url()` parses `/proc/cmdline` for tokens named `url` or `cloud-config-url`.
+   - Upon matching `url=http://.../debug.iso`, cloud-init assumes this URL points to a `#cloud-config` user-data document and invokes `url_helper.readurl()`.
+   - Although `stream=True` is requested, `readurl()` evaluates `len(response.content)` to format debug logs, forcing Python's `requests` library to buffer the **entire 7.1 GB ISO into process RAM**.
+   - On nodes with 16 GB RAM (e.g. `192.168.9.244`), the combination of the 7.1 GB Casper RAM disk and the 7.1 GB Python heap allocation exhausts physical memory. The Linux kernel OOM Killer terminates `cloud-init-local.service` and `cloud-init.service`.
+   - Without a running cloud-init daemon, the legitimate autoinstall seed (`ds=nocloud-net`) is never delivered to Subiquity, causing the installer to drop into an interactive language selection TUI.
 
 ### 3.2 Missing Local `source` Specification in `user-data`
 In `user-data`, the `autoinstall` block defines:
@@ -133,6 +139,18 @@ If retaining HTTP ISO delivery, eliminate the dual-direction traffic contention 
 
 #### Implementation
 Store the active `.iso` files on the local NVMe or high-speed storage of the `automation` host (`/opt/bootimus/data/isos/`) instead of mounting via NFS.
+
+---
+
+### 4.4 Seed Artifact Hydration (`nocloud/vendor-data`)
+
+#### Mechanism
+When `cloud-init` probes `ds=nocloud-net;s=http://.../nocloud/`, it requests three seed files: `meta-data`, `user-data`, and `vendor-data`. By default, Ubuntu 24.04 cloud-init has `vendor_data: {enabled: true}`.
+
+If the HTTP endpoint returns `404 Not Found` for `vendor-data`, `cloud-init`'s HTTP retry handler executes **11 retries with a 1-second backoff**, introducing a 10+ second stall into the node's boot sequence.
+
+#### Implementation
+In `src/build/render_templates.py`, the hydration stage automatically writes a minimal `#cloud-config\n` payload to `output_dir/nocloud/vendor-data` alongside `meta-data` and `user-data`. The web server returns `200 OK` on attempt 0, eliminating retry loops and reducing netboot latency.
 
 ---
 

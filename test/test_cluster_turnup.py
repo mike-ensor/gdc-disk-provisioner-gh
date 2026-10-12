@@ -873,6 +873,37 @@ class TestClusterTurnupAnsibleIntegration(unittest.TestCase):
         # Must structure evidence
         self.assertTrue(any("Evidence" in name for name in task_names))
 
+    def test_role_cluster_turnup_idempotency_guards(self):
+        """Verify role tasks implement local cluster health and Fleet Hub association guards."""
+        with open(ROLE_TURNUP_TASKS_PATH, "r", encoding="utf-8") as f:
+            tasks = yaml.safe_load(f)
+
+        task_names = [t.get("name", "") for t in tasks if isinstance(t, dict)]
+        # Local cluster probe and fleet query tasks
+        self.assertTrue(any("Probe local cluster responsiveness" in name for name in task_names))
+        self.assertTrue(any("Query Fleet Hub for existing cluster membership" in name for name in task_names))
+        self.assertTrue(any("Set cluster presence and fleet association facts" in name for name in task_names))
+        
+        # Orphan guard assert
+        orphan_guard = next(t for t in tasks if isinstance(t, dict) and "Fail fast if Fleet Hub shows cluster membership" in t.get("name", ""))
+        self.assertIsNotNone(orphan_guard)
+        that_expr = orphan_guard["ansible.builtin.assert"]["that"][0]
+        self.assertIn("fleet_membership_associated", that_expr)
+        self.assertIn("local_cluster_healthy", that_expr)
+
+        # Conditional create_cluster.sh execution
+        create_task = next(t for t in tasks if isinstance(t, dict) and "Execute create_cluster.sh" in t.get("name", ""))
+        self.assertEqual(create_task.get("when"), "not (local_cluster_healthy | bool)")
+
+    def test_create_cluster_sh_idempotency_guards(self):
+        """Verify create_cluster.sh contains idempotency checks and orphan membership protection."""
+        with open(CREATE_CLUSTER_SCRIPT, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        self.assertIn('LOCAL_CLUSTER_HEALTHY="false"', content)
+        self.assertIn('FLEET_ASSOCIATED="false"', content)
+        self.assertIn('already installed locally and registered in Fleet Hub. Skipping creation', content)
+        self.assertIn('Aborting cluster turnup to prevent GKE Hub resource collision and corrupt state', content)
 
     def test_create_cluster_sh_contains_gmp_enablement(self):
         """Verify that create_cluster.sh contains the step to enable GMP for applications in Stackdriver."""

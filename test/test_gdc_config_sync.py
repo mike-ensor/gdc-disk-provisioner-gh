@@ -306,6 +306,70 @@ class TestPrimaryRootRepoResolution(unittest.TestCase):
         self.assertEqual(res["gsm_location"], "us-west1")
         self.assertEqual(res["k8s_secret_name"], "scm-creds")
 
+    def test_resolve_git_with_flat_gsm_location(self):
+        """Verifies resolving flat gsm_location on git repo."""
+        config = {
+            "cluster": {
+                "cluster_name": "edge-01",
+                "primary_root_repo": {
+                    "git": {
+                        "repo_url": "https://gitlab.com/retail-edge/repo.git",
+                        "gsm_secret_name": "flat-creds",
+                        "gsm_location": "us-central1",
+                    },
+                },
+            }
+        }
+        res = resolve_primary_root_repo(config)
+        self.assertEqual(res["gsm_secret_name"], "flat-creds")
+        self.assertEqual(res["gsm_location"], "us-central1")
+
+    def test_resolve_oci_with_gsm_auth_secret_object(self):
+        """Verifies resolving structured gsm-auth-secret on OCI repo."""
+        config = {
+            "cluster": {
+                "cluster_name": "edge-01",
+                "primary_root_repo": {
+                    "oci": {
+                        "image": "ghcr.io/org/repo:v1",
+                        "gsm-auth-secret": {
+                            "gsm-name": "oci-reg-secret",
+                            "gsm-location": "europe-west1",
+                            "k8s-name": "k8s-oci-secret",
+                        },
+                    },
+                },
+            }
+        }
+        res = resolve_primary_root_repo(config)
+        self.assertEqual(res["repo_type"], "oci")
+        self.assertEqual(res["gsm_secret_name"], "oci-reg-secret")
+        self.assertEqual(res["gsm_location"], "europe-west1")
+        self.assertEqual(res["k8s_secret_name"], "k8s-oci-secret")
+        self.assertTrue(res["requires_secret"])
+        self.assertEqual(res["auth_type"], "token")
+
+    def test_resolve_oci_with_flat_gsm_location(self):
+        """Verifies resolving flat gsm-location on OCI repo."""
+        config = {
+            "cluster": {
+                "cluster_name": "edge-01",
+                "primary_root_repo": {
+                    "oci": {
+                        "image": "ghcr.io/org/repo:v1",
+                        "gsm_secret_name": "flat-oci-secret",
+                        "gsm-location": "us-east4",
+                    },
+                },
+            }
+        }
+        res = resolve_primary_root_repo(config)
+        self.assertEqual(res["repo_type"], "oci")
+        self.assertEqual(res["gsm_secret_name"], "flat-oci-secret")
+        self.assertEqual(res["gsm_location"], "us-east4")
+        self.assertTrue(res["requires_secret"])
+        self.assertEqual(res["auth_type"], "token")
+
     def test_resolve_git_legacy_with_primary_root_repo_auth_secret(self):
         """Verifies legacy facts with gsm_secret_name and primary_root_repo_auth_secret."""
         config = {
@@ -423,7 +487,16 @@ class TestSecretPayloadResolution(unittest.TestCase):
         payload = {"username": "admin"}
         res = resolve_secret_payload(payload, repo_type="oci")
         self.assertFalse(res["valid"])
-        self.assertIn("must contain both 'username' and 'password'", res["failure_reason"])
+        self.assertIn("must contain 'username' and either 'password' or 'token'", res["failure_reason"])
+
+    def test_oci_payload_with_token_fallback(self):
+        """Verifies OCI payload accepts 'token' field as password."""
+        payload = {"username": "oauth2", "token": "glpat-xyz123"}
+        res = resolve_secret_payload(payload, repo_type="oci")
+        self.assertTrue(res["valid"])
+        self.assertEqual(res["auth_type"], "token")
+        self.assertEqual(res["secret_data"]["username"], "oauth2")
+        self.assertEqual(res["secret_data"]["password"], "glpat-xyz123")
 
     def test_unsupported_repo_type(self):
         """Verifies unsupported repository type fails."""

@@ -109,7 +109,7 @@
       ansible.builtin.command: >-
         python3 {{ playbook_dir }}/scripts/check_endpoints.py
         --config {{ playbook_dir }}/vars/endpoints.yml
-        --stage "{{ current_stage | default('preflight') }}"
+        --stage "{{ current_stage | default(gdc_active_stage | default('preflight')) }}"
         --companion-url "{{ gdc_companion_reports_url | default('') }}"
         --step-ca-url "{{ gdc_step_ca_url | default('') }}"
       register: endpoint_check_raw
@@ -219,6 +219,29 @@
           changed_when: false
           failed_when: false
           no_log: true
+
+        - name: "GDC-PREFLIGHT | Fallback: Access GSM Secret payload as global resource if regional call failed"
+          ansible.builtin.command: >-
+            gcloud secrets versions access latest
+            --secret={{ target_gsm_secret_name }}
+            --project={{ (machine_config.gcp_info.project_id) if (machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined) else (gcp_project_id | default('')) }}
+          register: gsm_access_res_fallback
+          when:
+            - gsm_access_res.rc != 0
+            - target_gsm_location is defined
+            - target_gsm_location | trim | length > 0
+            - target_gsm_location != 'global'
+          changed_when: false
+          failed_when: false
+          no_log: true
+
+        - name: "GDC-PREFLIGHT | Adopt fallback GSM payload if successful"
+          ansible.builtin.set_fact:
+            gsm_access_res: "{{ gsm_access_res_fallback }}"
+          when:
+            - gsm_access_res_fallback is defined
+            - gsm_access_res_fallback.rc is defined
+            - gsm_access_res_fallback.rc == 0
 
         - name: "GDC-PREFLIGHT | Parse and validate secret payload"
           block:
@@ -335,7 +358,7 @@
       {
         "$schema": "https://gdc.google.com/schemas/preflight-validation-v1.json",
         "test_suite": "gdc-ansible-preflight",
-        "current_stage": "{{ current_stage | default('preflight') }}",
+        "current_stage": "{{ current_stage | default(gdc_active_stage | default('preflight')) }}",
         "execution_timestamp": "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}",
         "overall_status": "{{ preflight_overall_status }}",
         "total_duration_ms": {{ [_duration_ms, 0] | max }},

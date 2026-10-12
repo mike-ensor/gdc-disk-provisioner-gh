@@ -657,7 +657,8 @@
         "storage",
         "tpm",
         "bios",
-        "network"
+        "network",
+        "gpu"
       ],
       "properties": {
         "cpu": {
@@ -815,6 +816,80 @@
               },
               "virtual_mac": {
                 "type": "boolean"
+              }
+            }
+          }
+        },
+        "gpu": {
+          "type": "object",
+          "required": [
+            "present",
+            "devices"
+          ],
+          "properties": {
+            "present": {
+              "type": "boolean",
+              "description": "True if at least one discrete or embedded GPU is detected on the host."
+            },
+            "devices": {
+              "type": "array",
+              "description": "List of discovered GPU devices (0..many).",
+              "items": {
+                "type": "object",
+                "required": [
+                  "pci_slot",
+                  "model",
+                  "gpu_type",
+                  "driver_present"
+                ],
+                "properties": {
+                  "pci_slot": {
+                    "type": "string",
+                    "description": "PCI domain/bus/slot/function identifier (e.g. 0000:02:00.0)"
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": "Commercial or hardware GPU model name"
+                  },
+                  "gpu_type": {
+                    "type": "string",
+                    "enum": [
+                      "Embedded",
+                      "Discrete",
+                      "Unknown"
+                    ],
+                    "description": "Whether the GPU is integrated on CPU/APU or discrete PCIe card"
+                  },
+                  "vendor": {
+                    "type": "string",
+                    "description": "Hardware vendor (e.g. NVIDIA, Intel, AMD, Unknown)"
+                  },
+                  "memory_size": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Reported total VRAM or primary BAR aperture size (e.g. 24467 MiB, 256M)"
+                  },
+                  "driver_present": {
+                    "type": "boolean",
+                    "description": "True if an active kernel driver is bound to this device"
+                  },
+                  "driver_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Kernel driver bound to the device (e.g. nvidia, i915, amdgpu)"
+                  },
+                  "driver_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Version string of the driver or kernel module"
+                  }
+                }
               }
             }
           }

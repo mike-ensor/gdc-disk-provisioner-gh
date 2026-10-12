@@ -627,7 +627,8 @@ class TestConfigSyncAnsibleTasks(unittest.TestCase):
         )
 
     def test_acm_config_generation(self):
-        """Verifies acm-config.yaml generation with applySpecVersion and sourceFormat."""
+        """Verifies apply-spec.yaml generation and acm-config.yaml compatibility link."""
+        self.assertIn("/var/gdc-install/state/apply-spec.yaml", self.raw_content)
         self.assertIn("/var/gdc-install/state/acm-config.yaml", self.raw_content)
         self.assertIn("applySpecVersion: 1", self.raw_content)
         self.assertIn("configSync:", self.raw_content)
@@ -640,8 +641,29 @@ class TestConfigSyncAnsibleTasks(unittest.TestCase):
         )
         self.assertIn("--membership=", self.raw_content)
         self.assertIn(
-            "--config=/var/gdc-install/state/acm-config.yaml", self.raw_content
+            "--config=/var/gdc-install/state/apply-spec.yaml", self.raw_content
         )
+
+    def test_auth_secret_presence_check(self):
+        """Verifies Kubernetes Auth Secret presence check in config-management-system."""
+        self.assertIn(
+            "kubectl --kubeconfig=/etc/kubernetes/admin.conf get secret {{ target_k8s_secret_name }} -n {{ target_k8s_namespace }}",
+            self.raw_content,
+        )
+        self.assertIn("target_auth_secret_status", self.raw_content)
+
+    def test_root_reconciler_and_status_polling(self):
+        """Verifies wait for root-reconciler deployment and operational audit execution."""
+        self.assertIn(
+            "kubectl --kubeconfig=/etc/kubernetes/admin.conf wait --namespace={{ target_k8s_namespace }} --for=condition=Available deployment/root-reconciler --timeout=120s",
+            self.raw_content,
+        )
+        self.assertIn(
+            "check_config_sync_operational.py",
+            self.raw_content,
+        )
+        self.assertIn("rootsync_reconciler_ready", self.raw_content)
+        self.assertIn("auth_secret_status", self.raw_content)
 
     def test_wait_for_rootsync_crd(self):
         """Verifies wait for rootsyncs.configsync.gke.io CRD."""
@@ -688,6 +710,16 @@ class TestConfigSyncAnsibleTasks(unittest.TestCase):
     def test_config_sync_evidence_set(self):
         """Verifies config_sync_evidence fact is structured."""
         self.assertIn("config_sync_evidence", self.raw_content)
+
+    def test_fleet_acm_apply_guarded_by_acm_already_applied(self):
+        """Verifies fleet config-management apply is skipped when ACM is already applied."""
+        self.assertIn("Determine if ACM is already applied", self.raw_content)
+        self.assertIn("not (acm_already_applied", self.raw_content)
+
+    def test_pre_k8s_secret_check_and_fallback(self):
+        """Verifies pre-check for existing K8s secret and graceful fail handling."""
+        self.assertIn("Check if Kubernetes Auth Secret already exists locally", self.raw_content)
+        self.assertIn("Fail if GSM secret access failed and no local K8s secret exists", self.raw_content)
 
 
 class TestPostClusterMainIntegration(unittest.TestCase):

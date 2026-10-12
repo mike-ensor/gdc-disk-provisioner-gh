@@ -156,17 +156,26 @@ During this time, the operator's backoff loops may generate new `403 Permission 
 
 GDC Software-Only clusters support automated GitOps synchronization via Anthos Config Management (ConfigSync) and primary root repositories (`.cluster.primary_root_repo`). Both Git repositories and OCI registries are supported as synchronization sources.
 
-Before cluster provisioning begins, ensure the following Google Cloud IAM roles, Secret Manager secrets, and repository structures are established.
+Before cluster provisioning begins, ensure the following Google Cloud IAM roles, Secret Manager secrets, and repository structures are established in your Google Cloud project.
+
+> **Important**: The node provisioner **does not** create or manage secrets in Google Secret Manager. Secrets must pre-exist in GSM. At the start of the `CLUSTER_TURNUP` stage (Stage 6), the provisioner strictly performs a read-only access check using the authenticated `gcloud` context. If the secret is not found or cannot be accessed by the `gcloud` user (e.g. from the Bearer token minted via GDC Companion), `CLUSTER_TURNUP` fails fast before attempting cluster creation. Note that `CLUSTER_READY` (Stage 5) does not evaluate this secret, allowing nodes to halt at `CLUSTER_READY` for manual inspection without failing.
 
 ### 1. Google Secret Manager (GSM) Secret Formats
 
 When syncing from private repositories requiring authentication, store credentials as a single JSON object within Google Secret Manager. The GDC installer extracts these credentials dynamically into memory and streams them directly into the `config-management-system` namespace without writing unencrypted secrets to disk.
 
 #### Create Secret Container:
-First, create the secret container in Google Secret Manager before adding versions:
+First, create the secret container in Google Secret Manager before adding versions. The command differs depending on whether your `gsm_location` / `gsm-location` is `"global"` (default) or a specific region:
+
 ```bash
+# For global replication (default when gsm_location is "global" or omitted):
 gcloud secrets create "${GSM_SECRET_NAME}" \
   --replication-policy="automatic" \
+  --project="${PROJECT_ID}"
+
+# For regional secrets (e.g. gsm_location="us-west1"):
+gcloud secrets create "${GSM_SECRET_NAME}" \
+  --location="${GSM_LOCATION}" \
   --project="${PROJECT_ID}"
 ```
 
@@ -174,20 +183,40 @@ Then add the secret version payload:
 
 #### For OCI Registry Pull:
 ```bash
+# If location is "global":
 echo -n '{"username":"your-registry-user","password":"your-pat-or-token"}' | \
   gcloud secrets versions add "${GSM_SECRET_NAME}" --data-file=- --project="${PROJECT_ID}"
+
+# If location is regional (e.g. us-west1):
+echo -n '{"username":"your-registry-user","password":"your-pat-or-token"}' | \
+  gcloud secrets versions add "${GSM_SECRET_NAME}" --location="${GSM_LOCATION}" --data-file=- --project="${PROJECT_ID}"
 ```
 
-#### For Git with PAT:
+#### For Git with PAT (Personal Access Token):
+The JSON payload **must** include literal `username` and `token` keys (note: for GitLab, the username is typically `oauth2`):
 ```bash
-echo -n '{"username":"git-user","token":"your-personal-access-token"}' | \
+# For GitLab with global location:
+echo -n '{"username":"oauth2","token":"glpat-PADH0McDY4N6miriC2KxbmM6MQp...j5"}' | \
+  gcloud secrets versions add "${GSM_SECRET_NAME}" --data-file=- --project="${PROJECT_ID}"
+
+# For GitLab with regional location (e.g. us-west1):
+echo -n '{"username":"oauth2","token":"glpat-PADH0McDY4N6miriC2KxbmM6MQp...j5"}' | \
+  gcloud secrets versions add "${GSM_SECRET_NAME}" --location="${GSM_LOCATION}" --data-file=- --project="${PROJECT_ID}"
+
+# For GitHub or standard Git providers:
+echo -n '{"username":"git-user","token":"ghp_your-personal-access-token"}' | \
   gcloud secrets versions add "${GSM_SECRET_NAME}" --data-file=- --project="${PROJECT_ID}"
 ```
 
 #### For Git with SSH:
 ```bash
+# If location is "global":
 echo -n '{"ssh-privatekey":"-----BEGIN OPENSSH PRIVATE KEY-----\n..."}' | \
   gcloud secrets versions add "${GSM_SECRET_NAME}" --data-file=- --project="${PROJECT_ID}"
+
+# If location is regional (e.g. us-west1):
+echo -n '{"ssh-privatekey":"-----BEGIN OPENSSH PRIVATE KEY-----\n..."}' | \
+  gcloud secrets versions add "${GSM_SECRET_NAME}" --location="${GSM_LOCATION}" --data-file=- --project="${PROJECT_ID}"
 ```
 
 ### 2. IAM Permissions & Workload Identity Bindings
@@ -197,7 +226,15 @@ The node's primary Google Service Account (`gcp_info.primary_gsa`) requires the 
 ```bash
 export PRIMARY_GSA="sa@${PROJECT_ID}.iam.gserviceaccount.com" # Full GSA email address
 
+# For global secret:
 gcloud secrets add-iam-policy-binding "${GSM_SECRET_NAME}" \
+  --member="serviceAccount:${PRIMARY_GSA}" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project="${PROJECT_ID}"
+
+# For regional secret (e.g. us-west1):
+gcloud secrets add-iam-policy-binding "${GSM_SECRET_NAME}" \
+  --location="${GSM_LOCATION}" \
   --member="serviceAccount:${PRIMARY_GSA}" \
   --role="roles/secretmanager.secretAccessor" \
   --project="${PROJECT_ID}"
@@ -505,4 +542,190 @@ gcloud container fleet memberships get-credentials ${CLUSTER_NAME} --project "${
 ```shell
 # Get the new config via GKE Connect
 gcloud container fleet memberships get-credentials ${CLUSTER_NAME} --project ${PROJECT_ID}
+```
+
+---
+
+### 7. Configure ConfigSync & GitOps RootSync (Manual Setup)
+
+If you are performing static manual turnup without the automated Stage 7 (`post_cluster`) Ansible runner, follow these steps to configure Anthos Config Management (ConfigSync), deploy the Kubernetes repository secret, and verify GitOps synchronization.
+
+#### 7a. Setup the Kubernetes Repository Secret
+
+ConfigSync reconcilers in `config-management-system` require authentication secrets for private repositories:
+* **The secret name is configurable** (e.g. `git-creds`, `oci-creds`, or matching your machine config), but the data keys are strictly required:
+  * **Git with PAT**: Keys **must** be `username` and `token` (e.g. `oauth2` and `glpat-...` for GitLab).
+  * **Git with SSH**: Key **must** be `ssh-privatekey`.
+  * **OCI Registry**: Keys **must** be `username` and `password`.
+
+Ensure the namespace exists:
+```bash
+kubectl create namespace config-management-system --dry-run=client -o yaml | kubectl apply -f -
+```
+
+##### Option A: Manual `kubectl create secret` Commands
+
+**For Git with PAT:**
+```bash
+export K8S_SECRET_NAME="git-creds"
+export GIT_USERNAME="oauth2"       # Use "oauth2" for GitLab, or your Git username
+export GIT_TOKEN="glpat-PADH0McDY4N6miriC2KxbmM6MQp...j5"
+
+kubectl create secret generic "${K8S_SECRET_NAME}" \
+  --namespace=config-management-system \
+  --from-literal=username="${GIT_USERNAME}" \
+  --from-literal=token="${GIT_TOKEN}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+**For Git with SSH Private Key:**
+```bash
+export K8S_SECRET_NAME="git-creds"
+export SSH_KEY_PATH="/home/gdc-admin/.ssh/id_ed25519"
+
+kubectl create secret generic "${K8S_SECRET_NAME}" \
+  --namespace=config-management-system \
+  --from-file=ssh-privatekey="${SSH_KEY_PATH}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+**For OCI Registry (Token/Basic Auth):**
+```bash
+export K8S_SECRET_NAME="oci-creds"
+export REGISTRY_USER="your-registry-user"
+export REGISTRY_PASSWORD="your-registry-token-or-password"
+
+kubectl create secret generic "${K8S_SECRET_NAME}" \
+  --namespace=config-management-system \
+  --from-literal=username="${REGISTRY_USER}" \
+  --from-literal=password="${REGISTRY_PASSWORD}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+##### Option B: Extract Directly from Google Secret Manager (GSM)
+
+If credentials are already stored in Google Secret Manager, stream them into the cluster in-memory without saving cleartext to disk:
+```bash
+export GSM_SECRET_NAME="git-creds"
+export K8S_SECRET_NAME="git-creds"
+
+# Extract JSON payload and apply as Kubernetes Secret:
+SECRET_JSON=$(gcloud secrets versions access latest --secret="${GSM_SECRET_NAME}" --project="${PROJECT_ID}")
+
+# For Git PAT:
+kubectl create secret generic "${K8S_SECRET_NAME}" \
+  --namespace=config-management-system \
+  --from-literal=username="$(echo "${SECRET_JSON}" | jq -r '.username // "oauth2"')" \
+  --from-literal=token="$(echo "${SECRET_JSON}" | jq -r '.token // .password')" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+unset SECRET_JSON
+```
+
+#### 7b. Enable Fleet Feature & Apply `apply-spec.yaml`
+
+1. **Enable Fleet Feature**:
+```bash
+gcloud beta container fleet config-management enable --project="${PROJECT_ID}"
+```
+
+2. **Generate `apply-spec.yaml`**:
+```bash
+mkdir -p /var/gdc-install/state
+cat <<EOF > /var/gdc-install/state/apply-spec.yaml
+applySpecVersion: 1
+spec:
+  configSync:
+    enabled: true
+    sourceFormat: unstructured
+EOF
+```
+
+3. **Apply Spec to Cluster Membership**:
+```bash
+MEMBERSHIP="projects/${PROJECT_ID}/locations/${REGION}/memberships/${CLUSTER_NAME}"
+
+gcloud beta container fleet config-management apply \
+  --membership="${MEMBERSHIP}" \
+  --config=/var/gdc-install/state/apply-spec.yaml \
+  --project="${PROJECT_ID}"
+```
+
+4. **Wait for RootSync CRD Establishment**:
+```bash
+kubectl wait --for=condition=Established crd/rootsyncs.configsync.gke.io --timeout=180s
+```
+
+#### 7c. Render & Apply Primary RootSync
+
+##### For Git Repository:
+```bash
+cat <<EOF > /var/gdc-install/state/primary-root-repo.yaml
+apiVersion: configsync.gke.io/v1beta1
+kind: RootSync
+metadata:
+  name: root-sync
+  namespace: config-management-system
+spec:
+  sourceFormat: unstructured
+  sourceType: git
+  git:
+    repo: https://gitlab.com/retail-edge/clusters.git
+    branch: main
+    dir: config/clusters/${CLUSTER_NAME}
+    auth: token # Use "token", "ssh", or "none"
+    secretRef:
+      name: git-creds
+EOF
+
+kubectl apply -f /var/gdc-install/state/primary-root-repo.yaml
+```
+
+##### For OCI Registry:
+```bash
+cat <<EOF > /var/gdc-install/state/primary-root-repo.yaml
+apiVersion: configsync.gke.io/v1beta1
+kind: RootSync
+metadata:
+  name: root-sync
+  namespace: config-management-system
+spec:
+  sourceFormat: unstructured
+  sourceType: oci
+  oci:
+    image: ghcr.io/my-org/edge-manifests:v1.0.0
+    dir: config/clusters/${CLUSTER_NAME}
+    auth: token # Use "token", "gcpserviceaccount", or "none"
+    secretRef:
+      name: oci-creds
+EOF
+
+kubectl apply -f /var/gdc-install/state/primary-root-repo.yaml
+```
+
+#### 7d. Active Verification of Auth Secret and RootSync
+
+1. **Verify Kubernetes Auth Secret Presence**:
+```bash
+kubectl get secret "${K8S_SECRET_NAME}" -n config-management-system
+```
+
+2. **Wait for Root Reconciler Deployment**:
+```bash
+kubectl wait --namespace=config-management-system \
+  --for=condition=Available deployment/root-reconciler \
+  --timeout=120s
+```
+
+3. **Check RootSync Status & Reconciler Conditions**:
+```bash
+# Inspect RootSync conditions:
+kubectl get rootsync root-sync -n config-management-system
+
+# Detailed status and error diagnostics (e.g. check for auth KNV2004 errors):
+kubectl describe rootsync root-sync -n config-management-system
+
+# Full fleet live status:
+nomos status --contexts="${CLUSTER_NAME}"
+gcloud beta container fleet config-management status --project="${PROJECT_ID}"
 ```

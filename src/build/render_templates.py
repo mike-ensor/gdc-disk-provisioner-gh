@@ -130,6 +130,10 @@ def render_templates(template_dir, output_dir, env):
     
     with open(os.path.join(output_dir, 'nocloud', 'meta-data'), 'w') as f:
         f.write(meta_data_content)
+
+    # Render vendor-data (satisfies cloud-init probe to avoid 11x retry timeouts)
+    with open(os.path.join(output_dir, 'nocloud', 'vendor-data'), 'w') as f:
+        f.write("#cloud-config\n")
     
     # Render netplan
     netplan_template = jinja_env.get_template('netplan.j2')

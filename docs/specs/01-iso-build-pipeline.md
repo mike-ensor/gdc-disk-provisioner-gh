@@ -108,7 +108,7 @@ To enforce absolute reliability, the entire build-and-release pipeline is divide
 *   **Outcome:** A pristine, writable file layout of the original OS media without requiring administrative sudo mounts.
 
 ### Stage 4: Render Configurations (`make hydrate`)
-*   **Action:** Invokes `src/build/render_templates.py` to compile our base templates (`user-data.j2`, `storage_config.j2`, `netplan.j2`, `gitea.service.j2`, `nexus.service.j2`, `gdc-provision.service.j2`) into the extracted media workspace.
+*   **Action:** Invokes `src/build/render_templates.py` to compile our base templates (`user-data.j2`, `meta-data.j2`, `storage_config.j2`, `netplan.j2`, `gitea.service.j2`, `nexus.service.j2`, `gdc-provision.service.j2`) into the extracted media workspace. Generates `nocloud/user-data`, `nocloud/meta-data`, and a minimal `nocloud/vendor-data` (`#cloud-config\n`) to satisfy `cloud-init`'s default vendor probe and prevent 11-retry HTTP 404 delays.
 *   **Rule:** Standard python libraries and Jinja2 are used exclusively. Pure-string regex or sed-based manipulations on live YAML files are strictly banned to prevent spacing corruption.
 
 ### Stage 5: Validation Gate (`make validate`)

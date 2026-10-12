@@ -1,7 +1,8 @@
 [Unit]
 Description=GDC Ready-Linux First Boot Provisioner
-After=network.target network-online.target systemd-networkd-wait-online.service
+After=network.target network-online.target systemd-networkd-wait-online.service gitea.service
 Wants=network-online.target
+RequiresMountsFor=/var/lib/gitea /var/gdc-install /var/lib/nexus
 StartLimitIntervalSec=0
 
 [Service]
@@ -14,7 +15,7 @@ EnvironmentFile=-/etc/default/gdc-provision
 StandardOutput=journal
 StandardError=journal
 Restart=on-failure
-RestartSec=20m
+RestartSec=30s
 ExecStart=/bin/bash -o pipefail -c " \
 mkdir -p /var/gdc-install/logs; \
 ln -sf /var/gdc-install/logs/gdc-ansible-pull.log /var/log/gdc-ansible-pull.log; \
@@ -26,6 +27,14 @@ if ! command -v ansible-pull &>/dev/null; then \
 fi; \
 git config --system --add safe.directory /var/lib/gitea/repos/gdc/bootstrap-playbooks.git || true; \
 git config --system --add safe.directory '*' || true; \
+if [ -d /var/gdc-install/playbooks/bootstrap ]; then \
+  if [ ! -s /var/gdc-install/playbooks/bootstrap/local.yml ] || \
+     ! git -C /var/gdc-install/playbooks/bootstrap rev-parse --verify HEAD &>/dev/null || \
+     ! git -C /var/gdc-install/playbooks/bootstrap status &>/dev/null; then \
+    echo '[!] Warning: Detected corrupt or incomplete playbook working tree in /var/gdc-install/playbooks/bootstrap. Purging for clean re-clone...'; \
+    rm -rf /var/gdc-install/playbooks/bootstrap; \
+  fi; \
+fi; \
 flock -n /var/run/gdc-provision.lock /usr/bin/ansible-pull \
   --clean \
   -d /var/gdc-install/playbooks/bootstrap \
@@ -33,7 +42,8 @@ flock -n /var/run/gdc-provision.lock /usr/bin/ansible-pull \
   -C {{ git_branch | default('main') }} \
   -i localhost, \
   $ANSIBLE_PULL_FLAGS \
-  local.yml 2>&1 | tee /var/gdc-install/logs/gdc-ansible-pull.log"
+  local.yml 2>&1 | tee /var/gdc-install/logs/gdc-ansible-pull.log; \
+sync"
 RemainAfterExit=true
 
 [Install]

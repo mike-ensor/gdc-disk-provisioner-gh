@@ -60,7 +60,7 @@ config:
 
   # Disk 2
   - {type: partition, id: partition-lvm-data, device: disk-data, size: -1, wipe: superblock}
-  - {type: dm_crypt, id: crypt-data, volume: partition-lvm-data, keyfile: /var/log/installer/gdc-luks-key, options: "noinitramfs,discard"}
+  - {type: dm_crypt, id: crypt-data, volume: partition-lvm-data, keyfile: /var/log/installer/gdc-luks-key, options: [noinitramfs, discard]}
   - {type: lvm_volgroup, id: vg-data, name: vg_data, devices: [crypt-data]}
   
   # LVs System
@@ -101,6 +101,6 @@ config:
   - {type: mount, id: mnt-etcd-events, device: fmt-etcd-events, path: /var/lib/etcd-events, options: "noatime,nodiratime,commit=1"}
   - {type: mount, id: mnt-gitea, device: fmt-gitea, path: /var/lib/gitea, options: "defaults,noatime"}
   - {type: mount, id: mnt-nexus, device: fmt-nexus, path: /var/lib/nexus, options: "defaults,noatime"}
-  - {type: mount, id: mnt-localdisk, device: fmt-localdisk, path: /customer/local-disk, options: "defaults,noatime,prjquota"}
-  - {type: mount, id: mnt-sds, device: fmt-sds, path: /customer/sds, options: "defaults,noatime"}
+  - {type: mount, id: mnt-localdisk, device: fmt-localdisk, path: /customer/local-disk, options: "defaults,noatime,nofail,prjquota"}
+  - {type: mount, id: mnt-sds, device: fmt-sds, path: /customer/sds, options: "defaults,noatime,nofail"}
 

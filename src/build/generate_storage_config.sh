@@ -266,8 +266,8 @@ cat <<EOF >> "${TMP_YAML}"
     - {type: mount, id: mnt-etcd-events, device: fmt-etcd-events, path: /var/lib/etcd-events, options: "noatime,nodiratime,commit=1"}
     - {type: mount, id: mnt-gitea, device: fmt-gitea, path: /var/lib/gitea, options: "defaults,noatime"}
     - {type: mount, id: mnt-nexus, device: fmt-nexus, path: /var/lib/nexus, options: "defaults,noatime"}
-    - {type: mount, id: mnt-localdisk, device: fmt-localdisk, path: /customer/local-disk, options: "defaults,noatime,prjquota"}
-    - {type: mount, id: mnt-sds, device: fmt-sds, path: /customer/sds, options: "defaults,noatime"}
+    - {type: mount, id: mnt-localdisk, device: fmt-localdisk, path: /customer/local-disk, options: "defaults,noatime,nofail,prjquota"}
+    - {type: mount, id: mnt-sds, device: fmt-sds, path: /customer/sds, options: "defaults,noatime,nofail"}
 EOF
 
 if [[ "${DRY_RUN}" = "true" ]]; then

@@ -28,7 +28,7 @@
 
     # --- Disk 2 Data Partitioning (LUKS + Dedicated Data VG) ---
     - {type: partition, id: partition-lvm-data, device: disk-data, size: -1, wipe: superblock}
-    - {type: dm_crypt, id: crypt-data, volume: partition-lvm-data, keyfile: /var/log/installer/gdc-luks-key, options: "noinitramfs,discard"}
+    - {type: dm_crypt, id: crypt-data, volume: partition-lvm-data, keyfile: /var/log/installer/gdc-luks-key, options: [noinitramfs, discard]}
     - {type: lvm_volgroup, id: vg-data, name: vg_data, devices: [crypt-data]}
     
     # Data Logical Volumes on Disk 2

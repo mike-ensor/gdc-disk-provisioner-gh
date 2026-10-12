@@ -415,6 +415,18 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
             FACT_ROOT_REPO_GSM_SECRET=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.git.gsm_secret_name")
         fi
 
+        FACT_ROOT_REPO_GSM_LOCATION=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.git["gsm-auth-secret"]["gsm-location"]')
+        if [[ -z "${FACT_ROOT_REPO_GSM_LOCATION}" ]]; then
+            FACT_ROOT_REPO_GSM_LOCATION=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.git["gsm-auth-secret"].gsm_location')
+        fi
+        if [[ -z "${FACT_ROOT_REPO_GSM_LOCATION}" ]]; then
+            FACT_ROOT_REPO_GSM_LOCATION=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.git.gsm_location")
+        fi
+        if [[ -z "${FACT_ROOT_REPO_GSM_LOCATION}" ]]; then
+            FACT_ROOT_REPO_GSM_LOCATION=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.git.gsm-location")
+        fi
+        FACT_ROOT_REPO_GSM_LOCATION="${FACT_ROOT_REPO_GSM_LOCATION:-global}"
+
         FACT_ROOT_REPO_K8S_SECRET=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.git["gsm-auth-secret"]["k8s-name"]')
         if [[ -z "${FACT_ROOT_REPO_K8S_SECRET}" ]]; then
             FACT_ROOT_REPO_K8S_SECRET=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.git["gsm-auth-secret"].k8s_name')
@@ -431,7 +443,34 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
         if [[ -n "${FACT_PRIMARY_ROOT_REPO}" ]]; then
             FACT_ROOT_REPO_TYPE="oci"
             FACT_ROOT_REPO_GSA=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.oci.gsa")
-            FACT_ROOT_REPO_SECRET=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.oci.gsm_secret_name")
+            FACT_ROOT_REPO_GSM_SECRET=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.oci["gsm-auth-secret"]["gsm-name"]')
+            if [[ -z "${FACT_ROOT_REPO_GSM_SECRET}" ]]; then
+                FACT_ROOT_REPO_GSM_SECRET=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.oci["gsm-auth-secret"].gsm_name')
+            fi
+            if [[ -z "${FACT_ROOT_REPO_GSM_SECRET}" ]]; then
+                FACT_ROOT_REPO_GSM_SECRET=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.oci.gsm_secret_name")
+            fi
+
+            FACT_ROOT_REPO_GSM_LOCATION=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.oci["gsm-auth-secret"]["gsm-location"]')
+            if [[ -z "${FACT_ROOT_REPO_GSM_LOCATION}" ]]; then
+                FACT_ROOT_REPO_GSM_LOCATION=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.oci["gsm-auth-secret"].gsm_location')
+            fi
+            if [[ -z "${FACT_ROOT_REPO_GSM_LOCATION}" ]]; then
+                FACT_ROOT_REPO_GSM_LOCATION=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.oci.gsm_location")
+            fi
+            if [[ -z "${FACT_ROOT_REPO_GSM_LOCATION}" ]]; then
+                FACT_ROOT_REPO_GSM_LOCATION=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo.oci.gsm-location")
+            fi
+            FACT_ROOT_REPO_GSM_LOCATION="${FACT_ROOT_REPO_GSM_LOCATION:-global}"
+
+            FACT_ROOT_REPO_K8S_SECRET=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.oci["gsm-auth-secret"]["k8s-name"]')
+            if [[ -z "${FACT_ROOT_REPO_K8S_SECRET}" ]]; then
+                FACT_ROOT_REPO_K8S_SECRET=$(get_json_val "${FACTS_FILE}" '.cluster.primary_root_repo.oci["gsm-auth-secret"].k8s_name')
+            fi
+            if [[ -z "${FACT_ROOT_REPO_K8S_SECRET}" ]]; then
+                FACT_ROOT_REPO_K8S_SECRET="${FACT_ROOT_REPO_GSM_SECRET}"
+            fi
+            FACT_ROOT_REPO_SECRET="${FACT_ROOT_REPO_K8S_SECRET}"
         else
             FACT_PRIMARY_ROOT_REPO=$(get_json_val "${FACTS_FILE}" ".cluster.primary_root_repo")
             if [[ -n "${FACT_PRIMARY_ROOT_REPO}" ]]; then
@@ -477,7 +516,7 @@ FACT_MACHINE_IP=""
 if [[ -n "${FACT_IP_CIDR:-}" ]]; then
     FACT_MACHINE_IP="${FACT_IP_CIDR%%/*}"
 fi
-MACHINE_IP="${CLI_MACHINE_IP:-${ENV_MACHINE_IP:-${FACT_MACHINE_IP:-}}}"
+MACHINE_IP="${CLI_MACHINE_IP:-${FACT_MACHINE_IP:-${ENV_MACHINE_IP:-}}}"
 
 CLUSTER_VIP="${CLI_CLUSTER_VIP:-${ENV_CLUSTER_VIP:-${FACT_CLUSTER_VIP:-}}}"
 CLUSTER_INGRESS="${CLI_CLUSTER_INGRESS:-${ENV_CLUSTER_INGRESS:-${FACT_CLUSTER_INGRESS:-}}}"
@@ -747,9 +786,36 @@ if [[ "${DRY_RUN}" == "true" ]]; then
     exit 0
 fi
 
-# 1. Check if the cluster is already running
+# 1. Check local cluster health and Fleet Hub association state
+LOCAL_CLUSTER_HEALTHY="false"
 if sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl get nodes &>/dev/null; then
-	echo "[OK] Cluster '${CLUSTER_NAME}' is already running. Skipping creation."
+	LOCAL_CLUSTER_HEALTHY="true"
+fi
+
+FLEET_ASSOCIATED="false"
+if [[ -n "${PROJECT_ID}" ]]; then
+	if gcloud container fleet memberships list --project="${PROJECT_ID}" --filter="name.basename()=\"${CLUSTER_NAME}\"" --format="value(name)" 2>/dev/null | grep -F -x -q "${CLUSTER_NAME}"; then
+		FLEET_ASSOCIATED="true"
+	fi
+fi
+
+# State 1: Local cluster healthy AND Fleet Hub membership associated -> Clean skip
+if [[ "${LOCAL_CLUSTER_HEALTHY}" == "true" && "${FLEET_ASSOCIATED}" == "true" ]]; then
+	echo "[OK] Cluster '${CLUSTER_NAME}' is already installed locally and registered in Fleet Hub. Skipping creation."
+	exit 0
+fi
+
+# State 2: Fleet Hub membership exists in GCP, but no local cluster -> Fail fast on orphan/desync
+if [[ "${LOCAL_CLUSTER_HEALTHY}" == "false" && "${FLEET_ASSOCIATED}" == "true" ]]; then
+	echo "[!] ERROR: Cluster '${CLUSTER_NAME}' is already registered in Fleet Hub (project '${PROJECT_ID}'), but no healthy local cluster (/etc/kubernetes/admin.conf) exists on this host." >&2
+	echo "    Aborting cluster turnup to prevent GKE Hub resource collision and corrupt state." >&2
+	echo "    Remediation: Delete the stale Fleet membership in GCP or restore the local cluster." >&2
+	exit 1
+fi
+
+# State 4: Local cluster exists, but Fleet Hub registration is absent -> Skip destructive inception
+if [[ "${LOCAL_CLUSTER_HEALTHY}" == "true" && "${FLEET_ASSOCIATED}" == "false" ]]; then
+	echo "[OK] Cluster '${CLUSTER_NAME}' is already running locally (/etc/kubernetes/admin.conf). Skipping destructive inception."
 	exit 0
 fi
 

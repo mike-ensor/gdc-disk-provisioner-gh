@@ -21,10 +21,61 @@
 # Coordinated with GDC-SPEC-005-TURNUP.
 # ==============================================================================
 
+- name: "GDC-TURNUP | Resolve cluster identity facts"
+  ansible.builtin.set_fact:
+    turnup_cluster_name: >-
+      {{
+        machine_config.cluster.cluster_name
+        if (machine_config is defined and machine_config.cluster is defined and machine_config.cluster.cluster_name is defined and machine_config.cluster.cluster_name is not none and (machine_config.cluster.cluster_name | string | trim | length > 0))
+        else (cluster_name | default(''))
+      }}
+    turnup_gcp_project_id: >-
+      {{
+        machine_config.gcp_info.project_id
+        if (machine_config is defined and machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined and machine_config.gcp_info.project_id is not none and (machine_config.gcp_info.project_id | string | trim | length > 0))
+        else (gcp_project_id | default(''))
+      }}
+
+- name: "GDC-TURNUP | Check if admin kubeconfig exists locally"
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: admin_kubeconfig_stat
+
+- name: "GDC-TURNUP | Probe local cluster responsiveness if kubeconfig is present"
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes"
+  register: local_nodes_probe
+  changed_when: false
+  failed_when: false
+  when: admin_kubeconfig_stat.stat.exists
+
+- name: "GDC-TURNUP | Query Fleet Hub for existing cluster membership"
+  ansible.builtin.command:
+    cmd: "gcloud container fleet memberships list --project={{ turnup_gcp_project_id }} --filter=\"name.basename()='{{ turnup_cluster_name }}'\" --format=\"value(name)\""
+  register: fleet_membership_query
+  changed_when: false
+  failed_when: false
+  when:
+    - turnup_cluster_name | default('') | trim | length > 0
+    - turnup_gcp_project_id | default('') | trim | length > 0
+
+- name: "GDC-TURNUP | Set cluster presence and fleet association facts"
+  ansible.builtin.set_fact:
+    local_cluster_healthy: "{{ (admin_kubeconfig_stat.stat.exists | bool) and (local_nodes_probe.rc | default(1) == 0) }}"
+    fleet_membership_associated: "{{ (fleet_membership_query.stdout_lines | default([]) | map('trim') | select('equalto', turnup_cluster_name) | list | length > 0) if (fleet_membership_query is defined and fleet_membership_query.stdout_lines is defined) else false }}"
+
+- name: "GDC-TURNUP | Guard: Fail fast if Fleet Hub shows cluster membership but local cluster is absent"
+  ansible.builtin.assert:
+    that:
+      - not (fleet_membership_associated | bool and not (local_cluster_healthy | bool))
+    fail_msg: >-
+      Cluster '{{ turnup_cluster_name }}' is already registered in Fleet Hub (project '{{ turnup_gcp_project_id }}'), but no healthy local cluster (/etc/kubernetes/admin.conf) exists on this machine. Aborting turnup to avoid corrupting Fleet Hub state. Please delete the stale Fleet membership or restore the local cluster before proceeding.
+
 - name: "GDC-TURNUP | Check if create_cluster.sh exists at /usr/local/bin/cluster/create_cluster.sh"
   ansible.builtin.stat:
     path: /usr/local/bin/cluster/create_cluster.sh
   register: target_create_cluster_stat
+  when: not (local_cluster_healthy | bool)
 
 - name: "GDC-TURNUP | Ensure target directory exists for cluster scripts"
   ansible.builtin.file:
@@ -33,7 +84,9 @@
     owner: root
     group: root
     mode: '0755'
-  when: not target_create_cluster_stat.stat.exists
+  when:
+    - not (local_cluster_healthy | bool)
+    - not (target_create_cluster_stat.stat.exists | default(false))
 
 - name: "GDC-TURNUP | Copy create_cluster.sh from repository if missing on target"
   ansible.builtin.copy:
@@ -43,8 +96,14 @@
     group: root
     mode: '0755'
   when:
-    - not target_create_cluster_stat.stat.exists
+    - not (local_cluster_healthy | bool)
+    - not (target_create_cluster_stat.stat.exists | default(false))
     - (playbook_dir + '/../../bin/cluster/create_cluster.sh') is file
+
+- name: "GDC-TURNUP | Notify that cluster creation is skipped (already healthy)"
+  ansible.builtin.debug:
+    msg: "Local cluster is already healthy and associated with Fleet Hub. Skipping create_cluster.sh execution."
+  when: local_cluster_healthy | bool
 
 - name: "GDC-TURNUP | Execute create_cluster.sh to run cluster installation"
   ansible.builtin.command:
@@ -58,16 +117,17 @@
     PATH: "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
     GOOGLE_APPLICATION_CREDENTIALS: "/etc/gdc/application_default_credentials.json"
     GOOGLE_EXTERNAL_ACCOUNT_ALLOW_EXECUTABLES: "1"
+  when: not (local_cluster_healthy | bool)
 
-- name: "GDC-TURNUP | Verify admin kubeconfig exists at /etc/kubernetes/admin.conf"
+- name: "GDC-TURNUP | Re-verify admin kubeconfig exists at /etc/kubernetes/admin.conf"
   ansible.builtin.stat:
     path: /etc/kubernetes/admin.conf
-  register: admin_kubeconfig_stat
+  register: admin_kubeconfig_post_stat
 
 - name: "GDC-TURNUP | Fail if admin kubeconfig is missing"
   ansible.builtin.fail:
     msg: "Cluster turnup failed: /etc/kubernetes/admin.conf not found."
-  when: not admin_kubeconfig_stat.stat.exists
+  when: not admin_kubeconfig_post_stat.stat.exists
 
 - name: "GDC-TURNUP | Query cluster node readiness"
   ansible.builtin.command:
@@ -75,22 +135,36 @@
   register: kubectl_nodes_result
   changed_when: false
   failed_when: false
-  when: admin_kubeconfig_stat.stat.exists
+  when: admin_kubeconfig_post_stat.stat.exists
 
 - name: "GDC-EVIDENCE | Structure ClusterTurnup Evidence Facts"
   ansible.builtin.set_fact:
-    cluster_turnup_evidence:
-      timing:
-        start_time: "{{ cluster_turnup_start_time | default(ansible_date_time.iso8601) }}"
-        end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
-        duration_seconds: "{{ [(now(utc=true).strftime('%s') | int) - (cluster_turnup_start_epoch | default(now(utc=true).strftime('%s')) | int), 0] | max }}"
-        overall_provisioning_start_time: "{{ provisioning_start_time | default(cluster_turnup_start_time | default(ansible_date_time.iso8601)) }}"
-      kubeconfig:
-        path: "/etc/kubernetes/admin.conf"
-        exists: "{{ admin_kubeconfig_stat.stat.exists | bool }}"
-      command_output:
-        rc: "{{ cluster_create_output.rc | default(-1) }}"
-        stdout_summary: "{{ (cluster_create_output.stdout_lines | default([]))[-10:] | join('\n') }}"
-      node_readiness:
-        verified: "{{ (kubectl_nodes_result.rc is defined and kubectl_nodes_result.rc == 0) | bool }}"
-        output: "{{ kubectl_nodes_result.stdout | default('') }}"
+    cluster_turnup_evidence: >-
+      {{
+        (cluster_turnup_evidence | default({}))
+        | combine({
+            'timing': {
+              'start_time': cluster_turnup_start_time | default(ansible_date_time.iso8601),
+              'end_time': now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ'),
+              'duration_seconds': [(now(utc=true).strftime('%s') | int) - (cluster_turnup_start_epoch | default(now(utc=true).strftime('%s')) | int), 0] | max,
+              'overall_provisioning_start_time': provisioning_start_time | default(cluster_turnup_start_time | default(ansible_date_time.iso8601))
+            },
+            'kubeconfig': {
+              'path': '/etc/kubernetes/admin.conf',
+              'exists': admin_kubeconfig_post_stat.stat.exists | bool
+            },
+            'idempotency': {
+              'local_cluster_healthy': local_cluster_healthy | bool,
+              'fleet_membership_associated': fleet_membership_associated | bool,
+              'create_cluster_skipped': local_cluster_healthy | bool
+            },
+            'command_output': {
+              'rc': cluster_create_output.rc | default(0 if (local_cluster_healthy | bool) else -1),
+              'stdout_summary': ((cluster_create_output.stdout_lines | default([]))[-10:] | join('\n')) if (cluster_create_output is defined and cluster_create_output.stdout_lines is defined) else 'Skipped (Cluster already healthy)'
+            },
+            'node_readiness': {
+              'verified': (kubectl_nodes_result.rc is defined and kubectl_nodes_result.rc == 0) | bool,
+              'output': kubectl_nodes_result.stdout | default('')
+            }
+          })
+      }}

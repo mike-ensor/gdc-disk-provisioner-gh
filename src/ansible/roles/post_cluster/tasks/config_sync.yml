@@ -120,9 +120,9 @@
         group: root
         mode: '0755'
 
-    - name: "GDC-CONFIGSYNC | Generate ACM configuration manifest"
+    - name: "GDC-CONFIGSYNC | Generate ACM configuration manifest (apply-spec.yaml)"
       ansible.builtin.copy:
-        dest: /var/gdc-install/state/acm-config.yaml
+        dest: /var/gdc-install/state/apply-spec.yaml
         owner: root
         group: root
         mode: '0644'
@@ -133,11 +133,30 @@
               enabled: true
               sourceFormat: unstructured
 
+    - name: "GDC-CONFIGSYNC | Maintain acm-config.yaml backwards-compatibility link"
+      ansible.builtin.file:
+        src: /var/gdc-install/state/apply-spec.yaml
+        dest: /var/gdc-install/state/acm-config.yaml
+        state: link
+        force: true
+
+    - name: "GDC-CONFIGSYNC | Determine if ACM is already applied on cluster membership"
+      ansible.builtin.set_fact:
+        acm_already_applied: >-
+          {{
+            (fleet_cm_describe.rc == 0) and
+            (target_cluster_name in (fleet_cm_describe.stdout | default(''))) and
+            ('configSync:' in (fleet_cm_describe.stdout | default(''))) and
+            ('enabled: true' in (fleet_cm_describe.stdout | default('')))
+          }}
+
     - name: "GDC-CONFIGSYNC | Apply ACM configuration to cluster membership"
       ansible.builtin.command:
-        cmd: "gcloud beta container fleet config-management apply --membership=\"{{ membership }}\" --config=/var/gdc-install/state/acm-config.yaml --project=\"{{ target_gcp_project_id }}\""
+        cmd: "gcloud beta container fleet config-management apply --membership=\"{{ membership }}\" --config=/var/gdc-install/state/apply-spec.yaml --project=\"{{ target_gcp_project_id }}\""
       register: fleet_cm_apply
-      changed_when: true
+      changed_when: fleet_cm_apply.rc == 0
+      failed_when: false
+      when: not (acm_already_applied | default(false) | bool)
 
     - name: "GDC-CONFIGSYNC | Wait for RootSync CRD establishment"
       ansible.builtin.command:
@@ -162,6 +181,16 @@
         target_oci_gsa: "{{ config_sync_repo.oci_gsa }}"
         target_git_auth: "{{ config_sync_repo.auth_type }}"
 
+    - name: "GDC-CONFIGSYNC | Check if Kubernetes Auth Secret already exists locally"
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf get secret {{ target_k8s_secret_name }} -n {{ target_k8s_namespace }}"
+      register: _pre_k8s_secret_check
+      changed_when: false
+      failed_when: false
+      when:
+        - (config_sync_repo.requires_secret | default(false) | bool)
+        - target_k8s_secret_name | trim | length > 0
+
     - name: "GDC-CONFIGSYNC | Execute Bootstrap Secret Injection"
       when:
         - (config_sync_repo.requires_secret | default(false) | bool)
@@ -176,22 +205,57 @@
             {% endif %}
           register: gsm_access_res
           changed_when: false
+          failed_when: false
           no_log: true
+
+        - name: "GDC-CONFIGSYNC | Fallback: Access GSM Secret payload as global resource if regional call failed"
+          ansible.builtin.command: >-
+            gcloud secrets versions access latest
+            --secret={{ target_gsm_secret_name }}
+            --project={{ target_gcp_project_id }}
+          register: gsm_access_res_fallback
+          when:
+            - gsm_access_res.rc != 0
+            - target_gsm_location is defined
+            - target_gsm_location | trim | length > 0
+            - target_gsm_location != 'global'
+          changed_when: false
+          failed_when: false
+          no_log: true
+
+        - name: "GDC-CONFIGSYNC | Adopt fallback GSM payload if successful"
+          ansible.builtin.set_fact:
+            gsm_access_res: "{{ gsm_access_res_fallback }}"
+          when:
+            - gsm_access_res_fallback is defined
+            - gsm_access_res_fallback.rc is defined
+            - gsm_access_res_fallback.rc == 0
+
+        - name: "GDC-CONFIGSYNC | Fail if GSM secret access failed and no local K8s secret exists"
+          ansible.builtin.fail:
+            msg: >-
+              Failed to access GSM secret '{{ target_gsm_secret_name }}' in project '{{ target_gcp_project_id }}', and no existing Kubernetes secret '{{ target_k8s_secret_name }}' was found in namespace '{{ target_k8s_namespace }}'.
+          when:
+            - gsm_access_res.rc != 0
+            - _pre_k8s_secret_check.rc | default(1) != 0
 
         - name: "GDC-CONFIGSYNC | Decode GSM secret JSON payload"
           ansible.builtin.set_fact:
             gsm_secret_payload: "{{ gsm_access_res.stdout | from_json }}"
+          when: gsm_access_res.rc == 0
           no_log: true
 
         - name: "GDC-CONFIGSYNC | Resolve Kubernetes secret data and auth mode via lookup"
           ansible.builtin.set_fact:
             secret_resolution: "{{ lookup('gdc_config_sync', 'secret_payload', gsm_secret_payload, repo_type=target_repo_type) }}"
+          when: gsm_access_res.rc == 0
           no_log: true
 
         - name: "GDC-CONFIGSYNC | Set resolved secret data and auth mode"
           ansible.builtin.set_fact:
             secret_data_dict: "{{ secret_resolution.secret_data }}"
             target_git_auth: "{{ secret_resolution.auth_type }}"
+          when: gsm_access_res.rc == 0
           no_log: true
 
         - name: "GDC-CONFIGSYNC | Create or update Kubernetes secret in config-management-system"
@@ -207,6 +271,9 @@
               stringData:
               {{ secret_data_dict | to_nice_yaml(indent=2) | indent(12, first=true) }}
           register: secret_apply_res
+          when:
+            - gsm_access_res.rc == 0
+            - secret_data_dict is defined
           no_log: true
           changed_when: "'created' in secret_apply_res.stdout or 'configured' in secret_apply_res.stdout"
 
@@ -223,6 +290,8 @@
               stringData:
               {{ secret_data_dict | to_nice_yaml(indent=2) | indent(12, first=true) }}
           when:
+            - gsm_access_res.rc == 0
+            - secret_data_dict is defined
             - target_gsm_secret_name | trim | length > 0
             - target_gsm_secret_name != target_k8s_secret_name
           no_log: true
@@ -235,6 +304,21 @@
             secret_data_dict: {}
             secret_apply_res: {}
           no_log: true
+
+    - name: "GDC-CONFIGSYNC | Verify Kubernetes Auth Secret presence in config-management-system"
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf get secret {{ target_k8s_secret_name }} -n {{ target_k8s_namespace }}"
+      register: auth_secret_check_res
+      changed_when: false
+      failed_when: false
+      when:
+        - (config_sync_repo.requires_secret | default(false) | bool)
+        - target_k8s_secret_name | trim | length > 0
+
+    - name: "GDC-CONFIGSYNC | Set auth secret presence fact"
+      ansible.builtin.set_fact:
+        target_auth_secret_status: "{{ 'exists' if (auth_secret_check_res.rc | default(1) == 0) else 'missing' }}"
+      when: (config_sync_repo.requires_secret | default(false) | bool)
 
     - name: "GDC-CONFIGSYNC | Render Git RootSync manifest"
       ansible.builtin.copy:
@@ -299,11 +383,66 @@
       changed_when: "'created' in rootsync_apply_res.stdout or 'configured' in rootsync_apply_res.stdout"
       when: target_repo_type in ['git', 'oci']
 
+    - name: "GDC-CONFIGSYNC | Wait for Root Reconciler deployment rollout"
+      ansible.builtin.command:
+        cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf wait --namespace={{ target_k8s_namespace }} --for=condition=Available deployment/root-reconciler --timeout=120s"
+      register: root_reconciler_wait_res
+      changed_when: false
+      failed_when: false
+      when: target_repo_type in ['git', 'oci']
+
+    - name: "GDC-CONFIGSYNC | Execute ConfigSync operational audit across all RootSyncs and RepoSyncs (up to 10m)"
+      ansible.builtin.command: >-
+        python3 {{ role_path }}/files/check_config_sync_operational.py
+        --kubeconfig=/etc/kubernetes/admin.conf
+        --timeout=600
+        --interval=15
+        --json-output-file=/var/gdc-install/state/config-sync-audit.json
+      register: config_sync_audit_res
+      changed_when: false
+      failed_when: false
+      when: target_repo_type in ['git', 'oci']
+
+    - name: "GDC-CONFIGSYNC | Check if operational audit output file exists"
+      ansible.builtin.stat:
+        path: /var/gdc-install/state/config-sync-audit.json
+      register: audit_json_stat
+      when: target_repo_type in ['git', 'oci']
+
+    - name: "GDC-CONFIGSYNC | Slurp operational audit results"
+      ansible.builtin.slurp:
+        src: /var/gdc-install/state/config-sync-audit.json
+      register: slurped_audit_json
+      when:
+        - target_repo_type in ['git', 'oci']
+        - audit_json_stat.stat.exists | default(false)
+
+    - name: "GDC-CONFIGSYNC | Parse operational audit facts"
+      ansible.builtin.set_fact:
+        config_sync_operational_audit: "{{ slurped_audit_json.content | b64decode | from_json }}"
+      when:
+        - target_repo_type in ['git', 'oci']
+        - slurped_audit_json is defined
+        - slurped_audit_json.content is defined
+
     - name: "GDC-CONFIGSYNC | Record ConfigSync evidence facts"
       ansible.builtin.set_fact:
         config_sync_evidence:
           enabled: true
           rootsync_applied: "{{ target_repo_type in ['git', 'oci'] }}"
+          rootsync_reconciler_ready: "{{ (root_reconciler_wait_res.rc | default(1) == 0) if (target_repo_type in ['git', 'oci']) else false }}"
           source_type: "{{ target_repo_type }}"
+          auth_type: "{{ target_git_auth if target_repo_type == 'git' else ('gcpserviceaccount' if (target_oci_gsa | trim | length > 0) else ('token' if (target_k8s_secret_name | trim | length > 0) else 'none')) }}"
+          auth_secret_name: "{{ target_k8s_secret_name if (config_sync_repo.requires_secret | default(false) | bool) else '' }}"
+          auth_secret_status: "{{ target_auth_secret_status | default('n/a') }}"
           cluster_sync_dir: "{{ target_sync_dir if (target_repo_type in ['git', 'oci']) else '' }}"
-          status: "completed"
+          operational_audit: "{{ config_sync_operational_audit | default({}) }}"
+          status: "{{ 'completed' if (config_sync_audit_res.rc | default(0) == 0) else 'failed' }}"
+
+    - name: "GDC-CONFIGSYNC | Fail if operational audit failed or timed out"
+      ansible.builtin.fail:
+        msg: >-
+          ConfigSync operational audit failed or timed out after 600s. Review table output above or /var/gdc-install/state/config-sync-audit.json for details.
+      when:
+        - target_repo_type in ['git', 'oci']
+        - config_sync_audit_res.rc | default(0) != 0

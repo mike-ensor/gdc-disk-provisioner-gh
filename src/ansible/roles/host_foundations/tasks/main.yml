@@ -244,6 +244,24 @@
   when: deactivate_public_sources | default(true) | bool
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-05 | Ensure local Nexus anonymous access and EULA acceptance"
+  ansible.builtin.shell: |
+    if curl -s -I --connect-timeout 2 http://127.0.0.1:8081/service/rest/v1/status | grep -q "200 OK"; then
+      admin_pass="{{ nexus_admin_password | default('troubled-marble-150') }}"
+      eula_json=$(curl -s -u admin:"${admin_pass}" http://127.0.0.1:8081/service/rest/v1/system/eula 2>/dev/null || true)
+      if echo "${eula_json}" | grep -q '"accepted" : false'; then
+        payload=$(echo "${eula_json}" | jq '.accepted = true')
+        curl -s -f -u admin:"${admin_pass}" -X POST http://127.0.0.1:8081/service/rest/v1/system/eula -H "Content-Type: application/json" -d "${payload}" || true
+      fi
+      anon_json=$(curl -s -u admin:"${admin_pass}" http://127.0.0.1:8081/service/rest/v1/security/anonymous 2>/dev/null || true)
+      if echo "${anon_json}" | grep -q '"enabled" : false'; then
+        curl -s -f -u admin:"${admin_pass}" -X PUT http://127.0.0.1:8081/service/rest/v1/security/anonymous -H "Content-Type: application/json" -d '{"enabled": true, "userId": "anonymous", "realmName": "NexusAuthorizingRealm"}' || true
+      fi
+    fi
+  changed_when: false
+  ignore_errors: true
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-05 | Enforce Hosted APT Priority Pinning"
   ansible.builtin.copy:
     dest: /etc/apt/preferences.d/gdc-nexus-pin

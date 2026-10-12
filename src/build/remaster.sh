@@ -286,8 +286,11 @@ fi
 NEXUS_PROPERTIES_DIR="${EXTRACT_DIR}/custom-data/nexus/sonatype-work/nexus3/etc"
 mkdir -p "${NEXUS_PROPERTIES_DIR}"
 NEXUS_PROPERTIES="${NEXUS_PROPERTIES_DIR}/nexus.properties"
-echo "[-] Configuring Nexus user properties to use H2 database..."
-echo "nexus.datastore.enabled=true" > "${NEXUS_PROPERTIES}"
+echo "[-] Configuring Nexus user properties to use H2 database and bypass onboarding..."
+cat <<'EOF' > "${NEXUS_PROPERTIES}"
+nexus.datastore.enabled=true
+nexus.onboarding.enabled=false
+EOF
 
 echo "[-] Writing local JVM environment config for Sonatype Nexus..."
 cat <<'EOF' > "${EXTRACT_DIR}/custom-data/nexus/nexus-bin/bin/nexus.rc"

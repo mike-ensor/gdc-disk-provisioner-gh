@@ -30,7 +30,13 @@ def _resolve_git_repo(
 
     if isinstance(secret_obj, dict):
         gsm_secret_name = _clean_str(secret_obj.get("gsm-name")) or _clean_str(secret_obj.get("gsm_name"))
-        gsm_location = _clean_str(secret_obj.get("gsm-location")) or _clean_str(secret_obj.get("gsm_location")) or "global"
+        gsm_location = (
+            _clean_str(secret_obj.get("gsm-location"))
+            or _clean_str(secret_obj.get("gsm_location"))
+            or _clean_str(git_cfg.get("gsm_location"))
+            or _clean_str(git_cfg.get("gsm-location"))
+            or "global"
+        )
         k8s_secret_name = (
             _clean_str(secret_obj.get("k8s-name"))
             or _clean_str(secret_obj.get("k8s_name"))
@@ -48,8 +54,12 @@ def _resolve_git_repo(
             or _clean_str(git_cfg.get("gsm-secret-name"))
             or legacy_auth_secret
         )
+        gsm_location = (
+            _clean_str(git_cfg.get("gsm_location"))
+            or _clean_str(git_cfg.get("gsm-location"))
+            or "global"
+        )
         k8s_secret_name = legacy_auth_secret or gsm_secret_name
-        gsm_location = "global"
         k8s_namespace = "config-management-system"
 
     has_secret = bool(gsm_secret_name)
@@ -81,7 +91,13 @@ def _resolve_oci_repo(
     secret_obj = oci_cfg.get("gsm-auth-secret") or oci_cfg.get("gsm_auth_secret")
     if isinstance(secret_obj, dict):
         gsm_secret_name = _clean_str(secret_obj.get("gsm-name")) or _clean_str(secret_obj.get("gsm_name"))
-        gsm_location = _clean_str(secret_obj.get("gsm-location")) or _clean_str(secret_obj.get("gsm_location")) or "global"
+        gsm_location = (
+            _clean_str(secret_obj.get("gsm-location"))
+            or _clean_str(secret_obj.get("gsm_location"))
+            or _clean_str(oci_cfg.get("gsm_location"))
+            or _clean_str(oci_cfg.get("gsm-location"))
+            or "global"
+        )
         k8s_secret_name = (
             _clean_str(secret_obj.get("k8s-name"))
             or _clean_str(secret_obj.get("k8s_name"))
@@ -99,8 +115,12 @@ def _resolve_oci_repo(
             or _clean_str(oci_cfg.get("gsm-secret-name"))
             or legacy_auth_secret
         )
+        gsm_location = (
+            _clean_str(oci_cfg.get("gsm_location"))
+            or _clean_str(oci_cfg.get("gsm-location"))
+            or "global"
+        )
         k8s_secret_name = legacy_auth_secret or gsm_secret_name
-        gsm_location = "global"
         k8s_namespace = "config-management-system"
 
     if oci_gsa:
@@ -200,9 +220,24 @@ def _resolve_dict_repo(
     legacy_secret: str,
 ) -> Dict[str, Any]:
     """Resolves a dictionary primary_root_repo configuration."""
-    override_dir = _clean_str(primary_repo.get("cluster-config-name")) or _clean_str(primary_repo.get("cluster_config_name"))
+    override_dir = (
+        _clean_str(primary_repo.get("cluster-config-name"))
+        or _clean_str(primary_repo.get("cluster_config_name"))
+        or _clean_str(primary_repo.get("oci", {}).get("cluster-config-name") if isinstance(primary_repo.get("oci"), dict) else None)
+        or _clean_str(primary_repo.get("oci", {}).get("cluster_config_name") if isinstance(primary_repo.get("oci"), dict) else None)
+        or _clean_str(primary_repo.get("git", {}).get("cluster-config-name") if isinstance(primary_repo.get("git"), dict) else None)
+        or _clean_str(primary_repo.get("git", {}).get("cluster_config_name") if isinstance(primary_repo.get("git"), dict) else None)
+    )
+    explicit_sync_dir = (
+        _clean_str(primary_repo.get("root-sync-dir"))
+        or _clean_str(primary_repo.get("root_sync_dir"))
+        or _clean_str(primary_repo.get("oci", {}).get("dir-path") if isinstance(primary_repo.get("oci"), dict) else None)
+        or _clean_str(primary_repo.get("oci", {}).get("dir_path") if isinstance(primary_repo.get("oci"), dict) else None)
+        or _clean_str(primary_repo.get("git", {}).get("dir-path") if isinstance(primary_repo.get("git"), dict) else None)
+        or _clean_str(primary_repo.get("git", {}).get("dir_path") if isinstance(primary_repo.get("git"), dict) else None)
+    )
     target_dir = override_dir if override_dir else effective_cluster
-    sync_dir = f"config/clusters/{target_dir}" if target_dir else ""
+    sync_dir = explicit_sync_dir if explicit_sync_dir else (f"config/clusters/{target_dir}" if target_dir else "")
 
     if isinstance(primary_repo.get("git"), dict):
         return _resolve_git_repo(primary_repo["git"], sync_dir, legacy_secret)
@@ -294,7 +329,7 @@ def _resolve_git_secret_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 def _resolve_oci_secret_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Validates and formats OCI credentials from secret payload."""
     username = _clean_str(payload.get("username"))
-    password = _clean_str(payload.get("password"))
+    password = _clean_str(payload.get("password")) or _clean_str(payload.get("token"))
     if username and password:
         return {
             "valid": True,
@@ -307,7 +342,7 @@ def _resolve_oci_secret_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "valid": False,
         "secret_data": {},
         "auth_type": "none",
-        "failure_reason": "OCI secret payload must contain both 'username' and 'password'.",
+        "failure_reason": "OCI secret payload must contain 'username' and either 'password' or 'token'.",
     }
 
 

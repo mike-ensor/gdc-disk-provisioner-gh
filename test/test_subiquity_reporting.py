@@ -134,5 +134,30 @@ class TestSubiquityReporting(unittest.TestCase):
         self.assertIn("sysctl -w net.ipv4.tcp_keepalive_time=15", content, "bootcmd must tune tcp_keepalive_time")
         self.assertIn("sysctl -w net.ipv4.tcp_retries2=5", content, "bootcmd must tune tcp_retries2")
 
+    def test_vendor_data_rendered(self):
+        """Validates that nocloud/vendor-data is generated to prevent cloud-init probe retries."""
+        env = {
+            'TEMPORARY_INSTALLER_PASSWORD': 'test',
+            'UPSTREAM_PLAYBOOKS_REPO': 'test',
+            'BOOTSTRAP_MACHINE_IP_CIDR': 'test',
+            'BOOTSTRAP_MACHINE_GATEWAY': 'test',
+            'BOOTSTRAP_K8S_IP_CIDR': 'test',
+            'BOOTSTRAP_K8S_GATEWAY': 'test',
+            'INSTALL_COMPANION_URL': 'test',
+            'GITEA_BINARY_FILENAME': 'test',
+            'NEXUS_PACKAGE_FILENAME': 'test',
+            'JRE_PACKAGE_FILENAME': 'test'
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.makedirs(os.path.join(temp_dir, 'nocloud'))
+            template_dir = os.path.join(PROJECT_ROOT, "src/build/templates")
+            render_templates.render_templates(template_dir, temp_dir, env)
+            
+            vendordata_path = os.path.join(temp_dir, "nocloud/vendor-data")
+            self.assertTrue(os.path.exists(vendordata_path), "nocloud/vendor-data must exist")
+            with open(vendordata_path, "r") as f:
+                content = f.read()
+            self.assertEqual(content, "#cloud-config\n", "vendor-data must contain '#cloud-config\\n'")
+
 if __name__ == "__main__":
     unittest.main()

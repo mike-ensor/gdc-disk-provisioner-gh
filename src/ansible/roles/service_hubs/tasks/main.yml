@@ -171,6 +171,54 @@
   register: password_reset_result
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-02 | Check Nexus Community Edition EULA status"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/system/eula"
+    method: GET
+    user: admin
+    password: "{{ nexus_admin_pass }}"
+    force_basic_auth: true
+    status_code: [200, 404]
+  register: nexus_eula_status
+  when: nexus_binary_installed.stat.exists
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Accept Nexus Community Edition EULA if required"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/system/eula"
+    method: POST
+    user: admin
+    password: "{{ nexus_admin_pass }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      accepted: true
+      disclaimer: "{{ nexus_eula_status.json.disclaimer }}"
+    status_code: [200, 204]
+  when:
+    - nexus_binary_installed.stat.exists
+    - nexus_eula_status.status == 200
+    - nexus_eula_status.json is defined
+    - nexus_eula_status.json.accepted is defined
+    - not (nexus_eula_status.json.accepted | bool)
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Enable Nexus anonymous access for APT repositories"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8081/service/rest/v1/security/anonymous"
+    method: PUT
+    user: admin
+    password: "{{ nexus_admin_pass }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      enabled: true
+      userId: "anonymous"
+      realmName: "NexusAuthorizingRealm"
+    status_code: 200
+  when: nexus_binary_installed.stat.exists
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-02 | Get list of existing repositories"
   ansible.builtin.uri:
     url: "http://127.0.0.1:8081/service/rest/v1/repositories"
