@@ -88,18 +88,18 @@ To track nodes without relying on brittle IP addresses or static session tokens,
   * IP addresses frequently shift when transitioning from Stage 1 DHCP discovery to Stage 2 static VLAN interfaces.
 * **Modern Query Parameter Schema:**
   ```http
-  POST /public/webhook?version=v2.4.0&build_id=20261012-1430&mac=52:54:00:12:34:56&logname=stage1-install.log
-  POST /secure/telemetry?version=v2.4.0&build_id=20261012-1430&mac=52:54:00:12:34:56&stage=5&status=in_progress
+  POST /public?version=v0.10.19&build_id=8e6c738e4a9e4e67b2d5a3c9f1e8a4d2&mac=525400123456&logname=webhook
+  POST /secure?version=v0.10.19&build_id=8e6c738e4a9e4e67b2d5a3c9f1e8a4d2&mac=525400123456&logname=phone-home
   ```
 * **Schema Fields Defined:**
-  * `version`: Release tag or Git commit hash of the operating system image bundle.
-  * `build_id`: Unique timestamped build identifier assigned during ISO compilation.
-  * `mac`: Primary NIC MAC address (immutable physical identifier).
-  * `logname`: Specific diagnostic artifact being streamed or referenced.
+  * `version`: Semantic version string of the ISO image being installed (e.g., `v0.10.19`).
+  * `build_id`: Dynamic, ephemeral 32-character hex boot identifier from `/proc/sys/kernel/random/boot_id` (hyphens stripped), generated uniquely at boot time for every boot cycle.
+  * `mac`: Primary active NIC MAC address (12-char hex, colons stripped, e.g. `525400123456`), serving as the constant hardware anchor.
+  * `logname`: Literal identifier for log source, typically `webhook` or `phone-home`.
 
 <!--
 [VISUAL]: Code breakdown highlighting URL query parameters: version, build_id, mac, and logname with annotation arrows explaining the role of each field.
-[VOICEOVER]: Edge telemetry cannot rely on static session identifiers or ephemeral IP addresses. IP addresses change when switching from Stage 1 DHCP discovery to Stage 2 static VLAN assignment. Instead, our telemetry protocol embeds four core query parameters directly into every webhook payload: the OS release version, the unique compilation build_id, the physical MAC address, and the specific log name being reported. This creates a clean, predictable URL signature for log filtering and ingestion.
+[VOICEOVER]: Edge telemetry cannot rely on static session identifiers or ephemeral IP addresses. IP addresses change when switching from Stage 1 DHCP discovery to Stage 2 static VLAN assignment. Instead, our telemetry protocol embeds four core query parameters directly into every webhook payload: the ISO version, the kernel's dynamic 32-character boot_id, the 12-character physical MAC address anchor, and the specific log name. This creates a clean, predictable URL signature for log filtering and ingestion across public and secure endpoints.
 [LIVE DEMO / TERMINAL CUE]: Display curl command emitting an outbound webhook formatted with the full telemetry query string.
 -->
 
@@ -113,9 +113,9 @@ How operations teams correlate telemetry events across disjointed kernel environ
   * **Boot 1 (Stage 1–2):** Live Subiquity installer environment running a transient RAM disk kernel.
   * **Boot 2 (Stage 3–4):** Hardened Ubuntu host kernel unsealing LUKS via motherboard TPM 2.0.
   * **Boot 3 (Stage 5–8):** Bare-metal container runtime launching Kind bootstrap and `bmctl`.
-  * Each boot generates a fresh ephemeral hostname and transient process tree.
+  * Because `build_id` changes every time the machine reboots (Stage 1 LiveCD $\rightarrow$ Stage 2 First Boot $\rightarrow$ Stage 3 Second Boot), each boot cycle receives a completely fresh, ephemeral 32-character identifier.
 * **The Anchor of Physical Identity:**
-  * While `build_id` changes with every ISO compile, the hardware **MAC address** remains globally constant across all reboots.
+  * The physical hardware `mac` address (12-char hex, colons stripped, e.g. `525400123456`) is the constant hardware anchor that `gdc-companion` uses to correlate the multi-boot timeline across all boot cycles.
   * Telemetry ingesters aggregate log streams by indexing:
     $$\text{Session Key} = (\text{mac}, \text{build\_id})$$
 * **Cross-Reboot Timeline Stitching:**
@@ -123,7 +123,7 @@ How operations teams correlate telemetry events across disjointed kernel environ
 
 <!--
 [VISUAL]: Timeline diagram showing three consecutive boot phases (RAM disk, Host OS, Kubernetes runtime), with distinct process trees stitched together by a shared physical MAC address timeline.
-[VOICEOVER]: Because bare-metal turnup involves two automated reboots and three distinct kernel execution environments, hostnames and process IDs cannot provide continuity. The hardware MAC address serves as the immutable anchor. By indexing telemetry streams on the tuple of physical MAC and compilation build_id, gdc-companion stitches disparate log streams into a single unbroken timeline, tracing the node from initial PXE power-on all the way to Kubernetes cluster readiness.
+[VOICEOVER]: Because bare-metal turnup involves multiple automated reboots across Stage 1 LiveCD, Stage 2 first boot, and Stage 3 second boot, build_id regenerates dynamically on every boot from the kernel's boot_id. Hostnames and process IDs cannot provide continuity. The physical hardware MAC address serves as the constant hardware anchor. By indexing telemetry streams on the tuple of physical MAC and ephemeral boot_id, gdc-companion stitches disparate log streams into a single unbroken timeline, tracing the node from initial PXE power-on all the way to Kubernetes cluster readiness.
 [LIVE DEMO / TERMINAL CUE]: Terminal showing gdc-companion log tail aggregating events from the same MAC address across multiple reboots.
 -->
 
@@ -134,17 +134,17 @@ How operations teams correlate telemetry events across disjointed kernel environ
 Examining how the node establishes initial contact during live autoinstall:
 
 * **Dual-Tier Endpoints on `gdc-companion`:**
-  * `/public/webhook`: Open HTTP endpoint utilized exclusively during Stage 1 unauthenticated bootstrap (before local certificates exist).
-  * `/secure/telemetry`: Mutual TLS (mTLS) verified endpoint utilized for Stage 3+ events after Step CA attestation.
+  * `POST /public?...`: Unauthenticated Stage 1 bootstrap endpoint utilized before local certificates exist.
+  * `POST /secure?...`: Mutual TLS (mTLS) attested endpoint utilized for post-attestation events after Step CA verification.
 * **Stage 1 Payload Structure:**
   ```json
   {
     "event": "stage1_autoinstall_started",
     "timestamp": "2026-10-12T14:32:05Z",
     "system": {
-      "mac": "52:54:00:12:34:56",
+      "mac": "525400123456",
       "ip": "192.168.1.145",
-      "build_id": "20261012-1430",
+      "build_id": "8e6c738e4a9e4e67b2d5a3c9f1e8a4d2",
       "target_disk": "/dev/nvme0n1",
       "disk_capacity_gb": 1920
     },
@@ -156,8 +156,8 @@ Examining how the node establishes initial contact during live autoinstall:
 
 <!--
 [VISUAL]: Split view showing Subiquity installer progress on the physical node console alongside incoming JSON events landing in the gdc-companion log stream.
-[VOICEOVER]: During Stage 1, the node operates in an unauthenticated bootstrap environment before cryptographic certificates are minted. It transmits early phone-home signals to gdc-companion's public webhook endpoint. The payload reports disk geometry, Curtin partitioning status, and the build identifier. As Subiquity formats the NVMe drives and unpacks the OS, progress events stream to gdc-companion in real time, giving operators visibility into hardware preparation without serial console access.
-[LIVE DEMO / TERMINAL CUE]: Run curl streaming mock webhook to /public/webhook and display JSON ingestion on gdc-companion.
+[VOICEOVER]: During Stage 1, the node operates in an unauthenticated bootstrap environment before cryptographic certificates are minted. It transmits early phone-home signals to gdc-companion's public endpoint at POST /public. The payload reports disk geometry, Curtin partitioning status, the kernel's dynamic boot identifier, and the stripped MAC address. As Subiquity formats the NVMe drives and unpacks the OS, progress events stream to gdc-companion in real time, giving operators visibility into hardware preparation without serial console access.
+[LIVE DEMO / TERMINAL CUE]: Run curl streaming mock webhook to POST /public and display JSON ingestion on gdc-companion.
 -->
 
 ---
@@ -296,7 +296,7 @@ Protecting the telemetry channel in Zero-Trust environments:
   1. The node extracts its TPM 2.0 Endorsement Key Certificate (EKCert) stamped by the silicon manufacturer.
   2. The node sends an attestation challenge to the local Step CA instance.
   3. Step CA validates the cryptographic signature and issues a short-lived client certificate with `SAN: DNS:node-<mac>.gdc.internal, URI:mac:<mac>`.
-* **Enforcing mTLS on `/secure/telemetry`:**
+* **Enforcing mTLS on `/secure`:**
   * `gdc-companion` strictly rejects connections without client certificates signed by the trusted Step CA root.
   * Every telemetry event is cryptographically non-repudiable and bound to verified physical hardware.
 
