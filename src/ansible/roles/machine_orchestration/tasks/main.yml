@@ -381,10 +381,13 @@
     - machine_config.network is defined
     - not (machine_config.is_fallback | default(false))
 
-- name: "GDC-ORCH | Remove bootstrap 01-netcfg.yaml to prevent Netplan address list merging"
+- name: "GDC-ORCH | Remove bootstrap netplan configs to prevent Netplan address list merging"
   ansible.builtin.file:
-    path: /etc/netplan/01-netcfg.yaml
+    path: "{{ item }}"
     state: absent
+  loop:
+    - /etc/netplan/01-netcfg.yaml
+    - /etc/netplan/50-cloud-init.yaml
   when:
     - machine_config.network is defined
     - not (machine_config.is_fallback | default(false))

@@ -165,6 +165,15 @@ class TestCheckEndpoints(unittest.TestCase):
         targets_all = build_targets_from_manifest(manifest, current_stage="all")
         self.assertTrue(all(not t.get("skip_execution") for t in targets_all))
 
+        # Stage 'upkeep' should execute all prior stages (e.g. cluster-turnup containerregistry, first-boot iam)
+        targets_upkeep = build_targets_from_manifest(manifest, current_stage="upkeep")
+        executed_upkeep = [t for t in targets_upkeep if not t.get("skip_execution")]
+        executed_domains_upkeep = {t["domain"] for t in executed_upkeep}
+        self.assertIn("containerregistry.googleapis.com", executed_domains_upkeep)
+        self.assertIn("iam.googleapis.com", executed_domains_upkeep)
+        self.assertIn("gkeconnect.googleapis.com", executed_domains_upkeep)
+        self.assertIn("logging.googleapis.com", executed_domains_upkeep)
+
     def test_cli_execution_with_manifest_and_stage(self):
         """Verifies check_endpoints.py CLI runs against manifest and outputs valid JSON with stage tagging."""
         cmd = [

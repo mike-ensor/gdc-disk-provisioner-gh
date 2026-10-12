@@ -40,12 +40,17 @@ autoinstall:
 {% if enable_phone_home or enable_webhook %}
   error-commands:
     - |
-      echo "==============================================================================" >/dev/ttyS0
-      echo "[GDC-INSTALL-FAIL] CRITICAL INSTALLATION FAILURE DETECTED" >/dev/ttyS0
-      echo "==============================================================================" >/dev/ttyS0
+      log_err() {
+        echo "$@" >/dev/ttyS0 2>/dev/null || true
+        echo "$@" >/dev/console 2>/dev/null || true
+        echo "$@" 2>/dev/null || true
+      }
+      log_err "=============================================================================="
+      log_err "[GDC-INSTALL-FAIL] CRITICAL INSTALLATION FAILURE DETECTED"
+      log_err "=============================================================================="
       if [ -x /usr/local/bin/gdc-collector ]; then
-        echo "[-] Triggering final diagnostics collection before halt..." >/dev/ttyS0
-        timeout 120s /usr/local/bin/gdc-collector --stage crash --companion-url="{{ companion_url }}" >/dev/ttyS0 2>&1 || true
+        log_err "[-] Triggering final diagnostics collection before halt..."
+        timeout 120s /usr/local/bin/gdc-collector --stage crash --companion-url="{{ companion_url }}" >/dev/ttyS0 2>/dev/null || true
       fi
 {% endif %}
   reporting:
@@ -129,6 +134,43 @@ autoinstall:
       echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /var/log/installer/gdc-luks-key
       chmod 600 /var/log/installer/gdc-luks-key
       sync /var/log/installer/gdc-luks-key || sync
+      
+      # Deploy protective cryptsetup wrapper in /usr/local/sbin to eliminate NVMe write-cache timing races
+      mkdir -p /usr/local/sbin
+      printf '%s\n' \
+        '#!/bin/bash' \
+        'REAL_CRYPTSETUP="/usr/sbin/cryptsetup"' \
+        '' \
+        '# Case 1: Intercept luksFormat to force --batch-mode, write-cache flush, udev settling, and timing barrier' \
+        'if [ "$1" = "luksFormat" ] || [[ "$*" =~ "luksFormat" ]]; then' \
+        '    "${REAL_CRYPTSETUP}" --batch-mode "$@"' \
+        '    rc=$?' \
+        '    sync' \
+        '    blockdev --flushbufs 2>/dev/null || true' \
+        '    udevadm settle --timeout=15 2>/dev/null || true' \
+        '    # Provide a 5-second timing window for DRAM-less NVMe controller write caches to persist' \
+        '    sleep 5' \
+        '    exit $rc' \
+        'fi' \
+        '' \
+        '# Case 2: Intercept cryptsetup open to retry with settle backoff if dirty block cache raises code 2' \
+        'if [ "$1" = "open" ] || [[ "$*" =~ "open" ]]; then' \
+        '    for attempt in 1 2 3 4 5; do' \
+        '        if "${REAL_CRYPTSETUP}" "$@"; then' \
+        '            exit 0' \
+        '        fi' \
+        '        echo "cryptsetup open attempt $attempt failed, flushing buffers and retrying in 3s..." >&2' \
+        '        sync' \
+        '        blockdev --flushbufs 2>/dev/null || true' \
+        '        udevadm settle --timeout=5 2>/dev/null || true' \
+        '        sleep 3' \
+        '    done' \
+        '    exec "${REAL_CRYPTSETUP}" "$@"' \
+        'fi' \
+        '' \
+        'exec "${REAL_CRYPTSETUP}" "$@"' \
+        > /usr/local/sbin/cryptsetup
+      chmod +x /usr/local/sbin/cryptsetup
     - |
       # Live-stream Subiquity server logs to serial console for real-time diagnostics
       touch /var/log/installer/subiquity-server-debug.log
@@ -190,11 +232,11 @@ autoinstall:
           if python3 -c "import os, yaml; bp = '/autoinstall.yaml' if os.path.exists('/autoinstall.yaml') else ('/run/installer/autoinstall-user-data' if os.path.exists('/run/installer/autoinstall-user-data') else '/cdrom/nocloud/user-data'); c = yaml.safe_load(open(bp)); s = yaml.safe_load(open('/run/autoinstall-storage.yaml')); ai = c['autoinstall'] if 'autoinstall' in c else c; ai['storage'] = s['storage']; yaml.safe_dump({'autoinstall': ai}, open('/autoinstall.yaml', 'w')); os.makedirs('/run/installer', exist_ok=True); yaml.safe_dump(c if 'autoinstall' in c else {'autoinstall': c}, open('/run/installer/autoinstall-user-data', 'w'))"; then
             logger -t gdc-provisioner "[GOAL] LVM storage layout merged dynamically successfully."
           else
-            echo "[GDC-INSTALL-FAIL] Critical Failure: Dynamic storage config merger failed!" >/dev/ttyS0
+            echo "[GDC-INSTALL-FAIL] Critical Failure: Dynamic storage config merger failed!" >/dev/ttyS0 2>/dev/null || true
             exit 1
           fi
         else
-          echo "[GDC-INSTALL-FAIL] Critical Failure: Dynamic storage config generator failed!" >/dev/ttyS0
+          echo "[GDC-INSTALL-FAIL] Critical Failure: Dynamic storage config generator failed!" >/dev/ttyS0 2>/dev/null || true
           exit 1
         fi
       else
@@ -383,6 +425,8 @@ autoinstall:
               continue
             fi
             wipefs --all --force "${p}" 2>/dev/null || true
+            # Zero out initial 32MB of partition boundary to eliminate stale LUKS headers & superblocks
+            dd if=/dev/zero of="${p}" bs=1M count=32 oflag=direct status=none 2>/dev/null || true
           fi
         done
 
@@ -486,9 +530,9 @@ autoinstall:
         fi
       done
       if [ "${SUCCESS}" = "false" ]; then
-        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0
-        echo "[GDC-INSTALL-FAIL] Critical Failure: Cannot resolve or reach Step CA at ${CA_URL}. Please verify DNS/add-hosts configuration." >/dev/ttyS0
-        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0 2>/dev/null || true
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Cannot resolve or reach Step CA at ${CA_URL}. Please verify DNS/add-hosts configuration." >/dev/ttyS0 2>/dev/null || true
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0 2>/dev/null || true
         logger -p user.err -t gdc-provisioner "[CRITICAL] Connectivity to Step CA failed. Halting installation."
         exit 1
       fi
@@ -624,17 +668,17 @@ autoinstall:
         curtin in-target -- chown -R root:root /var/gdc-install/iso-cache
         logger -t gdc-provisioner "[GOAL] Asset synchronization completed successfully"
       else
-        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0
-        echo "[GDC-INSTALL-FAIL] Critical Failure: Syncing pre-seeded assets failed!" >/dev/ttyS0
-        echo "Gitea rsync error:" >/dev/ttyS0
-        cat /tmp/rsync_gitea_err.log >/dev/ttyS0 || true
-        echo "Nexus rsync error:" >/dev/ttyS0
-        cat /tmp/rsync_nexus_err.log >/dev/ttyS0 || true
-        echo "Ansible collections rsync error:" >/dev/ttyS0
-        cat /tmp/rsync_ansible_err.log >/dev/ttyS0 || true
-        echo "ISO Cache rsync error:" >/dev/ttyS0
-        cat /tmp/rsync_iso_cache_err.log >/dev/ttyS0 || true
-        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0 2>/dev/null || true
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Syncing pre-seeded assets failed!" >/dev/ttyS0 2>/dev/null || true
+        echo "Gitea rsync error:" >/dev/ttyS0 2>/dev/null || true
+        cat /tmp/rsync_gitea_err.log >/dev/ttyS0 2>/dev/null || true
+        echo "Nexus rsync error:" >/dev/ttyS0 2>/dev/null || true
+        cat /tmp/rsync_nexus_err.log >/dev/ttyS0 2>/dev/null || true
+        echo "Ansible collections rsync error:" >/dev/ttyS0 2>/dev/null || true
+        cat /tmp/rsync_ansible_err.log >/dev/ttyS0 2>/dev/null || true
+        echo "ISO Cache rsync error:" >/dev/ttyS0 2>/dev/null || true
+        cat /tmp/rsync_iso_cache_err.log >/dev/ttyS0 2>/dev/null || true
+        echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >/dev/ttyS0 2>/dev/null || true
         exit 1
       fi
     - |
@@ -823,20 +867,35 @@ autoinstall:
       fi
       
       echo -n "temporary_bootstrap_key_to_be_enrolled_to_tpm" > /target/tmp/pass.txt
-      # Resolve LUKS devices either using blkid or by querying active cryptsetup mappings in crypttab
-      LUKS_DEVS=$(blkid -t TYPE=crypto_LUKS -o device)
-      if [ -z "${LUKS_DEVS}" ] && [ -f /target/etc/crypttab ]; then
-        logger -t gdc-provisioner "[INFO] blkid cache stale or empty. Querying active cryptsetup mappings for LUKS devices..."
+      # Resolve LUKS devices explicitly from target crypttab (avoiding unrelated LUKS partitions on secondary drives)
+      LUKS_DEVS=""
+      if [ -f /target/etc/crypttab ]; then
+        logger -t gdc-provisioner "[INFO] Querying target crypttab for LUKS devices to enroll..."
         while read -r name dev key options; do
           case "${name}" in
             ""|\#*) continue ;;
           esac
-          phys_dev=$(cryptsetup status "${name}" 2>/dev/null | grep "device:" | awk '{print $2}')
+          phys_dev=""
+          case "${dev}" in
+            UUID=*)
+              uuid="${dev#UUID=}"
+              phys_dev=$(blkid -U "${uuid}" 2>/dev/null)
+              ;;
+            /dev/*)
+              phys_dev="${dev}"
+              ;;
+          esac
+          if [ -z "${phys_dev}" ] || [ ! -b "${phys_dev}" ]; then
+            phys_dev=$(cryptsetup status "${name}" 2>/dev/null | grep "device:" | awk '{print $2}')
+          fi
           if [ -n "${phys_dev}" ] && [ -b "${phys_dev}" ]; then
-            logger -t gdc-provisioner "[INFO] Resolved active mapping '${name}' to physical device '${phys_dev}'"
+            logger -t gdc-provisioner "[INFO] Resolved crypttab mapping '${name}' to physical device '${phys_dev}'"
             LUKS_DEVS="${LUKS_DEVS} ${phys_dev}"
           fi
         done < /target/etc/crypttab
+      fi
+      if [ -z "${LUKS_DEVS}" ]; then
+        LUKS_DEVS=$(blkid -t TYPE=crypto_LUKS -o device)
       fi
 
       if [ -n "${LUKS_DEVS}" ]; then
@@ -880,10 +939,13 @@ autoinstall:
       if python3 /cdrom/custom-data/configure_netplan.py >/target/var/gdc-install/logs/netplan-hydration.log 2>&1; then
         logger -t gdc-provisioner "[GOAL] GDC Production Netplan compiled and validated successfully."
       else
-        echo "[GDC-INSTALL-FAIL] Critical Failure: Programmatic Netplan compilation failed! Diagnostics written to /target/var/gdc-install/logs/netplan-hydration.log" >/dev/ttyS0
-        cat /target/var/gdc-install/logs/netplan-hydration.log >/dev/ttyS0 || true
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Programmatic Netplan compilation failed! Diagnostics written to /target/var/gdc-install/logs/netplan-hydration.log" >/dev/ttyS0 2>/dev/null || true
+        cat /target/var/gdc-install/logs/netplan-hydration.log >/dev/ttyS0 2>/dev/null || true
         exit 1
       fi
+      
+      # Purge Subiquity default cloud-init netplan matching wildcards that suppress VLAN subinterfaces
+      rm -f /target/etc/netplan/50-cloud-init.yaml
       
       # Redirect security upgrades to loopback to prevent long hangs during curtin installation
       echo "127.0.0.1 security.ubuntu.com" >> /target/etc/hosts
@@ -977,8 +1039,11 @@ autoinstall:
       logger -t gdc-provisioner "[GOAL] Configuring target GRUB bootloader parameters"
       if [ -f /target/etc/default/grub ]; then
         # Dynamically extract the UUID of the physical LUKS partition to explicitly instruct dracut to unseal it
-        # This resolves the issue where dracut systemd generators ignore encrypted volumes that contain the LVM root partition.
-        LUKS_UUID=$(blkid -s UUID -o value -t TYPE=crypto_LUKS | head -n 1)
+        # Prefer the primary crypt-system UUID from target crypttab to avoid selecting stale disks
+        LUKS_UUID=$(awk '$1 == "crypt-system" {print $2}' /target/etc/crypttab 2>/dev/null | sed 's/UUID=//')
+        if [ -z "${LUKS_UUID}" ]; then
+          LUKS_UUID=$(blkid -s UUID -o value -t TYPE=crypto_LUKS | head -n 1)
+        fi
         
         PLATFORM_PARAMS=""
         if [ "$IS_AMD" = "true" ]; then
@@ -1128,7 +1193,7 @@ autoinstall:
       # Determine highest kernel version installed in /target
       TARGET_KERNEL=$(ls -1 /target/lib/modules | sort -V | tail -n 1)
       if [ -z "${TARGET_KERNEL}" ]; then
-        echo "[GDC-INSTALL-FAIL] Critical Failure: TARGET_KERNEL is empty!" >/dev/ttyS0
+        echo "[GDC-INSTALL-FAIL] Critical Failure: TARGET_KERNEL is empty!" >/dev/ttyS0 2>/dev/null || true
         exit 1
       fi
       echo "[-] Rebuilding initramfs for kernel version: ${TARGET_KERNEL}"
@@ -1139,7 +1204,7 @@ autoinstall:
         echo "=============================================================================="
         logger -t gdc-provisioner "[GOAL] Rebuilding initramfs succeeded"
       else
-        echo "[GDC-INSTALL-FAIL] Critical Failure: Rebuilding initramfs failed!"
+        echo "[GDC-INSTALL-FAIL] Critical Failure: Rebuilding initramfs failed!" >/dev/ttyS0 2>/dev/null || true
         umount -l /target/proc 2>/dev/null || true
         umount -l /target/sys 2>/dev/null || true
         umount -l /target/dev 2>/dev/null || true
@@ -1165,7 +1230,7 @@ autoinstall:
           logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: Plaintext transition key packaged inside initrd."
           echo "    [+] Success: Plaintext transition key packaged inside initrd."
         else
-          echo "[GDC-INSTALL-FAIL] Critical Failure: Transition key was NOT packaged inside initrd!" >/dev/ttyS0
+          echo "[GDC-INSTALL-FAIL] Critical Failure: Transition key was NOT packaged inside initrd!" >/dev/ttyS0 2>/dev/null || true
           exit 1
         fi
         
@@ -1174,7 +1239,7 @@ autoinstall:
           logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: Crypt/cryptsetup module present."
           echo "    [+] Success: Crypt/cryptsetup module present in initrd."
         else
-          echo "[GDC-INSTALL-FAIL] Critical Failure: Crypt module missing from initrd!" >/dev/ttyS0
+          echo "[GDC-INSTALL-FAIL] Critical Failure: Crypt module missing from initrd!" >/dev/ttyS0 2>/dev/null || true
           exit 1
         fi
         
@@ -1183,7 +1248,7 @@ autoinstall:
           logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: LVM module present."
           echo "    [+] Success: LVM module present in initrd."
         else
-          echo "[GDC-INSTALL-FAIL] Critical Failure: LVM module missing from initrd!" >/dev/ttyS0
+          echo "[GDC-INSTALL-FAIL] Critical Failure: LVM module missing from initrd!" >/dev/ttyS0 2>/dev/null || true
           exit 1
         fi
         
@@ -1192,14 +1257,14 @@ autoinstall:
           logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: NVMe/SATA controller drivers present."
           echo "    [+] Success: NVMe/SATA controller drivers present."
         else
-          echo "[GDC-INSTALL-FAIL] Critical Failure: NVMe/SATA drivers missing from initrd!" >/dev/ttyS0
+          echo "[GDC-INSTALL-FAIL] Critical Failure: NVMe/SATA drivers missing from initrd!" >/dev/ttyS0 2>/dev/null || true
           exit 1
         fi
         
         # Assertion 5: Deadlock drivers are omitted on AMD platforms
         if [ "$IS_AMD" = "true" ]; then
           if curtin in-target -- lsinitramfs "${INITRD_FILE#/target}" | grep -q -E "pcie_mp2_amd|amd_sfh"; then
-            echo "[GDC-INSTALL-FAIL] Critical Failure: Blacklisted AMD Sensor Fusion Hub drivers compiled into initrd!" >/dev/ttyS0
+            echo "[GDC-INSTALL-FAIL] Critical Failure: Blacklisted AMD Sensor Fusion Hub drivers compiled into initrd!" >/dev/ttyS0 2>/dev/null || true
             exit 1
           else
             logger -t gdc-provisioner "[GOAL] VALIDATION SUCCESS: Deadlock drivers omitted from initrd."
@@ -1210,7 +1275,7 @@ autoinstall:
           echo "    [+] Success: Non-AMD platform (skipping AMD driver omission assertion)."
         fi
       else
-        echo "[GDC-INSTALL-FAIL] Critical Failure: No initrd file found in /target/boot/!" >/dev/ttyS0
+        echo "[GDC-INSTALL-FAIL] Critical Failure: No initrd file found in /target/boot/!" >/dev/ttyS0 2>/dev/null || true
         exit 1
       fi
       

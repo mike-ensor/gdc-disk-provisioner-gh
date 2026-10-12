@@ -66,20 +66,30 @@ load_env_file "${LOCAL_ENV}"
 usage() {
     cat <<HELPEOF
 GDC Bootimus ISO Deployer
-Usage: $0 [options] <iso_filename>
+Usage: $0 [options] [iso_filename]
 
 Options:
-  -l, --list        List all groups and images currently on the Bootimus server
-  -f, --force       Force Bootimus to re-ingest and extract the ISO even if it exists
-  -h, --help        Display this help message
+  -l, --list                  List all groups and images currently on the Bootimus server
+  --next-boot <iso> [options] Set one-time next-boot image for target client(s)
+  --clear-next-boot [options] Clear one-time next-boot override for target client(s)
+  --targets, --nodes <IPs>    Target node IPs, hostnames, or MACs (defaults to TARGET_TEST_MACHINES)
+                              Supports space-separated ("10.0.0.1 10.0.0.2") or CSV ("10.0.0.1,10.0.0.2")
+  --mac <mac_address>         Target client MAC address
+  --all-targets               Target all registered clients
+  -f, --force                 Force Bootimus to re-ingest and extract the ISO even if it exists
+  -h, --help                  Display this help message
 
 Environment:
-  PXE_SERVER_HOST   Target Bootimus PXE Server API Host
-  PXE_SERVER_PORT   Target Bootimus PXE Server API Port
+  TARGET_TEST_MACHINES        Space or comma-separated target node IPs (e.g. "10.0.0.1 10.0.0.2")
+  PXE_SERVER_HOST             Target Bootimus PXE Server API Host
+  PXE_SERVER_PORT             Target Bootimus PXE Server API Port
 
 Example:
   $0 gdc-bootstrap-ubuntu-24.04-v0.8.14-debug.iso
   $0 --list
+  $0 --next-boot sync/gdc-labs-24.04-v0.10.19-debug.iso --all-targets
+  $0 --next-boot sync/gdc-labs-24.04-v0.10.19-debug.iso --targets "192.168.9.241 192.168.9.242"
+  $0 --clear-next-boot --all-targets
 HELPEOF
     exit "${1:-0}"
 }
@@ -88,6 +98,7 @@ if [[ $# -eq 0 ]]; then
     usage 1
 fi
 
+ALL_ARGS=("$@")
 ACTION="INGEST"
 ISO_FILENAME=""
 EXTRA_ARGS=()
@@ -96,6 +107,20 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -l|--list)
             ACTION="LIST"
+            EXTRA_ARGS+=("$1")
+            shift
+            ;;
+        --next-boot|--set-next-boot)
+            ACTION="NEXT_BOOT"
+            EXTRA_ARGS+=("$1")
+            if [[ $# -gt 1 && ! "$2" =~ ^- ]]; then
+                EXTRA_ARGS+=("$2")
+                shift
+            fi
+            shift
+            ;;
+        --clear-next-boot)
+            ACTION="CLEAR_NEXT_BOOT"
             EXTRA_ARGS+=("$1")
             shift
             ;;
@@ -111,7 +136,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            if [[ -z "${ISO_FILENAME}" ]]; then
+            if [[ -z "${ISO_FILENAME}" && "${ACTION}" == "INGEST" ]]; then
                 ISO_FILENAME="$1"
             else
                 EXTRA_ARGS+=("$1")
@@ -140,10 +165,15 @@ export BOOTIMUS_API_HOST="${BOOTIMUS_API_HOST:-${PXE_SERVER_HOST}}"
 export BOOTIMUS_API_PORT="${BOOTIMUS_API_PORT:-${PXE_SERVER_PORT}}"
 export BOOTIMUS_HTTP_PORT
 export ISO_ENVIRONMENT
+if [[ -n "${TARGET_TEST_MACHINES:-}" ]]; then
+    export TARGET_TEST_MACHINES
+fi
 
 echo "=============================================================================="
 if [[ "${ACTION}" == "LIST" ]]; then
     echo " ACTION:           Querying Bootimus PXE Tree"
+elif [[ "${ACTION}" == "NEXT_BOOT" || "${ACTION}" == "CLEAR_NEXT_BOOT" ]]; then
+    echo " ACTION:           Bootimus Next-Boot Automation"
 else
     echo " ACTION:           Ingesting ISO to Bootimus PXE"
     echo " TARGET ISO:       ${ISO_FILENAME}"
@@ -157,6 +187,8 @@ echo "==========================================================================
 # ==========================================
 if [[ "${ACTION}" == "LIST" ]]; then
     python3 "${PROJECT_ROOT}/src/build/bootimus.py" "${EXTRA_ARGS[@]}"
+elif [[ "${ACTION}" == "NEXT_BOOT" || "${ACTION}" == "CLEAR_NEXT_BOOT" ]]; then
+    python3 "${PROJECT_ROOT}/src/build/bootimus.py" "${ALL_ARGS[@]}"
 else
     python3 "${PROJECT_ROOT}/src/build/bootimus.py" "${ISO_FILENAME}" "${EXTRA_ARGS[@]}"
 fi

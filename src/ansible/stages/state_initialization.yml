@@ -79,6 +79,60 @@
       }
   when: not prov_timing_stat.stat.exists
 
+- name: "GDC-STATE | Resolve machine state stop stage"
+  ansible.builtin.set_fact:
+    stop_stage: "{{ lookup('gdc_stop_stage') }}"
+
+- name: "GDC-STATE | Resolve stage seed manifest based on stop stage"
+  ansible.builtin.set_fact:
+    stage_seed_manifest: "{{ lookup('gdc_stage_seeds', stop_stage=stop_stage) }}"
+
+- name: "GDC-STATE | Seed baseline lifecycle state files"
+  ansible.builtin.copy:
+    dest: "/var/gdc-install/state/{{ item.file_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+    content: |
+      {
+        "stage": "{{ item.stage_name }}",
+        "status": "{{ item.default_status }}",
+        "timestamp": "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}",
+        "evidence": {}
+      }
+  loop: "{{ stage_seed_manifest }}"
+
+- name: "GDC-STATE | Ensure compatibility symlinks for seeded stages"
+  ansible.builtin.file:
+    src: "/var/gdc-install/state/{{ item.file_name }}"
+    dest: "/var/gdc-install/state/{{ item.symlink }}"
+    state: link
+    force: false
+  loop: "{{ stage_seed_manifest | selectattr('symlink', 'defined') | selectattr('symlink', 'ne', None) | list }}"
+
+- name: "GDC-STATE | Synchronize pending and bypassed states for uncompleted stages"
+  ansible.builtin.shell: |
+    python3 -c "
+    import json, os, sys
+    path = sys.argv[1]
+    target_status = sys.argv[2]
+    if os.path.exists(path):
+        try:
+            with open(path, 'r') as f:
+                d = json.load(f)
+            curr = str(d.get('status', '')).lower()
+            if curr in ('pending', 'bypassed') and curr != target_status.lower():
+                d['status'] = target_status
+                with open(path, 'w') as f:
+                    json.dump(d, f, indent=2)
+        except Exception:
+            pass
+    " "/var/gdc-install/state/{{ item.file_name }}" "{{ item.default_status }}"
+  loop: "{{ stage_seed_manifest }}"
+  changed_when: false
+  failed_when: false
+
 - name: "GDC-STATE | Check existing state files"
   ansible.builtin.stat:
     path: "/var/gdc-install/state/{{ item }}.json"
@@ -88,6 +142,8 @@
     - "linux-ready"
     - "cluster-ready"
     - "cluster-turnup"
+    - "post-validation"
+    - "update-upkeep"
   register: state_files_stat
 
 - name: "GDC-STATE | Initialize default state facts"
@@ -97,10 +153,8 @@
     linux_ready_state: { "status": "pending" }
     cluster_ready_state: { "status": "pending" }
     cluster_turnup_state: { "status": "pending" }
-
-- name: "GDC-STATE | Resolve machine state stop stage"
-  ansible.builtin.set_fact:
-    stop_stage: "{{ lookup('gdc_stop_stage') }}"
+    post_cluster_state: { "status": "pending" }
+    upkeep_state: { "status": "pending" }
 
 - name: "GDC-STATE | Load FirstBoot State if exists"
   ansible.builtin.slurp:
@@ -176,6 +230,36 @@
   when:
     - state_files_stat.results[4].stat.exists
     - slurped_cluster_turnup is defined and slurped_cluster_turnup.content is defined
+
+- name: "GDC-STATE | Load PostCluster State if exists"
+  ansible.builtin.slurp:
+    src: /var/gdc-install/state/post-validation.json
+  register: slurped_post_cluster
+  when: state_files_stat.results[5].stat.exists
+  ignore_errors: true
+  failed_when: false
+
+- name: "GDC-STATE | Set PostCluster State fact"
+  ansible.builtin.set_fact:
+    post_cluster_state: "{{ slurped_post_cluster.content | b64decode | from_json }}"
+  when:
+    - state_files_stat.results[5].stat.exists
+    - slurped_post_cluster is defined and slurped_post_cluster.content is defined
+
+- name: "GDC-STATE | Load Upkeep State if exists"
+  ansible.builtin.slurp:
+    src: /var/gdc-install/state/update-upkeep.json
+  register: slurped_upkeep
+  when: state_files_stat.results[6].stat.exists
+  ignore_errors: true
+  failed_when: false
+
+- name: "GDC-STATE | Set Upkeep State fact"
+  ansible.builtin.set_fact:
+    upkeep_state: "{{ slurped_upkeep.content | b64decode | from_json }}"
+  when:
+    - state_files_stat.results[6].stat.exists
+    - slurped_upkeep is defined and slurped_upkeep.content is defined
 
 - name: "GDC-STATE | Initialize active lifecycle stage"
   ansible.builtin.set_fact:

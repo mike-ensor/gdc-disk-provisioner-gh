@@ -70,3 +70,6 @@ docs/reports/
 
 # Dynamic Test Keys
 test/test-keys/
+
+# Local inventory file
+_inventory.md

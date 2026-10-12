@@ -222,19 +222,137 @@ def show_help():
     print("Usage:")
     print("  ./src/build/bootimus.py <iso_filename> [options]    Ingest & configure an ISO.")
     print("  ./src/build/bootimus.py -l, --list [options]        List groups and images.")
+    print("  ./src/build/bootimus.py --next-boot <iso> [options] Set one-time next-boot image.")
+    print("  ./src/build/bootimus.py --clear-next-boot [options] Clear one-time next-boot override.")
     print("  ./src/build/bootimus.py -h, --help                  Show this help menu.")
     print("")
     print("Options:")
     print("  -f, --force                Force re-extraction of kernel/initrd boot files.")
     print("  --filter <group_name>      Filter the tree list to a specific group/folder.")
+    print("  --mac <mac_address>        Target client MAC address for next-boot action.")
+    print("  --targets, --nodes <IPs>   Target node IPs/MACs (defaults to TARGET_TEST_MACHINES).")
+    print("                             Accepts space-separated or comma-separated lists.")
+    print("  --all-targets              Apply next-boot action across all registered clients.")
     print("")
     print("Environment Variables:")
+    print("  TARGET_TEST_MACHINES       Space or comma-separated IPs for default next-boot targets")
     print("  BOOTIMUS_API_HOST          Bootimus Server IP (default: 192.168.254.12)")
     print("  BOOTIMUS_API_PORT          Bootimus API Port (default: 26000)")
     print("  BOOTIMUS_HTTP_PORT         Bootimus HTTP assets Port (default: 16000)")
     print("  BOOTIMUS_USER              API username (falls back to Infisical 'bootimus_creds')")
     print("  BOOTIMUS_PASS              API password (falls back to Infisical 'bootimus_creds')")
     print("==============================================================================")
+
+def format_mac_address(mac):
+    """Normalizes MAC address string to standard lowercase colon-separated format (00:11:22:33:44:55)."""
+    if not mac:
+        return ""
+    clean = str(mac).strip().lower().replace("-", "").replace(":", "")
+    if len(clean) == 12:
+        return ":".join(clean[i:i+2] for i in range(0, 12, 2))
+    return str(mac).strip().lower()
+
+def set_client_next_boot(token, mac_address, image_filename):
+    """Sets a one-time next-boot image override on Bootimus for a specific client MAC address."""
+    clean_mac = format_mac_address(mac_address)
+    clean_img = image_filename.strip() if image_filename else ""
+    if clean_img and not clean_img.startswith("sync/") and not clean_img.endswith(".iso"):
+        clean_img = f"sync/{clean_img}.iso"
+    elif clean_img and not clean_img.startswith("sync/"):
+        clean_img = f"sync/{clean_img}"
+    
+    payload = {
+        "mac_address": clean_mac,
+        "image_filename": clean_img
+    }
+    return api_request(f"{API_BASE}/clients/next-boot", method="POST", data=payload, token=token)
+
+def clear_client_next_boot(token, mac_address):
+    """Clears any one-time next-boot override on Bootimus for a specific client MAC address."""
+    clean_mac = format_mac_address(mac_address)
+    payload = {
+        "mac_address": clean_mac,
+        "image_filename": ""
+    }
+    return api_request(f"{API_BASE}/clients/next-boot", method="POST", data=payload, token=token)
+
+def set_client_group_next_boot(token, group_id, image_filename):
+    """Sets a one-time next-boot image override on Bootimus for all members of a client group."""
+    clean_img = image_filename.strip() if image_filename else ""
+    if clean_img and not clean_img.startswith("sync/") and not clean_img.endswith(".iso"):
+        clean_img = f"sync/{clean_img}.iso"
+    elif clean_img and not clean_img.startswith("sync/"):
+        clean_img = f"sync/{clean_img}"
+    
+    payload = {
+        "image_filename": clean_img
+    }
+    return api_request(f"{API_BASE}/client-groups/next-boot?id={group_id}", method="POST", data=payload, token=token)
+
+def parse_target_machines(target_raw):
+    """Parses space-separated, comma-separated, or mixed IP/hostname/MAC list."""
+    if not target_raw:
+        return []
+    cleaned = str(target_raw).replace("[", " ").replace("]", " ").replace("'", " ").replace('"', " ").replace(",", " ")
+    return [item.strip() for item in cleaned.split() if item.strip()]
+
+def resolve_target_macs(targets, token=None):
+    """Resolves IP addresses, hostnames, or raw MACs into normalized MAC addresses."""
+    if not targets:
+        return []
+
+    # Pre-load known IP->MAC mappings from _inventory.md if accessible
+    ip_mac_map = {}
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(script_dir, "..", "..", "_inventory.md"),
+        "_inventory.md",
+    ]
+    import re
+    for inv_path in candidates:
+        if os.path.exists(inv_path):
+            try:
+                with open(inv_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        m = re.findall(r'[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|[0-9a-fA-F:]{17}', line)
+                        ip = None
+                        mac = None
+                        for token_str in m:
+                            if "." in token_str and not ip:
+                                ip = token_str
+                            elif ":" in token_str and len(token_str) == 17 and not mac:
+                                mac = token_str.lower()
+                        if ip and mac:
+                            ip_mac_map[ip] = mac
+                if ip_mac_map:
+                    break
+            except Exception:
+                pass
+
+    resolved = []
+    for tgt in targets:
+        tgt_clean = tgt.strip()
+        # 1. Is it already a MAC?
+        raw_clean = tgt_clean.replace("-", "").replace(":", "")
+        if len(raw_clean) == 12 and all(c in "0123456789abcdefABCDEF" for c in raw_clean):
+            resolved.append(format_mac_address(tgt_clean))
+            continue
+        # 2. Check local inventory mapping
+        if tgt_clean in ip_mac_map:
+            resolved.append(ip_mac_map[tgt_clean])
+            continue
+        # 3. If token available, query Bootimus clients (check if client name matches)
+        if token:
+            try:
+                clients_res = api_request(f"{API_BASE}/clients", token=token)
+                for c in clients_res.get("data", []):
+                    if c.get("name") == tgt_clean or c.get("mac_address") == tgt_clean:
+                        resolved.append(c.get("mac_address"))
+                        break
+            except Exception:
+                pass
+
+    return list(dict.fromkeys(resolved))
 
 def auto_heal_boot_params(token, target_images=None):
     """Scans all registered Ubuntu images on Bootimus and ensures they have correct autoinstall boot parameters."""
@@ -262,6 +380,7 @@ def auto_heal_boot_params(token, target_images=None):
                 has_correct_params = (
                     "autoinstall" in boot_params and 
                     "ds=nocloud-net" in boot_params and
+                    "iso-url=" in boot_params and
                     "modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp" in boot_params and
                     "tpm_tis.interrupts=0" in boot_params and
                     "apparmor=0" in boot_params and
@@ -292,7 +411,7 @@ def auto_heal_boot_params(token, target_images=None):
                     
                     fixed_params = (
                         f"boot=casper initrd=initrd ip=dhcp netboot=url "
-                        f"url={iso_url} "
+                        f"iso-url={iso_url} "
                         f"root=/dev/ram0 ramdisk_size=7500000 autoinstall "
                         f"apparmor=0 console=tty1 console=ttyS0 "
                         f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp "
@@ -381,6 +500,11 @@ def main():
     force_extract = False
     list_only = False
     group_filter = None
+    next_boot_image = None
+    clear_next_boot = False
+    target_mac = None
+    all_targets = False
+    target_nodes_raw = None
     
     if "--force" in args:
         force_extract = True
@@ -388,12 +512,12 @@ def main():
     if "-f" in args:
         force_extract = True
         args.remove("-f")
-        
+
     if "--list" in args or "-l" in args:
         list_only = True
         if "--list" in args: args.remove("--list")
         if "-l" in args: args.remove("-l")
-        
+
     if "--filter" in args:
         idx = args.index("--filter")
         if idx + 1 < len(args):
@@ -403,6 +527,108 @@ def main():
         else:
             print("[!] Error: --filter requires a value.")
             sys.exit(1)
+
+    if "--clear-next-boot" in args:
+        clear_next_boot = True
+        args.remove("--clear-next-boot")
+        
+    for nb_flag in ["--next-boot", "--set-next-boot"]:
+        if nb_flag in args:
+            idx = args.index(nb_flag)
+            if idx + 1 < len(args):
+                next_boot_image = args[idx+1]
+                args.pop(idx+1)
+                args.pop(idx)
+            else:
+                print(f"[!] Error: {nb_flag} requires an ISO filename.")
+                sys.exit(1)
+            break
+
+    if "--all-targets" in args:
+        all_targets = True
+        args.remove("--all-targets")
+
+    for t_flag in ["--targets", "--nodes"]:
+        if t_flag in args:
+            idx = args.index(t_flag)
+            if idx + 1 < len(args):
+                target_nodes_raw = args[idx+1]
+                args.pop(idx+1)
+                args.pop(idx)
+            break
+
+    if "--mac" in args:
+        idx = args.index("--mac")
+        if idx + 1 < len(args):
+            target_mac = args[idx+1]
+            args.pop(idx+1)
+            args.pop(idx)
+        else:
+            print("[!] Error: --mac requires a MAC address.")
+            sys.exit(1)
+            
+    if (next_boot_image or clear_next_boot) and not target_mac and not all_targets and not target_nodes_raw:
+        target_nodes_raw = os.environ.get("TARGET_TEST_MACHINES") or _ENV_DEFAULTS.get("TARGET_TEST_MACHINES")
+
+    if next_boot_image or clear_next_boot:
+        if not target_mac and not all_targets and not target_nodes_raw:
+            print("[!] Error: Next-boot action requires --mac <mac_address>, --targets <IPs>, --all-targets, or export TARGET_TEST_MACHINES.")
+            sys.exit(1)
+            
+        username, password = get_bootimus_credentials()
+        print(f"[-] Authenticating with Bootimus at {BOOTIMUS_API_HOST}:{BOOTIMUS_API_PORT}...")
+        try:
+            login_res = api_request(
+                f"{API_BASE}/login",
+                method="POST",
+                data={"username": username, "password": password}
+            )
+            token = login_res["data"]["token"]
+            print("[-] Authentication successful.")
+        except Exception as e:
+            print(f"[!] Authentication failed: {e}")
+            sys.exit(1)
+            
+        if all_targets:
+            clients_res = api_request(f"{API_BASE}/clients", token=token)
+            clients_list = clients_res.get("data", []) if isinstance(clients_res, dict) else []
+            if not clients_list:
+                print("[!] No clients registered in Bootimus.")
+                sys.exit(1)
+            for c in clients_list:
+                mac = c.get("mac_address")
+                name = c.get("name", mac)
+                if not mac:
+                    continue
+                if clear_next_boot:
+                    clear_client_next_boot(token, mac)
+                    print(f"    [+] Cleared next-boot override for client {name} ({mac})")
+                else:
+                    set_client_next_boot(token, mac, next_boot_image)
+                    print(f"    [+] Set next-boot to '{next_boot_image}' for client {name} ({mac})")
+        elif target_mac:
+            clean_mac = format_mac_address(target_mac)
+            if clear_next_boot:
+                clear_client_next_boot(token, clean_mac)
+                print(f"[+] Cleared next-boot override for MAC {clean_mac}")
+            else:
+                set_client_next_boot(token, clean_mac, next_boot_image)
+                print(f"[+] Successfully set next-boot to '{next_boot_image}' for MAC {clean_mac}")
+        elif target_nodes_raw:
+            parsed_targets = parse_target_machines(target_nodes_raw)
+            resolved_macs = resolve_target_macs(parsed_targets, token=token)
+            if not resolved_macs:
+                print(f"[!] Error: Could not resolve any MAC addresses from target nodes: {parsed_targets}")
+                sys.exit(1)
+            print(f"[-] Applying next-boot action across {len(resolved_macs)} resolved target nodes...")
+            for mac in resolved_macs:
+                if clear_next_boot:
+                    clear_client_next_boot(token, mac)
+                    print(f"    [+] Cleared next-boot override for MAC {mac}")
+                else:
+                    set_client_next_boot(token, mac, next_boot_image)
+                    print(f"    [+] Set next-boot to '{next_boot_image}' for MAC {mac}")
+        sys.exit(0)
             
     if len(args) > 0:
         filename = args[0]
@@ -621,7 +847,7 @@ def main():
     
     boot_params = (
         f"boot=casper initrd=initrd ip=dhcp netboot=url "
-        f"url={iso_url} "
+        f"iso-url={iso_url} "
         f"root=/dev/ram0 ramdisk_size=7500000 autoinstall "
         f"apparmor=0 console=tty1 console=ttyS0 "
         f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp "

@@ -169,6 +169,144 @@ class TestBootimusApiCompatibility(unittest.TestCase):
                         # Should complete without throwing AttributeError: 'str' object has no attribute 'get'
                         bootimus.main()
 
+    def test_format_mac_address(self):
+        """Verifies MAC address normalization across various standard delimiters and casings."""
+        self.assertEqual(bootimus.format_mac_address("00:11:22:33:44:55"), "00:11:22:33:44:55")
+        self.assertEqual(bootimus.format_mac_address("00-11-22-33-44-55"), "00:11:22:33:44:55")
+        self.assertEqual(bootimus.format_mac_address("001122334455"), "00:11:22:33:44:55")
+        self.assertEqual(bootimus.format_mac_address("AA:BB:CC:DD:EE:FF"), "aa:bb:cc:dd:ee:ff")
+        self.assertEqual(bootimus.format_mac_address(""), "")
+        self.assertEqual(bootimus.format_mac_address(None), "")
+
+    def test_set_client_next_boot(self):
+        """Verifies set_client_next_boot sends properly structured POST request to Bootimus API."""
+        with mock.patch.object(bootimus, "api_request") as mock_req:
+            mock_req.return_value = {"success": True, "message": "Next boot set"}
+            res = bootimus.set_client_next_boot(
+                token="tok-123",
+                mac_address="00:11:22:33:44:55",
+                image_filename="gdc-labs-24.04-v0.10.19-debug.iso"
+            )
+            self.assertTrue(res["success"])
+            mock_req.assert_called_once_with(
+                f"{bootimus.API_BASE}/clients/next-boot",
+                method="POST",
+                data={
+                    "mac_address": "00:11:22:33:44:55",
+                    "image_filename": "sync/gdc-labs-24.04-v0.10.19-debug.iso"
+                },
+                token="tok-123"
+            )
+
+    def test_clear_client_next_boot(self):
+        """Verifies clear_client_next_boot sends empty image_filename to clear next-boot action."""
+        with mock.patch.object(bootimus, "api_request") as mock_req:
+            mock_req.return_value = {"success": True, "message": "Next boot action cleared"}
+            res = bootimus.clear_client_next_boot(
+                token="tok-123",
+                mac_address="00-11-22-33-44-55"
+            )
+            self.assertTrue(res["success"])
+            mock_req.assert_called_once_with(
+                f"{bootimus.API_BASE}/clients/next-boot",
+                method="POST",
+                data={
+                    "mac_address": "00:11:22:33:44:55",
+                    "image_filename": ""
+                },
+                token="tok-123"
+            )
+
+    def test_main_next_boot_cli_mac(self):
+        """Verifies main CLI --next-boot --mac dispatches next-boot API call and exits cleanly."""
+        with mock.patch.object(bootimus, "get_bootimus_credentials", return_value=("admin", "pass")):
+            with mock.patch.object(bootimus, "api_request") as mock_req:
+                mock_req.side_effect = [
+                    {"data": {"token": "auth-token"}},
+                    {"success": True, "message": "Next boot set"}
+                ]
+                test_args = [
+                    "bootimus.py",
+                    "--next-boot", "sync/gdc-labs-24.04-v0.10.19-debug.iso",
+                    "--mac", "00:11:22:33:44:55"
+                ]
+                with mock.patch.object(sys, "argv", test_args):
+                    with self.assertRaises(SystemExit) as cm:
+                        bootimus.main()
+                    self.assertEqual(cm.exception.code, 0)
+                mock_req.assert_any_call(
+                    f"{bootimus.API_BASE}/clients/next-boot",
+                    method="POST",
+                    data={
+                        "mac_address": "00:11:22:33:44:55",
+                        "image_filename": "sync/gdc-labs-24.04-v0.10.19-debug.iso"
+                    },
+                    token="auth-token"
+                )
+
+    def test_main_clear_next_boot_cli_all_targets(self):
+        """Verifies main CLI --clear-next-boot --all-targets clears next-boot across all clients."""
+        mock_clients = {
+            "success": True,
+            "data": [
+                {"mac_address": "00:11:22:33:44:11", "name": "node-1"},
+                {"mac_address": "00:11:22:33:44:22", "name": "node-2"},
+            ]
+        }
+        with mock.patch.object(bootimus, "get_bootimus_credentials", return_value=("admin", "pass")):
+            with mock.patch.object(bootimus, "api_request") as mock_req:
+                mock_req.side_effect = [
+                    {"data": {"token": "auth-token"}},
+                    mock_clients,
+                    {"success": True, "message": "Cleared"},
+                    {"success": True, "message": "Cleared"}
+                ]
+                test_args = ["bootimus.py", "--clear-next-boot", "--all-targets"]
+                with mock.patch.object(sys, "argv", test_args):
+                    with self.assertRaises(SystemExit) as cm:
+                        bootimus.main()
+                    self.assertEqual(cm.exception.code, 0)
+
+    def test_parse_target_machines_space_and_csv(self):
+        """Verifies parse_target_machines correctly parses both space-separated and CSV IP strings."""
+        space_separated = "192.168.9.241 192.168.9.242 192.168.9.243 192.168.9.246"
+        csv_separated = "192.168.9.241,192.168.9.242,192.168.9.243,192.168.9.246"
+        mixed_separated = "['192.168.9.241', '192.168.9.242', 192.168.9.243, 192.168.9.246]"
+        
+        expected = ["192.168.9.241", "192.168.9.242", "192.168.9.243", "192.168.9.246"]
+        self.assertEqual(bootimus.parse_target_machines(space_separated), expected)
+        self.assertEqual(bootimus.parse_target_machines(csv_separated), expected)
+        self.assertEqual(bootimus.parse_target_machines(mixed_separated), expected)
+        self.assertEqual(bootimus.parse_target_machines(""), [])
+        self.assertEqual(bootimus.parse_target_machines(None), [])
+
+    def test_resolve_target_macs(self):
+        """Verifies resolve_target_macs normalizes raw MACs and resolves inventory IPs."""
+        raw_mac = "00:11:22:33:44:55"
+        self.assertEqual(bootimus.resolve_target_macs([raw_mac]), [raw_mac])
+
+        dash_mac = "AA-BB-CC-DD-EE-FF"
+        self.assertEqual(bootimus.resolve_target_macs([dash_mac]), ["aa:bb:cc:dd:ee:ff"])
+
+    def test_main_next_boot_cli_with_targets(self):
+        """Verifies main CLI --next-boot --targets with space/CSV string sets next-boot for resolved MACs."""
+        with mock.patch.object(bootimus, "get_bootimus_credentials", return_value=("admin", "pass")):
+            with mock.patch.object(bootimus, "api_request") as mock_req:
+                mock_req.side_effect = [
+                    {"data": {"token": "auth-token"}},
+                    {"success": True, "message": "Next boot set"},
+                    {"success": True, "message": "Next boot set"}
+                ]
+                test_args = [
+                    "bootimus.py",
+                    "--next-boot", "sync/gdc-labs-24.04-v0.10.19-debug.iso",
+                    "--targets", "00:11:22:33:44:11, 00:11:22:33:44:22"
+                ]
+                with mock.patch.object(sys, "argv", test_args):
+                    with self.assertRaises(SystemExit) as cm:
+                        bootimus.main()
+                    self.assertEqual(cm.exception.code, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

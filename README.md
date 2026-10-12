@@ -85,6 +85,21 @@ For detailed specifications and transition triggers for each stage, refer to the
 
 ---
 
+## Rapid Development Workflow
+
+```shell
+# Set target servers
+export TARGET_TEST_MACHINES="192.168.9.241 192.168.9.242 192.168.9.243 192.168.9.246"
+export ENV="barn"
+export VERSION="0.10.19"
+# Build new ISO
+./build.sh --version "${VERSION}" --env barn --bootimus --yes
+# Set bootimus to next-boot the new ISO (NOTE: ISO Name Prefix is in `src/build/*.env` files, this is an example
+./src/build/bootimus.py --next-boot sync/gdc-labs-24.04-v${VERSION}-debug.iso --all-targets
+```
+
+---
+
 ## Architecture & Directory Structure
 
 *   **`docs/specs/`**: Technical specification files describing architecture and configurations.

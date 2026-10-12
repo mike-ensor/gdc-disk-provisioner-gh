@@ -185,9 +185,27 @@
                       "default": "main",
                       "description": "Git branch to sync."
                     },
+                    "cluster_config_name": {
+                      "type": "string",
+                      "description": "Optional override for cluster subfolder directory under config/clusters/."
+                    },
+                    "cluster-config-name": {
+                      "type": "string",
+                      "description": "Optional override for cluster subfolder directory under config/clusters/ (kebab-case)."
+                    },
                     "gsm_secret_name": {
                       "type": "string",
                       "description": "Secret Manager secret name containing read-only Git PAT / credentials."
+                    },
+                    "gsm_location": {
+                      "type": "string",
+                      "default": "global",
+                      "description": "Secret Manager secret location/replication (e.g. global, us-west1)."
+                    },
+                    "gsm-location": {
+                      "type": "string",
+                      "default": "global",
+                      "description": "Secret Manager secret location/replication (kebab-case alias)."
                     },
                     "gsm-auth-secret": {
                       "type": "object",
@@ -321,6 +339,124 @@
                     "gsm_secret_name": {
                       "type": "string",
                       "description": "Secret Manager secret name containing read-only registry pull credentials."
+                    },
+                    "gsm_location": {
+                      "type": "string",
+                      "default": "global",
+                      "description": "Secret Manager secret location/replication (e.g. global, us-west1)."
+                    },
+                    "gsm-location": {
+                      "type": "string",
+                      "default": "global",
+                      "description": "Secret Manager secret location/replication (kebab-case alias)."
+                    },
+                    "gsm-auth-secret": {
+                      "type": "object",
+                      "description": "Structured secret mapping Google Secret Manager to Kubernetes.",
+                      "anyOf": [
+                        {
+                          "required": [
+                            "gsm-name"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "gsm_name"
+                          ]
+                        }
+                      ],
+                      "properties": {
+                        "gsm-name": {
+                          "type": "string",
+                          "description": "Secret Manager secret name containing credentials in GCP."
+                        },
+                        "gsm_name": {
+                          "type": "string",
+                          "description": "Secret Manager secret name containing credentials in GCP (snake_case alias)."
+                        },
+                        "gsm-location": {
+                          "type": "string",
+                          "default": "global",
+                          "description": "Secret Manager secret location/replication (e.g. global, us-west1)."
+                        },
+                        "gsm_location": {
+                          "type": "string",
+                          "default": "global",
+                          "description": "Secret Manager secret location/replication (snake_case alias)."
+                        },
+                        "k8s-name": {
+                          "type": "string",
+                          "description": "Kubernetes Secret name created in k8s-namespace and referenced by RootSync."
+                        },
+                        "k8s_name": {
+                          "type": "string",
+                          "description": "Kubernetes Secret name created in k8s-namespace and referenced by RootSync (snake_case alias)."
+                        },
+                        "k8s-namespace": {
+                          "type": "string",
+                          "default": "config-management-system",
+                          "description": "Target Kubernetes namespace."
+                        },
+                        "k8s_namespace": {
+                          "type": "string",
+                          "default": "config-management-system",
+                          "description": "Target Kubernetes namespace (snake_case alias)."
+                        }
+                      }
+                    },
+                    "gsm_auth_secret": {
+                      "type": "object",
+                      "description": "Structured secret mapping Google Secret Manager to Kubernetes (snake_case alias).",
+                      "anyOf": [
+                        {
+                          "required": [
+                            "gsm-name"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "gsm_name"
+                          ]
+                        }
+                      ],
+                      "properties": {
+                        "gsm-name": {
+                          "type": "string",
+                          "description": "Secret Manager secret name containing credentials in GCP."
+                        },
+                        "gsm_name": {
+                          "type": "string",
+                          "description": "Secret Manager secret name containing credentials in GCP (snake_case alias)."
+                        },
+                        "gsm-location": {
+                          "type": "string",
+                          "default": "global",
+                          "description": "Secret Manager secret location/replication (e.g. global, us-west1)."
+                        },
+                        "gsm_location": {
+                          "type": "string",
+                          "default": "global",
+                          "description": "Secret Manager secret location/replication (snake_case alias)."
+                        },
+                        "k8s-name": {
+                          "type": "string",
+                          "description": "Kubernetes Secret name created in k8s-namespace and referenced by RootSync."
+                        },
+                        "k8s_name": {
+                          "type": "string",
+                          "description": "Kubernetes Secret name created in k8s-namespace and referenced by RootSync (snake_case alias)."
+                        },
+                        "k8s-namespace": {
+                          "type": "string",
+                          "default": "config-management-system",
+                          "description": "Target Kubernetes namespace."
+                        },
+                        "k8s_namespace": {
+                          "type": "string",
+                          "default": "config-management-system",
+                          "description": "Target Kubernetes namespace (snake_case alias)."
+                        }
+                      }
                     }
                   }
                 }
@@ -398,10 +534,7 @@
       }
     },
     "custom_extensions": {
-      "type": [
-        "object",
-        "null"
-      ],
+      "type": ["object", "null"],
       "description": "Optional custom Ansible playbook lifecycle extension configuration.",
       "properties": {
         "bundle_url": {
@@ -415,10 +548,7 @@
           "description": "Hex-encoded SHA-256 checksum of the bundle tarball."
         }
       },
-      "required": [
-        "bundle_url",
-        "sha256"
-      ]
+      "required": ["bundle_url", "sha256"]
     },
     "machine_state_stop_stage": {
       "type": [

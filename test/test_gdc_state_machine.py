@@ -244,6 +244,29 @@ class TestGdcStateMachine(unittest.TestCase):
         )
         self.assertEqual(stage, GdcStage.COMPLETE)
 
+    def test_stage_seeds_manifest_with_stop_stage_cluster_turnup(self):
+        """Validates that stage seeds mark POST_CLUSTER and UPKEEP as bypassed when stop_stage is CLUSTER_TURNUP."""
+        from gdc_state_machine import get_stage_seed_manifest
+        manifest = get_stage_seed_manifest("CLUSTER_TURNUP")
+        status_map = {m["stage_name"]: m["default_status"] for m in manifest}
+
+        self.assertEqual(status_map["FIRST_BOOT"], "pending")
+        self.assertEqual(status_map["SECOND_BOOT"], "pending")
+        self.assertEqual(status_map["LINUX_READY"], "pending")
+        self.assertEqual(status_map["CLUSTER_READY"], "pending")
+        self.assertEqual(status_map["CLUSTER_TURNUP"], "pending")
+        self.assertEqual(status_map["POST_CLUSTER"], "bypassed")
+        self.assertEqual(status_map["UPKEEP"], "bypassed")
+
+    def test_stage_seeds_manifest_with_no_stop_stage(self):
+        """Validates that all stages are pending when no stop_stage is set."""
+        from gdc_state_machine import get_stage_seed_manifest
+        manifest = get_stage_seed_manifest(None)
+        status_map = {m["stage_name"]: m["default_status"] for m in manifest}
+
+        for stage_name, status in status_map.items():
+            self.assertEqual(status, "pending", f"{stage_name} should be pending")
+
 
 if __name__ == "__main__":
     unittest.main()

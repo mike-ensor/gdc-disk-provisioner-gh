@@ -736,6 +736,7 @@ cmd_reset_pxe() {
     local ssh_key=""
     local auto_yes=false
     local skip_fleet=false
+    local next_boot_iso=""
 
     reset_usage() {
         cat <<EOF
@@ -743,14 +744,16 @@ Usage: $(basename "$0") reset-pxe [OPTIONS]
 
 Schedules a one-time UEFI PXE boot (BootNext) on target nodes and triggers a reboot.
 Optionally unregisters the active cluster from Google Cloud Fleet/GKE Hub if present.
+Optionally configures Bootimus one-shot next-boot image for hands-off automation.
 
 Options:
-  --nodes <IPs>       Comma-separated list or space-separated IPs (defaults to TARGET_TEST_MACHINES)
-  --user <USER>       SSH user (default: gdc-admin)
-  --key <KEY_PATH>    Path to SSH private key
-  --skip-fleet        Skip unregistering cluster from Google Cloud Fleet / GKE Hub
-  -y, --yes           Skip confirmation prompt
-  -h, --help          Display this help message
+  --nodes <IPs>             Comma-separated list or space-separated IPs (defaults to TARGET_TEST_MACHINES)
+  --user <USER>             SSH user (default: gdc-admin)
+  --key <KEY_PATH>          Path to SSH private key
+  --iso, --next-boot <ISO>  Configure Bootimus one-shot next-boot image for target MAC before reboot
+  --skip-fleet              Skip unregistering cluster from Google Cloud Fleet / GKE Hub
+  -y, --yes                 Skip confirmation prompt
+  -h, --help                Display this help message
 EOF
         exit "${1:-0}"
     }
@@ -767,6 +770,10 @@ EOF
                 ;;
             --key)
                 ssh_key="$2"
+                shift 2
+                ;;
+            --iso|--next-boot)
+                next_boot_iso="$2"
                 shift 2
                 ;;
             --skip-fleet|--no-fleet)
@@ -879,6 +886,19 @@ FLEET_EOF
                     else
                         echo -e "  \033[93m[!] WARNING: Could not determine cluster name or project ID from node facts. Skipping Fleet unregistration.\033[0m"
                     fi
+                fi
+            fi
+        fi
+
+        if [[ -n "${next_boot_iso}" ]]; then
+            local node_mac=""
+            node_mac=$(ssh "${ssh_opts[@]}" "${ssh_user}@$ip" "cat /sys/class/net/\$(ip route show | grep '^default' | awk '{print \$5}' | head -n 1 || ip -o link show | grep -v 'LOOPBACK' | grep 'state UP' | awk -F': ' '{print \$2}' | head -n 1)/address 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'" 2>/dev/null || true)
+            if [[ -n "${node_mac}" ]]; then
+                echo "  [-] Configuring Bootimus next-boot to '${next_boot_iso}' for MAC ${node_mac}..."
+                local script_root
+                script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+                if [[ -f "${script_root}/src/build/bootimus.py" ]]; then
+                    python3 "${script_root}/src/build/bootimus.py" --next-boot "${next_boot_iso}" --mac "${node_mac}" || echo -e "  \033[93m[!] Warning: Could not set next-boot on Bootimus for ${node_mac}.\033[0m"
                 fi
             fi
         fi

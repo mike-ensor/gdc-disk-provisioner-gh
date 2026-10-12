@@ -21,6 +21,7 @@ Immediate blockers and high-profile bugs prioritized for upcoming releases:
 | **P1 (Bug)** | **HTTP 301 Telemetry POST Drop** | `Stage 1 & Stage 5` | Non-HTTPS Companion URLs receive HTTP 301 redirects from gateways, dropping POST bodies and losing diagnostic uploads. | Enforce strict HTTPS URL schemes in `INSTALL_COMPANION_URL` and template configs. |
 | **P1 (Feature)** | **Zero-SSH NodeAgent Pre-Seeding** | `Stage 2: First Boot` | Current bootstrapping requires preliminary SSH access for operator debugging. | Automate pre-seeding of Server CA, Client CA, and Node Server Certs during Stage 2. |
 | **P1 (Feature)** | **Automated Offline Standalone Turnup** | `Stage 6: Cluster Up` | `bmctl create cluster` previously required manual execution of `create_cluster.sh`. | Fully automated standalone cluster turnup via Stage 6 `CLUSTER_TURNUP` Ansible role and dynamic facts. |
+| **P1 (Feature)** | **Release Notes in Build Report & Companion** | `Stage 0: Build & Companion` | Build report schema lacks structured release notes field, and Companion build-report UI does not render changelogs/release notes alongside build receipts. | Extend `docs/build-report-schema.json` with `release_notes` schema and update `gdc-companion` build report display view. |
 | **P2 (Feature)** | **Non-LUKS Storage Mode (`GDC-SPEC-008`)** | `Stage 1: LiveCD` | Bare-metal lab hardware lacking TPM 2.0 or UEFI support cannot complete installation. | Implement `GDC_ENABLE_LUKS=false` build parameter to conditionally bypass LUKS partitioning. |
 | **P2 (Feature)** | **3-Node HA Cluster Orchestration** | `Stage 6: Cluster Up` | Multi-node turnup requires manual trust exchanges and registry sharing across nodes. | Implement primary-secondary node role assignment, Gitea SSH key exchange, and registry proxy routing. |
 | **P3 (Feature)** | **Dual Console Routing & Debug TTY (`GDC-SPEC-015`)** | `Stage 1: LiveCD` | Physical monitor stops updating after DRM driver handoff while serial streams installer logs. | Dual-tee installer logs to `/dev/tty0` and evaluate dynamic console precedence in debug builds. |
@@ -87,6 +88,7 @@ The table below maps project capabilities across **Functional Domains** (columns
   - [x] **GCS Cache Retention Sweeper:** Automated pruning and archiving of older ISO builds in `gs://gdc-disk-provisioner-isos/sync/` (implemented in `src/build/clean_gcs_isos.py` and `bin/clean-gcs-isos.py`)
   - [ ] **Static Boot Banner:** Replace dynamic `generate_banner.py` execution with static `boot-banner.txt` template
   - [ ] **Automated GCS Package Cache via Cloud Build (`GDC-SPEC-012`):** Implement `cloudbuild-packages.yaml` and un-hardcode `ENABLE_GCS` to automate cache updates using native IAM context.
+  - [ ] **Build Report Release Notes Integration:** Extend `docs/build-report-schema.json` with structured `release_notes` (summary, features, fixes, breaking changes) and update GDC Companion build report display view.
 
 ---
 

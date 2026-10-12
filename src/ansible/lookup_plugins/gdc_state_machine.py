@@ -57,6 +57,89 @@ GDC_GATE_SEQUENCE = [
     (GdcStage.UPKEEP, ["update-upkeep.json", "upkeep.json"]),
 ]
 
+# Descriptor table for seeding state files during lifecycle initialization
+STAGE_SEED_PIPELINE = [
+    {
+        "stage_enum": GdcStage.FIRST_BOOT,
+        "stage_name": "FIRST_BOOT",
+        "file_name": "first-boot.json",
+        "symlink": None,
+    },
+    {
+        "stage_enum": GdcStage.SECOND_BOOT,
+        "stage_name": "SECOND_BOOT",
+        "file_name": "second-boot.json",
+        "symlink": None,
+    },
+    {
+        "stage_enum": GdcStage.LINUX_READY,
+        "stage_name": "LINUX_READY",
+        "file_name": "linux-ready.json",
+        "symlink": None,
+    },
+    {
+        "stage_enum": GdcStage.CLUSTER_READY,
+        "stage_name": "CLUSTER_READY",
+        "file_name": "cluster-ready.json",
+        "symlink": None,
+    },
+    {
+        "stage_enum": GdcStage.CLUSTER_TURNUP,
+        "stage_name": "CLUSTER_TURNUP",
+        "file_name": "cluster-turnup.json",
+        "symlink": None,
+    },
+    {
+        "stage_enum": GdcStage.POST_CLUSTER,
+        "stage_name": "POST_CLUSTER",
+        "file_name": "post-validation.json",
+        "symlink": "post-cluster.json",
+    },
+    {
+        "stage_enum": GdcStage.UPKEEP,
+        "stage_name": "UPKEEP",
+        "file_name": "update-upkeep.json",
+        "symlink": "upkeep.json",
+    },
+]
+
+
+def get_stage_seed_manifest(stop_stage: Optional[str] = None) -> List[dict]:
+    """Generates the baseline seed manifest for all post-LiveCD lifecycle stages.
+
+    Stages up to and including the stop_stage have default_status 'pending'.
+    Stages downstream of stop_stage have default_status 'bypassed'.
+    If stop_stage is None, empty, or UPKEEP/COMPLETE, all stages default to 'pending'.
+    """
+    normalized_stop = None
+    if stop_stage:
+        cleaned = str(stop_stage).strip().upper()
+        if cleaned in STOP_STAGE_MAP:
+            normalized_stop = STOP_STAGE_MAP[cleaned]
+
+    stop_index = None
+    if normalized_stop and normalized_stop not in (GdcStage.LIVECD, GdcStage.UPKEEP, GdcStage.COMPLETE):
+        for idx, item in enumerate(STAGE_SEED_PIPELINE):
+            if item["stage_enum"] == normalized_stop:
+                stop_index = idx
+                break
+
+    manifest = []
+    for idx, item in enumerate(STAGE_SEED_PIPELINE):
+        if stop_index is not None and idx > stop_index:
+            status = "bypassed"
+        else:
+            status = "pending"
+
+        manifest.append({
+            "stage_id": item["stage_enum"].value,
+            "stage_name": item["stage_name"],
+            "file_name": item["file_name"],
+            "symlink": item["symlink"],
+            "default_status": status,
+        })
+    return manifest
+
 
 def _is_stage_file_completed(state_dir: str, filenames: List[str]) -> bool:
     """Checks whether any matching state file exists and has status == 'completed'."""

@@ -5,6 +5,88 @@
     cluster_turnup_start_time: "{{ cluster_turnup_start_time | default(now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')) }}"
     cluster_turnup_start_epoch: "{{ cluster_turnup_start_epoch | default(now(utc=true).strftime('%s') | int) }}"
 
+- name: "GDC-CT-GSM | Resolve ConfigSync and GSM secret requirements"
+  ansible.builtin.set_fact:
+    _ct_config_sync_enabled: "{{ (machine_config.cluster.config_sync_enabled | default(true) | bool) and not (offline_mode | default(false) | bool) }}"
+    _ct_repo_info: "{{ lookup('gdc_config_sync', machine_config | default({})) }}"
+    _ct_target_project_id: >-
+      {{
+        (machine_config.gcp_info.project_id)
+        if (machine_config is defined and machine_config.gcp_info is defined and machine_config.gcp_info.project_id is defined and (machine_config.gcp_info.project_id | trim | length > 0))
+        else (gcp_project_id | default(''))
+      }}
+
+- name: "GDC-CT-GSM | Verify GSM secret readability when ConfigSync is enabled"
+  when:
+    - _ct_config_sync_enabled | bool
+    - _ct_repo_info.requires_secret | default(false) | bool
+  block:
+    - name: "GDC-CT-GSM | Access GSM secret via gcloud"
+      ansible.builtin.command: >-
+        gcloud secrets versions access latest
+        --secret={{ _ct_repo_info.gsm_secret_name }}
+        --project={{ _ct_target_project_id }}
+        {% if _ct_repo_info.gsm_location is defined and _ct_repo_info.gsm_location | trim | length > 0 and _ct_repo_info.gsm_location != 'global' %}
+        --location={{ _ct_repo_info.gsm_location }}
+        {% endif %}
+      register: _ct_gsm_check
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: "GDC-CT-GSM | Fallback: Access GSM secret as global resource if regional call failed"
+      ansible.builtin.command: >-
+        gcloud secrets versions access latest
+        --secret={{ _ct_repo_info.gsm_secret_name }}
+        --project={{ _ct_target_project_id }}
+      register: _ct_gsm_check_fallback
+      when:
+        - _ct_gsm_check.rc != 0
+        - _ct_repo_info.gsm_location is defined
+        - _ct_repo_info.gsm_location | trim | length > 0
+        - _ct_repo_info.gsm_location != 'global'
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: "GDC-CT-GSM | Adopt fallback result if successful"
+      ansible.builtin.set_fact:
+        _ct_gsm_check: "{{ _ct_gsm_check_fallback }}"
+      when:
+        - _ct_gsm_check_fallback is defined
+        - _ct_gsm_check_fallback.rc is defined
+        - _ct_gsm_check_fallback.rc == 0
+
+    - name: "GDC-CT-GSM | Assert GSM secret exists and is readable"
+      ansible.builtin.assert:
+        that:
+          - _ct_gsm_check is defined
+          - _ct_gsm_check.rc is defined
+          - _ct_gsm_check.rc == 0
+        fail_msg: >-
+          GSM secret '{{ _ct_repo_info.gsm_secret_name }}' could not be accessed in project '{{ _ct_target_project_id }}'{% if _ct_repo_info.gsm_location | default('global') != 'global' %} (location: '{{ _ct_repo_info.gsm_location }}'){% endif %}. Secret was not found or is not readable by the authenticated gcloud user.
+
+    - name: "GDC-CT-GSM | Record verified secret evidence"
+      ansible.builtin.set_fact:
+        _ct_secret_evidence:
+          enabled: true
+          requires_secret: true
+          gsm_secret_name: "{{ _ct_repo_info.gsm_secret_name }}"
+          gsm_location: "{{ _ct_repo_info.gsm_location | default('global') }}"
+          k8s_secret_name: "{{ _ct_repo_info.k8s_secret_name }}"
+          status: "PASS"
+          verified: true
+
+- name: "GDC-CT-GSM | Record skipped secret evidence when secret not required"
+  ansible.builtin.set_fact:
+    _ct_secret_evidence:
+      enabled: "{{ _ct_config_sync_enabled | default(false) | bool }}"
+      requires_secret: false
+      status: "SKIPPED"
+      verified: true
+      reason: "ConfigSync disabled or no GSM secret required for primary_root_repo"
+  when: not (_ct_config_sync_enabled | default(false) | bool) or not (_ct_repo_info.requires_secret | default(false) | bool)
+
 - name: Run cluster_turnup role
   ansible.builtin.include_role:
     name: cluster_turnup
@@ -32,6 +114,7 @@
               'duration_seconds': cluster_turnup_duration_seconds | int,
               'overall_provisioning_start_time': provisioning_start_time | default(cluster_turnup_start_time)
             },
+            'config_sync_secret': (_ct_secret_evidence | default({})),
             'custom_extension': (custom_extension_evidence | default({}))
           })
       }}

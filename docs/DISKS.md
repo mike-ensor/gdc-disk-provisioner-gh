@@ -35,6 +35,17 @@ The dynamic disk analyzer script (`src/build/generate_storage_config.sh`) execut
 ### Target-Scoped Sanitization & Media Protection
 During LiveCD `early-commands` (Task 4 storage cleanup), the installer strictly restricts destructive partition and raw block zeroing (`wipefs`, `dd if=/dev/zero`) to the **explicitly authorized target installation disks** (`/run/autoinstall-storage.yaml`). Non-target block devices (such as USB installer thumb drives, external maintenance storage, or SAN volumes) are never touched. Furthermore, `is_protected_dev()` enforces layered guards against live mounts in `/proc/mounts`, udev USB attributes, sysfs bus paths, and volume labels before executing any destructive operations.
 
+#### Partition Header Boundary Zeroing (Anti-Race Defense)
+When re-installing over a previously deployed system, wiping the primary and backup GPT tables of the raw disk (first and last 32 MiB) is insufficient to clear deep partition signatures. For example, partition 3 (`/dev/nvme0n1p3`, the LUKS container) starts at sector offset ~6,293,504 (~3.2 GiB into the drive). If the existing partition header is not wiped, creating a new partition at the exact same offset will cause Subiquity/Curtin to detect a pre-existing `crypto_LUKS` superblock signature.
+
+To prevent Curtin formatting deadlocks and asynchronous kernel buffer collisions:
+1. The installer iterates over every pre-existing partition on the target disk (`/dev/${tgt_bname}p*`).
+2. It executes `wipefs --all --force "${p}"` to clear all filesystem and volume signatures.
+3. It writes zeroes directly to the initial 32 MiB of the partition boundary: `dd if=/dev/zero of="${p}" bs=1M count=32 oflag=direct status=none`.
+4. It executes `sync`, `blockdev --flushbufs`, and `partprobe` followed by a bounded `udevadm settle` barrier (15-second ceiling).
+
+This ensures that when Subiquity's storage engine provisions new partitions, the block devices are completely pristine, preventing Curtin from triggering `luksFormat` warning prompts or kernel partition re-probing storms.
+
 ---
 
 ## 3. Dynamic Topology & Scaling Rules
@@ -106,6 +117,11 @@ To achieve secure, unattended, and air-gapped provisioning, GDC Bare Metal nodes
 ### Phase 1: Unattended Partitioning (Installation Phase)
 * **The Challenge:** To format LUKS2 volumes non-interactively, the installer must supply a decryption key. Running Subiquity inside a strictly confined Snap container causes timing and write-propagation delays across the mount namespace boundary if keys are written to standard `/tmp/` paths.
 * **The Resolution (GDC-RCA-2026-07-11-01):** The installer writes a temporary bootstrap key (`temporary_bootstrap_key_to_be_enrolled_to_tpm`) directly to `/var/log/installer/gdc-luks-key`. Because `/var/log/installer` is a direct host-to-snap bind-mount, propagation is instantaneous, allowing `cryptsetup` to reliably partition and format target NVMe drives on first attempt.
+* **Curtin dm_crypt Anti-Race Hardening (GDC-RCA-2026-10-11-01):**
+  * *The Race Condition:* Upstream Curtin executes `cryptsetup luksFormat` immediately followed by `cryptsetup open` without calling `udevadm settle` or flushing block buffers. On modern, high-speed NVMe storage controllers (such as Kingston OM8PGP on AMD Zen platforms), overwriting an existing LUKS container triggers rapid kernel partition table re-probing (`nvme0n1: p1 p2 p3` re-read 8+ times within 400ms). If `cryptsetup open` fires while the kernel block buffer is in a dirty/probing state, `cryptsetup open` reads stale sectors and fails with `No key available with this passphrase` (Exit code 2), aborting the installation.
+  * *The Mitigation:* Pre-zeroing the initial 32 MiB of each partition boundary during `early-commands` ensures `luksFormat` operates on pristine, signature-free blocks, eliminating signature collision prompts and preventing udev reprobing storms.
+  * *Write-Cache Timing Shim:* In `early-commands`, a defensive wrapper is deployed at `/usr/local/sbin/cryptsetup` (which takes precedence in Subiquity's PATH over `/usr/sbin/cryptsetup`). After `luksFormat`, the wrapper issues `sync`, `blockdev --flushbufs`, `udevadm settle`, and a 4-second timing pause to ensure the SSD controller write cache persists to NAND. Furthermore, for `open` commands, the wrapper provides an automatic 4-attempt retry loop with backoff should an un-flushed controller raise exit code 2.
+  * *Resilient Error Redirection:* All Subiquity `error-commands` and installer progress logging redirected to `/dev/ttyS0` are defensively guarded with `2>/dev/null || true` and duplicate output to `/dev/console`. This prevents unhandled bash I/O exits (`echo: I/O error`) when running on headless hardware platforms without attached serial cables.
 * **Storage Encryption State:** During this phase, all encrypted block devices (e.g., `nvme0n1p3`) use this static bootstrap passphrase.
 
 ### Phase 2: Host Hardening (First-Boot Ansible Phase)
