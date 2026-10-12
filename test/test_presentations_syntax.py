@@ -18,3 +18,21 @@ def test_presentations_directory_and_theme():
         "--color-google-blue" in content
     ), "theme.css must define Google blue brand variable"
 
+
+def test_flagship_deck():
+    flagship_path = os.path.join(PRESENTATIONS_DIR, "00-flagship-overview.marp.md")
+    assert os.path.isfile(flagship_path), "00-flagship-overview.marp.md must exist"
+    with open(flagship_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    assert "theme: gdc-brand" in content
+    assert "Private Mode" in content
+    assert "airgapped" not in content.lower(), "Must NOT use airgapped, use Private Mode"
+    assert "gdc-disk-provisioner" in content
+    assert "gdc-companion" in content
+    assert "[VOICEOVER]:" in content, "Presenter notes must have [VOICEOVER] script"
+    assert "[VISUAL]:" in content, "Presenter notes must have [VISUAL] cue"
+    # Ensure all 8 stages are listed
+    for stage_num in range(1, 9):
+        assert f"Stage {stage_num}" in content
+
+
