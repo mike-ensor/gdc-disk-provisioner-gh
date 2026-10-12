@@ -100,10 +100,11 @@ The provisioning ecosystem is divided into two distinct, decoupled systems:
 | **Platform Developer** | ISO & Systems Engineering | Fast local iteration via `build.sh`, `bootimus.py`, and reproducible lab targets. |
 | **Support / Ops Analyst** | Monitoring & Triage ("Viewer") | Real-time webhook telemetry across boot cycles without requiring SSH access. |
 | **SecOps & Compliance** | Zero-Trust & Auditability | Hardware-rooted TPM 2.0 EKCert, Step CA mTLS, LUKS sealing, and CIS Level 2 hardening. |
+| **Solutions Architect** | Enterprise Systems Design | Resilient Hub-and-Spoke sideloading, zero blast radius, and Private Mode scale. |
 
 <!--
-[VISUAL]: Matrix diagram showing the 5 enterprise personas with icons, highlighting their specific interactions with the provisioning flow.
-[VOICEOVER]: No system exists in a silo. We built this platform through the lens of five core personas: Platform engineers get declarative cluster deployments. Smart hands technicians plug in cables and walk away without ever touching a keyboard. Developers get a lightning-fast inner loop with Bootimus. Support analysts get centralized telemetry webhooks. And SecOps gets uncompromised zero-trust security anchored in physical silicon.
+[VISUAL]: Matrix diagram showing the 6 enterprise personas with icons, highlighting their specific interactions with the provisioning flow.
+[VOICEOVER]: No system exists in a silo. We built this platform through the lens of six core personas: Platform engineers get declarative cluster deployments. Smart hands technicians plug in cables and walk away without ever touching a keyboard. Developers get a lightning-fast inner loop with Bootimus. Support analysts get centralized telemetry webhooks. SecOps gets uncompromised zero-trust security anchored in physical silicon. And Solutions Architects get a resilient, hub-and-spoke sideloading architecture that scales across thousands of edge sites in Private Mode.
 [LIVE DEMO / TERMINAL CUE]: Highlighting the Field Tech and SecOps rows on the screen.
 -->
 

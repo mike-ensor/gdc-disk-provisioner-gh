@@ -1,6 +1,6 @@
 # GDC Software-Only Provisioning Presentation & Video Suite Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Author a complete Marp Markdown presentation suite and YouTube video production script repository covering Google Distributed Cloud (GDC) Software-Only Provisioning (`gdc-disk-provisioner` node engine and `gdc-companion` Day-0/Day-1 provisioning gateway) across six enterprise personas.
 
@@ -163,7 +163,7 @@ git commit -m "feat(docs): scaffold presentations directory and Marp theme"
 - Create: `docs/presentations/00-flagship-overview.marp.md`
 - Test: `test/test_presentations_syntax.py`
 
-- [ ] **Step 1: Write test verifying Flagship Deck structure and terminology**
+- [x] **Step 1: Write test verifying Flagship Deck structure and terminology**
 
 Update `test/test_presentations_syntax.py` to add:
 ```python
@@ -184,12 +184,12 @@ def test_flagship_deck():
         assert f"Stage {stage_num}" in content
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest test/test_presentations_syntax.py -k test_flagship_deck -v`
 Expected: FAIL (File not found)
 
-- [ ] **Step 3: Implement `00-flagship-overview.marp.md`**
+- [x] **Step 3: Implement `00-flagship-overview.marp.md`**
 
 Write `docs/presentations/00-flagship-overview.marp.md`:
 - Include Marp YAML frontmatter (`marp: true`, `theme: gdc-brand`, `size: 16:9`, `paginate: true`).
@@ -218,12 +218,12 @@ Write `docs/presentations/00-flagship-overview.marp.md`:
   - Slide 21: Summary & Repository Resources.
 - Every slide must include `<!-- \n[VISUAL]: ...\n[VOICEOVER]: ...\n[LIVE DEMO / TERMINAL CUE]: ...\n-->`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest test/test_presentations_syntax.py -k test_flagship_deck -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/presentations/00-flagship-overview.marp.md test/test_presentations_syntax.py
@@ -238,7 +238,7 @@ git commit -m "feat(docs): add flagship overview presentation deck and video scr
 - Create: `docs/presentations/01-operator-guide.marp.md`
 - Test: `test/test_presentations_syntax.py`
 
-- [ ] **Step 1: Write test verifying Operator Guide Deck**
+- [x] **Step 1: Write test verifying Operator Guide Deck**
 
 Update `test/test_presentations_syntax.py`:
 ```python
@@ -255,12 +255,12 @@ def test_operator_deck():
     assert "VLAN" in content
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest test/test_presentations_syntax.py -k test_operator_deck -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `01-operator-guide.marp.md`**
+- [x] **Step 3: Implement `01-operator-guide.marp.md`**
 
 Write `docs/presentations/01-operator-guide.marp.md`:
 - Slide breakdown (12–15 slides):
@@ -275,12 +275,12 @@ Write `docs/presentations/01-operator-guide.marp.md`:
   - Operational Runbooks: Triage, inspecting `/var/gdc-install/state/`, and automated node resets.
   - Full presenter notes (`[VISUAL]`, `[VOICEOVER]`, `[LIVE DEMO / TERMINAL CUE]`).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest test/test_presentations_syntax.py -k test_operator_deck -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/presentations/01-operator-guide.marp.md test/test_presentations_syntax.py
@@ -295,7 +295,7 @@ git commit -m "feat(docs): add operator guide presentation deck and video script
 - Create: `docs/presentations/02-developer-workbench.marp.md`
 - Test: `test/test_presentations_syntax.py`
 
-- [ ] **Step 1: Write test verifying Developer Workbench Deck**
+- [x] **Step 1: Write test verifying Developer Workbench Deck**
 
 Update `test/test_presentations_syntax.py`:
 ```python
@@ -312,12 +312,12 @@ def test_developer_deck():
     assert "Zen 4" in content
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest test/test_presentations_syntax.py -k test_developer_deck -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `02-developer-workbench.marp.md`**
+- [x] **Step 3: Implement `02-developer-workbench.marp.md`**
 
 Write `docs/presentations/02-developer-workbench.marp.md`:
 - Slide breakdown (12–15 slides):
@@ -330,12 +330,12 @@ Write `docs/presentations/02-developer-workbench.marp.md`:
   - Diagnostics Agent & Automated RCA: Running diagnostics against live nodes and generating markdown RCA reports.
   - Full presenter notes (`[VISUAL]`, `[VOICEOVER]`, `[LIVE DEMO / TERMINAL CUE]`).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest test/test_presentations_syntax.py -k test_developer_deck -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/presentations/02-developer-workbench.marp.md test/test_presentations_syntax.py
@@ -350,7 +350,7 @@ git commit -m "feat(docs): add developer workbench presentation deck and video s
 - Create: `docs/presentations/03-observability-and-companion.marp.md`
 - Test: `test/test_presentations_syntax.py`
 
-- [ ] **Step 1: Write test verifying Observability Deck**
+- [x] **Step 1: Write test verifying Observability Deck**
 
 Update `test/test_presentations_syntax.py`:
 ```python
@@ -367,12 +367,12 @@ def test_observability_deck():
     assert "/var/gdc-install/state" in content
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest test/test_presentations_syntax.py -k test_observability_deck -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `03-observability-and-companion.marp.md`**
+- [x] **Step 3: Implement `03-observability-and-companion.marp.md`**
 
 Write `docs/presentations/03-observability-and-companion.marp.md`:
 - Slide breakdown (12–15 slides):
@@ -385,12 +385,12 @@ Write `docs/presentations/03-observability-and-companion.marp.md`:
   - Triage Decision Tree: Root cause identification (Network/DHCP drop, TPM unsealing failure, NodeAgent stall, `bmctl` timeout).
   - Full presenter notes (`[VISUAL]`, `[VOICEOVER]`, `[LIVE DEMO / TERMINAL CUE]`).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest test/test_presentations_syntax.py -k test_observability_deck -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/presentations/03-observability-and-companion.marp.md test/test_presentations_syntax.py
@@ -405,7 +405,7 @@ git commit -m "feat(docs): add observability and telemetry presentation deck and
 - Create: `docs/presentations/04-architecture-and-security.marp.md`
 - Test: `test/test_presentations_syntax.py`
 
-- [ ] **Step 1: Write test verifying Architecture & Security Deck**
+- [x] **Step 1: Write test verifying Architecture & Security Deck**
 
 Update `test/test_presentations_syntax.py`:
 ```python
@@ -424,12 +424,12 @@ def test_security_deck():
     assert "TPM 2.0" in content
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest test/test_presentations_syntax.py -k test_security_deck -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `04-architecture-and-security.marp.md`**
+- [x] **Step 3: Implement `04-architecture-and-security.marp.md`**
 
 Write `docs/presentations/04-architecture-and-security.marp.md`:
 - Slide breakdown (14–16 slides):
@@ -449,12 +449,12 @@ Write `docs/presentations/04-architecture-and-security.marp.md`:
   - Enterprise Scale & Zero-Drift Guarantees.
   - Full presenter notes (`[VISUAL]`, `[VOICEOVER]`, `[LIVE DEMO / TERMINAL CUE]`).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest test/test_presentations_syntax.py -k test_security_deck -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/presentations/04-architecture-and-security.marp.md test/test_presentations_syntax.py
@@ -469,7 +469,7 @@ git commit -m "feat(docs): add architecture and security presentation deck and v
 - Create: `docs/presentations/render_decks.sh`
 - Test: `test/test_presentations_syntax.py`
 
-- [ ] **Step 1: Write test verifying build script and markdown compilation validation**
+- [x] **Step 1: Write test verifying build script and markdown compilation validation**
 
 Update `test/test_presentations_syntax.py`:
 ```python
@@ -479,12 +479,12 @@ def test_render_script_exists_and_executable():
     assert os.access(script_path, os.X_OK), "render_decks.sh must be executable"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest test/test_presentations_syntax.py -k test_render_script -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `render_decks.sh`**
+- [x] **Step 3: Implement `render_decks.sh`**
 
 Create `docs/presentations/render_decks.sh`:
 - Script checks for `npx @marp-team/marp-cli` availability.
@@ -493,12 +493,12 @@ Create `docs/presentations/render_decks.sh`:
 - Validates that no forbidden terms ("airgapped") exist in any deck.
 - Verifies that all Mermaid blocks are closed properly.
 
-- [ ] **Step 4: Run full test suite and test rendering script**
+- [x] **Step 4: Run full test suite and test rendering script**
 
 Run: `pytest test/test_presentations_syntax.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/presentations/render_decks.sh test/test_presentations_syntax.py
