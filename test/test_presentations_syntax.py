@@ -79,14 +79,17 @@ def test_operator_deck():
     raw_slides = content.split("\n---\n")
     # First item is frontmatter
     slides = raw_slides[1:]
-    assert len(slides) >= 12, "Must contain at least 12 slides"
+    assert len(slides) == 15, "01-operator-guide.marp.md must contain exactly 15 slides"
     for i, slide in enumerate(slides, start=1):
         clean_slide = slide.strip()
         assert clean_slide, f"Slide {i} cannot be blank"
+
+        text_outside_notes = re.sub(
+            r"<!--(?! _class:).*?-->", "", slide, flags=re.DOTALL
+        ).strip()
+        assert text_outside_notes, f"Slide {i} has no content text outside presenter notes"
+
         assert "[VISUAL]:" in slide, f"Slide {i} missing [VISUAL]:"
         assert "[VOICEOVER]:" in slide, f"Slide {i} missing [VOICEOVER]:"
         assert "[LIVE DEMO / TERMINAL CUE]:" in slide, f"Slide {i} missing [LIVE DEMO / TERMINAL CUE]:"
-
-
-
 

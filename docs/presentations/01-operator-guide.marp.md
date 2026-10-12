@@ -151,7 +151,7 @@ When power is applied to bare-metal hardware, the 8-stage state machine executes
 [Stage 5: Cluster Readiness]   ──► Attests TPM identity; gates turnup with gdc-companion
        │
        ▼
-[Stage 6: Cluster Inception]   ──► Executes bmctl install cluster from offline loopback registries
+[Stage 6: Cluster Inception]   ──► Executes bmctl create cluster from offline loopback registries
        │
        ▼
 [Stage 7: Validation]          ──► Sanity tests CoreDNS, MetalLB VIPs, local StorageClasses
@@ -278,23 +278,21 @@ Once disk security is validated, the node configures enterprise networking and c
 With prerequisites verified, the node initiates bare-metal Kubernetes deployment:
 
 ```bash
-# Executed automatically by gdc-cluster-turnup.service in Stage 6
-bmctl install cluster \
-  --config /var/gdc-install/manifests/cluster.yaml \
-  --registry-mirror http://127.0.0.1:8081/nexus/repository/anthos-docker/ \
-  --offline-mode \
+# Executed automatically by create_cluster.sh in Stage 6
+bmctl create cluster -c ${CLUSTER_NAME} \
+  --registry-mirror http://127.0.0.1:5001/ \
   --v=2
 ```
 
-* **Local Private Registry:** All Kubernetes control plane images (`kube-apiserver`, `etcd`, Anthos agents) stream directly from loopback Nexus.
+* **Local Private Registry:** All Kubernetes control plane images (`kube-apiserver`, `etcd`, Anthos agents) stream directly from loopback Nexus on port `5001`.
 * **Local GitOps Upstream:** Initial cluster blueprints, CRDs, and Config Sync packages pull from loopback Gitea (`http://127.0.0.1:3000/gdc/manifests.git`).
 * **Zero WAN Dependence:** Even if the site WAN link is completely severed, cluster inception completes in ~12 minutes.
-* **State Checkpointing:** Real-time log scraping streams step milestones (`bootstrap-cluster-created`, `control-plane-healthy`) to `/var/gdc-install/state/stage6.json`.
+* **State Checkpointing:** Real-time log scraping streams step milestones (`bootstrap-cluster-created`, `control-plane-healthy`) to `/var/gdc-install/state/cluster-turnup.json`.
 
 <!--
-[VISUAL]: System architecture during bmctl execution showing bmctl communicating with local loopback Nexus and Gitea services to bootstrap Kind and install the control plane.
-[VOICEOVER]: Stage 6 is the inception of the Kubernetes cluster. bmctl executes automatically using an offline cluster manifest. Notice the registry mirror flag: it targets the local Nexus repository on loopback port 8081. Similarly, GitOps manifests are pulled from local Gitea on port 3000. Even if external WAN connectivity is entirely disconnected, cluster turnup completes deterministically in roughly 12 minutes.
-[LIVE DEMO / TERMINAL CUE]: Terminal output displaying bmctl install cluster progress bars and Pod readiness milestones.
+[VISUAL]: System architecture during bmctl execution showing bmctl communicating with local loopback Nexus on port 5001 and Gitea on port 3000 to bootstrap Kind and install the control plane.
+[VOICEOVER]: Stage 6 is the inception of the Kubernetes cluster. bmctl create cluster executes automatically using an offline cluster manifest. Notice the registry mirror flag: it targets the local Nexus repository on loopback port 5001. Similarly, GitOps manifests are pulled from local Gitea on port 3000. Even if external WAN connectivity is entirely disconnected, cluster turnup completes deterministically in roughly 12 minutes.
+[LIVE DEMO / TERMINAL CUE]: Terminal output displaying bmctl create cluster progress bars and Pod readiness milestones.
 -->
 
 ---
@@ -362,25 +360,28 @@ When a bare-metal turnup does not progress as expected, follow this standard tri
 
 ### 1. Inspecting Local State Artifacts
 All phase transitions persist human-readable state in `/var/gdc-install/state/`:
-* `cat /var/gdc-install/state/current_stage.json`: Shows active stage, start timestamp, and retry counter.
-* `cat /var/gdc-install/state/errors.json`: Contains structured error codes and command stack traces.
+* `cat /var/gdc-install/state/<stage>.json`: (e.g. `cluster-turnup.json`, `linux-ready.json`) Shows timestamps, status, step milestones, and error records.
 
 ### 2. Live Journal Inspection
 * `journalctl -u gdc-provision -f`: Follows the active orchestrator workflow.
-* `journalctl -u bmctl-install -f`: Monitors underlying Kubernetes cluster turnup progress.
+* `tail -f /var/log/create-cluster.log`: Monitors underlying Kubernetes cluster turnup progress.
 
 ### 3. Clean Node Reset Procedure
 If a node must be reprovisioned from scratch:
 ```bash
-# Clean state marker and trigger automated reimaging
-/usr/local/bin/gdc-node-reset --force --reboot-to-pxe
+# Remote operator workstation reset:
+./bin/local/gdc-node-ops.sh reset-pxe --nodes <NODE_IP> --iso <ISO_PATH>
+
+# Local node manual restart:
+sudo rm -f /var/gdc-install/state/cluster-ready.json
+sudo systemctl restart gdc-provision.service
 ```
-* Erases local state markers, clears TPM 2.0 NVRAM allocations, and configures UEFI `efibootmgr` to force next boot from network/Bootimus.
+* Reconfigures UEFI `BootNext` via `efibootmgr` to force next boot from Bootimus PXE.
 
 <!--
-[VISUAL]: Diagnostic terminal display showing jq queries on current_stage.json, journalctl logs, and the clean node reset command execution.
-[VOICEOVER]: Even in automated systems, operators need clear diagnostic runbooks. If a node appears stalled, the first place to look is /var/gdc-install/state/. Every stage writes structured JSON files capturing timestamps, retry counts, and errors. Operators can tail journalctl for gdc-provision, or if a clean restart is needed, run gdc-node-reset. This utility wipes local state markers, clears TPM NVRAM, resets the UEFI boot order to PXE, and restarts the sequence cleanly.
-[LIVE DEMO / TERMINAL CUE]: Terminal demo showing jq . /var/gdc-install/state/current_stage.json followed by gdc-node-reset --dry-run.
+[VISUAL]: Diagnostic terminal display showing jq queries on /var/gdc-install/state/cluster-turnup.json, journalctl logs, and the clean node reset command execution via gdc-node-ops.sh.
+[VOICEOVER]: Even in automated systems, operators need clear diagnostic runbooks. If a node appears stalled, the first place to look is /var/gdc-install/state/. Every stage writes structured JSON files capturing timestamps, retry counts, and step milestones. Operators can tail journalctl for gdc-provision or review create-cluster.log. If a clean restart is needed, run gdc-node-ops.sh reset-pxe from your workstation, which configures the UEFI BootNext variable to restart the sequence cleanly from Bootimus PXE.
+[LIVE DEMO / TERMINAL CUE]: Terminal demo showing jq . /var/gdc-install/state/cluster-turnup.json followed by ./bin/local/gdc-node-ops.sh --help.
 -->
 
 ---
