@@ -63,4 +63,30 @@ def test_flagship_deck():
         ), f"Slide {i} must contain '[LIVE DEMO / TERMINAL CUE]:' presenter notes"
 
 
+def test_operator_deck():
+    path = os.path.join(PRESENTATIONS_DIR, "01-operator-guide.marp.md")
+    assert os.path.isfile(path), "01-operator-guide.marp.md must exist"
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+    assert "theme: gdc-brand" in content
+    assert "Private Mode" in content
+    assert "airgapped" not in content.lower(), "Must NOT use airgapped, use Private Mode"
+    assert "Bootimus" in content
+    assert "Smart Hands" in content
+    assert "VLAN" in content
+
+    # Verify per-slide Marp scoping
+    raw_slides = content.split("\n---\n")
+    # First item is frontmatter
+    slides = raw_slides[1:]
+    assert len(slides) >= 12, "Must contain at least 12 slides"
+    for i, slide in enumerate(slides, start=1):
+        clean_slide = slide.strip()
+        assert clean_slide, f"Slide {i} cannot be blank"
+        assert "[VISUAL]:" in slide, f"Slide {i} missing [VISUAL]:"
+        assert "[VOICEOVER]:" in slide, f"Slide {i} missing [VOICEOVER]:"
+        assert "[LIVE DEMO / TERMINAL CUE]:" in slide, f"Slide {i} missing [LIVE DEMO / TERMINAL CUE]:"
+
+
+
 
