@@ -69,25 +69,7 @@ Before applying power, ensure the physical environment meets the bare-metal hard
 
 ## Network Architecture: Stage 1 DHCP to Stage 2+ VLAN Trunking
 
-The network evolves deterministically throughout the provisioning lifecycle:
-
-```mermaid
-flowchart TD
-    subgraph Stage1["Stage 1: Discovery & Installation"]
-        D1[Untagged Native Broadcast] --> D2[Local DHCP Server / Bootimus]
-        D2 --> D3[Ephemeral Lease: 192.168.1.100/24]
-        D3 --> D4[Fetch Kernel, Initrd & LiveCD ISO via HTTP]
-    end
-
-    subgraph Stage2Plus["Stage 2 through Stage 8: Production Operation"]
-        V1[Switch Port Reconfigured or Multi-VLAN Trunk] --> V2[Bonded / Tagged Interfaces]
-        V2 --> V3[VLAN 100: Node Management & GDC Control Plane]
-        V2 --> V4[VLAN 200: MetalLB Ingress & Workload Traffic]
-        V3 --> V5[Static Node IP: 10.200.0.10/24 / Gateway: 10.200.0.1]
-    end
-
-    Stage1 -.->|Subiquity Writes Netplan Config| Stage2Plus
-```
+![w:900 center](common/assets/01-network-topology.svg)
 
 * **Stage 1 (Bootstrap):** Requires simple untagged DHCP for iPXE chaining and LiveCD kernel bootstrapping.
 * **Stage 2+ (Installed OS):** Netplan configures static addressing or tagged VLAN interfaces directly on the host.
@@ -195,23 +177,7 @@ Stage 1 runs in an ephemeral in-memory environment, laying down the encrypted OS
 
 ## The First Reboot & Stage 2: TPM 2.0 LUKS Sealing
 
-The node reboots from NVMe into the hardened host OS for cryptographic sealing:
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Node as Bare-Metal Host (Stage 2)
-    participant TPM as Motherboard TPM 2.0
-    participant LUKS as NVMe LUKS Header
-
-    Node->>TPM: Check PCR state & Endorsement Key (EK)
-    Node->>TPM: Generate random high-entropy disk key
-    Node->>LUKS: Enroll new keyslot using generated key
-    Node->>TPM: Seal key against PCRs 0, 2, 4, 7 (Firmware, EFI, SecureBoot)
-    TPM-->>Node: Return sealed key blob (stored in /etc/keys/disk.tpm)
-    Node->>Node: Unmask loopback boundary services (Gitea :3000, Nexus :8081)
-    Node->>Node: Arm Stage 3 boot flag and trigger automated reboot
-```
+![w:850 center](common/assets/01-tpm-sealing.svg)
 
 * **Cryptographic Anchor:** Disk encryption keys are permanently bound to the server's physical motherboard silicon.
 * **Tamper Proofing:** If an attacker extracts the NVMe drive or alters UEFI firmware, PCR measurements diverge and decryption fails.
@@ -329,17 +295,7 @@ Before declaring turnup complete, automated validation tests verify core cluster
 
 ## Stage 8: Autonomous Day-2 Drift Management via `ansible-pull`
 
-Crucial architectural distinction: **Day-2 operations are completely decentralized.**
-
-```mermaid
-flowchart LR
-    Timer[systemd: gdc-provision.timer\nEvery 15 Minutes] --> Service[gdc-provision.service]
-    Service --> Pull[ansible-pull -U /var/gdc/repo.git local.yml]
-    Pull --> Check[Check Local Machine State]
-    Check -->|Drift Detected| Remediate[Apply Idempotent State Correction]
-    Check -->|In Sync| Ok[Log No-Op & Update Heartbeat]
-    Remediate --> Ok
-```
+![w:950 center](common/assets/01-day2-drift.svg)
 
 * **Decoupled from `gdc-companion`:** `gdc-companion` is strictly a Day-0/Day-1 configuration and attestation gateway. It does **not** manage Day-2 fleet runtime state.
 * **Decentralized Local Upkeep:** Each node runs `systemd/gdc-provision.timer` locally, triggering `ansible-pull` against its local or synchronized Git repository.

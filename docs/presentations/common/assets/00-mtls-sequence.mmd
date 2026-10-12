@@ -1,0 +1,13 @@
+sequenceDiagram
+    autonumber
+    participant Node as Target Node (TPM)
+    participant CA as Step CA (Attestation)
+    participant Gateway as gdc-companion
+
+    Node->>Node: Generate Private Key in TPM KMS
+    Node->>CA: Submit CSR + Hardware EKCert
+    CA->>CA: Validate Manufacturer EK Signature
+    CA-->>Node: Issue Client Certificate (SAN: MAC Address)
+    Node->>Gateway: Mutual TLS (mTLS) Handshake
+    Gateway->>Gateway: Verify MAC matches authorized inventory
+    Gateway-->>Node: Broker 1-Hour Ephemeral GCP Credentials

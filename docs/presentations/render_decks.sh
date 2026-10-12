@@ -44,13 +44,29 @@ else
     exit 1
 fi
 
-# 2. Create output directory
-echo "[2/4] Ensuring output directory exists..."
+# 2. Compile Mermaid diagrams if needed
+echo "[2/5] Checking and compiling Mermaid diagrams (.mmd -> .svg)..."
+if compgen -G "${SCRIPT_DIR}/common/assets/*.mmd" > /dev/null; then
+    for mmd in "${SCRIPT_DIR}/common/assets/"*.mmd; do
+        svg="${mmd%.mmd}.svg"
+        if [ ! -f "$svg" ] || [ "$mmd" -nt "$svg" ]; then
+            echo "  Compiling $(basename "$mmd") -> $(basename "$svg")"
+            if command -v mmdc >/dev/null 2>&1; then
+                mmdc -i "$mmd" -o "$svg" -b transparent
+            elif command -v npx >/dev/null 2>&1; then
+                npx -y @mermaid-js/mermaid-cli -i "$mmd" -o "$svg" -b transparent
+            fi
+        fi
+    done
+fi
+
+# 3. Create output directory
+echo "[3/5] Ensuring output directory exists..."
 mkdir -p "${DIST_DIR}"
 echo "Output directory: ${DIST_DIR}"
 
-# 3. Pre-flight Terminology Check
-echo "[3/4] Running pre-flight terminology check..."
+# 4. Pre-flight Terminology Check
+echo "[4/5] Running pre-flight terminology check..."
 terminology_errors=0
 for deck in "${SCRIPT_DIR}"/*.marp.md; do
     [ -e "$deck" ] || continue
@@ -68,8 +84,8 @@ if [ "$terminology_errors" -gt 0 ]; then
 fi
 echo "Terminology check passed: 0 forbidden terms found."
 
-# 4. Pre-flight Slide Structure Check
-echo "[4/4] Running pre-flight slide structure check..."
+# 5. Pre-flight Slide Structure Check
+echo "[5/5] Running pre-flight slide structure check..."
 python3 - <<'EOF' "${SCRIPT_DIR}"
 import sys
 import os

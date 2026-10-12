@@ -112,40 +112,13 @@ The provisioning ecosystem is divided into two distinct, decoupled systems:
 
 ## The 8-Stage Machine Overview
 
-```mermaid
-flowchart LR
-    classDef blue fill:#4285F4,stroke:#1A73E8,stroke-width:2px,color:#FFFFFF;
-    classDef red fill:#EA4335,stroke:#C5221F,stroke-width:2px,color:#FFFFFF;
-    classDef yellow fill:#FBBC05,stroke:#F29900,stroke-width:2px,color:#202124;
-    classDef green fill:#34A853,stroke:#137333,stroke-width:2px,color:#FFFFFF;
-    classDef orange fill:#F57C00,stroke:#E65100,stroke-width:2px,color:#FFFFFF;
+![w:1100 center](common/assets/00-stage-machine.svg)
 
-    Stage1["Stage 1: LiveCD\n(ISO & Subiquity)"]
-    Stage2["Stage 2: First Boot\n(Services & TPM)"]
-    Stage3["Stage 3: Second Boot\n(Unseal & Stability)"]
-    Stage4["Stage 4: Linux Ready\n(OS Deps, CIS/Hardening)"]
-    Stage5["Stage 5: Cluster Ready\n(Config & NodeAgent)"]
-    Stage6["Stage 6: Cluster Turnup\n(bmctl creation)"]
-    Stage7["Stage 7: Post Cluster\n(Validation)"]
-    Stage8["Stage 8: Upkeep\n(Drift & Sideloads)"]
-
-    Stage1 --> Stage2
-    Stage2 --> Stage3
-    Stage3 --> Stage4
-    Stage4 --> Stage5
-    Stage5 --> Stage6
-    Stage6 --> Stage7
-    Stage7 --> Stage8
-
-    class Stage1 blue;
-    class Stage2 red;
-    class Stage3 yellow;
-    class Stage4 green;
-    class Stage5 orange;
-    class Stage6 blue;
-    class Stage7 green;
-    class Stage8 yellow;
-```
+* **Stage 1 (LiveCD):** Subiquity partitions drives and syncs local Gitea/Nexus assets to target disks.
+* **Stage 2 (First Boot):** Boots target drive, starts local hubs, and seals LUKS directly into TPM 2.0 silicon.
+* **Stage 3 (Second Boot):** Proves unattended auto-decryption; verifies stability before network initialization.
+* **Stage 4–5 (Readiness):** Applies CIS Level 2 hardening; gates cluster parameters with `gdc-companion`.
+* **Stage 6–8 (Cluster & Upkeep):** Offline `bmctl` cluster inception; decentralized Day-2 `ansible-pull` drift management.
 
 <!--
 [VISUAL]: Full-width Mermaid flowchart rendering the 8 sequential stages matching the official repository README.md.
@@ -441,21 +414,11 @@ export VERSION="0.10.19"
 
 ## Hardware Attestation & mTLS Workflow
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Node as Target Node (TPM)
-    participant CA as Step CA (Attestation)
-    participant Gateway as gdc-companion
+![w:900 center](common/assets/00-mtls-sequence.svg)
 
-    Node->>Node: Generate Private Key in TPM KMS
-    Node->>CA: Submit CSR + Hardware EKCert
-    CA->>CA: Validate Manufacturer EK Signature
-    CA-->>Node: Issue Client Certificate (SAN: MAC Address)
-    Node->>Gateway: Mutual TLS (mTLS) Handshake
-    Gateway->>Gateway: Verify MAC matches authorized inventory
-    Gateway-->>Node: Broker 1-Hour Ephemeral GCP Credentials
-```
+* **Step CA Minting:** Evaluates TPM 2.0 EKCert hardware proof and issues identity certificate with hardware MAC SAN.
+* **Mutual TLS (mTLS):** Dual-sided verification over port 443; `gdc-companion` verifies MAC against authorized fleet inventory.
+* **Ephemeral Credentials:** Once verified, Companion brokers short-lived 1-hour GCP token; zero permanent keys stored on disk.
 
 <!--
 [VISUAL]: Mermaid sequence diagram showing the step-by-step mTLS enrollment handshake between the target node, Step CA, and gdc-companion.

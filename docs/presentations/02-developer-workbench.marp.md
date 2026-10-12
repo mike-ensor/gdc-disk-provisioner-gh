@@ -101,17 +101,7 @@ A reliable development workbench provides reproducible hermetic builds and isola
 
 ## The Remastering Engine (`remaster.sh`)
 
-`remaster.sh` implements the **SquashFS Separation Strategy** to produce hardened GDC appliances in seconds:
-
-```mermaid
-flowchart LR
-    A[Upstream Ubuntu 24.04 ISO] --> B[Leave SquashFS Pristine]
-    B --> C[Stage Autoinstall in /boot/]
-    C --> D[Stage Payloads in /custom-data/]
-    D --> E[Kernel Flags & GRUB Hooks]
-    E --> F[Sub-10s xorriso Repack]
-    F --> G[Hardened GDC Node ISO]
-```
+![w:950 center](common/assets/02-remaster-pipeline.svg)
 
 * **1. SquashFS Separation:** Base Ubuntu `casper/filesystem.squashfs` remains **pristine and untouched** (eliminating slow, multi-minute unpack/repack cycles).
 * **2. Autoinstall Staging:** Subiquity `user-data` and cloud-init templates are staged directly in the uncompressed outer ISO directory under `/boot/`.
