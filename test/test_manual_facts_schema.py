@@ -56,6 +56,40 @@ class TestManualFactsSchema(unittest.TestCase):
         with self.assertRaises(jsonschema.ValidationError):
             jsonschema.validate(instance=data, schema=self.schema)
 
+    def test_sub_ca_secret_schema_validation(self):
+        """Verifies sub_ca_secret validates against machine-schema.json."""
+        valid_cluster = {
+            "cluster_name": "gdc-test-01",
+            "networking": {
+                "cluster_vip": "192.168.109.2",
+                "cluster_ingress": "192.168.109.100",
+                "cluster_lb_range": "192.168.109.100-192.168.109.150",
+            },
+            "fleet_cluster_labels": ["type=test"],
+            "sub_ca_secret": {
+                "gsm-name": "gdc-pki-sub-ca",
+                "gsm-location": "us-central1"
+            }
+        }
+        cluster_schema = self.schema["properties"]["cluster"]
+        jsonschema.validate(instance=valid_cluster, schema=cluster_schema)
+
+        # Assert missing gsm-name fails
+        invalid_cluster = {
+            "cluster_name": "gdc-test-01",
+            "networking": {
+                "cluster_vip": "192.168.109.2",
+                "cluster_ingress": "192.168.109.100",
+                "cluster_lb_range": "192.168.109.100-192.168.109.150",
+            },
+            "fleet_cluster_labels": ["type=test"],
+            "sub_ca_secret": {
+                "gsm-location": "us-central1"
+            }
+        }
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(instance=invalid_cluster, schema=cluster_schema)
+
     def test_no_divergence_from_upstream_companion(self):
         """Verifies local docs/machine-schema.json has not diverged from gdc-companion."""
         companion_schema = None
