@@ -321,5 +321,25 @@ class TestNexusTLSPKI(unittest.TestCase):
         self.assertIn("https://{{ nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-hosted/", ud_content)
         self.assertIn("nexus_tls_enabled not in [false, 'false', 'False', 0, '0']", ud_content)
 
+    def test_cert_manager_pki_tasks(self):
+        """Verifies cert_manager_pki.yml defines Secret and ClusterIssuer resources."""
+        task_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/post_cluster/tasks/cert_manager_pki.yml")
+        self.assertTrue(os.path.exists(task_path), "cert_manager_pki.yml does not exist")
+        with open(task_path, "r", encoding="utf-8") as f:
+            tasks = yaml.safe_load(f)
+
+        task_names = []
+        def extract_names(t_list):
+            for t in t_list:
+                if isinstance(t, dict):
+                    if "name" in t:
+                        task_names.append(t["name"])
+                    if "block" in t:
+                        extract_names(t["block"])
+        extract_names(tasks)
+
+        self.assertTrue(any("Seed Sub-CA TLS secret into cert-manager" in name for name in task_names))
+        self.assertTrue(any("Deploy gdc-ca-issuer ClusterIssuer" in name for name in task_names))
+
 if __name__ == "__main__":
     unittest.main()
