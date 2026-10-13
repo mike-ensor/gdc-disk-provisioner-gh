@@ -82,10 +82,10 @@ The primary target SSD/NVMe drive is formatted with three partitions:
 | `lv_var` | `/var` | 25 GiB | EXT4 | `defaults,noatime` | Kubelet states and runtime data |
 | `lv_var_log` | `/var/log` | 100 GiB | EXT4 | `defaults,noatime` | **Logs Isolation:** Fluent-bit buffers and journald logs |
 | `lv_metrics` | `/var/opt/buffered-metrics` | 10 GiB | EXT4 | `defaults,noatime` | **Metrics Isolation:** GDC metrics buffers (10,016 MiB req) |
-| `lv_containerd` | `/var/lib/containerd` | 30 GiB | XFS | `defaults,noatime,prjquota` | **Image Isolation:** containerd container space (30 GiB req) |
+| `lv_containerd` | `/var/lib/containerd` | 43–48 GiB | XFS | `defaults,noatime,prjquota` | **Image Isolation:** containerd container space |
 | `lv_etcd` | `/var/lib/etcd` | 20 GiB | EXT4 | `noatime,nodiratime,commit=1` | **Performance Isolation:** etcd core database (20 GiB req) |
 | `lv_etcd_events` | `/var/lib/etcd-events` | 5 GiB | EXT4 | `noatime,nodiratime,commit=1` | **Performance Isolation:** etcd event records (5 GiB req) |
-| `lv_gitea` | `/var/lib/gitea` | 20 GiB | EXT4 | `defaults,noatime` | Persistent Gitea git storage boundary |
+| `lv_gitea` | `/var/lib/gitea` | 5 GiB | EXT4 | `defaults,noatime` | Persistent Gitea git storage boundary |
 | `lv_nexus` | `/var/lib/nexus` | 300 GiB (single) / Remainder (dual) | EXT4 | `defaults,noatime` | Persistent Nexus package/image storage boundary |
 | `lv_local_disk` | `/customer/local-disk` | 100 GiB | XFS | `defaults,noatime,prjquota` | **GDC Bounds:** Standalone `local-disk` provisioner |
 | `lv_sds` | `/customer/sds` | Remainder | XFS | `defaults,noatime` | **SDS Storage:** Allocated for SDS system backends |
@@ -99,7 +99,7 @@ This script outputs a tailored, GDC-compliant Subiquity storage layout block bas
 
 #### A. Single-Disk Topology (1x NVMe/SSD $\ge 600\text{ GiB}$ / $1\text{ TB}$)
 * **The Sizing Constraint:** The sum of standard GDC Logical Volume targets (including 100 GiB logs and 300 GiB Nexus) requires at least 557 GiB baseline storage before customer SDS allocation.
-* **The Resolution:** Fixed allocations (`lv_var_log` at 100G, `lv_nexus` at 300G, `lv_local_disk` at 25G, `lv_gitea` at 15G) provide dedicated quotas, leaving all remaining capacity to `/customer/sds` (`size: -1`).
+* **The Resolution:** Fixed allocations (`lv_var_log` at 100G, `lv_nexus` at 300G, `lv_local_disk` at 25G, `lv_containerd` at 43G, `lv_gitea` at 5G) provide dedicated quotas, leaving all remaining capacity to `/customer/sds` (`size: -1`).
 
 #### B. Dual-Disk Topology (2x NVMe/SSD $\ge 600\text{ GiB}$ / $1\text{ TB}$)
 * **Workload Separation (Separation of Concerns):** To maximize performance and satisfy etcd leader latency parameters, we isolate standard system operations from high-volume customer storage pipelines across the two physical drives:

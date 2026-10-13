@@ -120,10 +120,10 @@ A GDC Bare Metal compliant storage partitioning standard. It isolates system par
 * `/var` (`lv_var`): 20 GiB — Kubelet states and runtime data.
 * `/var/log` (`lv_var_log`): 100 GiB — Fluent-bit, journald, and system log isolation.
 * `/var/opt/buffered-metrics` (`lv_var_opt_metrics`): 10 GiB — GDC telemetry metrics buffer.
-* `/var/lib/containerd` (`lv_containerd`): 30 GiB — CRI runtime container storage (XFS with `prjquota`).
+* `/var/lib/containerd` (`lv_containerd`): 43–48 GiB — CRI runtime container storage (XFS with `prjquota`).
 * `/var/lib/etcd` (`lv_etcd`): 20 GiB — etcd consensus database (`commit=1` mount optimization).
 * `/var/lib/etcd-events` (`lv_etcd_events`): 5 GiB — etcd events database (`commit=1`).
-* `/var/lib/gitea` (`lv_gitea`): 15–20 GiB — Local Gitea repository storage.
+* `/var/lib/gitea` (`lv_gitea`): 5 GiB — Local Gitea repository storage.
 * `/var/lib/nexus` (`lv_nexus`): 300 GiB (single-disk) or remainder (dual-disk) — Local Nexus caching registries and blob stores.
 
 ### Single-Disk Topology
