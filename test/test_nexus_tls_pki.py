@@ -23,5 +23,17 @@ class TestNexusTLSPKI(unittest.TestCase):
         packages = set(cfg.get("packages_to_include", {}).get("platform_required", []))
         self.assertIn("nginx", packages, "Missing 'nginx' in platform_required packages")
 
+    def test_ansible_vars_contain_pki_parameters(self):
+        """Verifies all.yml defines default PKI paths, domains, and renewal thresholds."""
+        vars_path = os.path.join(PROJECT_ROOT, "src/ansible/vars/all.yml")
+        with open(vars_path, "r", encoding="utf-8") as f:
+            vars_data = yaml.safe_load(f)
+
+        self.assertEqual(vars_data.get("gdc_nexus_tls_enabled"), True)
+        self.assertEqual(vars_data.get("gdc_nexus_https_port"), 443)
+        self.assertEqual(vars_data.get("gdc_sub_ca_dir"), "/etc/ssl/sub-ca")
+        self.assertEqual(vars_data.get("gdc_nexus_cert_path"), "/etc/ssl/certs/nexus.bundle.crt")
+        self.assertEqual(vars_data.get("gdc_nexus_key_path"), "/etc/ssl/private/nexus.key")
+
 if __name__ == "__main__":
     unittest.main()
