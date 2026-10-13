@@ -11,7 +11,7 @@
       ansible.builtin.command: >-
         gcloud secrets versions access latest
         --secret={{ cluster_config.sub_ca_secret['gsm-name'] }}
-        --project={{ gcp_project_id }}
+        {% if gcp_project_id is defined and gcp_project_id | trim | length > 0 %}--project={{ gcp_project_id }}{% endif %}
         {% if cluster_config.sub_ca_secret['gsm-location'] is defined and cluster_config.sub_ca_secret['gsm-location'] | trim | length > 0 and cluster_config.sub_ca_secret['gsm-location'] != 'global' %}
         --location={{ cluster_config.sub_ca_secret['gsm-location'] }}
         {% endif %}
@@ -24,7 +24,7 @@
       ansible.builtin.command: >-
         gcloud secrets versions access latest
         --secret={{ cluster_config.sub_ca_secret['gsm-name'] }}
-        --project={{ gcp_project_id }}
+        {% if gcp_project_id is defined and gcp_project_id | trim | length > 0 %}--project={{ gcp_project_id }}{% endif %}
       register: gsm_sub_ca_res_fallback
       when:
         - gsm_sub_ca_res.rc != 0
@@ -40,7 +40,13 @@
       when:
         - gsm_sub_ca_res.rc != 0
         - gsm_sub_ca_res_fallback is defined
-        - gsm_sub_ca_res_fallback.rc == 0
+        - gsm_sub_ca_res_fallback.rc is defined and gsm_sub_ca_res_fallback.rc == 0
+      no_log: true
+
+    - name: "GDC-PKI | Fail if Sub-CA secret retrieval failed"
+      ansible.builtin.fail:
+        msg: "Failed to retrieve Sub-CA secret '{{ cluster_config.sub_ca_secret['gsm-name'] }}' from Secret Manager."
+      when: gsm_sub_ca_res.rc != 0
 
     - name: "GDC-PKI | Write Sub-CA credentials and register Root CA trust"
       when: gsm_sub_ca_res.rc == 0
@@ -84,4 +90,4 @@
             owner: root
             group: root
             mode: '0400'
-            no_log: true
+          no_log: true
