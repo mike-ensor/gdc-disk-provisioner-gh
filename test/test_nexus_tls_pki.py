@@ -130,5 +130,37 @@ class TestNexusTLSPKI(unittest.TestCase):
         self.assertEqual(template.render(gcp_project_id="   ").strip(), "")
         self.assertEqual(template.render(gcp_project_id="my-project").strip(), "--project=my-project")
 
+    def test_rotation_script_and_systemd_templates(self):
+        """Verifies refresh-nexus-tls script, service, and timer templates render valid syntax."""
+        env = Environment()
+        script_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/service_hubs/templates/refresh-nexus-tls.sh.j2")
+        self.assertTrue(os.path.exists(script_path), "refresh-nexus-tls.sh.j2 does not exist")
+        with open(script_path, "r", encoding="utf-8") as f:
+            script_tmpl = env.from_string(f.read())
+        rendered_script = script_tmpl.render(
+            gdc_nexus_cert_path="/etc/ssl/certs/nexus.bundle.crt",
+            gdc_nexus_key_path="/etc/ssl/private/nexus.key",
+            gdc_sub_ca_cert_path="/etc/ssl/sub-ca/sub-ca.crt",
+            gdc_sub_ca_key_path="/etc/ssl/sub-ca/sub-ca.key",
+            gdc_nexus_domain="nexus.internal.gdc.local",
+            gdc_nexus_alias="nexus.gdc.local",
+            gdc_nexus_tls_renew_threshold_seconds=2592000
+        )
+        self.assertIn("step certificate create nexus.internal.gdc.local", rendered_script)
+        self.assertIn("--bundle", rendered_script)
+        self.assertIn("systemctl reload nginx", rendered_script)
+
+        service_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/service_hubs/templates/refresh-nexus-tls.service.j2")
+        self.assertTrue(os.path.exists(service_path), "refresh-nexus-tls.service.j2 does not exist")
+        with open(service_path, "r", encoding="utf-8") as f:
+            service_content = f.read()
+        self.assertIn("ExecStart=/usr/local/bin/refresh-nexus-tls.sh", service_content)
+
+        timer_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/service_hubs/templates/refresh-nexus-tls.timer.j2")
+        self.assertTrue(os.path.exists(timer_path), "refresh-nexus-tls.timer.j2 does not exist")
+        with open(timer_path, "r", encoding="utf-8") as f:
+            timer_content = f.read()
+        self.assertIn("OnCalendar=Sun *-*-* 03:00:00", timer_content)
+
 if __name__ == "__main__":
     unittest.main()

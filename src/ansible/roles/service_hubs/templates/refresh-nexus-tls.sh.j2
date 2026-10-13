@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+set -euo pipefail
+
+CERT_PATH="{{ gdc_nexus_cert_path }}"
+KEY_PATH="{{ gdc_nexus_key_path }}"
+SUB_CA_CERT="{{ gdc_sub_ca_cert_path }}"
+SUB_CA_KEY="{{ gdc_sub_ca_key_path }}"
+RENEW_THRESHOLD_SECONDS={{ gdc_nexus_tls_renew_threshold_seconds | default(2592000) }}
+
+needs_renewal=false
+
+if [[ ! -f "${CERT_PATH}" ]] || [[ ! -f "${KEY_PATH}" ]]; then
+    echo "[*] Nexus TLS certificates not found. Minting initial certificate..."
+    needs_renewal=true
+elif ! openssl x509 -checkend "${RENEW_THRESHOLD_SECONDS}" -noout -in "${CERT_PATH}" &>/dev/null; then
+    echo "[*] Nexus TLS certificate is expiring within ${RENEW_THRESHOLD_SECONDS} seconds. Initiating renewal..."
+    needs_renewal=true
+else
+    echo "[+] Nexus TLS certificate is valid. No action required."
+    exit 0
+fi
+
+if [[ "${needs_renewal}" == "true" ]]; then
+    if [[ ! -f "${SUB_CA_CERT}" ]] || [[ ! -f "${SUB_CA_KEY}" ]]; then
+        echo "[!] Error: Sub-CA credentials missing at ${SUB_CA_CERT} or ${SUB_CA_KEY}." >&2
+        exit 1
+    fi
+
+    step certificate create {{ gdc_nexus_domain }} \
+        "${CERT_PATH}" \
+        "${KEY_PATH}" \
+        --ca="${SUB_CA_CERT}" \
+        --ca-key="${SUB_CA_KEY}" \
+        --san="{{ gdc_nexus_domain }}" \
+        --san="{{ gdc_nexus_alias }}" \
+        --bundle \
+        --not-after=8760h \
+        --no-password --insecure --force
+
+    chmod 0644 "${CERT_PATH}"
+    chmod 0600 "${KEY_PATH}"
+    chown root:root "${CERT_PATH}" "${KEY_PATH}"
+
+    if command -v nginx &>/dev/null && nginx -t &>/dev/null; then
+        systemctl reload nginx
+        echo "[+] Successfully renewed Nexus TLS certificate and reloaded Nginx."
+    fi
+fi
