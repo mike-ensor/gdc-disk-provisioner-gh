@@ -597,7 +597,7 @@ autoinstall:
       # Local GDC Hosted (Sideloaded Update) Repository
       Enabled: yes
       Types: deb
-      URIs: {% if nexus_tls_enabled | default(true) %}https://{{ nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-hosted/{% else %}http://127.0.0.1:8081/repository/gdc-apt-hosted/{% endif %}
+      URIs: {% if nexus_tls_enabled is not defined or (nexus_tls_enabled and nexus_tls_enabled not in [false, 'false', 'False', 0, '0']) %}https://{{ nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-hosted/{% else %}http://127.0.0.1:8081/repository/gdc-apt-hosted/{% endif %}
       Suites: noble
       Components: main restricted universe multiverse
       Signed-By: /etc/apt/keyrings/gdc-nexus.gpg
@@ -606,7 +606,7 @@ autoinstall:
       # Local GDC Proxy (Upstream Cache) Repository
       Enabled: yes
       Types: deb
-      URIs: {% if nexus_tls_enabled | default(true) %}https://{{ nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-proxy/{% else %}http://127.0.0.1:8081/repository/gdc-apt-proxy/{% endif %}
+      URIs: {% if nexus_tls_enabled is not defined or (nexus_tls_enabled and nexus_tls_enabled not in [false, 'false', 'False', 0, '0']) %}https://{{ nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-proxy/{% else %}http://127.0.0.1:8081/repository/gdc-apt-proxy/{% endif %}
       Suites: noble
       Components: main restricted universe multiverse
       Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg

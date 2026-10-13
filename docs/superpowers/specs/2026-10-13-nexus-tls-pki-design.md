@@ -121,6 +121,9 @@ The secret payload stored in Secret Manager must adhere to the following JSON st
 }
 ```
 
+For the step-by-step operator runbook detailing input certificate generation, JSON packaging via `jq`/Python, `gcloud` Secret Manager commands, and IAM role assignment, see:  
+👉 [`docs/pki-sub-ca-gsm-setup.md`](../../pki-sub-ca-gsm-setup.md)
+
 ### 4.4. Resilient Secret Ingestion Task (Ansible)
 In `src/ansible/roles/machine_orchestration/tasks/main.yml`, secret retrieval implements location-aware fallback:
 ```yaml
