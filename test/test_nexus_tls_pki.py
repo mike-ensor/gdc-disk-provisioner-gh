@@ -322,24 +322,109 @@ class TestNexusTLSPKI(unittest.TestCase):
         self.assertIn("nexus_tls_enabled not in [false, 'false', 'False', 0, '0']", ud_content)
 
     def test_cert_manager_pki_tasks(self):
-        """Verifies cert_manager_pki.yml defines Secret and ClusterIssuer resources."""
+        """Verifies cert_manager_pki.yml defines Secret, ClusterIssuer, slurps certificates, and kubeconfig."""
         task_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/post_cluster/tasks/cert_manager_pki.yml")
         self.assertTrue(os.path.exists(task_path), "cert_manager_pki.yml does not exist")
         with open(task_path, "r", encoding="utf-8") as f:
             tasks = yaml.safe_load(f)
 
-        task_names = []
-        def extract_names(t_list):
+        all_tasks = []
+        def extract_tasks(t_list):
             for t in t_list:
                 if isinstance(t, dict):
-                    if "name" in t:
-                        task_names.append(t["name"])
+                    all_tasks.append(t)
                     if "block" in t:
-                        extract_names(t["block"])
-        extract_names(tasks)
+                        extract_tasks(t["block"])
+        extract_tasks(tasks)
 
+        task_names = [t.get("name", "") for t in all_tasks]
         self.assertTrue(any("Seed Sub-CA TLS secret into cert-manager" in name for name in task_names))
         self.assertTrue(any("Deploy gdc-ca-issuer ClusterIssuer" in name for name in task_names))
+
+        # Assert no lookup('file') is used, slurp is used instead
+        with open(task_path, "r", encoding="utf-8") as f:
+            raw_content = f.read()
+        self.assertNotIn("lookup('file'", raw_content, "cert_manager_pki.yml must not use lookup('file')")
+        self.assertIn("ansible.builtin.slurp", raw_content, "cert_manager_pki.yml must use ansible.builtin.slurp")
+
+        # Assert stat tasks check all three artifacts
+        stat_paths = [
+            t.get("ansible.builtin.stat", {}).get("path")
+            for t in all_tasks
+            if "ansible.builtin.stat" in t
+        ]
+        self.assertIn("{{ gdc_sub_ca_key_path }}", stat_paths)
+        self.assertIn("{{ gdc_sub_ca_cert_path }}", stat_paths)
+        self.assertIn("{{ gdc_enterprise_root_cert_path }}", stat_paths)
+
+        # Assert slurp tasks exist for all three artifacts
+        slurp_srcs = [
+            t.get("ansible.builtin.slurp", {}).get("src")
+            for t in all_tasks
+            if "ansible.builtin.slurp" in t
+        ]
+        self.assertIn("{{ gdc_sub_ca_key_path }}", slurp_srcs)
+        self.assertIn("{{ gdc_sub_ca_cert_path }}", slurp_srcs)
+        self.assertIn("{{ gdc_enterprise_root_cert_path }}", slurp_srcs)
+
+        # Assert kubeconfig is specified on all k8s tasks
+        k8s_tasks = [t for t in all_tasks if "kubernetes.core.k8s" in t or "k8s" in t]
+        self.assertGreaterEqual(len(k8s_tasks), 3, "Expected at least 3 k8s tasks")
+        expected_kubeconfig = "{{ gdc_admin_kubeconfig | default('/etc/kubernetes/admin.conf') }}"
+        for t in k8s_tasks:
+            k8s_cfg = t.get("kubernetes.core.k8s", t.get("k8s", {}))
+            self.assertEqual(
+                k8s_cfg.get("kubeconfig"),
+                expected_kubeconfig,
+                f"Task '{t.get('name')}' must specify kubeconfig"
+            )
+
+        # Assert no_log: true is set on secret seeding task
+        secret_task = next(
+            (t for t in all_tasks if "Seed Sub-CA TLS secret into cert-manager" in t.get("name", "")),
+            None
+        )
+        self.assertIsNotNone(secret_task, "Secret seeding task not found")
+        assert secret_task is not None
+        self.assertTrue(secret_task.get("no_log") is True, "Secret seeding task must have no_log: true")
+
+        # Assert namespace is cert-manager and type is kubernetes.io/tls
+        secret_def = secret_task.get("kubernetes.core.k8s", {}).get("definition", {})
+        self.assertEqual(secret_def.get("metadata", {}).get("namespace"), "cert-manager")
+        self.assertEqual(secret_def.get("type"), "kubernetes.io/tls")
+
+        # Assert tls.key and tls.crt values in Secret definition
+        secret_data = secret_def.get("data", {})
+        self.assertEqual(secret_data.get("tls.key"), "{{ slurped_sub_ca_key.content }}")
+        tls_crt_expr = secret_data.get("tls.crt", "")
+        self.assertIn("slurped_sub_ca_cert.content", tls_crt_expr)
+        self.assertIn("slurped_enterprise_root_cert.content", tls_crt_expr)
+        self.assertIn("b64decode", tls_crt_expr)
+        self.assertIn("trim", tls_crt_expr)
+        self.assertIn("b64encode", tls_crt_expr)
+
+        # Assert ClusterIssuer task ignores errors or handles missing CRDs
+        issuer_task = next(
+            (t for t in all_tasks if "Deploy gdc-ca-issuer ClusterIssuer" in t.get("name", "")),
+            None
+        )
+        self.assertIsNotNone(issuer_task, "ClusterIssuer task not found")
+        assert issuer_task is not None
+        self.assertTrue(
+            issuer_task.get("ignore_errors") is True or "failed_when" in issuer_task,
+            "ClusterIssuer task must handle missing CRDs with ignore_errors: true"
+        )
+
+        # Assert cert_manager_pki.yml is included in post_cluster/tasks/main.yml
+        main_task_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/post_cluster/tasks/main.yml")
+        with open(main_task_path, "r", encoding="utf-8") as f:
+            main_tasks = yaml.safe_load(f)
+        included_files = [
+            t.get("ansible.builtin.include_tasks", t.get("include_tasks"))
+            for t in main_tasks
+            if isinstance(t, dict) and ("ansible.builtin.include_tasks" in t or "include_tasks" in t)
+        ]
+        self.assertIn("cert_manager_pki.yml", included_files, "post_cluster/tasks/main.yml must include cert_manager_pki.yml")
 
 if __name__ == "__main__":
     unittest.main()

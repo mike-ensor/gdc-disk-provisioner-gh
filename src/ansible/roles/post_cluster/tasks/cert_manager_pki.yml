@@ -4,16 +4,46 @@
   when:
     - gdc_nexus_tls_enabled | default(true) | bool
   block:
-    - name: "GDC-K8S-PKI | Check if Sub-CA credentials exist on host"
+    - name: "GDC-K8S-PKI | Check if Sub-CA private key exists on host"
       ansible.builtin.stat:
         path: "{{ gdc_sub_ca_key_path }}"
       register: sub_ca_key_stat
 
+    - name: "GDC-K8S-PKI | Check if Sub-CA certificate exists on host"
+      ansible.builtin.stat:
+        path: "{{ gdc_sub_ca_cert_path }}"
+      register: sub_ca_cert_stat
+
+    - name: "GDC-K8S-PKI | Check if Enterprise Root CA certificate exists on host"
+      ansible.builtin.stat:
+        path: "{{ gdc_enterprise_root_cert_path }}"
+      register: enterprise_root_cert_stat
+
     - name: "GDC-K8S-PKI | Seed Sub-CA and configure ClusterIssuer"
-      when: sub_ca_key_stat.stat.exists
+      when:
+        - sub_ca_key_stat.stat.exists
+        - sub_ca_cert_stat.stat.exists
+        - enterprise_root_cert_stat.stat.exists
       block:
+        - name: "GDC-K8S-PKI | Slurp Sub-CA certificate from host"
+          ansible.builtin.slurp:
+            src: "{{ gdc_sub_ca_cert_path }}"
+          register: slurped_sub_ca_cert
+
+        - name: "GDC-K8S-PKI | Slurp Enterprise Root CA certificate from host"
+          ansible.builtin.slurp:
+            src: "{{ gdc_enterprise_root_cert_path }}"
+          register: slurped_enterprise_root_cert
+
+        - name: "GDC-K8S-PKI | Slurp Sub-CA private key from host"
+          ansible.builtin.slurp:
+            src: "{{ gdc_sub_ca_key_path }}"
+          register: slurped_sub_ca_key
+          no_log: true
+
         - name: "GDC-K8S-PKI | Ensure cert-manager namespace exists"
           kubernetes.core.k8s:
+            kubeconfig: "{{ gdc_admin_kubeconfig | default('/etc/kubernetes/admin.conf') }}"
             api_version: v1
             kind: Namespace
             name: cert-manager
@@ -21,6 +51,7 @@
 
         - name: "GDC-K8S-PKI | Seed Sub-CA TLS secret into cert-manager"
           kubernetes.core.k8s:
+            kubeconfig: "{{ gdc_admin_kubeconfig | default('/etc/kubernetes/admin.conf') }}"
             state: present
             definition:
               apiVersion: v1
@@ -30,12 +61,13 @@
                 namespace: cert-manager
               type: kubernetes.io/tls
               data:
-                tls.crt: "{{ (lookup('file', gdc_sub_ca_cert_path) + '\n' + lookup('file', gdc_enterprise_root_cert_path)) | b64encode }}"
-                tls.key: "{{ lookup('file', gdc_sub_ca_key_path) | b64encode }}"
+                tls.crt: "{{ ([slurped_sub_ca_cert.content | b64decode | trim, slurped_enterprise_root_cert.content | b64decode | trim] | join('\n')) | b64encode }}"
+                tls.key: "{{ slurped_sub_ca_key.content }}"
           no_log: true
 
         - name: "GDC-K8S-PKI | Deploy gdc-ca-issuer ClusterIssuer"
           kubernetes.core.k8s:
+            kubeconfig: "{{ gdc_admin_kubeconfig | default('/etc/kubernetes/admin.conf') }}"
             state: present
             definition:
               apiVersion: cert-manager.io/v1
@@ -45,3 +77,4 @@
               spec:
                 ca:
                   secretName: gdc-sub-ca-keypair
+          ignore_errors: true
