@@ -27,13 +27,13 @@ if [[ "${needs_renewal}" == "true" ]]; then
         exit 1
     fi
 
-    step certificate create {{ gdc_nexus_domain }} \
+    step certificate create "{{ gdc_nexus_domain }}" \
         "${CERT_PATH}" \
         "${KEY_PATH}" \
         --ca="${SUB_CA_CERT}" \
         --ca-key="${SUB_CA_KEY}" \
         --san="{{ gdc_nexus_domain }}" \
-        --san="{{ gdc_nexus_alias }}" \
+        {% if gdc_nexus_alias is defined and gdc_nexus_alias %}--san="{{ gdc_nexus_alias }}" \{% endif %}
         --bundle \
         --not-after=8760h \
         --no-password --insecure --force
@@ -42,7 +42,7 @@ if [[ "${needs_renewal}" == "true" ]]; then
     chmod 0600 "${KEY_PATH}"
     chown root:root "${CERT_PATH}" "${KEY_PATH}"
 
-    if command -v nginx &>/dev/null && nginx -t &>/dev/null; then
+    if command -v nginx &>/dev/null && systemctl is-active --quiet nginx && nginx -t &>/dev/null; then
         systemctl reload nginx
         echo "[+] Successfully renewed Nexus TLS certificate and reloaded Nginx."
     fi

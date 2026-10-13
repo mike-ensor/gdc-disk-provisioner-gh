@@ -144,23 +144,47 @@ class TestNexusTLSPKI(unittest.TestCase):
             gdc_sub_ca_key_path="/etc/ssl/sub-ca/sub-ca.key",
             gdc_nexus_domain="nexus.internal.gdc.local",
             gdc_nexus_alias="nexus.gdc.local",
-            gdc_nexus_tls_renew_threshold_seconds=2592000
+            gdc_nexus_tls_renew_threshold_seconds=123456
         )
-        self.assertIn("step certificate create nexus.internal.gdc.local", rendered_script)
+        self.assertIn('step certificate create "nexus.internal.gdc.local"', rendered_script)
+        self.assertIn('--san="nexus.gdc.local"', rendered_script)
         self.assertIn("--bundle", rendered_script)
+        self.assertIn("systemctl is-active --quiet nginx", rendered_script)
         self.assertIn("systemctl reload nginx", rendered_script)
+        self.assertIn("RENEW_THRESHOLD_SECONDS=123456", rendered_script)
+
+        # Test default threshold and alias guard when omitted
+        rendered_default_script = script_tmpl.render(
+            gdc_nexus_cert_path="/etc/ssl/certs/nexus.bundle.crt",
+            gdc_nexus_key_path="/etc/ssl/private/nexus.key",
+            gdc_sub_ca_cert_path="/etc/ssl/sub-ca/sub-ca.crt",
+            gdc_sub_ca_key_path="/etc/ssl/sub-ca/sub-ca.key",
+            gdc_nexus_domain="nexus.internal.gdc.local"
+        )
+        self.assertIn("RENEW_THRESHOLD_SECONDS=2592000", rendered_default_script)
+        self.assertNotIn('--san="nexus.gdc.local"', rendered_default_script)
 
         service_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/service_hubs/templates/refresh-nexus-tls.service.j2")
         self.assertTrue(os.path.exists(service_path), "refresh-nexus-tls.service.j2 does not exist")
         with open(service_path, "r", encoding="utf-8") as f:
-            service_content = f.read()
-        self.assertIn("ExecStart=/usr/local/bin/refresh-nexus-tls.sh", service_content)
+            service_tmpl = env.from_string(f.read())
+        rendered_service = service_tmpl.render(
+            gdc_sub_ca_dir="/etc/ssl/sub-ca"
+        )
+        self.assertIn("ExecStart=/usr/local/bin/refresh-nexus-tls.sh", rendered_service)
+        self.assertIn("ReadWritePaths=/etc/ssl/certs /etc/ssl/private", rendered_service)
+        self.assertIn("ReadOnlyPaths=-/etc/ssl/sub-ca", rendered_service)
+
+        # Test default sub-ca path in service template
+        rendered_default_service = service_tmpl.render()
+        self.assertIn("ReadOnlyPaths=-/etc/ssl/sub-ca", rendered_default_service)
 
         timer_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/service_hubs/templates/refresh-nexus-tls.timer.j2")
         self.assertTrue(os.path.exists(timer_path), "refresh-nexus-tls.timer.j2 does not exist")
         with open(timer_path, "r", encoding="utf-8") as f:
-            timer_content = f.read()
-        self.assertIn("OnCalendar=Sun *-*-* 03:00:00", timer_content)
+            timer_tmpl = env.from_string(f.read())
+        rendered_timer = timer_tmpl.render()
+        self.assertIn("OnCalendar=Sun *-*-* 03:00:00", rendered_timer)
 
 if __name__ == "__main__":
     unittest.main()
