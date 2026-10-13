@@ -227,7 +227,7 @@
       # Local GDC Hosted (Sideloaded Update) Repository
       Enabled: yes
       Types: deb
-      URIs: http://{{ gdc_nexus_domain | default('nexus.internal.gdc.local') }}:8081/repository/gdc-apt-hosted/
+      URIs: {% if gdc_nexus_tls_enabled | default(true) | bool %}https://{{ gdc_nexus_domain }}/repository/gdc-apt-hosted/{% else %}http://127.0.0.1:8081/repository/gdc-apt-hosted/{% endif %}
       Suites: noble
       Components: main
       Signed-By: /etc/apt/keyrings/gdc-nexus.gpg
@@ -236,7 +236,7 @@
       # Local GDC Proxy (Upstream Cache) Repository
       Enabled: yes
       Types: deb
-      URIs: http://{{ gdc_nexus_domain | default('nexus.internal.gdc.local') }}:8081/repository/gdc-apt-proxy/
+      URIs: {% if gdc_nexus_tls_enabled | default(true) | bool %}https://{{ gdc_nexus_domain }}/repository/gdc-apt-proxy/{% else %}http://127.0.0.1:8081/repository/gdc-apt-proxy/{% endif %}
       Suites: noble noble-updates noble-backports noble-security
       Components: main restricted universe multiverse
       Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg

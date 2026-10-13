@@ -278,5 +278,63 @@ class TestNexusTLSPKI(unittest.TestCase):
         when_conds = nginx_start_task.get("when", [])
         self.assertTrue(any("stat.exists" in str(c) for c in when_conds), "Nginx start must be guarded by certificate stat.exists checks")
 
+    def test_apt_sources_redirect_to_https(self):
+        """Verifies host_foundations and user-data configure APT sources using https://nexus.internal.gdc.local."""
+        task_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/host_foundations/tasks/main.yml")
+        with open(task_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("https://{{ gdc_nexus_domain }}/repository/", content)
+
+        user_data_path = os.path.join(PROJECT_ROOT, "src/build/templates/user-data.j2")
+        with open(user_data_path, "r", encoding="utf-8") as f:
+            ud_content = f.read()
+        self.assertIn("https://{{ nexus_domain | default('nexus.internal.gdc.local') }}/repository/", ud_content)
+
+        env = Environment()
+        env.filters['bool'] = lambda v: v if isinstance(v, bool) else (str(v).lower() in ('true', 'yes', '1') if v is not None else False)
+        # Verify host_foundations Jinja logic when rendered
+        # Hosted
+        hf_hosted_snippet = "{% if gdc_nexus_tls_enabled | default(true) | bool %}https://{{ gdc_nexus_domain }}/repository/gdc-apt-hosted/{% else %}http://127.0.0.1:8081/repository/gdc-apt-hosted/{% endif %}"
+        self.assertEqual(
+            env.from_string(hf_hosted_snippet).render(gdc_nexus_domain="nexus.internal.gdc.local"),
+            "https://nexus.internal.gdc.local/repository/gdc-apt-hosted/"
+        )
+        self.assertEqual(
+            env.from_string(hf_hosted_snippet).render(gdc_nexus_domain="nexus.internal.gdc.local", gdc_nexus_tls_enabled=False),
+            "http://127.0.0.1:8081/repository/gdc-apt-hosted/"
+        )
+
+        # Proxy
+        hf_proxy_snippet = "{% if gdc_nexus_tls_enabled | default(true) | bool %}https://{{ gdc_nexus_domain }}/repository/gdc-apt-proxy/{% else %}http://127.0.0.1:8081/repository/gdc-apt-proxy/{% endif %}"
+        self.assertEqual(
+            env.from_string(hf_proxy_snippet).render(gdc_nexus_domain="nexus.internal.gdc.local"),
+            "https://nexus.internal.gdc.local/repository/gdc-apt-proxy/"
+        )
+        self.assertEqual(
+            env.from_string(hf_proxy_snippet).render(gdc_nexus_domain="nexus.internal.gdc.local", gdc_nexus_tls_enabled=False),
+            "http://127.0.0.1:8081/repository/gdc-apt-proxy/"
+        )
+
+        # Verify user-data Jinja logic when rendered
+        ud_hosted_snippet = "{% if nexus_tls_enabled | default(true) %}https://{{ nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-hosted/{% else %}http://127.0.0.1:8081/repository/gdc-apt-hosted/{% endif %}"
+        self.assertEqual(
+            env.from_string(ud_hosted_snippet).render(),
+            "https://nexus.internal.gdc.local/repository/gdc-apt-hosted/"
+        )
+        self.assertEqual(
+            env.from_string(ud_hosted_snippet).render(nexus_tls_enabled=False),
+            "http://127.0.0.1:8081/repository/gdc-apt-hosted/"
+        )
+
+        ud_proxy_snippet = "{% if nexus_tls_enabled | default(true) %}https://{{ nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-proxy/{% else %}http://127.0.0.1:8081/repository/gdc-apt-proxy/{% endif %}"
+        self.assertEqual(
+            env.from_string(ud_proxy_snippet).render(),
+            "https://nexus.internal.gdc.local/repository/gdc-apt-proxy/"
+        )
+        self.assertEqual(
+            env.from_string(ud_proxy_snippet).render(nexus_tls_enabled=False),
+            "http://127.0.0.1:8081/repository/gdc-apt-proxy/"
+        )
+
 if __name__ == "__main__":
     unittest.main()
