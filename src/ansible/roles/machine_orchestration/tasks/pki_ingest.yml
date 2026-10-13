@@ -1,0 +1,87 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "GDC-PKI | Ingest Enterprise Sub-CA from Secret Manager"
+  when:
+    - cluster_config is defined
+    - cluster_config.sub_ca_secret is defined
+    - cluster_config.sub_ca_secret['gsm-name'] is defined
+    - cluster_config.sub_ca_secret['gsm-name'] | trim | length > 0
+  block:
+    - name: "GDC-PKI | Access Sub-CA Secret payload via gcloud"
+      ansible.builtin.command: >-
+        gcloud secrets versions access latest
+        --secret={{ cluster_config.sub_ca_secret['gsm-name'] }}
+        --project={{ gcp_project_id }}
+        {% if cluster_config.sub_ca_secret['gsm-location'] is defined and cluster_config.sub_ca_secret['gsm-location'] | trim | length > 0 and cluster_config.sub_ca_secret['gsm-location'] != 'global' %}
+        --location={{ cluster_config.sub_ca_secret['gsm-location'] }}
+        {% endif %}
+      register: gsm_sub_ca_res
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: "GDC-PKI | Fallback: Access Sub-CA Secret payload as global resource"
+      ansible.builtin.command: >-
+        gcloud secrets versions access latest
+        --secret={{ cluster_config.sub_ca_secret['gsm-name'] }}
+        --project={{ gcp_project_id }}
+      register: gsm_sub_ca_res_fallback
+      when:
+        - gsm_sub_ca_res.rc != 0
+        - cluster_config.sub_ca_secret['gsm-location'] is defined
+        - cluster_config.sub_ca_secret['gsm-location'] != 'global'
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: "GDC-PKI | Adopt fallback Sub-CA payload if successful"
+      ansible.builtin.set_fact:
+        gsm_sub_ca_res: "{{ gsm_sub_ca_res_fallback }}"
+      when:
+        - gsm_sub_ca_res.rc != 0
+        - gsm_sub_ca_res_fallback is defined
+        - gsm_sub_ca_res_fallback.rc == 0
+
+    - name: "GDC-PKI | Write Sub-CA credentials and register Root CA trust"
+      when: gsm_sub_ca_res.rc == 0
+      block:
+        - name: "GDC-PKI | Ensure Sub-CA and private key directories exist"
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: directory
+            owner: root
+            group: root
+            mode: '0700'
+          loop:
+            - "{{ gdc_sub_ca_dir }}"
+            - "/etc/ssl/private"
+
+        - name: "GDC-PKI | Write Corporate Root CA to system trust store"
+          ansible.builtin.copy:
+            dest: "{{ gdc_enterprise_root_cert_path }}"
+            content: "{{ (gsm_sub_ca_res.stdout | from_json)['root.crt'] }}"
+            owner: root
+            group: root
+            mode: '0644'
+          register: root_ca_write_res
+
+        - name: "GDC-PKI | Update OS System CA Certificates"
+          ansible.builtin.command: update-ca-certificates
+          when: root_ca_write_res.changed
+
+        - name: "GDC-PKI | Write Sub-CA Certificate"
+          ansible.builtin.copy:
+            dest: "{{ gdc_sub_ca_cert_path }}"
+            content: "{{ (gsm_sub_ca_res.stdout | from_json)['ca.crt'] }}"
+            owner: root
+            group: root
+            mode: '0644'
+
+        - name: "GDC-PKI | Write Sub-CA Private Key"
+          ansible.builtin.copy:
+            dest: "{{ gdc_sub_ca_key_path }}"
+            content: "{{ (gsm_sub_ca_res.stdout | from_json)['ca.key'] }}"
+            owner: root
+            group: root
+            mode: '0400'
+            no_log: true

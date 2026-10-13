@@ -24,16 +24,52 @@ class TestNexusTLSPKI(unittest.TestCase):
         self.assertIn("nginx", packages, "Missing 'nginx' in platform_required packages")
 
     def test_ansible_vars_contain_pki_parameters(self):
-        """Verifies all.yml defines default PKI paths, domains, and renewal thresholds."""
+        """Verifies all.yml and all.yml.j2 define default PKI paths, domains, and renewal thresholds."""
         vars_path = os.path.join(PROJECT_ROOT, "src/ansible/vars/all.yml")
         with open(vars_path, "r", encoding="utf-8") as f:
             vars_data = yaml.safe_load(f)
 
-        self.assertEqual(vars_data.get("gdc_nexus_tls_enabled"), True)
-        self.assertEqual(vars_data.get("gdc_nexus_https_port"), 443)
-        self.assertEqual(vars_data.get("gdc_sub_ca_dir"), "/etc/ssl/sub-ca")
-        self.assertEqual(vars_data.get("gdc_nexus_cert_path"), "/etc/ssl/certs/nexus.bundle.crt")
-        self.assertEqual(vars_data.get("gdc_nexus_key_path"), "/etc/ssl/private/nexus.key")
+        expected_vars = {
+            "gdc_nexus_tls_enabled": True,
+            "gdc_nexus_https_port": 443,
+            "gdc_sub_ca_dir": "/etc/ssl/sub-ca",
+            "gdc_sub_ca_cert_path": "/etc/ssl/sub-ca/sub-ca.crt",
+            "gdc_sub_ca_key_path": "/etc/ssl/sub-ca/sub-ca.key",
+            "gdc_enterprise_root_cert_path": "/usr/local/share/ca-certificates/gdc-enterprise-root.crt",
+            "gdc_nexus_cert_path": "/etc/ssl/certs/nexus.bundle.crt",
+            "gdc_nexus_key_path": "/etc/ssl/private/nexus.key",
+            "gdc_nexus_tls_renew_threshold_seconds": 2592000,
+        }
+
+        for var_name, expected_val in expected_vars.items():
+            self.assertEqual(vars_data.get(var_name), expected_val, f"all.yml missing or incorrect {var_name}")
+
+        j2_path = os.path.join(PROJECT_ROOT, "src/ansible/vars/all.yml.j2")
+        with open(j2_path, "r", encoding="utf-8") as f:
+            j2_content = f.read()
+
+        for var_name in expected_vars:
+            self.assertIn(var_name, j2_content, f"all.yml.j2 missing {var_name}")
+
+    def test_pki_ingest_tasks_structure(self):
+        """Verifies pki_ingest.yml parses cleanly and includes gcloud location fallback logic."""
+        pki_task_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/machine_orchestration/tasks/pki_ingest.yml")
+        self.assertTrue(os.path.exists(pki_task_path), "pki_ingest.yml does not exist")
+        with open(pki_task_path, "r", encoding="utf-8") as f:
+            tasks = yaml.safe_load(f)
+
+        task_names = []
+        def extract_names(task_list):
+            for t in task_list:
+                if "name" in t:
+                    task_names.append(t["name"])
+                if "block" in t:
+                    extract_names(t["block"])
+        extract_names(tasks)
+
+        self.assertTrue(any("Access Sub-CA Secret payload via gcloud" in name for name in task_names))
+        self.assertTrue(any("Fallback: Access Sub-CA Secret payload as global resource" in name for name in task_names))
+        self.assertTrue(any("Write Corporate Root CA" in name for name in task_names))
 
 if __name__ == "__main__":
     unittest.main()
