@@ -629,6 +629,8 @@
     - name: "GDC-TASK-04 | Execute refresh-nexus-tls.sh to mint initial certificates if missing"
       ansible.builtin.command:
         cmd: /usr/local/bin/refresh-nexus-tls.sh
+      register: refresh_res
+      changed_when: "'Minting initial certificate' in refresh_res.stdout or 'Successfully renewed' in refresh_res.stdout"
       when: sub_ca_key_stat.stat.exists
 
     - name: "GDC-TASK-04 | Deploy nexus-tls.conf site configuration"
@@ -640,20 +642,6 @@
         mode: '0644'
       register: nexus_tls_site_conf
 
-    - name: "GDC-TASK-04 | Enable nexus-tls.conf site in sites-enabled"
-      ansible.builtin.file:
-        src: /etc/nginx/sites-available/nexus-tls.conf
-        dest: /etc/nginx/sites-enabled/nexus-tls.conf
-        state: link
-        owner: root
-        group: root
-      register: nexus_tls_site_enabled
-
-    - name: "GDC-TASK-04 | Remove /etc/nginx/sites-enabled/default if present"
-      ansible.builtin.file:
-        path: /etc/nginx/sites-enabled/default
-        state: absent
-
     - name: "GDC-TASK-04 | Check if Nexus TLS certificate exists"
       ansible.builtin.stat:
         path: "{{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}"
@@ -663,6 +651,22 @@
       ansible.builtin.stat:
         path: "{{ gdc_nexus_key_path | default('/etc/ssl/private/nexus.key') }}"
       register: nexus_key_stat
+
+    - name: "GDC-TASK-04 | Enable nexus-tls.conf site in sites-enabled"
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/nexus-tls.conf
+        dest: /etc/nginx/sites-enabled/nexus-tls.conf
+        state: link
+        owner: root
+        group: root
+      register: nexus_tls_site_enabled
+      when: nexus_cert_stat.stat.exists and nexus_key_stat.stat.exists
+
+    - name: "GDC-TASK-04 | Remove /etc/nginx/sites-enabled/default if present"
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      when: nexus_cert_stat.stat.exists and nexus_key_stat.stat.exists
 
     - name: "GDC-TASK-04 | Ensure Nginx service is started and enabled"
       ansible.builtin.systemd:

@@ -30,6 +30,7 @@ server {
         client_max_body_size 50G;
         client_body_buffer_size 512k;
         proxy_request_buffering off;
+        proxy_buffering off;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         send_timeout 3600s;
@@ -40,6 +41,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto "https";
+        proxy_set_header X-Forwarded-Port $server_port;
     }
 
     # Route 2: APT repositories, Raw GGUF models, PyPI packages
@@ -47,6 +49,7 @@ server {
         client_max_body_size 50G;
         client_body_buffer_size 512k;
         proxy_request_buffering off;
+        proxy_buffering off;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         send_timeout 3600s;
@@ -57,6 +60,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto "https";
+        proxy_set_header X-Forwarded-Port $server_port;
     }
 
     # Route 3: Web UI and REST API
@@ -67,5 +71,6 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto "https";
+        proxy_set_header X-Forwarded-Port $server_port;
     }
 }

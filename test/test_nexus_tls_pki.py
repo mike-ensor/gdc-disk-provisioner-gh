@@ -204,6 +204,8 @@ class TestNexusTLSPKI(unittest.TestCase):
         self.assertIn("proxy_pass http://127.0.0.1:5001;", rendered_conf)
         self.assertIn("proxy_pass http://127.0.0.1:8081;", rendered_conf)
         self.assertIn("proxy_request_buffering off;", rendered_conf)
+        self.assertIn("proxy_buffering off;", rendered_conf)
+        self.assertIn("proxy_set_header X-Forwarded-Port $server_port;", rendered_conf)
 
     def test_service_hubs_nexus_tls_tasks(self):
         """Verifies service_hubs tasks/main.yml contains tasks for deploying refresh-nexus-tls.sh, nexus-tls.conf, refresh-nexus-tls.timer, and starting nginx."""
@@ -235,19 +237,39 @@ class TestNexusTLSPKI(unittest.TestCase):
         self.assertTrue(systemd_cfg.get("enabled") is True)
         self.assertEqual(systemd_cfg.get("state"), "started")
 
+        # Verify refresh-nexus-tls execution task registration and changed_when
+        exec_refresh_task = next((t for t in all_tasks if "refresh-nexus-tls.sh" in t.get("name", "") and "execute" in t.get("name", "").lower()), None)
+        self.assertIsNotNone(exec_refresh_task, "Execute refresh-nexus-tls.sh task not found")
+        assert exec_refresh_task is not None
+        self.assertEqual(exec_refresh_task.get("register"), "refresh_res")
+        self.assertIn("'Minting initial certificate' in refresh_res.stdout or 'Successfully renewed' in refresh_res.stdout", str(exec_refresh_task.get("changed_when", "")))
+
+        # Verify stat checks for cert and key are defined before site symlink and default site removal
+        cert_stat_idx = next(i for i, t in enumerate(all_tasks) if "nexus_cert_stat" == t.get("register"))
+        key_stat_idx = next(i for i, t in enumerate(all_tasks) if "nexus_key_stat" == t.get("register"))
+        symlink_idx = next(i for i, t in enumerate(all_tasks) if "sites-enabled" in t.get("name", "") and "nexus-tls.conf" in t.get("name", ""))
+        rm_default_idx = next(i for i, t in enumerate(all_tasks) if "default" in t.get("name", "") and "sites-enabled" in str(t))
+
+        self.assertLess(cert_stat_idx, symlink_idx, "Cert stat check must occur before site symlink creation")
+        self.assertLess(key_stat_idx, symlink_idx, "Key stat check must occur before site symlink creation")
+        self.assertLess(cert_stat_idx, rm_default_idx, "Cert stat check must occur before default site removal")
+        self.assertLess(key_stat_idx, rm_default_idx, "Key stat check must occur before default site removal")
+
         # Verify symlink for nexus-tls.conf
-        symlink_task = next((t for t in all_tasks if "sites-enabled" in t.get("name", "") and "nexus-tls.conf" in t.get("name", "")), None)
-        self.assertIsNotNone(symlink_task, "Symlink task for nexus-tls.conf not found")
-        assert symlink_task is not None
+        symlink_task = all_tasks[symlink_idx]
         file_cfg = symlink_task.get("ansible.builtin.file", symlink_task.get("file", {}))
         self.assertEqual(file_cfg.get("state"), "link")
+        symlink_when = str(symlink_task.get("when", ""))
+        self.assertIn("nexus_cert_stat.stat.exists", symlink_when)
+        self.assertIn("nexus_key_stat.stat.exists", symlink_when)
 
         # Verify removal of default site
-        rm_default_task = next((t for t in all_tasks if "default" in t.get("name", "") and "sites-enabled" in str(t)), None)
-        self.assertIsNotNone(rm_default_task, "Remove default site task not found")
-        assert rm_default_task is not None
+        rm_default_task = all_tasks[rm_default_idx]
         rm_file_cfg = rm_default_task.get("ansible.builtin.file", rm_default_task.get("file", {}))
         self.assertEqual(rm_file_cfg.get("state"), "absent")
+        rm_default_when = str(rm_default_task.get("when", ""))
+        self.assertIn("nexus_cert_stat.stat.exists", rm_default_when)
+        self.assertIn("nexus_key_stat.stat.exists", rm_default_when)
 
         # Verify Nginx start task checks certificate stat existence
         nginx_start_task = next((t for t in all_tasks if "nginx" in t.get("name", "").lower() and "start" in t.get("name", "").lower()), None)
