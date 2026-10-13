@@ -281,7 +281,7 @@ class TestGgdTemplateHydration(unittest.TestCase):
             self.assertIn("config", parsed, f"{filename} must contain a 'config' key.")
 
     def test_storage_config_lvm_partition_sizes(self):
-        """Verifies updated LVM sizes: lv_var_log=100G, single lv_nexus=300G, dual lv_nexus=-1, lv_sds=-1."""
+        """Verifies updated LVM sizes: lv_var_log=100G, single lv_nexus=300G, dual lv_nexus=-1, lv_sds=-1, lv_gitea=5G, lv_containerd=43G/48G."""
         storage_dir = os.path.join(self.template_dir, "storage")
         
         # Test Single Disk Templates (BIOS & UEFI)
@@ -292,6 +292,8 @@ class TestGgdTemplateHydration(unittest.TestCase):
             lvs = {item["name"]: str(item.get("size")) for item in parsed["config"] if item.get("type") == "lvm_partition"}
             self.assertEqual(lvs.get("lv_root"), "40G", f"{single_file} lv_root must be 40G")
             self.assertEqual(lvs.get("lv_var_log"), "100G", f"{single_file} lv_var_log must be 100G")
+            self.assertEqual(lvs.get("lv_gitea"), "5G", f"{single_file} lv_gitea must be 5G")
+            self.assertEqual(lvs.get("lv_containerd"), "43G", f"{single_file} lv_containerd must be 43G")
             self.assertEqual(lvs.get("lv_nexus"), "300G", f"{single_file} lv_nexus must be 300G")
             self.assertEqual(lvs.get("lv_sds"), "-1", f"{single_file} lv_sds must be -1")
 
@@ -303,6 +305,8 @@ class TestGgdTemplateHydration(unittest.TestCase):
             lvs = {item["name"]: str(item.get("size")) for item in parsed["config"] if item.get("type") == "lvm_partition"}
             self.assertEqual(lvs.get("lv_root"), "40G", f"{dual_file} lv_root must be 40G")
             self.assertEqual(lvs.get("lv_var_log"), "100G", f"{dual_file} lv_var_log must be 100G")
+            self.assertEqual(lvs.get("lv_gitea"), "5G", f"{dual_file} lv_gitea must be 5G")
+            self.assertEqual(lvs.get("lv_containerd"), "48G", f"{dual_file} lv_containerd must be 48G")
             self.assertEqual(lvs.get("lv_nexus"), "-1", f"{dual_file} lv_nexus must be -1")
             self.assertEqual(lvs.get("lv_sds"), "-1", f"{dual_file} lv_sds must be -1")
 
@@ -316,6 +320,8 @@ class TestGgdTemplateHydration(unittest.TestCase):
         lvs_single = {item["name"]: str(item.get("size")) for item in parsed_single["config"] if item.get("type") == "lvm_partition"}
         self.assertEqual(lvs_single.get("lv_root"), "40G", "storage_config.j2 single lv_root must be 40G")
         self.assertEqual(lvs_single.get("lv_var_log"), "100G", "storage_config.j2 single lv_var_log must be 100G")
+        self.assertEqual(lvs_single.get("lv_gitea"), "5G", "storage_config.j2 single lv_gitea must be 5G")
+        self.assertEqual(lvs_single.get("lv_containerd"), "40G", "storage_config.j2 single lv_containerd must be 40G")
         self.assertEqual(lvs_single.get("lv_nexus"), "300G", "storage_config.j2 single lv_nexus must be 300G")
         self.assertEqual(lvs_single.get("lv_sds"), "-1", "storage_config.j2 single lv_sds must be -1")
 
@@ -326,6 +332,8 @@ class TestGgdTemplateHydration(unittest.TestCase):
         lvs_dual = {item["name"]: str(item.get("size")) for item in parsed_dual["config"] if item.get("type") == "lvm_partition"}
         self.assertEqual(lvs_dual.get("lv_root"), "40G", "storage_config.j2 dual lv_root must be 40G")
         self.assertEqual(lvs_dual.get("lv_var_log"), "100G", "storage_config.j2 dual lv_var_log must be 100G")
+        self.assertEqual(lvs_dual.get("lv_gitea"), "5G", "storage_config.j2 dual lv_gitea must be 5G")
+        self.assertEqual(lvs_dual.get("lv_containerd"), "45G", "storage_config.j2 dual lv_containerd must be 45G")
         self.assertEqual(lvs_dual.get("lv_nexus"), "-1", "storage_config.j2 dual lv_nexus must be -1")
         self.assertEqual(lvs_dual.get("lv_sds"), "-1", "storage_config.j2 dual lv_sds must be -1")
 

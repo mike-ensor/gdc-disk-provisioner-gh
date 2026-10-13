@@ -54,7 +54,8 @@ This ensures that when Subiquity's storage engine provisions new partitions, the
 * **The Constraint:** The sum of standard GDC Logical Volume targets (including 100 GiB logs and 300 GiB Nexus) requires at least 557 GiB baseline storage before customer SDS allocation.
 * **The Resolution:** Logical volumes are allocated with dedicated quotas:
   * `lv_var_log` is allocated **100 GiB**.
-  * `lv_gitea` is scaled to **15 GiB**.
+  * `lv_containerd` is allocated **43 GiB**.
+  * `lv_gitea` is scaled to **5 GiB**.
   * `lv_nexus` (registry mirror) is allocated **300 GiB**.
   * `lv_local_disk` is scaled to **25 GiB**.
   * `lv_sds` (Software-Defined Storage) is assigned all remaining capacity (`size: -1`).
@@ -84,13 +85,13 @@ The primary target drives are partitioned and formatted based on the detected to
 | `lv_var` | `/var` | 20 GiB | EXT4 | `defaults,noatime` | Kubelet states and runtime data directories. |
 | `lv_var_log` | `/var/log` | 100 GiB | EXT4 | `defaults,noatime` | **Logs Isolation:** Fluent-bit buffers and journald logs isolated from system root. |
 | `lv_var_opt_metrics` | `/var/opt/buffered-metrics` | 10 GiB | EXT4 | `defaults,noatime` | **Metrics Isolation:** GDC metrics collection buffer (10,016 MiB required). |
-| `lv_containerd` | `/var/lib/containerd` | 30 GiB | XFS | `defaults,noatime,prjquota` | **CRI Isolation:** Container image storage; enforces XFS Project Quotas (`prjquota`). |
+| `lv_containerd` | `/var/lib/containerd` | 48 GiB* | XFS | `defaults,noatime,prjquota` | **CRI Isolation:** Container image storage; enforces XFS Project Quotas (`prjquota`). |
 | `lv_etcd` | `/var/lib/etcd` | 20 GiB | EXT4 | `noatime,nodiratime,commit=1` | **Performance Isolation:** Core etcd database. `commit=1` minimizes consensus write latency. |
 | `lv_etcd_events` | `/var/lib/etcd-events` | 5 GiB | EXT4 | `noatime,nodiratime,commit=1` | **Performance Isolation:** etcd events database. `commit=1` minimizes event write latency. |
-| `lv_gitea` | `/var/lib/gitea` | 20 GiB | EXT4 | `defaults,noatime` | Local Gitea mirror git repositories storage boundary. |
+| `lv_gitea` | `/var/lib/gitea` | 5 GiB | EXT4 | `defaults,noatime` | Local Gitea mirror git repositories storage boundary. |
 | `lv_nexus` | `/var/lib/nexus` | 300 GiB* | EXT4 | `defaults,noatime` | Local Nexus cache and blob stores (APT, OCI registry layers, LLMs). |
 
-*\* Note: On Single-Disk topologies, `lv_var_log` is 100 GiB, `lv_gitea` is scaled to 15 GiB, `lv_nexus` to 300 GiB, and `lv_root`/`lv_var` to 40 GiB/25 GiB. On Dual-Disk topologies, `lv_root` is 40 GiB and `lv_nexus` consumes the entire remainder of Disk 1 (`size: -1`, guaranteed $\ge 300\text{ GiB}$ on compliant drives).*
+*\* Note: On Single-Disk topologies, `lv_var_log` is 100 GiB, `lv_containerd` is scaled to 43 GiB, `lv_gitea` is 5 GiB, `lv_nexus` to 300 GiB, and `lv_root`/`lv_var` to 40 GiB/25 GiB. On Dual-Disk topologies, `lv_root` is 40 GiB, `lv_containerd` is 48 GiB, `lv_gitea` is 5 GiB, and `lv_nexus` consumes the entire remainder of Disk 1 (`size: -1`, guaranteed $\ge 300\text{ GiB}$ on compliant drives).*
 
 ### Data Volume Group (`vg_data`) - Mounted on Disk 2 (Multi-Disk Only)
 
