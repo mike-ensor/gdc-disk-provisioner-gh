@@ -186,5 +186,75 @@ class TestNexusTLSPKI(unittest.TestCase):
         rendered_timer = timer_tmpl.render()
         self.assertIn("OnCalendar=Sun *-*-* 03:00:00", rendered_timer)
 
+    def test_nginx_proxy_configuration_template(self):
+        """Verifies Nginx configuration renders TLS port 443, /v2/ routing, and DoS limits."""
+        env = Environment()
+        conf_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/service_hubs/templates/nexus-tls.conf.j2")
+        self.assertTrue(os.path.exists(conf_path), "nexus-tls.conf.j2 does not exist")
+        with open(conf_path, "r", encoding="utf-8") as f:
+            conf_tmpl = env.from_string(f.read())
+        rendered_conf = conf_tmpl.render(
+            gdc_nexus_https_port=443,
+            gdc_nexus_domain="nexus.internal.gdc.local",
+            gdc_nexus_alias="nexus.gdc.local",
+            gdc_nexus_cert_path="/etc/ssl/certs/nexus.bundle.crt",
+            gdc_nexus_key_path="/etc/ssl/private/nexus.key"
+        )
+        self.assertIn("listen 443 ssl default_server;", rendered_conf)
+        self.assertIn("proxy_pass http://127.0.0.1:5001;", rendered_conf)
+        self.assertIn("proxy_pass http://127.0.0.1:8081;", rendered_conf)
+        self.assertIn("proxy_request_buffering off;", rendered_conf)
+
+    def test_service_hubs_nexus_tls_tasks(self):
+        """Verifies service_hubs tasks/main.yml contains tasks for deploying refresh-nexus-tls.sh, nexus-tls.conf, refresh-nexus-tls.timer, and starting nginx."""
+        tasks_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/service_hubs/tasks/main.yml")
+        self.assertTrue(os.path.exists(tasks_path), "service_hubs/tasks/main.yml does not exist")
+        with open(tasks_path, "r", encoding="utf-8") as f:
+            tasks = yaml.safe_load(f)
+
+        all_tasks = []
+        def extract_tasks(task_list):
+            for t in task_list:
+                all_tasks.append(t)
+                if "block" in t:
+                    extract_tasks(t["block"])
+        extract_tasks(tasks)
+
+        task_names = [t.get("name", "") for t in all_tasks]
+        self.assertTrue(any("refresh-nexus-tls.sh" in name for name in task_names), "Missing task for deploying refresh-nexus-tls.sh")
+        self.assertTrue(any("nexus-tls.conf" in name for name in task_names), "Missing task for deploying nexus-tls.conf")
+        self.assertTrue(any("refresh-nexus-tls.timer" in name for name in task_names), "Missing task for enabling refresh-nexus-tls.timer")
+        self.assertTrue(any("nginx" in name.lower() for name in task_names), "Missing task for starting nginx")
+
+        # Verify timer task parameters
+        timer_task = next((t for t in all_tasks if "refresh-nexus-tls.timer" in t.get("name", "") and "enable" in t.get("name", "").lower()), None)
+        self.assertIsNotNone(timer_task, "Enable refresh-nexus-tls.timer task not found")
+        assert timer_task is not None
+        systemd_cfg = timer_task.get("ansible.builtin.systemd", timer_task.get("systemd", {}))
+        self.assertTrue(systemd_cfg.get("daemon_reload") is True)
+        self.assertTrue(systemd_cfg.get("enabled") is True)
+        self.assertEqual(systemd_cfg.get("state"), "started")
+
+        # Verify symlink for nexus-tls.conf
+        symlink_task = next((t for t in all_tasks if "sites-enabled" in t.get("name", "") and "nexus-tls.conf" in t.get("name", "")), None)
+        self.assertIsNotNone(symlink_task, "Symlink task for nexus-tls.conf not found")
+        assert symlink_task is not None
+        file_cfg = symlink_task.get("ansible.builtin.file", symlink_task.get("file", {}))
+        self.assertEqual(file_cfg.get("state"), "link")
+
+        # Verify removal of default site
+        rm_default_task = next((t for t in all_tasks if "default" in t.get("name", "") and "sites-enabled" in str(t)), None)
+        self.assertIsNotNone(rm_default_task, "Remove default site task not found")
+        assert rm_default_task is not None
+        rm_file_cfg = rm_default_task.get("ansible.builtin.file", rm_default_task.get("file", {}))
+        self.assertEqual(rm_file_cfg.get("state"), "absent")
+
+        # Verify Nginx start task checks certificate stat existence
+        nginx_start_task = next((t for t in all_tasks if "nginx" in t.get("name", "").lower() and "start" in t.get("name", "").lower()), None)
+        self.assertIsNotNone(nginx_start_task, "Nginx start task not found")
+        assert nginx_start_task is not None
+        when_conds = nginx_start_task.get("when", [])
+        self.assertTrue(any("stat.exists" in str(c) for c in when_conds), "Nginx start must be guarded by certificate stat.exists checks")
+
 if __name__ == "__main__":
     unittest.main()
