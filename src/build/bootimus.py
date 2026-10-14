@@ -72,12 +72,18 @@ def _get_str_env(keys, default):
     if isinstance(keys, str):
         keys = [keys]
     for k in keys:
-        if k in _ENV_DEFAULTS and str(_ENV_DEFAULTS[k]).strip():
-            return str(_ENV_DEFAULTS[k]).strip()
-    for k in keys:
         val = os.environ.get(k)
         if val is not None and str(val).strip():
-            return str(val).strip()
+            clean_val = str(val).strip()
+            # If val is the generic example domain from build.env, check if profile defined a specific host
+            if clean_val in ("pxe.example-labs.com", "http://pxe.example-labs.com:16000"):
+                for alt_k in keys:
+                    if alt_k in _ENV_DEFAULTS and str(_ENV_DEFAULTS[alt_k]).strip() and str(_ENV_DEFAULTS[alt_k]).strip() not in ("pxe.example-labs.com", "http://pxe.example-labs.com:16000"):
+                        return str(_ENV_DEFAULTS[alt_k]).strip()
+            return clean_val
+    for k in keys:
+        if k in _ENV_DEFAULTS and str(_ENV_DEFAULTS[k]).strip():
+            return str(_ENV_DEFAULTS[k]).strip()
     return default
 
 def _get_int_env(keys, default):
@@ -85,12 +91,12 @@ def _get_int_env(keys, default):
     if isinstance(keys, str):
         keys = [keys]
     for k in keys:
-        if k in _ENV_DEFAULTS and str(_ENV_DEFAULTS[k]).strip().isdigit():
-            return int(str(_ENV_DEFAULTS[k]).strip())
-    for k in keys:
         val = os.environ.get(k)
         if val is not None and str(val).strip().isdigit():
             return int(str(val).strip())
+    for k in keys:
+        if k in _ENV_DEFAULTS and str(_ENV_DEFAULTS[k]).strip().isdigit():
+            return int(str(_ENV_DEFAULTS[k]).strip())
     return default
 
 # Configurable Defaults (Can be overridden by environment variables)
