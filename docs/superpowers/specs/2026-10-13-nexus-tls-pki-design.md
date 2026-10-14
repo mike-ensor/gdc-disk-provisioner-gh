@@ -206,13 +206,18 @@ In `src/ansible/roles/machine_orchestration/tasks/main.yml`, secret retrieval im
 
 ## 5. Host Reverse Proxy (`nginx`) & Unified URL Mapping
 
-### 5.1. Nginx Host Configuration
+### 5.1. Nginx Host Configuration & Network Interface Binding Architecture
 Deployed to `/etc/nginx/sites-available/nexus-tls.conf` and enabled via `/etc/nginx/sites-enabled/nexus-tls.conf`:
+
+> **CRITICAL ARCHITECTURAL BINDING RULE:**  
+> The host Nginx reverse proxy MUST listen strictly on the **VLAN cluster network IP** (`gdc_service_hub_ip`, e.g. `192.168.109.12:443`) and **NOT** on `127.0.0.1:443` or the machine/management IP:
+> 1. **No Loopback (`127.0.0.1:443`) Collision:** GDC Anthos bare-metal deploys an `haproxy` static pod (`/etc/kubernetes/manifests/haproxy.yaml`) for control plane load balancing (`cplb-init`). HAProxy explicitly binds to both `127.0.0.1:443` and `CLUSTER_VIP:443`. If Nginx binds to `0.0.0.0:443` or `127.0.0.1:443`, HAProxy fails on startup (`cannot bind socket (Address already in use) for [127.0.0.1:443]`), deadlocking cluster initialization.
+> 2. **Network Plane Isolation:** The machine/management IP (untagged native interface, e.g. `192.168.9.x`) is dedicated to host maintenance, SSH, and telemetry. Binding Nexus TLS to the cluster VLAN IP ensures all in-cluster container runtimes (`crictl`, Docker, Containerd, Kubernetes nodes) access package registries and OCI mirrors exclusively over the cluster VLAN plane.
 
 ```nginx
 # /etc/nginx/sites-available/nexus-tls.conf
 server {
-    listen 443 ssl default_server;
+    listen 192.168.109.12:443 ssl;
     server_name nexus.internal.gdc.local nexus.gdc.local;
 
     # Host certificate bundle generated via step-cli from Sub-CA

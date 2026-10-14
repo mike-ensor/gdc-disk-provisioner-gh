@@ -1,5 +1,12 @@
 # /etc/nginx/sites-available/nexus-tls.conf
 # Managed by GDC Ansible. Do not edit manually.
+#
+# CRITICAL BINDING REQUIREMENT:
+# Nginx local OS reverse proxy MUST bind strictly to the VLAN cluster network IP
+# (gdc_service_hub_ip) and NOT 127.0.0.1 or the host machine/management IP.
+# - Anthos bare-metal's HAProxy static pod binds to 127.0.0.1:443 and CLUSTER_VIP:443
+#   for Kubernetes control plane load balancing. Binding 127.0.0.1:443 here crashes HAProxy.
+# - Binding to the management IP exposes cluster registry endpoints outside the cluster plane.
 
 server {
 {% if gdc_service_hub_ip is defined and gdc_service_hub_ip and gdc_service_hub_ip != '127.0.0.1' and gdc_service_hub_ip != '0.0.0.0' %}

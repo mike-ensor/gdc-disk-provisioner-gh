@@ -236,6 +236,17 @@ To manage the lifecycle transition between initial bare-metal boot and final clu
    * Private lab endpoints defined in `src/build/add-hosts` (e.g., `step-ca.ensor-labs.com`, `gdc-companion.ensor-labs.com`) are injected into `/etc/hosts` with `PERSIST_ADD_HOSTS=true`.
    * The `local_dns` cleanup phase preserves these platform overrides, ensuring glibc `nsswitch.conf` (`hosts: files dns`) resolves private infrastructure endpoints even during early boot before DNS daemons are fully converged.
 
+### 5.4. Service Hub Reverse Proxy (`nginx`) Interface Binding
+
+The local OS reverse proxy for Sonatype Nexus (`nexus.internal.gdc.local`) runs under Nginx (`/etc/nginx/sites-available/nexus-tls.conf`) and terminates TLS on standard port `443`.
+
+**CRITICAL BINDING RULE:** Nginx MUST bind strictly to the **VLAN cluster network IP** (`gdc_service_hub_ip`, e.g., `192.168.109.12:443`) and **NOT** to `127.0.0.1` or the host machine/management IP:
+
+1. **Loopback Address Collision (`127.0.0.1:443`):**  
+   Anthos bare-metal deploys an `haproxy` static pod (`/etc/kubernetes/manifests/haproxy.yaml`) to balance Kubernetes Control Plane API requests (`cplb-init`). HAProxy explicitly binds to both `CLUSTER_VIP:443` and `127.0.0.1:443`. If Nginx binds to `0.0.0.0:443` or `127.0.0.1:443`, HAProxy fails to bind (`Address already in use`), entering `CrashLoopBackOff` and halting cluster turnup.
+2. **Management IP Isolation:**  
+   The host machine/management IP resides on the untagged native network for administration. In-cluster workloads (Kubernetes nodes, `crictl`, Docker, Containerd) communicate with Nexus package registries and OCI mirrors over the isolated cluster VLAN network. Binding Nginx strictly to the VLAN cluster network IP ensures complete traffic plane separation.
+
 ---
 
 ## 6. Offline Update Pathways
