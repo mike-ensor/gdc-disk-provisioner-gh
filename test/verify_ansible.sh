@@ -123,10 +123,10 @@ fi
 # Test C: Ansible Linting (Strict)
 if command -v "${ANSIBLE_LINT_CMD}" &>/dev/null || [[ -x "${ANSIBLE_LINT_CMD}" ]]; then
     echo "[-] Executing Test C: Strict Best-Practice Linting Check..."
-    if "${ANSIBLE_LINT_CMD}" "${PROJECT_ROOT}/src/ansible/"; then
+    if "${ANSIBLE_LINT_CMD}" "${PLAYBOOK_PATH}"; then
         echo "[x] SUCCESS: Playbook and all roles pass ansible-lint checks."
     else
-        echo "[!] CRITICAL ERROR: ansible-lint check failed for src/ansible/!" >&2
+        echo "[!] CRITICAL ERROR: ansible-lint check failed for ${PLAYBOOK_PATH}!" >&2
         exit 1
     fi
 else

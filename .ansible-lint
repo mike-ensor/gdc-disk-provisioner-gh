@@ -6,6 +6,7 @@ profile: min
 exclude_paths:
   - .cache/
   - venv/
+  - .venv/
   - build-workspace/
   - .review/
   - docs/
