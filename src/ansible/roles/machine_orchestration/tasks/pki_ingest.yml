@@ -78,7 +78,7 @@
         - name: "GDC-PKI | Write Sub-CA Certificate"
           ansible.builtin.copy:
             dest: "{{ gdc_sub_ca_cert_path }}"
-            content: "{{ (gsm_sub_ca_res.stdout | from_json)['ca.crt'] }}"
+            content: "{{ (gsm_sub_ca_res.stdout | from_json)['sub-ca.crt'] | default((gsm_sub_ca_res.stdout | from_json)['ca.crt'] | default('')) }}"
             owner: root
             group: root
             mode: '0644'
@@ -86,8 +86,65 @@
         - name: "GDC-PKI | Write Sub-CA Private Key"
           ansible.builtin.copy:
             dest: "{{ gdc_sub_ca_key_path }}"
-            content: "{{ (gsm_sub_ca_res.stdout | from_json)['ca.key'] }}"
+            content: "{{ (gsm_sub_ca_res.stdout | from_json)['sub-ca.key'] | default((gsm_sub_ca_res.stdout | from_json)['ca.key'] | default('')) }}"
             owner: root
             group: root
             mode: '0400'
           no_log: true
+
+        - name: "GDC-PKI | Mint initial Nexus TLS leaf certificate using Sub-CA"
+          ansible.builtin.command: /usr/local/bin/refresh-nexus-tls.sh
+          register: refresh_nexus_res
+          changed_when: "'Minting initial certificate' in refresh_nexus_res.stdout or 'Successfully renewed' in refresh_nexus_res.stdout"
+
+        - name: "GDC-PKI | Check if Nexus TLS certificate exists"
+          ansible.builtin.stat:
+            path: "{{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}"
+          register: nexus_cert_stat_pki
+
+        - name: "GDC-PKI | Enable nexus-tls.conf site in sites-enabled"
+          ansible.builtin.file:
+            src: /etc/nginx/sites-available/nexus-tls.conf
+            dest: /etc/nginx/sites-enabled/nexus-tls.conf
+            state: link
+            owner: root
+            group: root
+          when: nexus_cert_stat_pki.stat.exists
+
+        - name: "GDC-PKI | Remove /etc/nginx/sites-enabled/default if present"
+          ansible.builtin.file:
+            path: /etc/nginx/sites-enabled/default
+            state: absent
+          when: nexus_cert_stat_pki.stat.exists
+
+        - name: "GDC-PKI | Reload and ensure Nginx service is running on TLS port 443"
+          ansible.builtin.systemd:
+            name: nginx
+            state: reloaded
+          when: nexus_cert_stat_pki.stat.exists
+
+        - name: "GDC-PKI | Upgrade DEB822 Nexus sources to HTTPS endpoint"
+          ansible.builtin.copy:
+            dest: /etc/apt/sources.list.d/gdc-nexus.sources
+            owner: root
+            group: root
+            mode: '0644'
+            content: |
+              # Local GDC Hosted (Sideloaded Update) Repository
+              Enabled: yes
+              Types: deb
+              URIs: https://{{ gdc_nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-hosted/
+              Suites: noble
+              Components: main
+              Signed-By: /etc/apt/keyrings/gdc-nexus.gpg
+              Trusted: yes
+
+              # Local GDC Proxy (Upstream Cache) Repository
+              Enabled: yes
+              Types: deb
+              URIs: https://{{ gdc_nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-proxy/
+              Suites: noble noble-updates noble-backports noble-security
+              Components: main restricted universe multiverse
+              Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+              Trusted: yes
+          when: nexus_cert_stat_pki.stat.exists

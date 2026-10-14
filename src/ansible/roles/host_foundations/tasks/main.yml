@@ -217,6 +217,12 @@
   ignore_errors: true
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-05 | Check if Nexus TLS certificate is active"
+  ansible.builtin.stat:
+    path: "{{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}"
+  register: nexus_tls_cert_stat
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-05 | Write DEB822 local loopback Nexus sources"
   ansible.builtin.copy:
     dest: /etc/apt/sources.list.d/gdc-nexus.sources
@@ -227,7 +233,7 @@
       # Local GDC Hosted (Sideloaded Update) Repository
       Enabled: yes
       Types: deb
-      URIs: {% if gdc_nexus_tls_enabled | default(true) | bool %}https://{{ gdc_nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-hosted/{% else %}http://127.0.0.1:8081/repository/gdc-apt-hosted/{% endif %}
+      URIs: {{ 'https://' + (gdc_nexus_domain | default('nexus.internal.gdc.local')) if (gdc_nexus_tls_enabled | default(true) | bool and (nexus_tls_cert_stat.stat.exists | default(false))) else 'http://127.0.0.1:8081' }}/repository/gdc-apt-hosted/
       Suites: noble
       Components: main
       Signed-By: /etc/apt/keyrings/gdc-nexus.gpg
@@ -236,7 +242,7 @@
       # Local GDC Proxy (Upstream Cache) Repository
       Enabled: yes
       Types: deb
-      URIs: {% if gdc_nexus_tls_enabled | default(true) | bool %}https://{{ gdc_nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-proxy/{% else %}http://127.0.0.1:8081/repository/gdc-apt-proxy/{% endif %}
+      URIs: {{ 'https://' + (gdc_nexus_domain | default('nexus.internal.gdc.local')) if (gdc_nexus_tls_enabled | default(true) | bool and (nexus_tls_cert_stat.stat.exists | default(false))) else 'http://127.0.0.1:8081' }}/repository/gdc-apt-proxy/
       Suites: noble noble-updates noble-backports noble-security
       Components: main restricted universe multiverse
       Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg

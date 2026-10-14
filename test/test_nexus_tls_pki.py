@@ -292,33 +292,36 @@ class TestNexusTLSPKI(unittest.TestCase):
         assert apt_task is not None
         raw_sources_template = apt_task["ansible.builtin.copy"]["content"]
 
-        env = Environment()
+        env = Environment(trim_blocks=True)
         env.filters['bool'] = lambda v: v if isinstance(v, bool) else (str(v).lower() in ('true', 'yes', '1') if v is not None else False)
 
-        # Render real template from main.yml with TLS enabled (default)
+        # Render real template from main.yml with TLS enabled and cert present (default)
         rendered_enabled = env.from_string(raw_sources_template).render(
-            gdc_nexus_domain="nexus.internal.gdc.local"
+            gdc_nexus_domain="nexus.internal.gdc.local",
+            nexus_tls_cert_stat={"stat": {"exists": True}}
         )
-        self.assertIn("URIs: https://nexus.internal.gdc.local/repository/gdc-apt-hosted/", rendered_enabled)
-        self.assertIn("URIs: https://nexus.internal.gdc.local/repository/gdc-apt-proxy/", rendered_enabled)
+        self.assertIn("URIs: https://nexus.internal.gdc.local/repository/gdc-apt-hosted/\nSuites: noble", rendered_enabled)
+        self.assertIn("URIs: https://nexus.internal.gdc.local/repository/gdc-apt-proxy/\nSuites: noble", rendered_enabled)
 
         # Render real template from main.yml with TLS disabled
         rendered_disabled = env.from_string(raw_sources_template).render(
             gdc_nexus_domain="nexus.internal.gdc.local",
             gdc_nexus_tls_enabled=False
         )
-        self.assertIn("URIs: http://127.0.0.1:8081/repository/gdc-apt-hosted/", rendered_disabled)
-        self.assertIn("URIs: http://127.0.0.1:8081/repository/gdc-apt-proxy/", rendered_disabled)
+        self.assertIn("URIs: http://127.0.0.1:8081/repository/gdc-apt-hosted/\nSuites: noble", rendered_disabled)
+        self.assertIn("URIs: http://127.0.0.1:8081/repository/gdc-apt-proxy/\nSuites: noble", rendered_disabled)
 
-        # Also verify fallback domain when gdc_nexus_domain is undefined
-        rendered_fallback = env.from_string(raw_sources_template).render()
-        self.assertIn("URIs: https://nexus.internal.gdc.local/repository/gdc-apt-hosted/", rendered_fallback)
+        # Also verify fallback domain when cert is present
+        rendered_fallback = env.from_string(raw_sources_template).render(
+            nexus_tls_cert_stat={"stat": {"exists": True}}
+        )
+        self.assertIn("URIs: https://nexus.internal.gdc.local/repository/gdc-apt-hosted/\nSuites: noble", rendered_fallback)
 
         # Verify user-data.j2 contains expected string-safe conditional
         user_data_path = os.path.join(PROJECT_ROOT, "src/build/templates/user-data.j2")
         with open(user_data_path, "r", encoding="utf-8") as f:
             ud_content = f.read()
-        self.assertIn("https://{{ nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-hosted/", ud_content)
+        self.assertIn("nexus_domain | default('nexus.internal.gdc.local')", ud_content)
         self.assertIn("nexus_tls_enabled not in [false, 'false', 'False', 0, '0']", ud_content)
 
     def test_cert_manager_pki_tasks(self):

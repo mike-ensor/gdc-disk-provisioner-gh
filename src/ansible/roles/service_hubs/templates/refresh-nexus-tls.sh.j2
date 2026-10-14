@@ -33,7 +33,9 @@ if [[ "${needs_renewal}" == "true" ]]; then
         --ca="${SUB_CA_CERT}" \
         --ca-key="${SUB_CA_KEY}" \
         --san="{{ gdc_nexus_domain }}" \
-        {% if gdc_nexus_alias is defined and gdc_nexus_alias %}--san="{{ gdc_nexus_alias }}" \{% endif %}
+{% if gdc_nexus_alias is defined and gdc_nexus_alias %}
+        --san="{{ gdc_nexus_alias }}" \
+{% endif %}
         --bundle \
         --not-after=8760h \
         --no-password --insecure --force
