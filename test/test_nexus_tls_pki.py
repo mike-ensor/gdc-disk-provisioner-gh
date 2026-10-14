@@ -372,17 +372,13 @@ class TestNexusTLSPKI(unittest.TestCase):
         self.assertIn("{{ gdc_sub_ca_cert_path }}", slurp_srcs)
         self.assertIn("{{ gdc_enterprise_root_cert_path }}", slurp_srcs)
 
-        # Assert kubeconfig is specified on all k8s tasks
-        k8s_tasks = [t for t in all_tasks if "kubernetes.core.k8s" in t or "k8s" in t]
-        self.assertGreaterEqual(len(k8s_tasks), 3, "Expected at least 3 k8s tasks")
+        # Assert kubeconfig is specified on all kubectl tasks
+        k8s_tasks = [t for t in all_tasks if "kubectl" in str(t.get("ansible.builtin.command", {}).get("cmd", ""))]
+        self.assertGreaterEqual(len(k8s_tasks), 3, "Expected at least 3 kubectl tasks")
         expected_kubeconfig = "{{ gdc_admin_kubeconfig | default('/etc/kubernetes/admin.conf') }}"
         for t in k8s_tasks:
-            k8s_cfg = t.get("kubernetes.core.k8s", t.get("k8s", {}))
-            self.assertEqual(
-                k8s_cfg.get("kubeconfig"),
-                expected_kubeconfig,
-                f"Task '{t.get('name')}' must specify kubeconfig"
-            )
+            cmd = t.get("ansible.builtin.command", {}).get("cmd", "")
+            self.assertIn(expected_kubeconfig, cmd, f"Task '{t.get('name')}' must specify kubeconfig")
 
         # Assert no_log: true is set on secret seeding task
         secret_task = next(
@@ -393,20 +389,16 @@ class TestNexusTLSPKI(unittest.TestCase):
         assert secret_task is not None
         self.assertTrue(secret_task.get("no_log") is True, "Secret seeding task must have no_log: true")
 
-        # Assert namespace is cert-manager and type is kubernetes.io/tls
-        secret_def = secret_task.get("kubernetes.core.k8s", {}).get("definition", {})
-        self.assertEqual(secret_def.get("metadata", {}).get("namespace"), "cert-manager")
-        self.assertEqual(secret_def.get("type"), "kubernetes.io/tls")
-
-        # Assert tls.key and tls.crt values in Secret definition
-        secret_data = secret_def.get("data", {})
-        self.assertEqual(secret_data.get("tls.key"), "{{ slurped_sub_ca_key.content }}")
-        tls_crt_expr = secret_data.get("tls.crt", "")
-        self.assertIn("slurped_sub_ca_cert.content", tls_crt_expr)
-        self.assertIn("slurped_enterprise_root_cert.content", tls_crt_expr)
-        self.assertIn("b64decode", tls_crt_expr)
-        self.assertIn("trim", tls_crt_expr)
-        self.assertIn("b64encode", tls_crt_expr)
+        # Assert namespace is cert-manager and type is kubernetes.io/tls in stdin
+        secret_stdin = secret_task.get("ansible.builtin.command", {}).get("stdin", "")
+        self.assertIn("namespace: cert-manager", secret_stdin)
+        self.assertIn("type: kubernetes.io/tls", secret_stdin)
+        self.assertIn("tls.key: \"{{ slurped_sub_ca_key.content }}\"", secret_stdin)
+        self.assertIn("slurped_sub_ca_cert.content", secret_stdin)
+        self.assertIn("slurped_enterprise_root_cert.content", secret_stdin)
+        self.assertIn("b64decode", secret_stdin)
+        self.assertIn("trim", secret_stdin)
+        self.assertIn("b64encode", secret_stdin)
 
         # Assert ClusterIssuer task ignores errors or handles missing CRDs
         issuer_task = next(
@@ -419,6 +411,10 @@ class TestNexusTLSPKI(unittest.TestCase):
             issuer_task.get("ignore_errors") is True or "failed_when" in issuer_task,
             "ClusterIssuer task must handle missing CRDs with ignore_errors: true"
         )
+        issuer_stdin = issuer_task.get("ansible.builtin.command", {}).get("stdin", "")
+        self.assertIn("kind: ClusterIssuer", issuer_stdin)
+        self.assertIn("name: gdc-ca-issuer", issuer_stdin)
+        self.assertIn("secretName: gdc-sub-ca-keypair", issuer_stdin)
 
         # Assert cert_manager_pki.yml is included in post_cluster/tasks/main.yml
         main_task_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/post_cluster/tasks/main.yml")
