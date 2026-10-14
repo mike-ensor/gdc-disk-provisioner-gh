@@ -195,12 +195,14 @@ class TestNexusTLSPKI(unittest.TestCase):
             conf_tmpl = env.from_string(f.read())
         rendered_conf = conf_tmpl.render(
             gdc_nexus_https_port=443,
+            gdc_service_hub_ip="192.168.109.12",
             gdc_nexus_domain="nexus.internal.gdc.local",
             gdc_nexus_alias="nexus.gdc.local",
             gdc_nexus_cert_path="/etc/ssl/certs/nexus.bundle.crt",
             gdc_nexus_key_path="/etc/ssl/private/nexus.key"
         )
-        self.assertIn("listen 443 ssl default_server;", rendered_conf)
+        self.assertIn("listen 127.0.0.1:443 ssl;", rendered_conf)
+        self.assertIn("listen 192.168.109.12:443 ssl;", rendered_conf)
         self.assertIn("proxy_pass http://127.0.0.1:5001;", rendered_conf)
         self.assertIn("proxy_pass http://127.0.0.1:8081;", rendered_conf)
         self.assertIn("proxy_request_buffering off;", rendered_conf)

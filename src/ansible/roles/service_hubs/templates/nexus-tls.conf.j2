@@ -2,7 +2,10 @@
 # Managed by GDC Ansible. Do not edit manually.
 
 server {
-    listen {{ gdc_nexus_https_port | default(443) }} ssl default_server;
+    listen 127.0.0.1:{{ gdc_nexus_https_port | default(443) }} ssl;
+{% if gdc_service_hub_ip is defined and gdc_service_hub_ip and gdc_service_hub_ip != '127.0.0.1' and gdc_service_hub_ip != '0.0.0.0' %}
+    listen {{ gdc_service_hub_ip }}:{{ gdc_nexus_https_port | default(443) }} ssl;
+{% endif %}
     server_name {{ gdc_nexus_domain }}{% if gdc_nexus_alias is defined and gdc_nexus_alias %} {{ gdc_nexus_alias }}{% endif %};
 
     # Certificate & Key
