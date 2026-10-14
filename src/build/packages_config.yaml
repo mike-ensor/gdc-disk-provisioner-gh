@@ -31,6 +31,8 @@ packages_to_include:
     - "ethtool"
     - "iproute2"
     - "iptables"
+    - "iptables-persistent"
+    - "netfilter-persistent"
     - "locales"
     - "logrotate"
     - "socat"

@@ -431,5 +431,22 @@ class TestNexusTLSPKI(unittest.TestCase):
         ]
         self.assertIn("cert_manager_pki.yml", included_files, "post_cluster/tasks/main.yml must include cert_manager_pki.yml")
 
+    def test_stage_cluster_ready_nexus_tls_resync(self):
+        """Verifies stage_cluster_ready.yml re-syncs nexus-tls.conf and reloads Nginx after network reconfiguration."""
+        stage_path = os.path.join(PROJECT_ROOT, "src/ansible/stages/stage_cluster_ready.yml")
+        self.assertTrue(os.path.exists(stage_path), "stage_cluster_ready.yml does not exist")
+        with open(stage_path, "r", encoding="utf-8") as f:
+            tasks = yaml.safe_load(f)
+
+        task_names = [t.get("name", "") for t in tasks if isinstance(t, dict)]
+        self.assertTrue(
+            any("Re-sync nexus-tls.conf with active cluster network IP" in name for name in task_names),
+            "Missing task to re-sync nexus-tls.conf in stage_cluster_ready"
+        )
+        self.assertTrue(
+            any("Reload Nginx after cluster IP re-sync" in name for name in task_names),
+            "Missing task to reload Nginx in stage_cluster_ready"
+        )
+
 if __name__ == "__main__":
     unittest.main()
