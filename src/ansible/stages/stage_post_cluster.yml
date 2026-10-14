@@ -11,7 +11,7 @@
 
 - name: "GDC-PC-EXT | Execute custom post-cluster burn-in and workload extensions"
   ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/stages/execute_custom_stage.yml"
+    file: execute_custom_stage.yml
   vars:
     target_custom_stage: "post_cluster"
 
