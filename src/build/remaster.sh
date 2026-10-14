@@ -45,6 +45,9 @@ load_env_file() {
             if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
                 local key="${BASH_REMATCH[1]}"
                 local value="${BASH_REMATCH[2]}"
+                key="${key#"export "}"
+                key="${key#"export\t"}"
+                key="$(echo -n "${key}" | xargs)"
                 value="${value#\"}" && value="${value%\"}"
                 value="${value#\'}" && value="${value%\'}"
                 if [[ -z "${INITIAL_ENV[${key}]:-}" ]]; then
