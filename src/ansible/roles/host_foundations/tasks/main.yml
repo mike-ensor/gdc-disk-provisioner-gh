@@ -221,7 +221,7 @@
   ansible.builtin.stat:
     path: "{{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}"
   register: nexus_tls_cert_stat
-  tags: ["strictly-local"]
+  tags: ["strictly-local", "corp-cert"]
 
 - name: "GDC-TASK-05 | Write DEB822 local loopback Nexus sources"
   ansible.builtin.copy:
@@ -248,7 +248,7 @@
       Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
       Trusted: yes
   when: deactivate_public_sources | default(true) | bool
-  tags: ["strictly-local"]
+  tags: ["strictly-local", "corp-cert"]
 
 - name: "GDC-TASK-05 | Ensure local Nexus anonymous access and EULA acceptance"
   ansible.builtin.shell: |

@@ -588,7 +588,7 @@
 # --------------------------------------------------------------------------
 - name: "GDC-TASK-04 | Configure Nexus TLS Reverse Proxy & PKI Rotation"
   when: gdc_nexus_tls_enabled | default(true) | bool
-  tags: ["strictly-local"]
+  tags: ["strictly-local", "corp-cert"]
   block:
     - name: "GDC-TASK-04 | Deploy /usr/local/bin/refresh-nexus-tls.sh"
       ansible.builtin.template:

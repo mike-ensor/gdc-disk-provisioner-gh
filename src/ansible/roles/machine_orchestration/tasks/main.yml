@@ -326,6 +326,7 @@
 
 - name: "GDC-ORCH | Ingest Enterprise Sub-CA from Secret Manager"
   ansible.builtin.include_tasks: pki_ingest.yml
+  tags: ["corp-cert"]
 
 - name: "GDC-ORCH | Ensure NodeAgent install directory exists"
   ansible.builtin.file:
@@ -569,6 +570,7 @@
           if (verify_nvidia_cr.stdout is defined and (verify_nvidia_cr.stdout | trim | length > 0) and (verify_nvidia_cr.stdout | trim).startswith('{'))
           else {'status': 'SKIPPED_NO_GPU', 'present': false}
         }}
+      nexus_tls: "{{ nexus_tls_evidence | default({}) }}"
 
 - name: "GDC-ORCH | Verify peer hostname resolution"
   ansible.builtin.command:

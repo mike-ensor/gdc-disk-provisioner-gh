@@ -211,11 +211,13 @@ Optional Arguments:
   --key <KEY_PATH>    Path to SSH private key
   --resume-from <STG> Force Ansible to resume from a stage by wiping its state.
                       Valid stages: first-boot, second-boot, linux-ready, cluster-ready
+  --no-follow         Do not stream provisioner logs after restarting service
   -h, --help          Display this help message
 EOF
         exit "${1:-0}"
     }
 
+    local follow_logs=true
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --nodes|--ip)
@@ -233,6 +235,10 @@ EOF
             --resume-from)
                 resume_stage="$2"
                 shift 2
+                ;;
+            --no-follow)
+                follow_logs=false
+                shift
                 ;;
             -h|--help)
                 playbook_usage 0
@@ -358,7 +364,7 @@ REMOTE_EOF
         ssh "${ssh_opts[@]}" "${ssh_user}@$node" "sudo systemctl restart --no-block gdc-provision.service"
         echo "  [+] Node update sequence complete!"
 
-        if [[ ${#ip_array[@]} -eq 1 ]]; then
+        if [[ "${follow_logs}" == "true" && ${#ip_array[@]} -eq 1 ]]; then
             echo "[-] Streaming provisioner logs for $node (Ctrl+C to exit)..."
             ssh "${ssh_opts[@]}" -t "${ssh_user}@$node" "sudo journalctl -u gdc-provision.service -f"
         fi

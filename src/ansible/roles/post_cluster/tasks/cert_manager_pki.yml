@@ -3,6 +3,7 @@
 - name: "GDC-K8S-PKI | Ingest and Handover Sub-CA to In-Cluster cert-manager"
   when:
     - gdc_nexus_tls_enabled | default(true) | bool
+  tags: ["corp-cert"]
   block:
     - name: "GDC-K8S-PKI | Check if Sub-CA private key exists on host"
       ansible.builtin.stat:
@@ -64,6 +65,8 @@
               data:
                 tls.crt: "{{ ([slurped_sub_ca_cert.content | b64decode | trim, slurped_enterprise_root_cert.content | b64decode | trim] | join('\n')) | b64encode }}"
                 tls.key: "{{ slurped_sub_ca_key.content }}"
+          register: seed_sub_ca_k8s_res
+          changed_when: "'created' in seed_sub_ca_k8s_res.stdout or 'configured' in seed_sub_ca_k8s_res.stdout"
           no_log: true
 
         - name: "GDC-K8S-PKI | Deploy gdc-ca-issuer ClusterIssuer"
@@ -77,4 +80,6 @@
               spec:
                 ca:
                   secretName: gdc-sub-ca-keypair
+          register: deploy_issuer_res
+          changed_when: "'created' in deploy_issuer_res.stdout or 'configured' in deploy_issuer_res.stdout"
           ignore_errors: true

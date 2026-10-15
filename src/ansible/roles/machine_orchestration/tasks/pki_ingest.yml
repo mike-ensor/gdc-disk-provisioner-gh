@@ -1,19 +1,35 @@
 # Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
 ---
+- name: "GDC-PKI | Resolve Nexus TLS requirements & Sub-CA GSM configuration"
+  ansible.builtin.set_fact:
+    nexus_tls_should_exist: "{{ gdc_nexus_tls_enabled | default(true) | bool }}"
+    sub_ca_gsm_name: >-
+      {{
+        (cluster_config.sub_ca_secret['gsm-name']
+         if (cluster_config is defined and cluster_config.sub_ca_secret is defined and cluster_config.sub_ca_secret['gsm-name'] is defined)
+         else '')
+      }}
+    sub_ca_gsm_location: >-
+      {{
+        (cluster_config.sub_ca_secret['gsm-location']
+         if (cluster_config is defined and cluster_config.sub_ca_secret is defined and cluster_config.sub_ca_secret['gsm-location'] is defined and cluster_config.sub_ca_secret['gsm-location'] | trim | length > 0)
+         else 'global')
+      }}
+  tags: ["corp-cert"]
+
 - name: "GDC-PKI | Ingest Enterprise Sub-CA from Secret Manager"
   when:
-    - cluster_config is defined
-    - cluster_config.sub_ca_secret is defined
-    - cluster_config.sub_ca_secret['gsm-name'] is defined
-    - cluster_config.sub_ca_secret['gsm-name'] | trim | length > 0
+    - nexus_tls_should_exist | bool
+    - sub_ca_gsm_name | trim | length > 0
+  tags: ["corp-cert"]
   block:
     - name: "GDC-PKI | Access Sub-CA Secret payload via gcloud"
       ansible.builtin.command: >-
         gcloud secrets versions access latest
-        --secret={{ cluster_config.sub_ca_secret['gsm-name'] }}
+        --secret={{ sub_ca_gsm_name }}
         {% if gcp_project_id is defined and gcp_project_id | trim | length > 0 %}--project={{ gcp_project_id }}{% endif %}
-        {% if cluster_config.sub_ca_secret['gsm-location'] is defined and cluster_config.sub_ca_secret['gsm-location'] | trim | length > 0 and cluster_config.sub_ca_secret['gsm-location'] != 'global' %}
-        --location={{ cluster_config.sub_ca_secret['gsm-location'] }}
+        {% if sub_ca_gsm_location is defined and sub_ca_gsm_location | trim | length > 0 and sub_ca_gsm_location != 'global' %}
+        --location={{ sub_ca_gsm_location }}
         {% endif %}
       register: gsm_sub_ca_res
       changed_when: false
@@ -23,13 +39,13 @@
     - name: "GDC-PKI | Fallback: Access Sub-CA Secret payload as global resource"
       ansible.builtin.command: >-
         gcloud secrets versions access latest
-        --secret={{ cluster_config.sub_ca_secret['gsm-name'] }}
+        --secret={{ sub_ca_gsm_name }}
         {% if gcp_project_id is defined and gcp_project_id | trim | length > 0 %}--project={{ gcp_project_id }}{% endif %}
       register: gsm_sub_ca_res_fallback
       when:
         - gsm_sub_ca_res.rc != 0
-        - cluster_config.sub_ca_secret['gsm-location'] is defined
-        - cluster_config.sub_ca_secret['gsm-location'] != 'global'
+        - sub_ca_gsm_location is defined
+        - sub_ca_gsm_location != 'global'
       changed_when: false
       failed_when: false
       no_log: true
@@ -45,7 +61,7 @@
 
     - name: "GDC-PKI | Fail if Sub-CA secret retrieval failed"
       ansible.builtin.fail:
-        msg: "Failed to retrieve Sub-CA secret '{{ cluster_config.sub_ca_secret['gsm-name'] }}' from Secret Manager."
+        msg: "Failed to retrieve Sub-CA secret '{{ sub_ca_gsm_name }}' from Secret Manager."
       when: gsm_sub_ca_res.rc != 0
 
     - name: "GDC-PKI | Write Sub-CA credentials and register Root CA trust"
@@ -117,10 +133,11 @@
             state: absent
           when: nexus_cert_stat_pki.stat.exists
 
-        - name: "GDC-PKI | Reload and ensure Nginx service is running on TLS port 443"
+        - name: "GDC-PKI | Ensure Nginx service is running and reload TLS configuration"
           ansible.builtin.systemd:
             name: nginx
-            state: reloaded
+            state: restarted
+            daemon_reload: true
           when: nexus_cert_stat_pki.stat.exists
 
         - name: "GDC-PKI | Upgrade DEB822 Nexus sources to HTTPS endpoint"
@@ -148,3 +165,43 @@
               Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
               Trusted: yes
           when: nexus_cert_stat_pki.stat.exists
+
+- name: "GDC-PKI | Check if Nexus TLS certificate exists"
+  ansible.builtin.stat:
+    path: "{{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}"
+  register: nexus_cert_stat_pki
+  when: nexus_cert_stat_pki is not defined or nexus_cert_stat_pki.stat is not defined
+  tags: ["corp-cert"]
+
+- name: "GDC-PKI | Check if Nexus TLS site configuration exists"
+  ansible.builtin.stat:
+    path: /etc/nginx/sites-available/nexus-tls.conf
+  register: nexus_config_stat_pki
+  tags: ["corp-cert"]
+
+- name: "GDC-PKI | Record Nexus TLS evidence"
+  ansible.builtin.set_fact:
+    nexus_tls_evidence:
+      should_exist: "{{ nexus_tls_should_exist | bool }}"
+      cert_exists: "{{ nexus_cert_stat_pki.stat.exists | bool }}"
+      config_exists: "{{ nexus_config_stat_pki.stat.exists | bool }}"
+      cert_path: "{{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}"
+      config_path: "/etc/nginx/sites-available/nexus-tls.conf"
+      gsm_secret_name: "{{ sub_ca_gsm_name | default('') }}"
+      gsm_secret_location: "{{ (sub_ca_gsm_location if (sub_ca_gsm_name is defined and sub_ca_gsm_name | trim | length > 0) else '') }}"
+      status: "{{ 'PASS' if (nexus_cert_stat_pki.stat.exists and nexus_config_stat_pki.stat.exists) else ('SKIPPED' if not (nexus_tls_should_exist | bool) else 'FAIL') }}"
+  tags: ["corp-cert"]
+
+- name: "GDC-PKI | Merge Nexus TLS evidence into cluster_ready_evidence"
+  ansible.builtin.set_fact:
+    cluster_ready_evidence: "{{ (cluster_ready_evidence | default({})) | combine({'nexus_tls': nexus_tls_evidence}) }}"
+  tags: ["corp-cert"]
+
+- name: "GDC-PKI | Assert Nexus TLS certificate and configuration exist"
+  ansible.builtin.assert:
+    that:
+      - nexus_cert_stat_pki.stat.exists
+      - nexus_config_stat_pki.stat.exists
+    fail_msg: "Nexus TLS certificate ({{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}) or configuration (/etc/nginx/sites-available/nexus-tls.conf) missing when TLS is required."
+  when: nexus_tls_should_exist | bool
+  tags: ["corp-cert"]

@@ -22,6 +22,13 @@
   ansible.builtin.stat:
     path: /etc/nginx/sites-available/nexus-tls.conf
   register: nexus_tls_site_conf_stat
+  tags: ["corp-cert"]
+
+- name: "GDC-CR-HUB | Check if Nexus TLS certificate exists"
+  ansible.builtin.stat:
+    path: "{{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}"
+  register: nexus_cert_stat_stage5
+  tags: ["corp-cert"]
 
 - name: "GDC-CR-HUB | Re-sync nexus-tls.conf with active cluster network IP"
   ansible.builtin.template:
@@ -32,29 +39,32 @@
     mode: '0644'
   register: nexus_tls_site_conf_updated
   when: nexus_tls_site_conf_stat.stat.exists
+  tags: ["corp-cert"]
 
-- name: "GDC-CR-HUB | Ensure nexus-tls.conf is enabled in sites-enabled"
-  ansible.builtin.file:
-    src: /etc/nginx/sites-available/nexus-tls.conf
-    dest: /etc/nginx/sites-enabled/nexus-tls.conf
-    state: link
-    owner: root
-    group: root
-  when: nexus_tls_site_conf_stat.stat.exists
-
-- name: "GDC-CR-HUB | Remove /etc/nginx/sites-enabled/default if present"
-  ansible.builtin.file:
-    path: /etc/nginx/sites-enabled/default
-    state: absent
-  when: nexus_tls_site_conf_stat.stat.exists
-
-- name: "GDC-CR-HUB | Reload Nginx after cluster IP re-sync"
-  ansible.builtin.systemd:
-    name: nginx
-    state: reloaded
+- name: "GDC-CR-HUB | Activate Nexus TLS reverse proxy site"
   when:
     - nexus_tls_site_conf_stat.stat.exists
-    - nexus_tls_site_conf_updated.changed
+    - nexus_cert_stat_stage5.stat.exists
+  tags: ["corp-cert"]
+  block:
+    - name: "GDC-CR-HUB | Ensure nexus-tls.conf is enabled in sites-enabled"
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/nexus-tls.conf
+        dest: /etc/nginx/sites-enabled/nexus-tls.conf
+        state: link
+        owner: root
+        group: root
+
+    - name: "GDC-CR-HUB | Remove /etc/nginx/sites-enabled/default if present"
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: "GDC-CR-HUB | Reload Nginx after cluster IP re-sync"
+      ansible.builtin.systemd:
+        name: nginx
+        state: reloaded
+      when: nexus_tls_site_conf_updated.changed
 
 - name: "GDC-CR-EXT | Ingest and evaluate custom extensions"
   ansible.builtin.include_role:

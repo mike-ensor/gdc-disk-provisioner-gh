@@ -434,7 +434,16 @@ class TestNexusTLSPKI(unittest.TestCase):
         with open(stage_path, "r", encoding="utf-8") as f:
             tasks = yaml.safe_load(f)
 
-        task_names = [t.get("name", "") for t in tasks if isinstance(t, dict)]
+        all_tasks = []
+        def extract_tasks(t_list):
+            for t in t_list:
+                if isinstance(t, dict):
+                    all_tasks.append(t)
+                    if "block" in t:
+                        extract_tasks(t["block"])
+        extract_tasks(tasks)
+
+        task_names = [t.get("name", "") for t in all_tasks]
         self.assertTrue(
             any("Re-sync nexus-tls.conf with active cluster network IP" in name for name in task_names),
             "Missing task to re-sync nexus-tls.conf in stage_cluster_ready"
@@ -443,6 +452,109 @@ class TestNexusTLSPKI(unittest.TestCase):
             any("Reload Nginx after cluster IP re-sync" in name for name in task_names),
             "Missing task to reload Nginx in stage_cluster_ready"
         )
+
+    def test_pki_ingest_cert_and_config_presence_evidence(self):
+        """Verifies pki_ingest.yml checks cert & config presence, builds evidence, and asserts existence."""
+        pki_task_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/machine_orchestration/tasks/pki_ingest.yml")
+        with open(pki_task_path, "r", encoding="utf-8") as f:
+            tasks = yaml.safe_load(f)
+
+        all_tasks = []
+        def extract_tasks(task_list):
+            for t in task_list:
+                if isinstance(t, dict):
+                    all_tasks.append(t)
+                    if "block" in t:
+                        extract_tasks(t["block"])
+        extract_tasks(tasks)
+
+        task_names = [t.get("name", "") for t in all_tasks]
+        self.assertTrue(
+            any("Check if Nexus TLS certificate exists" in name for name in task_names),
+            "Missing task checking Nexus TLS certificate existence"
+        )
+        self.assertTrue(
+            any("Check if Nexus TLS site configuration exists" in name for name in task_names),
+            "Missing task checking Nexus TLS site configuration existence"
+        )
+        self.assertTrue(
+            any("Record Nexus TLS evidence" in name for name in task_names),
+            "Missing task to record Nexus TLS evidence"
+        )
+        self.assertTrue(
+            any("Assert Nexus TLS certificate and configuration exist" in name for name in task_names),
+            "Missing assertion task for Nexus TLS cert and config presence"
+        )
+
+        # Verify evidence structure
+        evidence_task = next(
+            (t for t in all_tasks if "Record Nexus TLS evidence" in t.get("name", "")),
+            None
+        )
+        self.assertIsNotNone(evidence_task, "Record Nexus TLS evidence task not found")
+        assert evidence_task is not None
+        set_fact_data = evidence_task.get("ansible.builtin.set_fact", {})
+        evidence = set_fact_data.get("nexus_tls_evidence", {})
+        self.assertIn("should_exist", evidence)
+        self.assertIn("cert_exists", evidence)
+        self.assertIn("config_exists", evidence)
+        self.assertIn("gsm_secret_name", evidence)
+        self.assertIn("gsm_secret_location", evidence)
+
+    def test_cluster_ready_evidence_includes_nexus_tls(self):
+        """Verifies machine_orchestration/tasks/main.yml includes nexus_tls in cluster_ready_evidence."""
+        main_task_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/machine_orchestration/tasks/main.yml")
+        with open(main_task_path, "r", encoding="utf-8") as f:
+            main_tasks = yaml.safe_load(f)
+
+        evidence_task = next(
+            (t for t in main_tasks if t.get("name") == "GDC-EVIDENCE | Structure Evidence Facts"),
+            None
+        )
+        self.assertIsNotNone(evidence_task, "Structure Evidence Facts task not found")
+        assert evidence_task is not None
+        evidence_dict = evidence_task.get("ansible.builtin.set_fact", {}).get("cluster_ready_evidence", {})
+        self.assertIn("nexus_tls", evidence_dict, "cluster_ready_evidence must include 'nexus_tls'")
+
+    def test_stage_cluster_ready_guards_by_cert_presence(self):
+        """Verifies stage_cluster_ready.yml checks certificate existence before enabling site and reloading Nginx."""
+        stage_path = os.path.join(PROJECT_ROOT, "src/ansible/stages/stage_cluster_ready.yml")
+        with open(stage_path, "r", encoding="utf-8") as f:
+            tasks = yaml.safe_load(f)
+
+        task_names = [t.get("name", "") for t in tasks if isinstance(t, dict)]
+        self.assertTrue(
+            any("Check if Nexus TLS certificate exists" in name for name in task_names),
+            "Missing task checking Nexus TLS certificate existence in stage_cluster_ready"
+        )
+
+        # Block enclosing site activation must require certificate and config existence
+        block_task = next(
+            (t for t in tasks if isinstance(t, dict) and "Activate Nexus TLS reverse proxy site" in t.get("name", "")),
+            None
+        )
+        self.assertIsNotNone(block_task, "Block activating Nexus TLS site not found")
+        assert block_task is not None
+        when_conds = str(block_task.get("when", []))
+        self.assertIn("nexus_cert_stat", when_conds)
+        self.assertIn("nexus_tls_site_conf_stat", when_conds)
+
+    def test_corp_cert_tags_present(self):
+        """Verifies 'corp-cert' tag is applied across pki_ingest, service_hubs, cert_manager_pki, and stage_cluster_ready."""
+        files_to_check = [
+            "src/ansible/roles/service_hubs/tasks/main.yml",
+            "src/ansible/roles/machine_orchestration/tasks/pki_ingest.yml",
+            "src/ansible/roles/machine_orchestration/tasks/main.yml",
+            "src/ansible/roles/post_cluster/tasks/cert_manager_pki.yml",
+            "src/ansible/roles/post_cluster/tasks/main.yml",
+            "src/ansible/stages/stage_cluster_ready.yml",
+            "src/ansible/roles/host_foundations/tasks/main.yml"
+        ]
+        for rel_path in files_to_check:
+            full_path = os.path.join(PROJECT_ROOT, rel_path)
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            self.assertIn("corp-cert", content, f"File {rel_path} must contain 'corp-cert' tag")
 
 if __name__ == "__main__":
     unittest.main()
