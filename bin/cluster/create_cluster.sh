@@ -38,6 +38,7 @@ ENV_ROOT_REPO_TYPE="${ROOT_REPO_TYPE:-}"
 ENV_ROOT_REPO_BRANCH="${ROOT_REPO_BRANCH:-}"
 ENV_ROOT_REPO_SECRET="${ROOT_REPO_SECRET:-}"
 ENV_ROOT_REPO_GSA="${ROOT_REPO_GSA:-}"
+ENV_ROOT_REPO_CA_CERT_SECRET="${ROOT_REPO_CA_CERT_SECRET:-}"
 ENV_CLUSTER_CONFIG_NAME="${CLUSTER_CONFIG_NAME:-}"
 ENV_ROOT_SYNC_DIR="${ROOT_SYNC_DIR:-}"
 ENV_REPO_SYNC_REPO="${REPO_SYNC_REPO:-}"
@@ -46,6 +47,7 @@ ENV_REPO_SYNC_TYPE="${REPO_SYNC_TYPE:-}"
 ENV_REPO_SYNC_BRANCH="${REPO_SYNC_BRANCH:-}"
 ENV_REPO_SYNC_SECRET="${REPO_SYNC_SECRET:-}"
 ENV_REPO_SYNC_GSA="${REPO_SYNC_GSA:-}"
+ENV_REPO_SYNC_CA_CERT_SECRET="${REPO_SYNC_CA_CERT_SECRET:-}"
 ENV_REPO_SYNC_DIR="${REPO_SYNC_DIR:-}"
 ENV_CONFIG_SYNC_ENABLED="${CONFIG_SYNC_ENABLED:-}"
 ENV_CONFIGURE_CLUSTER_DNS="${CONFIGURE_CLUSTER_DNS:-}"
@@ -67,6 +69,7 @@ CLI_ROOT_REPO_TYPE=""
 CLI_ROOT_REPO_BRANCH=""
 CLI_ROOT_REPO_SECRET=""
 CLI_ROOT_REPO_GSA=""
+CLI_ROOT_REPO_CA_CERT_SECRET=""
 CLI_CLUSTER_CONFIG_NAME=""
 CLI_ROOT_SYNC_DIR=""
 CLI_REPO_SYNC_REPO=""
@@ -75,6 +78,7 @@ CLI_REPO_SYNC_TYPE=""
 CLI_REPO_SYNC_BRANCH=""
 CLI_REPO_SYNC_SECRET=""
 CLI_REPO_SYNC_GSA=""
+CLI_REPO_SYNC_CA_CERT_SECRET=""
 CLI_REPO_SYNC_DIR=""
 CLI_CONFIG_SYNC_ENABLED=""
 CLI_CONFIGURE_CLUSTER_DNS=""
@@ -117,6 +121,8 @@ Options:
   --root-repo-secret <SECRET>
                          GSM secret name containing registry or git credentials
   --root-repo-gsa <GSA>  Google Service Account name for OCI Workload Identity
+  --root-repo-ca-cert-secret <SECRET>
+                         Kubernetes secret name for CA Certificate
   --root-sync-dir <DIR>  Directory path in repository for RootSync (default: ${ENV_ROOT_SYNC_DIR:-config/clusters/<cluster-config-name|cluster-name>})
   --cluster-config-name <NAME>
                          Subfolder override under config/clusters/ (default: cluster name)
@@ -131,6 +137,8 @@ Options:
   --repo-sync-secret <SECRET>
                          Existing Kubernetes Secret name (in the RepoSync namespace) with git or registry credentials
   --repo-sync-gsa <GSA>  Google Service Account name for OCI Workload Identity
+  --repo-sync-ca-cert-secret <SECRET>
+                         Kubernetes secret name for CA Certificate
   --repo-sync-dir <DIR>  Directory path in repository for RepoSync (default: repository root)
   --admin-email <EMAIL>  Administrator email for ClusterRoleBinding (optional)
   --dry-run              Validate configuration and simulate inception without modifying system
@@ -218,6 +226,10 @@ while [[ $# -gt 0 ]]; do
             CLI_ROOT_REPO_GSA="$2"
             shift 2
             ;;
+        --root-repo-ca-cert-secret)
+            CLI_ROOT_REPO_CA_CERT_SECRET="$2"
+            shift 2
+            ;;
         --root-sync-dir)
             CLI_ROOT_SYNC_DIR="$2"
             shift 2
@@ -248,6 +260,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --repo-sync-gsa)
             CLI_REPO_SYNC_GSA="$2"
+            shift 2
+            ;;
+        --repo-sync-ca-cert-secret)
+            CLI_REPO_SYNC_CA_CERT_SECRET="$2"
             shift 2
             ;;
         --repo-sync-dir)
@@ -527,6 +543,7 @@ if [[ -n "${CLI_PRIMARY_ROOT_REPO}" || -n "${ENV_PRIMARY_ROOT_REPO}" ]]; then
     ROOT_REPO_TYPE="${CLI_ROOT_REPO_TYPE:-${ENV_ROOT_REPO_TYPE:-}}"
     ROOT_REPO_SECRET="${CLI_ROOT_REPO_SECRET:-${ENV_ROOT_REPO_SECRET:-}}"
     ROOT_REPO_GSA="${CLI_ROOT_REPO_GSA:-${ENV_ROOT_REPO_GSA:-}}"
+ROOT_REPO_CA_CERT_SECRET="${CLI_ROOT_REPO_CA_CERT_SECRET:-${ENV_ROOT_REPO_CA_CERT_SECRET:-}}"
     ROOT_REPO_BRANCH="${CLI_ROOT_REPO_BRANCH:-${ENV_ROOT_REPO_BRANCH:-main}}"
     if [[ -n "${PRIMARY_ROOT_REPO}" && "${PRIMARY_ROOT_REPO}" != "none" ]]; then
         if [[ "${PRIMARY_ROOT_REPO}" == *.git || "${PRIMARY_ROOT_REPO}" == http* || "${PRIMARY_ROOT_REPO}" == git@* || "${PRIMARY_ROOT_REPO}" == ssh://* ]]; then
@@ -592,6 +609,7 @@ REPO_SYNC_TYPE="${CLI_REPO_SYNC_TYPE:-${ENV_REPO_SYNC_TYPE:-}}"
 REPO_SYNC_BRANCH="${CLI_REPO_SYNC_BRANCH:-${ENV_REPO_SYNC_BRANCH:-main}}"
 REPO_SYNC_SECRET="${CLI_REPO_SYNC_SECRET:-${ENV_REPO_SYNC_SECRET:-}}"
 REPO_SYNC_GSA="${CLI_REPO_SYNC_GSA:-${ENV_REPO_SYNC_GSA:-}}"
+REPO_SYNC_CA_CERT_SECRET="${CLI_REPO_SYNC_CA_CERT_SECRET:-${ENV_REPO_SYNC_CA_CERT_SECRET:-}}"
 REPO_SYNC_DIR="${CLI_REPO_SYNC_DIR:-${ENV_REPO_SYNC_DIR:-}}"
 if [[ -n "${REPO_SYNC_REPO}" && -z "${REPO_SYNC_TYPE}" ]]; then
     if [[ "${REPO_SYNC_REPO}" == *.git || "${REPO_SYNC_REPO}" == http* || "${REPO_SYNC_REPO}" == git@* || "${REPO_SYNC_REPO}" == ssh://* ]]; then
@@ -1112,6 +1130,12 @@ spec:
     dir: ${ROOT_SYNC_DIR:-.}
     auth: ${ROOT_GIT_AUTH}
 EOF
+				if [[ -n "${ROOT_REPO_CA_CERT_SECRET:-}" ]]; then
+					cat <<EOF >>"${ROOTSYNC_FILE}"
+    caCertSecretRef:
+      name: ${ROOT_REPO_CA_CERT_SECRET}
+EOF
+				fi
 				if [[ -n "${ROOT_REPO_SECRET:-}" ]]; then
 					cat <<EOF >>"${ROOTSYNC_FILE}"
     secretRef:
@@ -1132,6 +1156,12 @@ spec:
     image: ${PRIMARY_ROOT_REPO}
     dir: ${ROOT_SYNC_DIR:-.}
 EOF
+				if [[ -n "${ROOT_REPO_CA_CERT_SECRET:-}" ]]; then
+					cat <<EOF >>"${ROOTSYNC_FILE}"
+    caCertSecretRef:
+      name: ${ROOT_REPO_CA_CERT_SECRET}
+EOF
+				fi
 				if [[ -n "${ROOT_REPO_GSA:-}" ]]; then
 					cat <<EOF >>"${ROOTSYNC_FILE}"
     auth: gcpserviceaccount
@@ -1190,6 +1220,12 @@ spec:
     branch: ${REPO_SYNC_BRANCH}
     auth: ${REPO_SYNC_GIT_AUTH}
 EOF
+			if [[ -n "${REPO_SYNC_CA_CERT_SECRET:-}" ]]; then
+				cat <<EOF >>"${REPOSYNC_FILE}"
+    caCertSecretRef:
+      name: ${REPO_SYNC_CA_CERT_SECRET}
+EOF
+			fi
 			if [[ -n "${REPO_SYNC_DIR}" ]]; then
 				cat <<EOF >>"${REPOSYNC_FILE}"
     dir: ${REPO_SYNC_DIR}
@@ -1214,6 +1250,12 @@ spec:
   oci:
     image: ${REPO_SYNC_REPO}
 EOF
+			if [[ -n "${REPO_SYNC_CA_CERT_SECRET:-}" ]]; then
+				cat <<EOF >>"${REPOSYNC_FILE}"
+    caCertSecretRef:
+      name: ${REPO_SYNC_CA_CERT_SECRET}
+EOF
+			fi
 			if [[ -n "${REPO_SYNC_DIR}" ]]; then
 				cat <<EOF >>"${REPOSYNC_FILE}"
     dir: ${REPO_SYNC_DIR}
