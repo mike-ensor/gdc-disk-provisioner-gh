@@ -16,7 +16,7 @@ import sys
 
 # Default Companion configuration (resolves to 192.168.20.102 via /etc/hosts)
 COMPANION_IP = "192.168.20.102"
-COMPANION_HOST = "gdc-companion.ensor-labs.com"
+COMPANION_HOST = "gdc-companion.gdc-labs.com"
 
 # Simulated payload representing a Curtin installer event
 PAYLOAD = {

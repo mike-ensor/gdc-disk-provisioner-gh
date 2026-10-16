@@ -409,6 +409,7 @@ def main():
     parser.add_argument("--dns-retries", type=int, default=5, help="Number of DNS retries for platform targets")
     parser.add_argument("--dns-retry-delay", type=float, default=2.0, help="Delay between DNS retries in seconds")
     parser.add_argument("--companion-url", help="GDC Companion URL override/fallback")
+    parser.add_argument("--companion-base-url", help="GDC Companion Base URL override/fallback")
     parser.add_argument("--step-ca-url", help="Step CA URL override/fallback")
     parser.add_argument("--timeout", type=float, default=2.0, help="Socket connect timeout in seconds")
     parser.add_argument("--max-workers", type=int, default=12, help="Thread pool worker count")
@@ -432,7 +433,8 @@ def main():
 
     # 2. CLI fallback / backwards compatibility if manifest not loaded or empty
     if not targets:
-        companion_target = parse_endpoint_url(args.companion_url, "GDC Companion", "endpoint_connect_companion")
+        effective_companion_url = args.companion_url or args.companion_base_url
+        companion_target = parse_endpoint_url(effective_companion_url, "GDC Companion", "endpoint_connect_companion")
         if companion_target:
             companion_target["scope"] = "platform"
             companion_target["cadence"] = "always"
@@ -459,29 +461,43 @@ def main():
             })
     else:
         # If explicit CLI URLs were passed, ensure they override/update the manifest targets
-        if args.companion_url:
-            comp = parse_endpoint_url(args.companion_url, "GDC Companion", "endpoint_connect_companion")
-            if comp:
-                existing = next((t for t in targets if t["test_name"] == "endpoint_connect_companion"), None)
-                if existing:
-                    existing["domain"] = comp["domain"]
-                    existing["port"] = comp["port"]
-                    existing["url"] = comp["url"]
-                else:
-                    comp["scope"] = "platform"
-                    comp["cadence"] = "once"
-                    comp["target_stage"] = "second-boot"
-                    comp["skip_execution"] = args.stage not in ("all", "second-boot")
-                    targets.append(comp)
+        comp_report = parse_endpoint_url(args.companion_url, "GDC Companion", "endpoint_connect_companion") if args.companion_url else None
+        comp_base = parse_endpoint_url(args.companion_base_url, "GDC Companion", "endpoint_connect_companion") if args.companion_base_url else None
+
+        if comp_report is not None or comp_base is not None:
+            companion_targets = [t for t in targets if t["test_name"] == "endpoint_connect_companion"]
+            if companion_targets:
+                for existing in companion_targets:
+                    # If target is cluster-ready stage, prefer companion-base-url if provided, else companion-url
+                    if existing.get("target_stage") == "cluster-ready" and comp_base is not None:
+                        chosen = comp_base
+                    elif comp_report is not None:
+                        chosen = comp_report
+                    else:
+                        chosen = comp_base
+
+                    if chosen is not None:
+                        existing["domain"] = chosen["domain"]
+                        existing["port"] = chosen["port"]
+                        existing["url"] = chosen["url"]
+            else:
+                chosen = comp_report if comp_report is not None else comp_base
+                if chosen is not None:
+                    chosen["scope"] = "platform"
+                    chosen["cadence"] = "once"
+                    chosen["target_stage"] = "second-boot"
+                    chosen["skip_execution"] = args.stage not in ("all", "second-boot")
+                    targets.append(chosen)
 
         if args.step_ca_url:
             step = parse_endpoint_url(args.step_ca_url, "Step CA", "endpoint_connect_step_ca")
             if step:
-                existing = next((t for t in targets if t["test_name"] == "endpoint_connect_step_ca"), None)
-                if existing:
-                    existing["domain"] = step["domain"]
-                    existing["port"] = step["port"]
-                    existing["url"] = step["url"]
+                step_targets = [t for t in targets if t["test_name"] == "endpoint_connect_step_ca"]
+                if step_targets:
+                    for existing in step_targets:
+                        existing["domain"] = step["domain"]
+                        existing["port"] = step["port"]
+                        existing["url"] = step["url"]
                 else:
                     step["scope"] = "platform"
                     step["cadence"] = "once"

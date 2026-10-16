@@ -160,6 +160,65 @@ class TestBuildScript(unittest.TestCase):
         self.assertIn("${PROJECT_ROOT}/.venv/bin/python3", content)
         self.assertIn('"${PYTHON_BIN}" -m unittest discover', content)
 
+    def test_fast_fail_python_version_older_than_3_8(self):
+        """Verifies build.sh fast-fails immediately if Python version is older than 3.8."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_py = os.path.join(tmpdir, "fake_python3")
+            with open(fake_py, "w") as f:
+                f.write('#!/bin/sh\n'
+                        'if [ "$1" = "-c" ]; then\n'
+                        '    case "$2" in\n'
+                        '        *">= (3, 8)"*)\n'
+                        '            exit 1\n'
+                        '            ;;\n'
+                        '        *sys.version_info[:3]*)\n'
+                        '            echo "3.7.12"\n'
+                        '            exit 0\n'
+                        '            ;;\n'
+                        '    esac\n'
+                        'fi\n'
+                        'echo "Python 3.7.12"\n'
+                        'exit 0\n')
+            os.chmod(fake_py, 0o755)
+
+            env = dict(os.environ)
+            env["PYTHON_BIN"] = fake_py
+            env.pop("VIRTUAL_ENV", None)
+
+            res = subprocess.run([BUILD_SH, "--dry-run"], capture_output=True, text=True, cwd=PROJECT_ROOT, env=env)
+            self.assertNotEqual(res.returncode, 0, "build.sh should fail when Python < 3.8")
+            output = res.stderr + res.stdout
+            self.assertIn("Python 3.8+", output)
+            self.assertIn("3.7.12", output)
+
+    def test_bootimus_invocation_uses_bootimus_sh(self):
+        """Verifies build.sh delegates to bootimus.sh rather than src/build/bootimus.py directly."""
+        with open(BUILD_SH, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        self.assertIn('"${PROJECT_ROOT}/bootimus.sh"', content)
+        # Verify no direct call to bootimus.py in executable lines (outside help heredocs)
+        in_heredoc = False
+        direct_py_calls = []
+        for line in content.splitlines():
+            stripped = line.strip()
+            if "cat << 'EOF'" in stripped or 'cat << "EOF"' in stripped:
+                in_heredoc = True
+                continue
+            if in_heredoc:
+                if stripped == "EOF":
+                    in_heredoc = False
+                continue
+            if stripped.startswith("#"):
+                continue
+            if "src/build/bootimus.py" in stripped:
+                direct_py_calls.append(stripped)
+
+        self.assertEqual(direct_py_calls, [], "build.sh should shell out to bootimus.sh, not call bootimus.py directly")
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

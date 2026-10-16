@@ -41,6 +41,8 @@ gdc_core_packages:
   - "util-linux"
   - "libnvme1"
   - "nvme-cli"
+  - "dnsmasq"
+  - "nginx"
 
 gdc_purge_packages:
   - "snapd"

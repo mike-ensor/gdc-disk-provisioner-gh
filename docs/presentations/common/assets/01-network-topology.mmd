@@ -1,0 +1,15 @@
+flowchart TD
+    subgraph Stage1["Stage 1: Discovery & Installation"]
+        D1[Untagged Native Broadcast] --> D2[Local DHCP Server / Bootimus]
+        D2 --> D3[Ephemeral Lease: 192.168.1.100/24]
+        D3 --> D4[Fetch Kernel, Initrd & LiveCD ISO via HTTP]
+    end
+
+    subgraph Stage2Plus["Stage 2 through Stage 8: Production Operation"]
+        V1[Switch Port Reconfigured or Multi-VLAN Trunk] --> V2[Bonded / Tagged Interfaces]
+        V2 --> V3[VLAN 100: Node Management & GDC Control Plane]
+        V2 --> V4[VLAN 200: MetalLB Ingress & Workload Traffic]
+        V3 --> V5[Static Node IP: 10.200.0.10/24 / Gateway: 10.200.0.1]
+    end
+
+    Stage1 -.->|Subiquity Writes Netplan Config| Stage2Plus

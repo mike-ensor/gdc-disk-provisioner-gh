@@ -50,7 +50,7 @@ class TestGgdTemplateHydration(unittest.TestCase):
             'BOOTSTRAP_K8S_IP_CIDR': '172.31.250.10/24',
             'BOOTSTRAP_K8S_GATEWAY': 'none',
             'BOOTSTRAP_K8S_DNS': 'none',
-            'INSTALL_COMPANION_URL': 'http://gdc-companion.ensor-labs.com:8080/v1/install-logs',
+            'INSTALL_COMPANION_URL': 'http://gdc-companion.gdc-labs.com:8080/v1/install-logs',
             'GITEA_BINARY_FILENAME': 'gitea-1.22.1-linux-amd64',
             'NEXUS_PACKAGE_FILENAME': 'nexus-3.96.4-01-linux-x86_64.tar.gz',
             'JRE_PACKAGE_FILENAME': 'OpenJDK17U-jre_x64_linux_hotspot_17.0.11_9.tar.gz',
@@ -101,7 +101,7 @@ class TestGgdTemplateHydration(unittest.TestCase):
         env['git_branch'] = 'feature/test-branch'
         env['companion_url'] = env.get('INSTALL_COMPANION_URL', '')
         env['companion_ip'] = '192.168.120.2'
-        env['companion_host'] = 'gdc-companion.ensor-labs.com'
+        env['companion_host'] = 'gdc-companion.gdc-labs.com'
         env['companion_report_url'] = 'http://192.168.120.2:8080/v1/install-logs'
         env['machine_vlan'] = env.get('BOOTSTRAP_MACHINE_VLAN_ID', '0')
         env['k8s_vlan'] = env.get('BOOTSTRAP_K8S_VLAN_ID', '0')

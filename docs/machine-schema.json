@@ -502,6 +502,33 @@
           "items": {
             "type": "string"
           }
+        },
+        "sub_ca_secret": {
+          "type": "object",
+          "description": "Enterprise Intermediate Sub-CA credentials stored in Google Cloud Secret Manager",
+          "required": [
+            "gsm-name"
+          ],
+          "properties": {
+            "gsm-name": {
+              "type": "string",
+              "description": "Identifier of the Secret Manager secret holding the Sub-CA JSON payload"
+            },
+            "gsm_name": {
+              "type": "string",
+              "description": "Identifier of the Secret Manager secret holding the Sub-CA JSON payload (snake_case alias)"
+            },
+            "gsm-location": {
+              "type": "string",
+              "default": "global",
+              "description": "Secret Manager replication location (e.g., global, us-central1)"
+            },
+            "gsm_location": {
+              "type": "string",
+              "default": "global",
+              "description": "Secret Manager replication location (snake_case alias)"
+            }
+          }
         }
       }
     },
@@ -534,7 +561,10 @@
       }
     },
     "custom_extensions": {
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "description": "Optional custom Ansible playbook lifecycle extension configuration.",
       "properties": {
         "bundle_url": {
@@ -548,7 +578,10 @@
           "description": "Hex-encoded SHA-256 checksum of the bundle tarball."
         }
       },
-      "required": ["bundle_url", "sha256"]
+      "required": [
+        "bundle_url",
+        "sha256"
+      ]
     },
     "machine_state_stop_stage": {
       "type": [

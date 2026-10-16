@@ -70,7 +70,7 @@ We will replace the existing legacy JSON key check with the dynamic Companion fe
 ```yaml
 - name: "GDC-ORCH | Fetch short-lived GCP token from GDC Companion"
   ansible.builtin.uri:
-    url: "https://gdc-companion.ensor-labs.com/v1/machine-credentials/gcp-token/{{ node_mac }}"
+    url: "https://gdc-companion.gdc-labs.com/v1/machine-credentials/gcp-token/{{ node_mac }}"
     method: GET
     client_cert: "/var/gdc-install/keys/client.crt"
     client_key: "/var/gdc-install/keys/client.key"

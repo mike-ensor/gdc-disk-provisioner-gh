@@ -45,6 +45,9 @@ load_env_file() {
             if [[ "$line" =~ ^([^=]+)=(.*)$ ]]; then
                 local key="${BASH_REMATCH[1]}"
                 local value="${BASH_REMATCH[2]}"
+                key="${key#"export "}"
+                key="${key#"export\t"}"
+                key="$(echo -n "${key}" | xargs)"
                 value="${value#\"}" && value="${value%\"}"
                 value="${value#\'}" && value="${value%\'}"
                 if [[ -z "${INITIAL_ENV[${key}]:-}" ]]; then
@@ -165,6 +168,40 @@ mkdir -p "${EXTRACT_DIR}/custom-data/auth"
 if [[ -f "${PROJECT_ROOT}/bin/auth/gcp-authentication.sh" ]]; then
     cp "${PROJECT_ROOT}/bin/auth/gcp-authentication.sh" "${EXTRACT_DIR}/custom-data/auth/gcp-authentication.sh"
     chmod +x "${EXTRACT_DIR}/custom-data/auth/gcp-authentication.sh"
+fi
+
+echo "[-] Staging fallback Sub-CA credentials for offline lab turnup..."
+mkdir -p "${EXTRACT_DIR}/custom-data/pki"
+mkdir -p "${PROJECT_ROOT}/.cache/pki"
+FALLBACK_SUB_CA_DEST="${EXTRACT_DIR}/custom-data/pki/fallback-sub-ca.json"
+FALLBACK_SECRET_NAME="${FALLBACK_SUB_CA_SECRET_NAME:-gdc-labs-wildcard-pki}"
+PKI_CACHE_FILE="${PROJECT_ROOT}/.cache/pki/fallback-sub-ca.json"
+
+if [[ -n "${FALLBACK_SUB_CA_FILE:-}" && -f "${FALLBACK_SUB_CA_FILE}" ]]; then
+    echo "  [x] Using fallback Sub-CA from environment: ${FALLBACK_SUB_CA_FILE}"
+    cp "${FALLBACK_SUB_CA_FILE}" "${FALLBACK_SUB_CA_DEST}"
+    cp "${FALLBACK_SUB_CA_FILE}" "${PKI_CACHE_FILE}"
+elif [[ -f "${PKI_CACHE_FILE}" ]]; then
+    echo "  [x] Using cached fallback Sub-CA from ${PKI_CACHE_FILE}."
+    cp "${PKI_CACHE_FILE}" "${FALLBACK_SUB_CA_DEST}"
+else
+    echo "  [-] Fetching fallback Sub-CA '${FALLBACK_SECRET_NAME}' from Secret Manager..."
+    FETCH_PROJECT_FLAG=()
+    if [[ -n "${PROJECT_ID:-}" ]]; then
+        FETCH_PROJECT_FLAG=(--project="${PROJECT_ID}")
+    fi
+    if command -v gcloud &>/dev/null && gcloud secrets versions access latest --secret="${FALLBACK_SECRET_NAME}" "${FETCH_PROJECT_FLAG[@]}" > "${FALLBACK_SUB_CA_DEST}" 2>/dev/null; then
+        echo "  [x] Successfully fetched fallback Sub-CA from Secret Manager."
+        cp "${FALLBACK_SUB_CA_DEST}" "${PKI_CACHE_FILE}"
+    else
+        echo "  [!] NOTICE: Fallback Sub-CA not found in cache or Secret Manager. ISO will rely exclusively on runtime Companion Sub-CA."
+        rm -f "${FALLBACK_SUB_CA_DEST}"
+    fi
+fi
+
+if [[ -f "${FALLBACK_SUB_CA_DEST}" ]]; then
+    chmod 0400 "${FALLBACK_SUB_CA_DEST}"
+    echo "  [x] Fallback Sub-CA packaged at /custom-data/pki/fallback-sub-ca.json"
 fi
 
 if [ "${GDC_DEBUG_MODE}" = "true" ]; then

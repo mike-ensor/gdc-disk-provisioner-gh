@@ -43,3 +43,23 @@ As a storage provisioning component, this project adheres to the following secur
 *   **Input Validation:** Device paths, volume IDs, and request parameters are rigorously validated to prevent command injection and directory traversal attacks.
 *   **Image Integrity:** All deployment manifests and container references must use immutable image tags (SHAs) or verified registries in production.
 *   **No Secrets in Git:** This repository never stores actual secrets (passwords, keys, credentials).
+
+---
+
+## Public Key Infrastructure (PKI) & Certificate Security Policy
+
+The GDC Disk Provisioner and appliance installer utilize a **Dual-Mode PKI architecture** to support both production enterprise deployments and demonstration/lab environments.
+
+### 1. Enterprise Mode (Production Requirements)
+* **Delegated Sub-CA Ingestion:** Production appliances strictly require an enterprise-delegated Intermediate Sub-CA configured in GDC Companion via `cluster.sub_ca_secret`.
+* **Zero Trust Secret Delivery:** Sub-CA credentials are retrieved from Google Cloud Secret Manager (GSM) via hardware-attested mutual TLS (mTLS) token federation.
+* **TPM Sealing & Encryption at Rest:** Ingested Sub-CA private keys are stored in root-only protected paths (`/etc/ssl/sub-ca/sub-ca.key`, mode `0400`) within LUKS-encrypted partitions sealed to the motherboard TPM 2.0.
+* **Autonomous In-Cluster Handover:** During Stage 7 (`POST_CLUSTER`), Sub-CA credentials are automatically handed over to Kubernetes `cert-manager` (`gdc-ca-issuer`) to manage in-cluster service certificates.
+
+### 2. Demo Mode (Non-Production Lab Environment Policy)
+* **Purpose:** If `cluster.sub_ca_secret` is omitted or empty in GDC Companion (e.g., Sub-CA checkbox disabled), the appliance operates in **Demo Mode** using a pre-baked public wildcard certificate (`*.demo.gdc-labs.com`).
+* **Security & Non-Production Notice:** 
+  > **WARNING: Demo mode is strictly intended for demonstrations, sandbox evaluations, and lab turnups. Security is NOT guaranteed for production workloads when operating in Demo Mode.**
+* **Scope & Blast Radius:** Demo certificates are strictly scoped to `*.demo.gdc-labs.com` and isolated to the local Layer 2 cluster network (VLAN 109) via split-horizon DNS (`dnsmasq`). They cannot assert identity for production systems, customer domains, or Google Cloud services.
+* **No Private Keys in Git:** Private keys for the public demo certificate are fetched at ISO build time from Google Cloud Secret Manager (`gdc-labs-wildcard-pki`) and injected into the ISO's `custom-data` partition. They MUST NEVER be committed to the git repository.
+* **Audit Trail:** When operating in Demo Mode, the appliance records `PASS_DEMO_MODE` and an explicit security warning in the machine evidence state (`/var/gdc-install/state/cluster-ready.json`), preventing silent adoption in production environments.

@@ -111,6 +111,7 @@
         --config {{ playbook_dir }}/vars/endpoints.yml
         --stage "{{ current_stage | default(gdc_active_stage | default('preflight')) }}"
         --companion-url "{{ gdc_companion_reports_url | default('') }}"
+        --companion-base-url "{{ gdc_companion_base_url | default('') }}"
         --step-ca-url "{{ gdc_step_ca_url | default('') }}"
       register: endpoint_check_raw
       changed_when: false

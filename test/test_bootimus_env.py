@@ -266,6 +266,40 @@ class TestBootimusEnvironment(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("EXIT_CODE_0", res.stdout)
 
+    def test_bootimus_sh_fast_fail_python_version_older_than_3_8(self):
+        """Verifies bootimus.sh fast-fails immediately if Python version is older than 3.8."""
+        import tempfile
+        bootimus_sh = os.path.join(PROJECT_ROOT, "bootimus.sh")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_py = os.path.join(tmpdir, "fake_python3")
+            with open(fake_py, "w") as f:
+                f.write('#!/bin/sh\n'
+                        'if [ "$1" = "-c" ]; then\n'
+                        '    case "$2" in\n'
+                        '        *">= (3, 8)"*)\n'
+                        '            exit 1\n'
+                        '            ;;\n'
+                        '        *sys.version_info[:3]*)\n'
+                        '            echo "3.6.8"\n'
+                        '            exit 0\n'
+                        '            ;;\n'
+                        '    esac\n'
+                        'fi\n'
+                        'echo "Python 3.6.8"\n'
+                        'exit 0\n')
+            os.chmod(fake_py, 0o755)
+
+            env = dict(os.environ)
+            env["PYTHON_BIN"] = fake_py
+            env.pop("VIRTUAL_ENV", None)
+
+            res = subprocess.run([bootimus_sh, "--list"], capture_output=True, text=True, cwd=PROJECT_ROOT, env=env)
+            self.assertNotEqual(res.returncode, 0, "bootimus.sh should fail when Python < 3.8")
+            output = res.stderr + res.stdout
+            self.assertIn("Python 3.8+", output)
+            self.assertIn("3.6.8", output)
+
+
 
 if __name__ == "__main__":
     unittest.main()

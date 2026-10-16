@@ -26,4 +26,4 @@
 ## Diagnostic Log Links
 *   **Google Cloud Build Logs:** [Cloud Console Link](https://console.cloud.google.com/cloud-build/builds/dd9093de-9ec6-4af8-99b9-b1d14597e4b1?project=685813425367)
 *   **GCS Target:** `gs://gdc-disk-provisioner-isos/sync/gdc-bootstrap-ubuntu-24.04-v0.2.24.iso`
-*   **GDC Companion Telemetry:** [Companion API Log Console](http://gdc-companion.ensor-labs.com/v1/install-logs)
+*   **GDC Companion Telemetry:** [Companion API Log Console](http://gdc-companion.gdc-labs.com/v1/install-logs)

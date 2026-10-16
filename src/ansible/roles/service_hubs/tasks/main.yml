@@ -582,3 +582,147 @@
     state: started
   when: desired_state_enabled | bool
   tags: ["strictly-local"]
+
+# --------------------------------------------------------------------------
+# Task 04: Nexus TLS Reverse Proxy & Automated PKI Rotation
+# --------------------------------------------------------------------------
+- name: "GDC-TASK-04 | Configure Nexus TLS Reverse Proxy & PKI Rotation"
+  when: gdc_nexus_tls_enabled | default(true) | bool
+  tags: ["strictly-local", "corp-cert"]
+  block:
+    - name: "GDC-TASK-04 | Deploy /usr/local/bin/refresh-nexus-tls.sh"
+      ansible.builtin.template:
+        src: refresh-nexus-tls.sh.j2
+        dest: /usr/local/bin/refresh-nexus-tls.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "GDC-TASK-04 | Deploy /etc/systemd/system/refresh-nexus-tls.service"
+      ansible.builtin.template:
+        src: refresh-nexus-tls.service.j2
+        dest: /etc/systemd/system/refresh-nexus-tls.service
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: "GDC-TASK-04 | Deploy /etc/systemd/system/refresh-nexus-tls.timer"
+      ansible.builtin.template:
+        src: refresh-nexus-tls.timer.j2
+        dest: /etc/systemd/system/refresh-nexus-tls.timer
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: "GDC-TASK-04 | Enable and start refresh-nexus-tls.timer"
+      ansible.builtin.systemd:
+        daemon_reload: true
+        name: refresh-nexus-tls.timer
+        state: started
+        enabled: true
+
+    - name: "GDC-TASK-04 | Check if Sub-CA key exists"
+      ansible.builtin.stat:
+        path: "{{ gdc_sub_ca_key_path | default('/etc/ssl/sub-ca/sub-ca.key') }}"
+      register: sub_ca_key_stat
+
+    - name: "GDC-TASK-04 | Execute refresh-nexus-tls.sh to mint initial certificates if missing"
+      ansible.builtin.command:
+        cmd: /usr/local/bin/refresh-nexus-tls.sh
+      register: refresh_res
+      changed_when: "'Minting initial certificate' in refresh_res.stdout or 'Successfully renewed' in refresh_res.stdout"
+      when: sub_ca_key_stat.stat.exists
+
+    - name: "GDC-TASK-04 | Check if nginx is already installed"
+      ansible.builtin.command: dpkg -s nginx
+      register: nginx_installed_check
+      changed_when: false
+      failed_when: false
+
+    - name: "GDC-TASK-04 | Install pre-seeded nginx packages from disk if missing"
+      ansible.builtin.shell: |
+        if ls /var/gdc-install/packages/*nginx*.deb 1>/dev/null 2>&1; then
+          dpkg -i /var/gdc-install/packages/*nginx*.deb || true
+        fi
+      when: nginx_installed_check.rc != 0
+
+    - name: "GDC-TASK-04 | Re-check if nginx is installed after pre-seeded install"
+      ansible.builtin.command: dpkg -s nginx
+      register: nginx_final_check
+      changed_when: false
+      failed_when: false
+
+    - name: "GDC-TASK-04 | Fallback to apt install if nginx still missing and apt available"
+      ansible.builtin.apt:
+        name:
+          - nginx
+          - nginx-common
+        state: present
+        update_cache: false
+      when: nginx_final_check.rc != 0
+      ignore_errors: true
+
+    - name: "GDC-TASK-04 | Ensure Nginx site directories exist"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - /etc/nginx
+        - /etc/nginx/sites-available
+        - /etc/nginx/sites-enabled
+
+    - name: "GDC-TASK-04 | Deploy nexus-tls.conf site configuration"
+      ansible.builtin.template:
+        src: nexus-tls.conf.j2
+        dest: /etc/nginx/sites-available/nexus-tls.conf
+        owner: root
+        group: root
+        mode: '0644'
+      register: nexus_tls_site_conf
+
+    - name: "GDC-TASK-04 | Check if Nexus TLS certificate exists"
+      ansible.builtin.stat:
+        path: "{{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}"
+      register: nexus_cert_stat
+
+    - name: "GDC-TASK-04 | Check if Nexus TLS private key exists"
+      ansible.builtin.stat:
+        path: "{{ gdc_nexus_key_path | default('/etc/ssl/private/nexus.key') }}"
+      register: nexus_key_stat
+
+    - name: "GDC-TASK-04 | Enable nexus-tls.conf site in sites-enabled"
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/nexus-tls.conf
+        dest: /etc/nginx/sites-enabled/nexus-tls.conf
+        state: link
+        owner: root
+        group: root
+      register: nexus_tls_site_enabled
+      when: nexus_cert_stat.stat.exists and nexus_key_stat.stat.exists
+
+    - name: "GDC-TASK-04 | Remove /etc/nginx/sites-enabled/default if present"
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      when: nexus_cert_stat.stat.exists and nexus_key_stat.stat.exists
+
+    - name: "GDC-TASK-04 | Ensure Nginx service is started and enabled"
+      ansible.builtin.systemd:
+        name: nginx
+        state: started
+        enabled: true
+      when:
+        - nexus_cert_stat.stat.exists
+        - nexus_key_stat.stat.exists
+
+    - name: "GDC-TASK-04 | Reload Nginx if site configuration changed"
+      ansible.builtin.systemd:
+        name: nginx
+        state: reloaded
+      when:
+        - nexus_cert_stat.stat.exists
+        - nexus_key_stat.stat.exists
+        - (nexus_tls_site_conf.changed | default(false)) or (nexus_tls_site_enabled.changed | default(false))

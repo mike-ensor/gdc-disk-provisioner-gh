@@ -16,7 +16,7 @@ $ sshpass -p 'troubled-marble-150' ssh temporary-installer@192.168.9.242 'ip lin
 
 Next, fetch the desired state from the Companion API using the retrieved MAC and the `INSTALL_COMPANION_API_KEY` from `local.env`:
 ```shell
-$ curl -s -X GET "https://gdc-companion.ensor-labs.com/v1/machine-info/00:00:01:04:02:d9" -H "Authorization: Bearer <API_KEY>" | jq .
+$ curl -s -X GET "https://gdc-companion.gdc-labs.com/v1/machine-info/00:00:01:04:02:d9" -H "Authorization: Bearer <API_KEY>" | jq .
 {
   "bmctl_version": "1.35.300-gke.87",
   "hostname": "gdc-extreme-242",
@@ -40,7 +40,7 @@ $ curl -s -X GET "https://gdc-companion.ensor-labs.com/v1/machine-info/00:00:01:
 **2. Trigger `gdc-collector` and Retrieve Tarball**
 Ensure the latest diagnostics are generated and uploaded:
 ```shell
-$ sshpass -p 'troubled-marble-150' ssh temporary-installer@192.168.9.242 'sudo /usr/local/bin/gdc-collector --companion-url="https://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"'
+$ sshpass -p 'troubled-marble-150' ssh temporary-installer@192.168.9.242 'sudo /usr/local/bin/gdc-collector --companion-url="https://gdc-companion.gdc-labs.com/v1/machine-reports/ingest"'
 ```
 Then copy the generated tarball to your local machine:
 ```shell

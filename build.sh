@@ -30,16 +30,31 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Locate active or local virtual environment Python
-PYTHON_BIN="python3"
-if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python3" ]]; then
-    PYTHON_BIN="${VIRTUAL_ENV}/bin/python3"
-elif [[ -x "${PROJECT_ROOT}/venv/bin/python3" ]]; then
-    PYTHON_BIN="${PROJECT_ROOT}/venv/bin/python3"
-elif [[ -x "${PROJECT_ROOT}/.venv/bin/python3" ]]; then
-    PYTHON_BIN="${PROJECT_ROOT}/.venv/bin/python3"
-elif [[ -x "${PROJECT_ROOT}/src/build/.venv/bin/python3" ]]; then
-    PYTHON_BIN="${PROJECT_ROOT}/src/build/.venv/bin/python3"
+# Locate active or local virtual environment Python if not explicitly provided
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+    if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python3" ]]; then
+        PYTHON_BIN="${VIRTUAL_ENV}/bin/python3"
+    elif [[ -x "${PROJECT_ROOT}/venv/bin/python3" ]]; then
+        PYTHON_BIN="${PROJECT_ROOT}/venv/bin/python3"
+    elif [[ -x "${PROJECT_ROOT}/.venv/bin/python3" ]]; then
+        PYTHON_BIN="${PROJECT_ROOT}/.venv/bin/python3"
+    elif [[ -x "${PROJECT_ROOT}/src/build/.venv/bin/python3" ]]; then
+        PYTHON_BIN="${PROJECT_ROOT}/src/build/.venv/bin/python3"
+    else
+        PYTHON_BIN="python3"
+    fi
+fi
+
+# Fast-fail if Python is missing or older than 3.8
+if ! command -v "${PYTHON_BIN}" &>/dev/null; then
+    echo -e "\033[91m[!] Error: Python interpreter '${PYTHON_BIN}' not found on PATH or in virtualenvs.\033[0m" >&2
+    exit 1
+fi
+
+if ! "${PYTHON_BIN}" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' &>/dev/null; then
+    py_ver=$("${PYTHON_BIN}" -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null || echo "unknown")
+    echo -e "\033[91m[!] Error: Python 3.8+ is required. Found Python ${py_ver} at '${PYTHON_BIN}'.\033[0m" >&2
+    exit 1
 fi
 
 # Global tracking variables for report compiling in cleanup trap
@@ -190,10 +205,10 @@ WORKFLOW SCENARIOS
          and Honeywell-specific network/credentials).
        - Automatically confirms (-y) and submits Cloud Build job.
        - Polls until ISO build finishes and downloads the build report.
-       - Because '--bootimus' was passed, automatically triggers:
-         1. 'python3 src/build/bootimus.py honeywell-24.04-v<ver>-debug.iso'
-         2. 'python3 test/bin/check-bootimus-settings.py' (verifies/locks PXE).
-         3. 'python3 src/build/bootimus.py --list' (prints boot menu tree).
+        - Because '--bootimus' was passed, automatically triggers:
+          1. './bootimus.sh honeywell-24.04-v<ver>-debug.iso'
+          2. 'python3 test/bin/check-bootimus-settings.py' (verifies/locks PXE).
+          3. './bootimus.sh --list' (prints boot menu tree).
 
    Scenario B: Rapid local workstation cycle (Offline / No Cloud Build)
      Command:
@@ -932,7 +947,7 @@ if [[ "${RUN_BOOTIMUS}" == "true" ]]; then
             fi
         done
         echo "[-] Deploying to Bootimus: ${iso_name} (profile: ${t_env})..."
-        ISO_ENVIRONMENT="${t_env}" timeout 1200s "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" "${iso_name}" || true
+        ISO_ENVIRONMENT="${t_env}" PYTHON_BIN="${PYTHON_BIN}" timeout 1200s "${PROJECT_ROOT}/bootimus.sh" "${iso_name}" || true
     done
 
     echo "[-] Running Bootimus stability auditor & settings healer..."
@@ -953,7 +968,7 @@ if [[ "${RUN_BOOTIMUS}" == "true" ]]; then
     fi
 
     echo "[-] Querying current Bootimus boot menu tree:"
-    "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" --list || true
+    PYTHON_BIN="${PYTHON_BIN}" "${PROJECT_ROOT}/bootimus.sh" --list || true
     echo -e "\033[92m[x] Bootimus deployment complete for all targets.\033[0m"
 else
     echo -e "\n[-] Notice: Bootimus deployment skipped (pass --bootimus to enable)."

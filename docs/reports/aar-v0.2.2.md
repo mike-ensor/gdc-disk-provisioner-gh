@@ -26,4 +26,4 @@
 * Local Output Receipts: Available in `build-workspace/test_results.json`
 
 **GDC Companion Live Telemetry Logs**
-* Telemetry Logs: `http://gdc-companion.ensor-labs.com/v1/install-logs`
+* Telemetry Logs: `http://gdc-companion.gdc-labs.com/v1/install-logs`

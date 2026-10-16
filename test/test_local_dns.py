@@ -72,7 +72,7 @@ class TestLocalDNS(unittest.TestCase):
             "gdc_service_hub_ip": "192.168.109.12",
             "gdc_local_dns_upstream_servers": ["1.1.1.1", "8.8.8.8"],
             "platform_dns_records": [
-                {"name": "gdc-companion.ensor-labs.com", "ip": "192.168.20.102"},
+                {"name": "gdc-companion.gdc-labs.com", "ip": "192.168.20.102"},
                 {"name": "step-ca.ensor-labs.com", "ip": "192.168.20.102"}
             ]
         })
@@ -83,7 +83,7 @@ class TestLocalDNS(unittest.TestCase):
         self.assertIn("no-hosts", rendered_platform)
         self.assertIn("server=1.1.1.1", rendered_platform)
         self.assertIn("server=8.8.8.8", rendered_platform)
-        self.assertIn("address=/gdc-companion.ensor-labs.com/192.168.20.102", rendered_platform)
+        self.assertIn("address=/gdc-companion.gdc-labs.com/192.168.20.102", rendered_platform)
         self.assertIn("address=/step-ca.ensor-labs.com/192.168.20.102", rendered_platform)
 
         # Render internal-gdc.conf.j2

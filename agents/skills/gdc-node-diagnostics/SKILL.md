@@ -3,7 +3,7 @@ name: gdc-node-diagnostics
 description: Finds, queries, and deep-inspects target GDC nodes to compile structured Root Cause Analysis (RCA) Markdown documents. Use when troubleshooting failed installations, provisioning freezes, network timeouts, or missing dependencies.
 dependencies:
   - "src/build/scan_ips.py"
-  - "sudo /usr/local/bin/gdc-collector --companion-url=https://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"
+  - "sudo /usr/local/bin/gdc-collector --companion-url=https://gdc-companion.gdc-labs.com/v1/machine-reports/ingest"
 ---
 
 # Skill: gdc-node-diagnostics
@@ -35,7 +35,7 @@ See `EXAMPLES.md` for a complete walkthrough of diagnosing a node.
 ### State 2: Fetch Desired State (Companion API)
 - [ ] Read the `INSTALL_COMPANION_API_KEY` from `src/build/local.env`.
 - [ ] Query the Companion API to retrieve the intended desired state for the node based on its MAC address:
-  `curl -s -X GET "https://gdc-companion.ensor-labs.com/v1/machine-info/<MAC>" -H "Authorization: Bearer <API_KEY>"`
+  `curl -s -X GET "https://gdc-companion.gdc-labs.com/v1/machine-info/<MAC>" -H "Authorization: Bearer <API_KEY>"`
 - [ ] Record the desired hostname, management network, and cluster network (VLAN configurations).
 
 ### State 3: Connection & Phase Determination
@@ -47,7 +47,7 @@ See `EXAMPLES.md` for a complete walkthrough of diagnosing a node.
 
 ### State 4: Diagnostics Tarball Acquisition
 - [ ] Ensure the node pushes the latest diagnostic state by triggering the collector over SSH:
-  `sshpass -p '<password>' ssh -o StrictHostKeyChecking=no temporary-installer@<ip> 'sudo /usr/local/bin/gdc-collector --companion-url="https://gdc-companion.ensor-labs.com/v1/machine-reports/ingest"'`
+  `sshpass -p '<password>' ssh -o StrictHostKeyChecking=no temporary-installer@<ip> 'sudo /usr/local/bin/gdc-collector --companion-url="https://gdc-companion.gdc-labs.com/v1/machine-reports/ingest"'`
 - [ ] **Case A (URL Provided):** If the user provides a direct URL to a diagnostic tarball uploaded to the GDC Ingestion Companion app, download the archive using `curl` or `wget` directly to `/tmp/`.
 - [ ] **Case B (Direct SSH Fetch):** If no URL is provided, download the resulting gzip tarball archive locally using SCP:
   `sshpass -p '<password>' scp -o StrictHostKeyChecking=no temporary-installer@<ip>:/tmp/gdc-node-diagnostics-*.tar.gz /tmp/`

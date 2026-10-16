@@ -32,4 +32,4 @@
 - **Local Path**: `/d/projects/google/gdc-disk-provisioner/build-workspace/output/gdc-bootstrap-ubuntu-24.04-v0.3.40-debug.iso`
 
 ## 5. GDC Companion Live Telemetry Logs
-- **Direct Link**: https://gdc-companion.ensor-labs.com/v1/machine-reports/ingest
+- **Direct Link**: https://gdc-companion.gdc-labs.com/v1/machine-reports/ingest

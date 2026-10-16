@@ -211,6 +211,48 @@ class TestCheckEndpoints(unittest.TestCase):
         self.assertIn("--stage", content)
         self.assertIn("dns_fallback_active", content)
 
+    def test_companion_url_override_applies_to_cluster_ready_stage(self):
+        """Verifies that passing --companion-url overrides companion targets across all stages including cluster-ready."""
+        cmd = [
+            sys.executable,
+            SCRIPT_PATH,
+            "--config", MANIFEST_PATH,
+            "--stage", "cluster-ready",
+            "--companion-url", "https://custom-companion.apps.example.com/v1/machine-reports/ingest",
+            "--companion-base-url", "https://custom-companion.apps.example.com/",
+            "--timeout", "0.1",
+            "--dns-retries", "1",
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        results = json.loads(proc.stdout)
+
+        companion_results = [r for r in results if r["test_name"] == "endpoint_connect_companion"]
+        self.assertTrue(len(companion_results) > 0)
+        for cr in companion_results:
+            self.assertEqual(cr["meta"]["domain"], "custom-companion.apps.example.com")
+            self.assertNotEqual(cr["meta"]["domain"], "gdc-companion.gdc-labs.com")
+
+    def test_companion_url_alone_overrides_cluster_ready_stage(self):
+        """Verifies that passing only --companion-url still updates cluster-ready companion target domain/port."""
+        cmd = [
+            sys.executable,
+            SCRIPT_PATH,
+            "--config", MANIFEST_PATH,
+            "--stage", "cluster-ready",
+            "--companion-url", "https://only-companion.apps.example.com/v1/machine-reports/ingest",
+            "--timeout", "0.1",
+            "--dns-retries", "1",
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        results = json.loads(proc.stdout)
+
+        companion_results = [r for r in results if r["test_name"] == "endpoint_connect_companion"]
+        self.assertTrue(len(companion_results) > 0)
+        for cr in companion_results:
+            self.assertEqual(cr["meta"]["domain"], "only-companion.apps.example.com")
+            self.assertNotEqual(cr["meta"]["domain"], "gdc-companion.gdc-labs.com")
+            self.assertNotEqual(cr["meta"]["domain"], "gdc-companion.gdc-labs.com")
+
 
 if __name__ == "__main__":
     unittest.main()

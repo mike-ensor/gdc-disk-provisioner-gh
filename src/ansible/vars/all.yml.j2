@@ -39,6 +39,9 @@ gdc_core_packages:
   - "linux-generic-hwe-24.04"
   - "nfs-common"
   - "dnsmasq"
+  - "nginx"
+  - "iptables"
+  - "iptables-persistent"
 
 # Packages to purge for OS slimming & security reduction
 gdc_purge_packages:
@@ -218,4 +221,20 @@ nvidia_container_toolkit_package: "nvidia-container-toolkit"
 nvidia_gpu_enable_persistence: true
 nvidia_gpu_lock_memory_clock: true
 nvidia_gpu_memory_clock_mhz: 7000
+
+# ==============================================================================
+# GDC Nexus TLS & Enterprise Sub-CA PKI Parameters
+# ==============================================================================
+gdc_nexus_tls_enabled: true
+gdc_nexus_https_port: 443
+gdc_sub_ca_dir: "/etc/ssl/sub-ca"
+gdc_sub_ca_cert_path: "/etc/ssl/sub-ca/sub-ca.crt"
+gdc_sub_ca_key_path: "/etc/ssl/sub-ca/sub-ca.key"
+gdc_enterprise_root_cert_path: "/usr/local/share/ca-certificates/gdc-enterprise-root.crt"
+gdc_nexus_cert_path: "/etc/ssl/certs/nexus.bundle.crt"
+gdc_nexus_key_path: "/etc/ssl/private/nexus.key"
+gdc_nexus_tls_renew_threshold_seconds: 2592000 # 30 days
+gdc_fallback_sub_ca_path: "/var/gdc-install/pki/fallback-sub-ca.json"
+gdc_nexus_demo_domain: "nexus.demo.gdc-labs.com"
+
 

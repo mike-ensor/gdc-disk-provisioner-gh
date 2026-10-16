@@ -105,7 +105,7 @@ def fetch_diagnostics_tarball(ip: str, download_url: str | None = None) -> str:
             print(f"  [!] Failed to download from URL: {e}")
 
     # Case B: Out-of-band query to GDC Ingestion Companion REST API
-    companion_api_url = f"https://gdc-companion.ensor-labs.com/v1/machine-reports?ip={ip}"
+    companion_api_url = f"https://gdc-companion.gdc-labs.com/v1/machine-reports?ip={ip}"
     print(f"[-] Querying GDC Companion out-of-band registry: {companion_api_url}")
     try:
         api_res = requests.get(companion_api_url, timeout=5)
@@ -114,7 +114,7 @@ def fetch_diagnostics_tarball(ip: str, download_url: str | None = None) -> str:
             if reports and isinstance(reports, list):
                 latest_report = reports[0]
                 report_id = latest_report.get("id")
-                dl_url = f"https://gdc-companion.ensor-labs.com/?download=true&report_id={report_id}"
+                dl_url = f"https://gdc-companion.gdc-labs.com/?download=true&report_id={report_id}"
                 print(f"  [x] Found out-of-band diagnostic payload on Companion! Fetching: {dl_url}")
                 dl_res = requests.get(dl_url, timeout=10)
                 if dl_res.status_code == 200:
