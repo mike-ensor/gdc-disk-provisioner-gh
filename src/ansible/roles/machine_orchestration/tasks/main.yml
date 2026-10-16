@@ -319,6 +319,15 @@
     name: "gdc-credentials-refresh-30min"
     state: absent
 
+- name: "GDC-ORCH | Set cluster_config and gcp_project_id facts"
+  ansible.builtin.set_fact:
+    cluster_config: "{{ cluster_config | default(machine_config.cluster | default({})) }}"
+    gcp_project_id: "{{ gcp_project_id | default((machine_config.gcp_info | default({})).project_id | default('')) }}"
+
+- name: "GDC-ORCH | Ingest Enterprise Sub-CA from Secret Manager"
+  ansible.builtin.include_tasks: pki_ingest.yml
+  tags: ["corp-cert"]
+
 - name: "GDC-ORCH | Ensure NodeAgent install directory exists"
   ansible.builtin.file:
     path: "/var/gdc-install/tools/node-agent"
@@ -561,6 +570,7 @@
           if (verify_nvidia_cr.stdout is defined and (verify_nvidia_cr.stdout | trim | length > 0) and (verify_nvidia_cr.stdout | trim).startswith('{'))
           else {'status': 'SKIPPED_NO_GPU', 'present': false}
         }}
+      nexus_tls: "{{ nexus_tls_evidence | default({}) }}"
 
 - name: "GDC-ORCH | Verify peer hostname resolution"
   ansible.builtin.command:

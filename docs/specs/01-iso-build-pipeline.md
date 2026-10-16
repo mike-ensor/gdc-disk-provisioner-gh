@@ -283,7 +283,7 @@ To establish 100% auditable traceability, every successful build publishes a sig
     "enforce_signed_commits": false,
     "machine_vlan_id": 0,
     "k8s_vlan_id": 0,
-    "install_companion_url": "http://gdc-companion.ensor-labs.com/v1/install-logs"
+    "install_companion_url": "http://gdc-companion.gdc-labs.com/v1/install-logs"
   },
   "verification_certification": {
     "static_validation": {

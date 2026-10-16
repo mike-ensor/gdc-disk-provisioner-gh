@@ -3,7 +3,7 @@
 **Date:** 2026-10-05  
 **Author:** AI Product Manager / Systems Architecture Specialist  
 **Target Repositories:** `gdc-companion` (`crates/collector`) & `gdc-disk-provisioner`  
-**Reference Report:** `https://gdc-companion.ensor-labs.com/?download=true&report_id=1ef84ed3-8d02-4b93-b98f-1515ad9755b5` (Node `192.168.9.246`)  
+**Reference Report:** `https://gdc-companion.gdc-labs.com/?download=true&report_id=1ef84ed3-8d02-4b93-b98f-1515ad9755b5` (Node `192.168.9.246`)  
 
 ---
 

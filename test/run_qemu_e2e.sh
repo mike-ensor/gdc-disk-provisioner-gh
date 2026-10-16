@@ -81,7 +81,7 @@ ISO_VER=$(cat "${PROJECT_ROOT}/VERSION" 2>/dev/null || echo "0.1.124")
 # Force hydration and assembly with non-zero VLAN configuration for the E2E test
 if [[ "${REUSE_DISKS}" = "false" ]]; then
     echo "[-] Compiling test ISO with VLAN parameters (VLAN 109, ISO Version: ${ISO_VER})..."
-    ISO_VERSION="${ISO_VER}" ADMIN_SSH_PUB_KEYS="${TEST_PUB_KEY}" COMPANION_IP=192.168.120.2 COMPANION_HOST=gdc-companion.ensor-labs.com INSTALL_COMPANION_URL=http://gdc-companion.ensor-labs.com:8080/v1/install-logs BOOTSTRAP_MACHINE_VLAN_ID=0 BOOTSTRAP_K8S_VLAN_ID=109 BOOTSTRAP_K8S_IP_CIDR=192.168.109.10/24 BOOTSTRAP_K8S_GATEWAY=192.168.109.1 SINGLE_DISK=false DISK1=vda DISK2=vdb BOOT_MODE=bios DISABLE_SSH_DNS="${DISABLE_SSH_DNS}" make -C "${PROJECT_ROOT}/src/build" hydrate assemble
+    ISO_VERSION="${ISO_VER}" ADMIN_SSH_PUB_KEYS="${TEST_PUB_KEY}" COMPANION_IP=192.168.120.2 COMPANION_HOST=gdc-companion.gdc-labs.com INSTALL_COMPANION_URL=http://gdc-companion.gdc-labs.com:8080/v1/install-logs BOOTSTRAP_MACHINE_VLAN_ID=0 BOOTSTRAP_K8S_VLAN_ID=109 BOOTSTRAP_K8S_IP_CIDR=192.168.109.10/24 BOOTSTRAP_K8S_GATEWAY=192.168.109.1 SINGLE_DISK=false DISK1=vda DISK2=vdb BOOT_MODE=bios DISABLE_SSH_DNS="${DISABLE_SSH_DNS}" make -C "${PROJECT_ROOT}/src/build" hydrate assemble
 fi
 
 # 1. Locate generated ISO

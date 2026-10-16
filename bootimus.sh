@@ -25,6 +25,33 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SCRIPT_DIR}"
 
+# Locate active or local virtual environment Python if not explicitly provided
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+    if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python3" ]]; then
+        PYTHON_BIN="${VIRTUAL_ENV}/bin/python3"
+    elif [[ -x "${PROJECT_ROOT}/venv/bin/python3" ]]; then
+        PYTHON_BIN="${PROJECT_ROOT}/venv/bin/python3"
+    elif [[ -x "${PROJECT_ROOT}/.venv/bin/python3" ]]; then
+        PYTHON_BIN="${PROJECT_ROOT}/.venv/bin/python3"
+    elif [[ -x "${PROJECT_ROOT}/src/build/.venv/bin/python3" ]]; then
+        PYTHON_BIN="${PROJECT_ROOT}/src/build/.venv/bin/python3"
+    else
+        PYTHON_BIN="python3"
+    fi
+fi
+
+# Fast-fail if Python is missing or older than 3.8
+if ! command -v "${PYTHON_BIN}" &>/dev/null; then
+    echo -e "\033[91m[!] Error: Python interpreter '${PYTHON_BIN}' not found on PATH or in virtualenvs.\033[0m" >&2
+    exit 1
+fi
+
+if ! "${PYTHON_BIN}" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' &>/dev/null; then
+    py_ver=$("${PYTHON_BIN}" -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null || echo "unknown")
+    echo -e "\033[91m[!] Error: Python 3.8+ is required. Found Python ${py_ver} at '${PYTHON_BIN}'.\033[0m" >&2
+    exit 1
+fi
+
 # Capture caller-provided environment variables so file sourcing does not overwrite them
 declare -A INITIAL_ENV
 for var in $(compgen -e); do
@@ -186,9 +213,9 @@ echo "==========================================================================
 # Execute Python Bootimus Script
 # ==========================================
 if [[ "${ACTION}" == "LIST" ]]; then
-    python3 "${PROJECT_ROOT}/src/build/bootimus.py" "${EXTRA_ARGS[@]}"
+    exec "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" "${EXTRA_ARGS[@]}"
 elif [[ "${ACTION}" == "NEXT_BOOT" || "${ACTION}" == "CLEAR_NEXT_BOOT" ]]; then
-    python3 "${PROJECT_ROOT}/src/build/bootimus.py" "${ALL_ARGS[@]}"
+    exec "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" "${ALL_ARGS[@]}"
 else
-    python3 "${PROJECT_ROOT}/src/build/bootimus.py" "${ISO_FILENAME}" "${EXTRA_ARGS[@]}"
+    exec "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" "${ISO_FILENAME}" "${EXTRA_ARGS[@]}"
 fi

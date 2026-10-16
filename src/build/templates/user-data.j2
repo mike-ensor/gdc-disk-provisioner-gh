@@ -475,18 +475,26 @@ autoinstall:
       echo "[GDC-INSTALL-GOAL] Starting Task: Activating Live ISO network segment"
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Activating Live ISO network segment"
-      PHYS_IFACE=$(ls /sys/class/net | grep -E '^e' | head -n 1 || echo "eth0")
-      
-    - |
+      PHYS_IFACE=""
+      for iface_path in $(ls -d /sys/class/net/e* 2>/dev/null | grep -v '\.' | sort); do
+          if [ -f "$iface_path/carrier" ] && [ "$(cat "$iface_path/carrier" 2>/dev/null)" = "1" ]; then
+              PHYS_IFACE=$(basename "$iface_path")
+              break
+          fi
+      done
+      if [ -z "$PHYS_IFACE" ]; then
+          PHYS_IFACE=$(ls /sys/class/net 2>/dev/null | grep -E '^e' | grep -v '\.' | sort | head -n 1 || echo "eth0")
+      fi
+
       # [GDC-INSTALL-STEP 5/12] Activating Live ISO network segment...
       VLAN_ID="{{ machine_vlan }}"
       if [ -z "${VLAN_ID}" ] || [ "${VLAN_ID}" = "0" ]; then
         # Untagged native configuration (directly on physical interface!)
-        echo "[-] Running on untagged native network. Retaining existing DHCP configuration."
+        echo "[-] Running on untagged native network. Retaining existing DHCP configuration on ${PHYS_IFACE}."
         ip link set dev "${PHYS_IFACE}" up || true
       else
         # Tagged VLAN configuration
-        echo "[-] Running on tagged VLAN ${VLAN_ID}. Activating VLAN interface..."
+        echo "[-] Running on tagged VLAN ${VLAN_ID}. Activating VLAN interface on ${PHYS_IFACE}..."
         ip link add link "${PHYS_IFACE}" name "${PHYS_IFACE}.${VLAN_ID}" type vlan id "${VLAN_ID}" 2>/dev/null || true
         ip link set dev "${PHYS_IFACE}.${VLAN_ID}" up || true
         echo "[-] Requesting DHCP address on VLAN interface..."
@@ -597,7 +605,7 @@ autoinstall:
       # Local GDC Hosted (Sideloaded Update) Repository
       Enabled: yes
       Types: deb
-      URIs: http://127.0.0.1:8081/repository/gdc-apt-hosted/
+      URIs: {{ 'https://' + (nexus_domain | default('nexus.internal.gdc.local')) if (nexus_tls_enabled is not defined or (nexus_tls_enabled and nexus_tls_enabled not in [false, 'false', 'False', 0, '0'])) else 'http://127.0.0.1:8081' }}/repository/gdc-apt-hosted/
       Suites: noble
       Components: main restricted universe multiverse
       Signed-By: /etc/apt/keyrings/gdc-nexus.gpg
@@ -606,7 +614,7 @@ autoinstall:
       # Local GDC Proxy (Upstream Cache) Repository
       Enabled: yes
       Types: deb
-      URIs: http://127.0.0.1:8081/repository/gdc-apt-proxy/
+      URIs: {{ 'https://' + (nexus_domain | default('nexus.internal.gdc.local')) if (nexus_tls_enabled is not defined or (nexus_tls_enabled and nexus_tls_enabled not in [false, 'false', 'False', 0, '0'])) else 'http://127.0.0.1:8081' }}/repository/gdc-apt-proxy/
       Suites: noble
       Components: main restricted universe multiverse
       Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
@@ -654,6 +662,15 @@ autoinstall:
       rsync -a --sparse /cdrom/custom-data/gitea/ /target/var/lib/gitea/ 2>/tmp/rsync_gitea_err.log || rsync_success=false
       rsync -a --sparse /cdrom/custom-data/nexus/ /target/var/lib/nexus/ 2>/tmp/rsync_nexus_err.log || rsync_success=false
       rsync -a /cdrom/custom-data/ /target/var/gdc-install/iso-cache/ 2>/tmp/rsync_iso_cache_err.log || rsync_success=false
+      
+      if [ -d /cdrom/custom-data/pki ]; then
+        mkdir -p /target/var/gdc-install/pki
+        rsync -a /cdrom/custom-data/pki/ /target/var/gdc-install/pki/ 2>/dev/null || true
+        curtin in-target -- chmod 700 /var/gdc-install/pki || true
+        curtin in-target -- chmod 400 /var/gdc-install/pki/* 2>/dev/null || true
+        curtin in-target -- chown -R root:root /var/gdc-install/pki || true
+        rm -rf /target/var/gdc-install/iso-cache/pki 2>/dev/null || true
+      fi
       
       if [ -d /cdrom/custom-data/ansible/collections ]; then
         rsync -a /cdrom/custom-data/ansible/collections/ /target/usr/share/ansible/collections/ 2>/tmp/rsync_ansible_err.log || rsync_success=false

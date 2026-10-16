@@ -18,6 +18,54 @@
   ansible.builtin.include_role:
     name: local_dns
 
+- name: "GDC-CR-HUB | Check if Nexus TLS site configuration exists"
+  ansible.builtin.stat:
+    path: /etc/nginx/sites-available/nexus-tls.conf
+  register: nexus_tls_site_conf_stat
+  tags: ["corp-cert"]
+
+- name: "GDC-CR-HUB | Check if Nexus TLS certificate exists"
+  ansible.builtin.stat:
+    path: "{{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}"
+  register: nexus_cert_stat_stage5
+  tags: ["corp-cert"]
+
+- name: "GDC-CR-HUB | Re-sync nexus-tls.conf with active cluster network IP"
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/roles/service_hubs/templates/nexus-tls.conf.j2"
+    dest: /etc/nginx/sites-available/nexus-tls.conf
+    owner: root
+    group: root
+    mode: '0644'
+  register: nexus_tls_site_conf_updated
+  when: nexus_tls_site_conf_stat.stat.exists
+  tags: ["corp-cert"]
+
+- name: "GDC-CR-HUB | Activate Nexus TLS reverse proxy site"
+  when:
+    - nexus_tls_site_conf_stat.stat.exists
+    - nexus_cert_stat_stage5.stat.exists
+  tags: ["corp-cert"]
+  block:
+    - name: "GDC-CR-HUB | Ensure nexus-tls.conf is enabled in sites-enabled"
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/nexus-tls.conf
+        dest: /etc/nginx/sites-enabled/nexus-tls.conf
+        state: link
+        owner: root
+        group: root
+
+    - name: "GDC-CR-HUB | Remove /etc/nginx/sites-enabled/default if present"
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: "GDC-CR-HUB | Reload Nginx after cluster IP re-sync"
+      ansible.builtin.systemd:
+        name: nginx
+        state: reloaded
+      when: nexus_tls_site_conf_updated.changed
+
 - name: "GDC-CR-EXT | Ingest and evaluate custom extensions"
   ansible.builtin.include_role:
     name: custom_extensions

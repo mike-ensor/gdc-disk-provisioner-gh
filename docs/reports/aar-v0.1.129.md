@@ -30,7 +30,7 @@
 ## Diagnostic Log Links
 *   **Google Cloud Build logs:** [https://console.cloud.google.com/cloud-build/builds/20ffa4c8-e6ae-4372-a0d0-31e9060c7f6a?project=685813425367](https://console.cloud.google.com/cloud-build/builds/20ffa4c8-e6ae-4372-a0d0-31e9060c7f6a?project=685813425367)
 *   **GCS Sync Folder:** `gs://gdc-disk-provisioner-isos/sync/`
-*   **GDC Companion Live Telemetry Logs:** [http://gdc-companion.ensor-labs.com/v1/install-logs](http://gdc-companion.ensor-labs.com/v1/install-logs)
+*   **GDC Companion Live Telemetry Logs:** [http://gdc-companion.gdc-labs.com/v1/install-logs](http://gdc-companion.gdc-labs.com/v1/install-logs)
 
 ## Detailed Summary & Mitigations Included
 

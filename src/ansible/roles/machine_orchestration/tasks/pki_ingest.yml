@@ -1,0 +1,271 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "GDC-PKI | Resolve Nexus TLS requirements & Sub-CA GSM configuration"
+  ansible.builtin.set_fact:
+    nexus_tls_should_exist: "{{ gdc_nexus_tls_enabled | default(true) | bool }}"
+    sub_ca_gsm_name: >-
+      {{
+        (cluster_config.sub_ca_secret['gsm-name']
+         if (cluster_config is defined and cluster_config.sub_ca_secret is defined and cluster_config.sub_ca_secret['gsm-name'] is defined)
+         else '')
+      }}
+    sub_ca_gsm_location: >-
+      {{
+        (cluster_config.sub_ca_secret['gsm-location']
+         if (cluster_config is defined and cluster_config.sub_ca_secret is defined and cluster_config.sub_ca_secret['gsm-location'] is defined and cluster_config.sub_ca_secret['gsm-location'] | trim | length > 0)
+         else 'global')
+      }}
+  tags: ["corp-cert"]
+
+- name: "GDC-PKI | Check if Sub-CA key is already provisioned on host"
+  ansible.builtin.stat:
+    path: "{{ gdc_sub_ca_key_path | default('/etc/ssl/sub-ca/sub-ca.key') }}"
+  register: existing_sub_ca_key_stat
+  tags: ["corp-cert"]
+
+- name: "GDC-PKI | Ingest Enterprise Sub-CA from Secret Manager"
+  when:
+    - nexus_tls_should_exist | bool
+    - not (existing_sub_ca_key_stat.stat.exists | default(false))
+    - sub_ca_gsm_name | trim | length > 0
+  tags: ["corp-cert"]
+  block:
+    - name: "GDC-PKI | Access Sub-CA Secret payload via gcloud"
+      ansible.builtin.command: >-
+        gcloud secrets versions access latest
+        --secret={{ sub_ca_gsm_name }}
+        {% if gcp_project_id is defined and gcp_project_id | trim | length > 0 %}--project={{ gcp_project_id }}{% endif %}
+        {% if sub_ca_gsm_location is defined and sub_ca_gsm_location | trim | length > 0 and sub_ca_gsm_location != 'global' %}
+        --location={{ sub_ca_gsm_location }}
+        {% endif %}
+      register: gsm_sub_ca_res
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: "GDC-PKI | Fallback: Access Sub-CA Secret payload as global resource"
+      ansible.builtin.command: >-
+        gcloud secrets versions access latest
+        --secret={{ sub_ca_gsm_name }}
+        {% if gcp_project_id is defined and gcp_project_id | trim | length > 0 %}--project={{ gcp_project_id }}{% endif %}
+      register: gsm_sub_ca_res_fallback
+      when:
+        - gsm_sub_ca_res.rc != 0
+        - sub_ca_gsm_location is defined
+        - sub_ca_gsm_location != 'global'
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: "GDC-PKI | Adopt fallback Sub-CA payload if successful"
+      ansible.builtin.set_fact:
+        gsm_sub_ca_res: "{{ gsm_sub_ca_res_fallback }}"
+      when:
+        - gsm_sub_ca_res.rc != 0
+        - gsm_sub_ca_res_fallback is defined
+        - gsm_sub_ca_res_fallback.rc is defined and gsm_sub_ca_res_fallback.rc == 0
+      no_log: true
+
+    - name: "GDC-PKI | Fail if Sub-CA secret retrieval failed"
+      ansible.builtin.fail:
+        msg: "Failed to retrieve Sub-CA secret '{{ sub_ca_gsm_name }}' from Secret Manager."
+      when: gsm_sub_ca_res.rc != 0
+
+- name: "GDC-PKI | Check for pre-baked fallback Sub-CA credentials"
+  ansible.builtin.stat:
+    path: "{{ gdc_fallback_sub_ca_path | default('/var/gdc-install/pki/fallback-sub-ca.json') }}"
+  register: fallback_sub_ca_stat
+  when:
+    - nexus_tls_should_exist | bool
+    - not (existing_sub_ca_key_stat.stat.exists | default(false))
+    - sub_ca_gsm_name | trim | length == 0
+  tags: ["corp-cert"]
+
+- name: "GDC-PKI | Ingest Pre-Baked Fallback Sub-CA credentials"
+  when:
+    - nexus_tls_should_exist | bool
+    - not (existing_sub_ca_key_stat.stat.exists | default(false))
+    - sub_ca_gsm_name | trim | length == 0
+    - fallback_sub_ca_stat.stat is defined
+    - fallback_sub_ca_stat.stat.exists
+  tags: ["corp-cert"]
+  block:
+    - name: "GDC-PKI | Slurp fallback Sub-CA payload"
+      ansible.builtin.slurp:
+        src: "{{ gdc_fallback_sub_ca_path | default('/var/gdc-install/pki/fallback-sub-ca.json') }}"
+      register: fallback_sub_ca_raw
+      no_log: true
+
+    - name: "GDC-PKI | Load fallback Sub-CA payload into facts"
+      ansible.builtin.set_fact:
+        gsm_sub_ca_res:
+          rc: 0
+          stdout: "{{ fallback_sub_ca_raw.content | b64decode }}"
+        is_demo_fallback_pki: true
+      no_log: true
+
+- name: "GDC-PKI | Write Sub-CA credentials and register Root CA trust"
+  when:
+    - gsm_sub_ca_res is defined
+    - gsm_sub_ca_res.rc is defined
+    - gsm_sub_ca_res.rc == 0
+  tags: ["corp-cert"]
+  block:
+    - name: "GDC-PKI | Ensure Sub-CA and private key directories exist"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+      loop:
+        - "{{ gdc_sub_ca_dir }}"
+        - "/etc/ssl/private"
+
+    - name: "GDC-PKI | Write Corporate Root CA to system trust store"
+      ansible.builtin.copy:
+        dest: "{{ gdc_enterprise_root_cert_path }}"
+        content: "{{ (gsm_sub_ca_res.stdout | from_json)['root.crt'] }}"
+        owner: root
+        group: root
+        mode: '0644'
+      register: root_ca_write_res
+
+    - name: "GDC-PKI | Update OS System CA Certificates"
+      ansible.builtin.command: update-ca-certificates
+      when: root_ca_write_res.changed
+
+    - name: "GDC-PKI | Write Sub-CA Certificate"
+      ansible.builtin.copy:
+        dest: "{{ gdc_sub_ca_cert_path }}"
+        content: "{{ (gsm_sub_ca_res.stdout | from_json)['sub-ca.crt'] | default((gsm_sub_ca_res.stdout | from_json)['ca.crt'] | default('')) }}"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: "GDC-PKI | Write Sub-CA Private Key"
+      ansible.builtin.copy:
+        dest: "{{ gdc_sub_ca_key_path }}"
+        content: "{{ (gsm_sub_ca_res.stdout | from_json)['sub-ca.key'] | default((gsm_sub_ca_res.stdout | from_json)['ca.key'] | default('')) }}"
+        owner: root
+        group: root
+        mode: '0400'
+      no_log: true
+
+    - name: "GDC-PKI | Securely purge temporary fallback Sub-CA payload"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ gdc_fallback_sub_ca_path | default('/var/gdc-install/pki/fallback-sub-ca.json') }}"
+        - "/var/gdc-install/pki"
+      when: is_demo_fallback_pki | default(false) | bool
+
+    - name: "GDC-PKI | Mint initial Nexus TLS leaf certificate using Sub-CA"
+      ansible.builtin.command: /usr/local/bin/refresh-nexus-tls.sh
+      register: refresh_nexus_res
+      changed_when: "'Minting initial certificate' in refresh_nexus_res.stdout or 'Successfully renewed' in refresh_nexus_res.stdout"
+
+    - name: "GDC-PKI | Check if Nexus TLS certificate was minted"
+      ansible.builtin.stat:
+        path: "{{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}"
+      register: minted_nexus_cert_stat
+
+    - name: "GDC-PKI | Enable nexus-tls.conf site in sites-enabled"
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/nexus-tls.conf
+        dest: /etc/nginx/sites-enabled/nexus-tls.conf
+        state: link
+        owner: root
+        group: root
+      when: minted_nexus_cert_stat.stat.exists
+
+    - name: "GDC-PKI | Remove /etc/nginx/sites-enabled/default if present"
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      when: minted_nexus_cert_stat.stat.exists
+
+    - name: "GDC-PKI | Ensure Nginx service is running and reload TLS configuration"
+      ansible.builtin.systemd:
+        name: nginx
+        state: restarted
+        daemon_reload: true
+      when: minted_nexus_cert_stat.stat.exists
+
+    - name: "GDC-PKI | Upgrade DEB822 Nexus sources to HTTPS endpoint"
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/gdc-nexus.sources
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Local GDC Hosted (Sideloaded Update) Repository
+          Enabled: yes
+          Types: deb
+          URIs: https://{{ gdc_nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-hosted/
+          Suites: noble
+          Components: main
+          Signed-By: /etc/apt/keyrings/gdc-nexus.gpg
+          Trusted: yes
+
+          # Local GDC Proxy (Upstream Cache) Repository
+          Enabled: yes
+          Types: deb
+          URIs: https://{{ gdc_nexus_domain | default('nexus.internal.gdc.local') }}/repository/gdc-apt-proxy/
+          Suites: noble noble-updates noble-backports noble-security
+          Components: main restricted universe multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          Trusted: yes
+      when: minted_nexus_cert_stat.stat.exists
+
+- name: "GDC-PKI | Check if Nexus TLS certificate exists"
+  ansible.builtin.stat:
+    path: "{{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}"
+  register: nexus_cert_stat_pki
+  tags: ["corp-cert"]
+
+- name: "GDC-PKI | Check if Nexus TLS site configuration exists"
+  ansible.builtin.stat:
+    path: /etc/nginx/sites-available/nexus-tls.conf
+  register: nexus_config_stat_pki
+  tags: ["corp-cert"]
+
+- name: "GDC-PKI | Record Nexus TLS evidence"
+  ansible.builtin.set_fact:
+    nexus_tls_evidence:
+      should_exist: "{{ nexus_tls_should_exist | bool }}"
+      cert_exists: "{{ (nexus_cert_stat_pki.stat.exists | default(false)) | bool }}"
+      config_exists: "{{ (nexus_config_stat_pki.stat.exists | default(false)) | bool }}"
+      cert_path: "{{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}"
+      config_path: "/etc/nginx/sites-available/nexus-tls.conf"
+      gsm_secret_name: "{{ sub_ca_gsm_name | default('') }}"
+      gsm_secret_location: "{{ (sub_ca_gsm_location if (sub_ca_gsm_name is defined and sub_ca_gsm_name | trim | length > 0) else '') }}"
+      is_fallback_demo_mode: "{{ (is_demo_fallback_pki | default(false) | bool) or (sub_ca_gsm_name | trim | length == 0) }}"
+      status: >-
+        {{
+          ('PASS_DEMO_MODE' if ((is_demo_fallback_pki | default(false) | bool) or (sub_ca_gsm_name | trim | length == 0)) else 'PASS')
+          if ((nexus_cert_stat_pki.stat.exists | default(false)) and (nexus_config_stat_pki.stat.exists | default(false)))
+          else ('SKIPPED' if not (nexus_tls_should_exist | bool) else 'FAIL')
+        }}
+      warning: >-
+        {{
+          'Appliance operating in demo mode using fallback 10-year Sub-CA. Not for production use.'
+          if ((is_demo_fallback_pki | default(false) | bool) or (sub_ca_gsm_name | trim | length == 0))
+          else ''
+        }}
+  tags: ["corp-cert"]
+
+- name: "GDC-PKI | Merge Nexus TLS evidence into cluster_ready_evidence"
+  ansible.builtin.set_fact:
+    cluster_ready_evidence: "{{ (cluster_ready_evidence | default({})) | combine({'nexus_tls': nexus_tls_evidence}) }}"
+  tags: ["corp-cert"]
+
+- name: "GDC-PKI | Assert Nexus TLS certificate and configuration exist"
+  ansible.builtin.assert:
+    that:
+      - nexus_cert_stat_pki.stat.exists | default(false)
+      - nexus_config_stat_pki.stat.exists | default(false)
+    fail_msg: "Nexus TLS certificate ({{ gdc_nexus_cert_path | default('/etc/ssl/certs/nexus.bundle.crt') }}) or configuration (/etc/nginx/sites-available/nexus-tls.conf) missing when TLS is required."
+  when: nexus_tls_should_exist | bool
+  tags: ["corp-cert"]

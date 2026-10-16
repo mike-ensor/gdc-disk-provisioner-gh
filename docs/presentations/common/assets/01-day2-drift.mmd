@@ -1,0 +1,7 @@
+flowchart LR
+    Timer["systemd: gdc-provision.timer<br/>Every 15 Minutes"] --> Service["gdc-provision.service"]
+    Service --> Pull["ansible-pull -U /var/gdc/repo.git local.yml"]
+    Pull --> Check["Check Local Machine State"]
+    Check -->|Drift Detected| Remediate["Apply Idempotent State Correction"]
+    Check -->|In Sync| Ok["Log No-Op & Update Heartbeat"]
+    Remediate --> Ok

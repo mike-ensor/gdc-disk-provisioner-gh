@@ -1,0 +1,13 @@
+sequenceDiagram
+    autonumber
+    participant Node as Bare-Metal Host (Stage 2)
+    participant TPM as Motherboard TPM 2.0
+    participant LUKS as NVMe LUKS Header
+
+    Node->>TPM: Check PCR state & Endorsement Key (EK)
+    Node->>TPM: Generate random high-entropy disk key
+    Node->>LUKS: Enroll new keyslot using generated key
+    Node->>TPM: Seal key against PCRs 0, 2, 4, 7 (Firmware, EFI, SecureBoot)
+    TPM-->>Node: Return sealed key blob (stored in /etc/keys/disk.tpm)
+    Node->>Node: Unmask loopback boundary services (Gitea :3000, Nexus :8081)
+    Node->>Node: Arm Stage 3 boot flag and trigger automated reboot

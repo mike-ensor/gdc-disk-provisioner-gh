@@ -1,0 +1,85 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "GDC-K8S-PKI | Ingest and Handover Sub-CA to In-Cluster cert-manager"
+  when:
+    - gdc_nexus_tls_enabled | default(true) | bool
+  tags: ["corp-cert"]
+  block:
+    - name: "GDC-K8S-PKI | Check if Sub-CA private key exists on host"
+      ansible.builtin.stat:
+        path: "{{ gdc_sub_ca_key_path }}"
+      register: sub_ca_key_stat
+
+    - name: "GDC-K8S-PKI | Check if Sub-CA certificate exists on host"
+      ansible.builtin.stat:
+        path: "{{ gdc_sub_ca_cert_path }}"
+      register: sub_ca_cert_stat
+
+    - name: "GDC-K8S-PKI | Check if Enterprise Root CA certificate exists on host"
+      ansible.builtin.stat:
+        path: "{{ gdc_enterprise_root_cert_path }}"
+      register: enterprise_root_cert_stat
+
+    - name: "GDC-K8S-PKI | Seed Sub-CA and configure ClusterIssuer"
+      when:
+        - sub_ca_key_stat.stat.exists
+        - sub_ca_cert_stat.stat.exists
+        - enterprise_root_cert_stat.stat.exists
+      block:
+        - name: "GDC-K8S-PKI | Slurp Sub-CA certificate from host"
+          ansible.builtin.slurp:
+            src: "{{ gdc_sub_ca_cert_path }}"
+          register: slurped_sub_ca_cert
+
+        - name: "GDC-K8S-PKI | Slurp Enterprise Root CA certificate from host"
+          ansible.builtin.slurp:
+            src: "{{ gdc_enterprise_root_cert_path }}"
+          register: slurped_enterprise_root_cert
+
+        - name: "GDC-K8S-PKI | Slurp Sub-CA private key from host"
+          ansible.builtin.slurp:
+            src: "{{ gdc_sub_ca_key_path }}"
+          register: slurped_sub_ca_key
+          no_log: true
+
+        - name: "GDC-K8S-PKI | Ensure cert-manager namespace exists"
+          ansible.builtin.command:
+            cmd: "kubectl --kubeconfig={{ gdc_admin_kubeconfig | default('/etc/kubernetes/admin.conf') }} apply -f -"
+            stdin: |
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: cert-manager
+          changed_when: false
+
+        - name: "GDC-K8S-PKI | Seed Sub-CA TLS secret into cert-manager"
+          ansible.builtin.command:
+            cmd: "kubectl --kubeconfig={{ gdc_admin_kubeconfig | default('/etc/kubernetes/admin.conf') }} apply -f -"
+            stdin: |
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: gdc-sub-ca-keypair
+                namespace: cert-manager
+              type: kubernetes.io/tls
+              data:
+                tls.crt: "{{ ([slurped_sub_ca_cert.content | b64decode | trim, slurped_enterprise_root_cert.content | b64decode | trim] | join('\n')) | b64encode }}"
+                tls.key: "{{ slurped_sub_ca_key.content }}"
+          register: seed_sub_ca_k8s_res
+          changed_when: "'created' in seed_sub_ca_k8s_res.stdout or 'configured' in seed_sub_ca_k8s_res.stdout"
+          no_log: true
+
+        - name: "GDC-K8S-PKI | Deploy gdc-ca-issuer ClusterIssuer"
+          ansible.builtin.command:
+            cmd: "kubectl --kubeconfig={{ gdc_admin_kubeconfig | default('/etc/kubernetes/admin.conf') }} apply -f -"
+            stdin: |
+              apiVersion: cert-manager.io/v1
+              kind: ClusterIssuer
+              metadata:
+                name: gdc-ca-issuer
+              spec:
+                ca:
+                  secretName: gdc-sub-ca-keypair
+          register: deploy_issuer_res
+          changed_when: "'created' in deploy_issuer_res.stdout or 'configured' in deploy_issuer_res.stdout"
+          ignore_errors: true

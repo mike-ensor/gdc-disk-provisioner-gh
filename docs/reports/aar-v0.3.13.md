@@ -22,4 +22,4 @@
 ## Diagnostic Log Links
 *   **Cloud Build Logs:** [Google Cloud Build Status](https://console.cloud.google.com/cloud-build/builds/c49ffcda-6aa8-4cb6-8bfc-5f557bdcb9bd?project=685813425367)
 *   **GCS Sync Folder:** `gs://gdc-disk-provisioner-isos/sync/`
-*   **GDC Companion Telemetry:** [http://gdc-companion.ensor-labs.com/v1/install-logs](http://gdc-companion.ensor-labs.com/v1/install-logs)
+*   **GDC Companion Telemetry:** [http://gdc-companion.gdc-labs.com/v1/install-logs](http://gdc-companion.gdc-labs.com/v1/install-logs)

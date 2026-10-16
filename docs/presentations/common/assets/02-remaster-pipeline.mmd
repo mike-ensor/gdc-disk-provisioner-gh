@@ -1,0 +1,7 @@
+flowchart LR
+    A["Upstream Ubuntu 24.04 ISO"] --> B["Leave SquashFS Pristine"]
+    B --> C["Stage Autoinstall in /boot/"]
+    C --> D["Stage Payloads in /custom-data/"]
+    D --> E["Kernel Flags & GRUB Hooks"]
+    E --> F["Sub-10s xorriso Repack"]
+    F --> G["Hardened GDC Node ISO"]

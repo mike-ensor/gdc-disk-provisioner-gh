@@ -202,10 +202,12 @@ Host Network Daemons                                                           K
    The tilde (`~`) prefix designates a **routing domain**: queries ending in `.internal.gdc.local` or `.gdc.local` are routed exclusively to `127.0.0.10`. All other queries (public internet, corporate subnets) route through the interface uplink DNS.
 
 3. **Migrated Service Hub Domains (`/etc/dnsmasq.d/internal-gdc.conf`):**
-   * **Nexus Repository Manager:** `nexus.internal.gdc.local` (with backward-compatible alias `nexus.gdc.local`).
-     * APT Hosted / Proxy: `http://nexus.internal.gdc.local:8081/repository/`
-     * OCI Container Registry Mirror: `http://nexus.internal.gdc.local:5001`
-     * Raw Binary Store: `http://nexus.internal.gdc.local:8081/repository/gdc-raw-hosted/`
+   * **Nexus Repository Manager:**
+     * **Enterprise Mode:** `nexus.internal.gdc.local` (with alias `nexus.gdc.local`) terminating TLS on port `443`.
+     * **Demo Mode:** `nexus.demo.gdc-labs.com` terminating TLS on port `443` using pre-baked public wildcard certificate.
+     * APT Hosted / Proxy: `https://<nexus-domain>/repository/`
+     * OCI Container Registry Mirror: `https://<nexus-domain>/v2/` (reverse proxied to `127.0.0.1:5001`)
+     * Raw Binary Store: `https://<nexus-domain>/repository/gdc-raw-hosted/`
    * **Gitea Git Server:** `git.internal.gdc.local` (with backward-compatible alias `git.gdc.local`).
      * System Desired State & Playbooks: `http://git.internal.gdc.local:3000/gdc/`
 
@@ -233,8 +235,58 @@ To manage the lifecycle transition between initial bare-metal boot and final clu
    * `local_dns` updates `/etc/dnsmasq.d/internal-gdc.conf` and `/etc/hosts` to point `nexus.internal.gdc.local` to the permanent cluster IP (`192.168.109.12`) and restarts `dnsmasq`, ensuring that `bmctl create cluster` and subsequent container builds find an active repository.
 
 3. **Deterministic `/etc/hosts` Fallback (`PERSIST_ADD_HOSTS`):**
-   * Private lab endpoints defined in `src/build/add-hosts` (e.g., `step-ca.ensor-labs.com`, `gdc-companion.ensor-labs.com`) are injected into `/etc/hosts` with `PERSIST_ADD_HOSTS=true`.
+   * Private lab endpoints defined in `src/build/add-hosts` (e.g., `step-ca.ensor-labs.com`, `gdc-companion.gdc-labs.com`) are injected into `/etc/hosts` with `PERSIST_ADD_HOSTS=true`.
    * The `local_dns` cleanup phase preserves these platform overrides, ensuring glibc `nsswitch.conf` (`hosts: files dns`) resolves private infrastructure endpoints even during early boot before DNS daemons are fully converged.
+
+### 5.4. Service Hub Reverse Proxy (`nginx`) Interface Binding
+
+The local OS reverse proxy for Sonatype Nexus (`nexus.internal.gdc.local`) runs under Nginx (`/etc/nginx/sites-available/nexus-tls.conf`) and terminates TLS on standard port `443`.
+
+**CRITICAL BINDING RULE:** Nginx MUST bind strictly to the **VLAN cluster network IP** (`gdc_service_hub_ip`, e.g., `192.168.109.12:443`) and **NOT** to `127.0.0.1` or the host machine/management IP:
+
+1. **Loopback Address Collision (`127.0.0.1:443`):**  
+   Anthos bare-metal deploys an `haproxy` static pod (`/etc/kubernetes/manifests/haproxy.yaml`) to balance Kubernetes Control Plane API requests (`cplb-init`). HAProxy explicitly binds to both `CLUSTER_VIP:443` and `127.0.0.1:443`. If Nginx binds to `0.0.0.0:443` or `127.0.0.1:443`, HAProxy fails to bind (`Address already in use`), entering `CrashLoopBackOff` and halting cluster turnup.
+2. **Management IP Isolation:**  
+   The host machine/management IP resides on the untagged native network for administration. In-cluster workloads (Kubernetes nodes, `crictl`, Docker, Containerd) communicate with Nexus package registries and OCI mirrors over the isolated cluster VLAN network. Binding Nginx strictly to the VLAN cluster network IP ensures complete traffic plane separation.
+
+### 5.5. Dual-Mode PKI & Certificate Architecture (Enterprise Sub-CA vs. Public Demo Certificate)
+
+To guarantee that all local and in-cluster clients (host APT, Anthos `bmctl` ephemeral Kind containers, and Kubernetes pods) can access Nexus over standard HTTPS port `443` without insecure registry flags or connection failures, GDC supports a **Dual-Mode PKI**:
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│                        MODE SELECTION (GDC COMPANION)                  │
+│                     Does machine-info have sub_ca_secret?              │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+           ┌────────────────────────┴────────────────────────┐
+           ▼                                                 ▼
+┌──────────────────────────────────────┐  ┌──────────────────────────────────────┐
+│ ENTERPRISE MODE (Production)         │  │ DEMO MODE (Lab / Demonstration)      │
+├──────────────────────────────────────┤  ├──────────────────────────────────────┤
+│ • Condition: sub_ca_secret provided  │  │ • Condition: sub_ca_secret omitted   │
+│ • Domain: nexus.internal.gdc.local   │  │ • Domain: nexus.demo.gdc-labs.com    │
+│ • PKI: Enterprise Sub-CA from GSM    │  │ • PKI: Public CA (*.demo.gdc-labs.com│
+│ • Minting: step-cli mints leaf cert  │  │ • Source: Pre-baked on ISO partition │
+│ • K8s Handover: cert-manager seeds   │  │ • K8s Handover: Skipped (public CA   │
+│   gdc-sub-ca-keypair ClusterIssuer   │  │   already trusted by all containers) │
+│ • DNS: dnsmasq maps internal.gdc.local│ │ • DNS: dnsmasq maps *.gdc-labs.com   │
+│   to Cluster VLAN IP (Split-Horizon) │  │   to Cluster VLAN IP (Split-Horizon) │
+└──────────────────────────────────────┘  └──────────────────────────────────────┘
+```
+
+1. **Enterprise Mode (`sub_ca_secret` Defined):**
+   * **Corporate Domain:** Operates under `nexus.internal.gdc.local` (and legacy alias `nexus.gdc.local`).
+   * **Secret Retrieval:** Hardware-attested mTLS fetches the enterprise Sub-CA from Secret Manager.
+   * **Local Minting:** `step-cli` mints a short-lived leaf certificate (`/etc/ssl/certs/nexus.bundle.crt`) signed by the enterprise Sub-CA.
+   * **System Trust:** The Enterprise Root CA is registered in `/usr/local/share/ca-certificates/` via `update-ca-certificates`.
+   * **In-Cluster Handover:** Stage 7 seeds `gdc-sub-ca-keypair` into the in-cluster `cert-manager` namespace for cluster workloads.
+
+2. **Demo Mode (`sub_ca_secret` Omitted / Empty):**
+   * **Public Wildcard Domain:** Operates under `nexus.demo.gdc-labs.com`.
+   * **Pre-Baked Offline Credentials:** The ISO's remaster pipeline bakes a valid public wildcard certificate (`*.demo.gdc-labs.com`) into `/custom-data/demo-certs/`.
+   * **Zero Mitigations Needed:** Because the certificate is signed by a public CA (Let's Encrypt / Google Trust Services), standard base images, the host OS, and `bmctl`'s ephemeral Kind container trust it natively out of the box without `--insecure` flags or CA injection.
+   * **Split-Horizon DNS Confinement:** `dnsmasq` intercepts `nexus.demo.gdc-labs.com` and resolves it directly to the local Cluster VLAN IP (`gdc_service_hub_ip`). Traffic never exits to the public internet.
 
 ---
 
@@ -260,6 +312,6 @@ During local development and bare metal staging, specific network ports must be 
 | **`26000`** | TCP | Admin Workstation | Bootimus NAS Server | **Bootimus REST API Endpoint** |
 
 ### 7.2. External Telemetry Access
-To allow the booting node to successfully verify connectivity to the external telemetry endpoint, the network must permit outbound traffic to the configured telemetry URL (e.g., `gdc-companion.ensor-labs.com`).
+To allow the booting node to successfully verify connectivity to the external telemetry endpoint, the network must permit outbound traffic to the configured telemetry URL (e.g., `gdc-companion.gdc-labs.com`).
 
 If outbound connectivity is blocked or unavailable, the node's `early-commands` connectivity health checks will time out, causing Subiquity to halt the headless installation and drop back into manual interactive setup.

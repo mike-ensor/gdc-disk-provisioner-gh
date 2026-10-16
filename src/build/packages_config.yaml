@@ -25,11 +25,14 @@ ubuntu_version: "24.04"
 packages_to_include:
   # Core platform-required packages (essential for GDC first-boot Ansible success)
   platform_required:
+    - "nginx"
     - "conntrack"
     - "ebtables"
     - "ethtool"
     - "iproute2"
     - "iptables"
+    - "iptables-persistent"
+    - "netfilter-persistent"
     - "locales"
     - "logrotate"
     - "socat"

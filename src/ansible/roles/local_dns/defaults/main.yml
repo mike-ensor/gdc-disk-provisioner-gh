@@ -22,7 +22,7 @@ local_dns_routing_domains: "{{ gdc_internal_dns_domains | default(['~internal.gd
 
 # Platform DNS records (defaults pointing to companion/step-ca from vars/all.yml)
 platform_dns_records:
-  - name: "gdc-companion.ensor-labs.com"
+  - name: "gdc-companion.gdc-labs.com"
     ip: "{{ gdc_companion_ip | default('192.168.20.102') }}"
   - name: "step-ca.ensor-labs.com"
     ip: "{{ gdc_step_ca_ip | default('192.168.20.102') }}"

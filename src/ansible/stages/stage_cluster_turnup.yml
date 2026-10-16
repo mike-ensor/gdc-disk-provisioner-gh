@@ -93,7 +93,7 @@
 
 - name: "GDC-CT-EXT | Execute custom turnup extensions if present"
   ansible.builtin.include_tasks:
-    file: "{{ playbook_dir }}/stages/execute_custom_stage.yml"
+    file: execute_custom_stage.yml
   vars:
     target_custom_stage: "cluster_turnup"
 

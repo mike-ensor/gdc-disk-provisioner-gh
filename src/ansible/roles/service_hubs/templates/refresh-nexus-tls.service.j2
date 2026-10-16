@@ -1,0 +1,13 @@
+[Unit]
+Description=Autonomous Nexus TLS Certificate Renewal
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/refresh-nexus-tls.sh
+User=root
+Group=root
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/ssl/certs /etc/ssl/private
+ReadOnlyPaths=-{{ gdc_sub_ca_dir | default('/etc/ssl/sub-ca') }}
