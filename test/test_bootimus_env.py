@@ -16,6 +16,7 @@
 """Unit tests for Bootimus environment precedence, variable aliasing, and defaults."""
 
 import os
+import re
 import subprocess
 import unittest
 
@@ -67,9 +68,18 @@ class TestBootimusEnvironment(unittest.TestCase):
             path = os.path.join(PROJECT_ROOT, f"src/build/{env_name}")
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
-            self.assertIn('PXE_SERVER_HOST="192.168.254.12"', content, f"{env_name} missing PXE_SERVER_HOST")
-            self.assertIn('PXE_SERVER_PORT="26000"', content, f"{env_name} missing PXE_SERVER_PORT")
-            self.assertIn('BOOTIMUS_API_HOST="192.168.254.12"', content, f"{env_name} missing BOOTIMUS_API_HOST")
+            self.assertTrue(
+                re.search(r'PXE_SERVER_HOST=["\']?192\.168\.254\.12["\']?', content),
+                f"{env_name} missing PXE_SERVER_HOST"
+            )
+            self.assertTrue(
+                re.search(r'PXE_SERVER_PORT=["\']?26000["\']?', content),
+                f"{env_name} missing PXE_SERVER_PORT"
+            )
+            self.assertTrue(
+                re.search(r'BOOTIMUS_API_HOST=["\']?192\.168\.254\.12["\']?', content),
+                f"{env_name} missing BOOTIMUS_API_HOST"
+            )
 
     def test_bootimus_sh_local_precedence(self):
         """Verifies bootimus.sh banner and exports use local.env over build.env."""

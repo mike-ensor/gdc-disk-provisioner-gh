@@ -25,6 +25,7 @@ Usage: $(basename "$0") <command> [options]
 Unified GDC Node Operations CLI for managing, updating, and recovering edge nodes.
 
 Commands:
+  pull-profile       Pull or list ISO environment profiles from GDC Companion
   push-facts         Inject manual facts JSON into node, reset Stage 5, and restart provisioner
   push-playbook      Deploy local ansible playbook updates to node Gitea repository
   push-token         Push GCP bearer token into node containerd and runtime auth directories
@@ -35,6 +36,256 @@ Commands:
 Run '$(basename "$0") <command> --help' for detailed options on any command.
 EOF
     exit "${1:-0}"
+}
+
+# ==============================================================================
+# SUBCOMMAND: pull-profile
+# ==============================================================================
+cmd_pull_profile() {
+    local profile_name=""
+    local companion_url=""
+    local api_key=""
+    local force_list=false
+
+    # Capture incoming process environment variables before sourcing local.env
+    local env_companion_base="${INSTALL_COMPANION_BASE:-}"
+    local env_companion_api_key="${INSTALL_COMPANION_API_KEY:-}"
+
+    if [ -f "$REPO_ROOT/src/build/local.env" ]; then
+        # shellcheck disable=SC1091
+        source "$REPO_ROOT/src/build/local.env"
+    fi
+
+    # Precedence: process env > local.env > default
+    local resolved_base="${env_companion_base:-${INSTALL_COMPANION_BASE:-https://gdc-companion.gdc-labs.com/}}"
+    local resolved_api_key="${env_companion_api_key:-${INSTALL_COMPANION_API_KEY:-}}"
+
+    pull_profile_usage() {
+        cat <<EOF
+Usage: $(basename "$0") pull-profile [OPTIONS]
+
+Pull down or list centralized ISO environment profiles hosted in GDC Companion.
+
+Options:
+  --name <NAME>         Name of the ISO profile to pull (e.g. honeywell, barn, local)
+  --companion-url <URL> Base URL of GDC Companion (default: ${resolved_base})
+  --api-key <KEY>       API key for GDC Companion authentication
+  --list                List available profiles without pulling
+  -h, --help            Display this help message
+EOF
+        exit "${1:-0}"
+    }
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --name)
+                if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == --* ]]; then
+                    echo "Error: Missing value for $1" >&2
+                    pull_profile_usage 1
+                fi
+                profile_name="$2"
+                shift 2
+                ;;
+            --companion-url)
+                if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == --* ]]; then
+                    echo "Error: Missing value for $1" >&2
+                    pull_profile_usage 1
+                fi
+                companion_url="$2"
+                shift 2
+                ;;
+            --api-key)
+                if [[ $# -lt 2 || -z "${2:-}" || "${2:-}" == --* ]]; then
+                    echo "Error: Missing value for $1" >&2
+                    pull_profile_usage 1
+                fi
+                api_key="$2"
+                shift 2
+                ;;
+            --list)
+                force_list=true
+                shift
+                ;;
+            -h|--help)
+                pull_profile_usage 0
+                ;;
+            *)
+                echo "Error: Unknown argument '$1' for pull-profile" >&2
+                pull_profile_usage 1
+                ;;
+        esac
+    done
+
+    # Precedence: CLI flag > process env / local.env / default
+    companion_url="${companion_url:-$resolved_base}"
+    api_key="${api_key:-$resolved_api_key}"
+    [[ "${companion_url}" != */ ]] && companion_url="${companion_url}/"
+
+    local auth_header=()
+    if [[ -n "${api_key}" ]]; then
+        auth_header=(-H "X-API-Key: ${api_key}")
+    fi
+
+    if [[ -z "${profile_name}" || "${force_list}" == "true" ]]; then
+        echo "[-] Fetching available ISO profiles from ${companion_url}v1/iso-profiles..."
+        local response_body=""
+        local http_code="000"
+        local json_payload=""
+
+        if command -v curl >/dev/null 2>&1; then
+            response_body=$(curl -sS --connect-timeout 10 -w "\n%{http_code}" ${auth_header[@]+"${auth_header[@]}"} "${companion_url}v1/iso-profiles" 2>/dev/null || true)
+            http_code=$(echo "${response_body}" | tail -n1)
+            http_code="${http_code:-000}"
+            json_payload=$(echo "${response_body}" | sed '$d')
+        elif command -v python3 >/dev/null 2>&1; then
+            local py_script='
+import sys, urllib.request, urllib.error
+url = sys.argv[1]
+key = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
+req = urllib.request.Request(url)
+if key:
+    req.add_header("X-API-Key", key)
+try:
+    with urllib.request.urlopen(req, timeout=10) as r:
+        sys.stdout.write(r.read().decode("utf-8", errors="replace"))
+        sys.stderr.write(f"\n{r.status}\n")
+except urllib.error.HTTPError as e:
+    sys.stderr.write(f"\n{e.code}\n")
+except Exception:
+    sys.stderr.write("\n000\n")
+'
+            local py_err_tmp
+            py_err_tmp=$(mktemp)
+            json_payload=$(python3 -c "${py_script}" "${companion_url}v1/iso-profiles" "${api_key}" 2>"${py_err_tmp}" || true)
+            http_code=$(grep -E '^[0-9]{3}$' "${py_err_tmp}" | tail -n1 || echo "000")
+            http_code="${http_code:-000}"
+            rm -f "${py_err_tmp}"
+        else
+            echo "[!] Error: Neither 'curl' nor 'python3' is available to query GDC Companion." >&2
+            exit 1
+        fi
+
+        if [[ "${http_code}" != "200" ]]; then
+            echo "[!] Error: Failed to fetch profile listing from GDC Companion (HTTP ${http_code})." >&2
+            exit 1
+        fi
+
+        echo ""
+        echo "AVAILABLE ISO PROFILES (${companion_url}):"
+        printf "%-20s %-20s %-12s %s\n" "NAME" "NETWORK SEGMENT" "OVERRIDES" "LAST UPDATED"
+        echo "--------------------------------------------------------------------------------"
+
+        local count=0
+        if command -v jq >/dev/null 2>&1; then
+            while IFS=$'\t' read -r p_name p_segment p_count p_updated; do
+                [[ -z "${p_name}" ]] && continue
+                printf "%-20s %-20s %-12s %s\n" "${p_name}" "${p_segment}" "${p_count}" "${p_updated}"
+                count=$((count + 1))
+            done < <(echo "${json_payload}" | jq -r '.[] | [ .name, .network_segment, (.override_count|tostring), (.updated_at // "N/A") ] | @tsv')
+        elif command -v python3 >/dev/null 2>&1; then
+            while IFS=$'\t' read -r p_name p_segment p_count p_updated; do
+                [[ -z "${p_name}" ]] && continue
+                printf "%-20s %-20s %-12s %s\n" "${p_name}" "${p_segment}" "${p_count}" "${p_updated}"
+                count=$((count + 1))
+            done < <(echo "${json_payload}" | python3 -c '
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    for p in data:
+        print("\t".join([str(p.get("name","")), str(p.get("network_segment","")), str(p.get("override_count","")), str(p.get("updated_at") or "N/A")]))
+except Exception:
+    pass
+')
+        else
+            echo "${json_payload}"
+        fi
+
+        echo ""
+        echo "Total profiles found: ${count}"
+        echo "To pull a profile: $(basename "$0") pull-profile --name <name>"
+        exit 0
+    fi
+
+    # Validate profile name
+    if [[ ! "${profile_name}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        echo "[!] Error: Invalid profile name '${profile_name}'. Must contain only alphanumeric characters, dashes, and underscores." >&2
+        exit 1
+    fi
+
+    local target_file="${REPO_ROOT}/src/build/${profile_name}.env"
+    local fetch_url="${companion_url}v1/iso-profiles/${profile_name}?format=env"
+    echo "[-] Fetching profile '${profile_name}' from ${fetch_url}..."
+
+    local staging_tmp
+    staging_tmp=$(mktemp "/tmp/iso-profile.XXXXXX")
+    trap 'rm -f "${staging_tmp}" 2>/dev/null || true' EXIT INT TERM
+
+    local http_code="000"
+    if command -v curl >/dev/null 2>&1; then
+        http_code=$(curl -sS --connect-timeout 10 -w "%{http_code}" ${auth_header[@]+"${auth_header[@]}"} -o "${staging_tmp}" "${fetch_url}" 2>/dev/null || true)
+        http_code="${http_code:-000}"
+    elif command -v python3 >/dev/null 2>&1; then
+        http_code=$(python3 -c '
+import sys, urllib.request, urllib.error
+url = sys.argv[1]
+dest = sys.argv[2]
+key = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else None
+req = urllib.request.Request(url)
+if key:
+    req.add_header("X-API-Key", key)
+try:
+    with urllib.request.urlopen(req, timeout=10) as r:
+        with open(dest, "wb") as f:
+            f.write(r.read())
+        print(r.status)
+except urllib.error.HTTPError as e:
+    print(e.code)
+except Exception:
+    print("000")
+' "${fetch_url}" "${staging_tmp}" "${api_key}" 2>/dev/null || echo "000")
+        http_code="${http_code:-000}"
+    else
+        rm -f "${staging_tmp}"
+        echo "[!] Error: Neither 'curl' nor 'python3' is available to download from GDC Companion." >&2
+        exit 1
+    fi
+
+    if [[ "${http_code}" != "200" ]]; then
+        rm -f "${staging_tmp}"
+        case "${http_code}" in
+            401|403)
+                echo "[!] Error: Authentication failed with GDC Companion (HTTP ${http_code}). Check your API key." >&2
+                ;;
+            404)
+                echo "[!] Error: ISO profile '${profile_name}' not found on GDC Companion (HTTP 404)." >&2
+                ;;
+            000)
+                echo "[!] Error: Failed to connect to GDC Companion at ${companion_url} (network timeout or connection refused)." >&2
+                ;;
+            *)
+                echo "[!] Error: Upstream request failed with HTTP ${http_code}." >&2
+                ;;
+        esac
+        exit 1
+    fi
+
+    # Backup existing profile if present
+    if [[ -f "${target_file}" ]]; then
+        local backup_dir="${REPO_ROOT}/src/build/.backups"
+        mkdir -p "${backup_dir}"
+        local ts
+        ts=$(date +%Y%m%d-%H%M%S)
+        local backup_file="${backup_dir}/${profile_name}.env.${ts}"
+        cp "${target_file}" "${backup_file}"
+        echo "[x] Existing profile detected. Backed up to: src/build/.backups/${profile_name}.env.${ts}"
+    fi
+
+    # Set permissions before atomic move
+    chmod 0644 "${staging_tmp}"
+    mv "${staging_tmp}" "${target_file}"
+    trap - EXIT INT TERM
+    echo "[x] Successfully synchronized profile to: src/build/${profile_name}.env"
+    exit 0
 }
 
 # ==============================================================================
@@ -1084,6 +1335,9 @@ COMMAND="$1"
 shift
 
 case "${COMMAND}" in
+    pull-profile)
+        cmd_pull_profile "$@"
+        ;;
     push-facts)
         cmd_push_facts "$@"
         ;;

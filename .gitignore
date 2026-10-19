@@ -61,6 +61,10 @@ src/build/add-hosts
 local.env
 !src/build/build.env
 
+# Profile Backups
+.backups/
+src/build/.backups/
+
 # Local cache and workspace directories
 .cache/
 build-workspace/
