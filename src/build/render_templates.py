@@ -306,6 +306,7 @@ if __name__ == "__main__":
     env['step_ca_url'] = env.get('STEP_CA_URL', 'https://step-ca.local')
     env['step_provisioner_name'] = env.get('STEP_PROVISIONER_NAME', 'tpm')
     env['step_provisioner_password'] = env.get('STEP_PROVISIONER_PASSWORD', '')
+    env['step_ca_fingerprint'] = env.get('STEP_CA_FINGERPRINT', '')
     from urllib.parse import urlparse
     import ipaddress
 

@@ -46,7 +46,7 @@ class TestCLIHelpConsistency(unittest.TestCase):
     def test_node_ops_main_help(self):
         self.assert_help_succeeds(
             ["bin/local/gdc-node-ops.sh"],
-            ["usage:", "push-facts", "push-playbook", "push-token", "rotate-token", "reset-pxe", "refresh-telemetry"]
+            ["usage:", "push-facts", "push-playbook", "push-token", "rotate-token", "reset-pxe", "refresh-telemetry", "pull-profile"]
         )
 
     def test_node_ops_push_facts_help(self):
@@ -83,6 +83,12 @@ class TestCLIHelpConsistency(unittest.TestCase):
         self.assert_help_succeeds(
             ["bin/local/gdc-node-ops.sh", "refresh-telemetry"],
             ["usage:", "--nodes", "--user", "--password", "--key", "--companion-url"]
+        )
+
+    def test_node_ops_pull_profile_help(self):
+        self.assert_help_succeeds(
+            ["bin/local/gdc-node-ops.sh", "pull-profile"],
+            ["usage:", "--name", "--companion-url", "--api-key", "--list"]
         )
 
     # 2. gdc-forensics.sh
