@@ -494,6 +494,7 @@ declare -a TARGET_VERSIONS=()
 declare -a TARGET_PREFIXES=()
 declare -a TARGET_COMPANIONS=()
 declare -a TARGET_ISO_NAMES=()
+declare -a TARGET_PROFILES=()
 
 resolve_target_details() {
     local t_env="$1"
@@ -572,6 +573,11 @@ if [[ -n "${CONCURRENT_MATRIX}" ]]; then
         TARGET_PREFIXES+=("${r_pref}")
         TARGET_COMPANIONS+=("${r_comp}")
         TARGET_ISO_NAMES+=("${r_isoname}")
+        if [[ "${m_env}" != "base" && "${m_env}" != "build" && "${m_env}" != "default" && "${m_env}" != "local" ]]; then
+            TARGET_PROFILES+=("${m_env}")
+        else
+            TARGET_PROFILES+=("")
+        fi
     done
 else
     # Single target build
@@ -602,6 +608,7 @@ else
     TARGET_PREFIXES+=("${r_pref}")
     TARGET_COMPANIONS+=("${r_comp}")
     TARGET_ISO_NAMES+=("${r_isoname}")
+    TARGET_PROFILES+=("${TARGET_ENV_ARG:-}")
 fi
 
 if [[ ${#TARGET_ENVS[@]} -eq 0 ]]; then
@@ -628,7 +635,7 @@ echo "  Debug ISO Mode:     ${GDC_DEBUG_MODE}"
 echo "------------------------------------------------------------------------------"
 echo "  Target Count:       ${#TARGET_ENVS[@]}"
 for i in "${!TARGET_ENVS[@]}"; do
-    echo "  [Target $((i + 1))] Env: ${TARGET_ENVS[$i]} | Ver: ${TARGET_VERSIONS[$i]} | Companion: ${TARGET_COMPANIONS[$i]} | Output: ${TARGET_ISO_NAMES[$i]}"
+    echo "  [Target $((i + 1))] Env: ${TARGET_ENVS[$i]} | Ver: ${TARGET_VERSIONS[$i]} | Profile: ${TARGET_PROFILES[$i]:-none} | Companion: ${TARGET_COMPANIONS[$i]} | Output: ${TARGET_ISO_NAMES[$i]}"
 done
 echo "=============================================================================="
 
@@ -752,7 +759,7 @@ if [[ "${BUILD_MODE}" == "cloud" ]]; then
         b_id=$(gcloud builds submit "${PROJECT_ROOT}" \
             --config="${PROJECT_ROOT}/cloudbuild.yaml" \
             --project="${PROJECT_ID}" \
-            --substitutions="^@@^_GCS_BUCKET_NAME=${GCS_BUCKET_NAME}@@_ISO_VERSION=${t_ver}@@_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME}@@_BUILD_VERSION=${BUILD_VERSION}@@_REGION=${REGION}@@_PROJECT_ID=${PROJECT_ID}@@_ISO_BLESSED_GCS_BUCKET=${SOURCE_GCS_BUCKET_NAME}@@_GDC_DEBUG_MODE=${GDC_DEBUG_MODE}@@_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI}@@_GIT_BRANCH=${GIT_BRANCH}@@_GIT_COMMIT=${GIT_COMMIT}@@_INSTALL_COMPANION_URL=${s_comp_url}@@_ADMIN_SSH_PUB_KEYS=${s_admin_ssh}@@_TEMPORARY_INSTALLER_SSH_PUB_KEYS=${s_temp_ssh}@@_TEMPORARY_INSTALLER_PASSWORD=${s_temp_pass}@@_GDC_COMPANION=${t_comp}@@_DEBUG_EXTRA_USER=${s_dbg_usr}@@_DEBUG_EXTRA_PASSWORD=${s_dbg_pass}@@_ISO_ENVIRONMENT=${t_env}@@_ISO_NAME_PREFIX=${t_pref}" \
+            --substitutions="^@@^_GCS_BUCKET_NAME=${GCS_BUCKET_NAME}@@_ISO_VERSION=${t_ver}@@_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME}@@_BUILD_VERSION=${BUILD_VERSION}@@_REGION=${REGION}@@_PROJECT_ID=${PROJECT_ID}@@_ISO_BLESSED_GCS_BUCKET=${SOURCE_GCS_BUCKET_NAME}@@_GDC_DEBUG_MODE=${GDC_DEBUG_MODE}@@_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI}@@_GIT_BRANCH=${GIT_BRANCH}@@_GIT_COMMIT=${GIT_COMMIT}@@_INSTALL_COMPANION_URL=${s_comp_url}@@_ADMIN_SSH_PUB_KEYS=${s_admin_ssh}@@_TEMPORARY_INSTALLER_SSH_PUB_KEYS=${s_temp_ssh}@@_TEMPORARY_INSTALLER_PASSWORD=${s_temp_pass}@@_GDC_COMPANION=${t_comp}@@_DEBUG_EXTRA_USER=${s_dbg_usr}@@_DEBUG_EXTRA_PASSWORD=${s_dbg_pass}@@_ISO_ENVIRONMENT=${t_env}@@_ISO_PROFILE=${TARGET_PROFILES[$i]:-}@@_ISO_NAME_PREFIX=${t_pref}" \
             --async --format="value(id)")
 
         echo "  [+] Launched! Build ID: ${b_id}"
@@ -858,12 +865,17 @@ with open(sys.argv[6], "w") as f:
             gcloud builds log "${b_id}" --project="${PROJECT_ID}" 2>&1 | tail -n 60 >&2 || true
 
             # Compile failure report
+            t_prof="${TARGET_PROFILES[$i]:-}"
+            prof_args=()
+            [[ -n "${t_prof}" ]] && prof_args=(--iso-profile "${t_prof}")
+
             "${PYTHON_BIN}" "${PROJECT_ROOT}/test/bin/generate_build_report.py" \
                 --build-id "${b_id}" \
                 --project-id "${PROJECT_ID}" \
                 --gcs-bucket "gs://${GCS_BUCKET_NAME}" \
                 --iso-version "${t_ver}" \
                 --iso-environment "${t_env}" \
+                "${prof_args[@]}" \
                 --iso-name "${t_iso}" \
                 --status "FAILED" \
                 --output-dir "${PROJECT_ROOT}/build-workspace/output" \
@@ -886,6 +898,10 @@ else
         t_ver="${TARGET_VERSIONS[$i]}"
         t_iso="${TARGET_ISO_NAMES[$i]}"
         t_comp="${TARGET_COMPANIONS[$i]}"
+        t_prof="${TARGET_PROFILES[$i]:-}"
+
+        prof_args=()
+        [[ -n "${t_prof}" ]] && prof_args=(--iso-profile "${t_prof}")
 
         echo -e "\n[-] [Local Build $((i + 1))/${#TARGET_ENVS[@]}] Starting Make for ${t_env} (v${t_ver})..."
 
@@ -895,6 +911,7 @@ else
         if make -C "${PROJECT_ROOT}/src/build" all \
             ISO_VERSION="${t_ver}" \
             ISO_ENVIRONMENT="${t_env}" \
+            ISO_PROFILE="${t_prof}" \
             GDC_DEBUG_MODE="${GDC_DEBUG_MODE}" \
             GDC_COMPANION="${t_comp}" \
             ENABLE_GCS="false"; then
@@ -907,6 +924,7 @@ else
                 --local \
                 --iso-version "${t_ver}" \
                 --iso-environment "${t_env}" \
+                "${prof_args[@]}" \
                 --iso-name "${t_iso}" \
                 --status "SUCCESS" \
                 --gcs-bucket "gs://${GCS_BUCKET_NAME}" 2>/dev/null || true
@@ -918,6 +936,7 @@ else
                 --local \
                 --iso-version "${t_ver}" \
                 --iso-environment "${t_env}" \
+                "${prof_args[@]}" \
                 --iso-name "${t_iso}" \
                 --status "FAILED" \
                 --gcs-bucket "gs://${GCS_BUCKET_NAME}" 2>/dev/null || true

@@ -338,7 +338,8 @@ def main():
     parser.add_argument("--project-id", type=str, help="GCP Project ID")
     parser.add_argument("--gcs-bucket", type=str, help="GCS Bucket Name")
     parser.add_argument("--iso-version", type=str, help="ISO Version tag")
-    parser.add_argument("--iso-environment", type=str, help="ISO build environment (e.g. honeywell, barn, local)")
+    parser.add_argument("--iso-profile", type=str, help="ISO profile name matching the variable override configuration (e.g. honeywell, barn)")
+    parser.add_argument("--iso-environment", type=str, help="[DEPRECATED] ISO build environment (e.g. honeywell, barn, local)")
     parser.add_argument("--iso-name", type=str, help="Full ISO output name (e.g. honeywell-24.04-v0.9.4-debug.iso)")
     parser.add_argument("--status", type=str, choices=["SUCCESS", "FAILED"], default="SUCCESS", help="Final build outcome status")
     parser.add_argument("--output-dir", type=str, help="Local directory to output JSON and Markdown reports")
@@ -346,7 +347,8 @@ def main():
     args = parser.parse_args()
 
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    iso_env = args.iso_environment or os.environ.get("ISO_ENVIRONMENT", "local")
+    iso_profile = (args.iso_profile or os.environ.get("ISO_PROFILE") or "").strip()
+    iso_env = args.iso_environment or os.environ.get("ISO_ENVIRONMENT") or iso_profile or "local"
     build_env = parse_env_file(os.path.join(project_root, "src/build/build.env"))
     local_env = parse_env_file(os.path.join(project_root, f"src/build/{iso_env}.env"))
     dependencies_env = parse_env_file(os.path.join(project_root, "src/dependencies.env"))
@@ -430,6 +432,9 @@ def main():
           "sha256_matches": False
         }
     }
+
+    if iso_profile:
+        report["iso_profile"] = iso_profile
 
     # Initialize all 13 stages with default statuses
     stage_names = {
@@ -850,13 +855,14 @@ def main():
         validate_json_schema(report, schema_path)
 
     # Compile human-readable Markdown (derived from JSON)
+    profile_summary = f"\n* **ISO Profile:** `{iso_profile}`" if iso_profile else ""
     md_content = f"""# GDC ISO Build After Action Report: v{iso_version}
 
 ## 1. Build Execution Summary
 * **Build ID:** `{report["build_id"]}`
 * **GCP Project ID:** `{project_id}`
-* **ISO Version:** `{iso_version}`
-* **ISO Environment Profile:** `{iso_env}`
+* **ISO Version:** `{iso_version}`{profile_summary}
+* **ISO Environment Profile:** `{iso_env}` (deprecated)
 * **Target ISO Name:** `{iso_name}`
 * **Build Branch / Commit SHA:** `{git_branch}` / `{git_commit}`
 * **Execution Timestamp:** `{report["timestamp"]}`

@@ -163,6 +163,7 @@ steps:
           DEPENDENCY_CACHE_GCS_BUCKET="$${DEPENDENCY_CACHE_GCS_BUCKET}" \
           _CUSTOMER_ASSETS_URI="${_CUSTOMER_ASSETS_URI}" \
           ISO_ENVIRONMENT="${_ISO_ENVIRONMENT}" \
+          ISO_PROFILE="${_ISO_PROFILE}" \
           ISO_NAME_PREFIX="${_ISO_NAME_PREFIX}"
         
         BUCKET_NAME=$(echo "${_GCS_BUCKET_NAME}" | sed 's/^gs:\/\///')
@@ -198,6 +199,7 @@ substitutions:
   _GCS_BUCKET_NAME: 'gdc-disk-provisioner-isos'
   _SOURCE_ISO_FILENAME: 'ubuntu-24.04-live-server-amd64.iso'
   _ISO_VERSION: '1.0.0'
+  _ISO_PROFILE: ''
   _BUILD_VERSION: '1.0.0'
   _REGION: 'us-central1'
   _PROJECT_ID: 'my-gcp-project-id'

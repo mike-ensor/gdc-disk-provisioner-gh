@@ -722,6 +722,7 @@ reports:
 		--local \
 		--iso-version "$(ISO_VERSION)" \
 		--iso-environment "$(ISO_ENVIRONMENT)" \
+		$(if $(ISO_PROFILE),--iso-profile "$(ISO_PROFILE)",) \
 		--iso-name "$(FINAL_ISO_NAME)" \
 		--status "SUCCESS" \
 		--gcs-bucket "$(GCS_BUCKET)" \
