@@ -55,7 +55,7 @@ platform:
     first-boot: []
     second-boot:
       - "{{ gdc_companion_reports_url | default('https://gdc-companion.gdc-labs.com') }}"
-      - "{{ gdc_step_ca_url | default('https://step-ca.ensor-labs.com') }}"
+      - "{{ gdc_step_ca_url | default('https://step-ca.gdc-labs.com') }}"
     linux-ready: []
     cluster-ready:
       - "{{ gdc_companion_base_url | default('https://gdc-companion.gdc-labs.com') }}"

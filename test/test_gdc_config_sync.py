@@ -29,6 +29,30 @@ for venv_dir in (".venv", "venv", "src/build/.venv"):
     if os.path.isdir(venv_site) and venv_site not in sys.path:
         sys.path.insert(0, venv_site)
 
+if "ansible" not in sys.modules:
+    try:
+        import ansible.plugins.lookup  # type: ignore # noqa: F401
+    except (ImportError, ModuleNotFoundError):
+        import types
+
+        ansible_mod = types.ModuleType("ansible")
+        plugins_mod = types.ModuleType("ansible.plugins")
+        lookup_mod = types.ModuleType("ansible.plugins.lookup")
+
+        class LookupBaseStub:  # pylint: disable=too-few-public-methods
+            def __init__(self, **kwargs):
+                pass
+
+            def get_basedir(self, variables):  # pylint: disable=unused-argument
+                return ""
+
+        lookup_mod.LookupBase = LookupBaseStub  # type: ignore
+        plugins_mod.lookup = lookup_mod  # type: ignore
+        ansible_mod.plugins = plugins_mod  # type: ignore
+        sys.modules["ansible"] = ansible_mod
+        sys.modules["ansible.plugins"] = plugins_mod
+        sys.modules["ansible.plugins.lookup"] = lookup_mod
+
 from gdc_config_sync_resolver import (  # pylint: disable=wrong-import-position,import-error # type: ignore[import-not-found]
     extract_gsm_secret_info,
     resolve_primary_root_repo,

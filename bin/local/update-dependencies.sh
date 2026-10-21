@@ -34,6 +34,7 @@ Commands:
 
 Options:
   --docker               Run package pre-seeding inside an isolated 'ubuntu:24.04' container
+  --system-upgrades      Include upstream base-OS security updates (apt-get upgrade) in package cache
   --install              For packages: configure Ansible to pre-install package on target machine OS
   --preseed              For packages: immediately run preseed pipeline after adding to config
   --markdown             Format audit output as Markdown (ideal for GitLab MRs / CI logs)
@@ -48,6 +49,7 @@ Examples:
   $(basename "$0") add-pkg dnsmasq --install
   $(basename "$0") add-binary --name mytool --version 1.0.0 --url https://example.com/mytool.tar.gz
   $(basename "$0") update-binary kubestr
+  $(basename "$0") update-packages --system-upgrades
   $(basename "$0") update-packages --docker
   $(basename "$0") sync-gcs
 EOF

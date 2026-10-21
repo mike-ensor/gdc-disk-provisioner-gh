@@ -45,6 +45,11 @@ class TestSubiquityReporting(unittest.TestCase):
         self.assertIn("endpoint:", content, "The webhook must define an endpoint")
         self.assertIn("level: INFO", content, "The webhook log level must be INFO")
         self.assertIn("phone_home:", content, "The 'phone_home' block must exist in user-data when GDC_COMPANION=TRUE")
+        self.assertIn("COMPANION_HEALTH=", content, "Companion health endpoint derivation must exist")
+        self.assertIn("curl -s -f -I -m 5", content, "Probe must use silent fail-fast flags (-f -s -I -m 5)")
+        self.assertIn("curl -s -f -k -I -m 5", content, "Probe must support -k fallback for internal/private CAs")
+        self.assertIn(">/dev/null 2>&1", content, "Probe must use POSIX shell redirection >/dev/null 2>&1")
+        self.assertNotIn("&>/dev/null", content, "Bashism &>/dev/null must not exist in user-data probe scripts")
 
     def test_reporting_webhook_is_absent_when_companion_false(self):
         """Validates that the webhook and phone-home are omitted when GDC_COMPANION is FALSE."""

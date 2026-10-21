@@ -527,6 +527,22 @@
               "type": "string",
               "default": "global",
               "description": "Secret Manager replication location (snake_case alias)"
+            },
+            "gsm-project": {
+              "type": "string",
+              "description": "Identifier of the Google Cloud Project holding the Sub-CA secret (defaults to gcp_info.project_id if omitted)"
+            },
+            "gsm_project": {
+              "type": "string",
+              "description": "Identifier of the Google Cloud Project holding the Sub-CA secret (snake_case alias)"
+            },
+            "gcp-project": {
+              "type": "string",
+              "description": "Identifier of the Google Cloud Project holding the Sub-CA secret (alias)"
+            },
+            "gcp_project": {
+              "type": "string",
+              "description": "Identifier of the Google Cloud Project holding the Sub-CA secret (alias)"
             }
           }
         }

@@ -254,3 +254,35 @@ ls -la /etc/ssl/sub-ca/
 curl -Iv https://nexus.internal.gdc.local/
 # Expected: HTTP 200 OK without certificate validation warnings
 ```
+
+---
+
+## 8. Fallback Self-Signed Sub-CA & Regional GSM Architecture
+
+When operating without an enterprise PKI or Google Cloud Certificate Authority Service (CAS), GDC nodes can automatically fall back to a self-signed Root/Sub-CA authority stored in Google Secret Manager or baked into the ISO.
+
+### Configuration Variables (`src/build/build.env` & ISO Profiles)
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `FALLBACK_SUB_CA_SECRET_NAME` | `gdc-fallback-sub-ca` | Secret name in GSM. Hydrates to `gdc_fallback_sub_ca_gsm_name`. |
+| `FALLBACK_SUB_CA_GSM_LOCATION` | `us-east4` | Regional location for Secret Manager replication when storing the secret. Hydrates to `gdc_fallback_sub_ca_gsm_location`. |
+| `FALLBACK_SUB_CA_GSM_PROJECT` | Active `PROJECT_ID` | GCP Project ID where the fallback secret is hosted. Hydrates to `gdc_fallback_sub_ca_gsm_project`. |
+
+### Creating and Staging Regional Fallback Sub-CA
+Use the unified node operations CLI:
+```bash
+./bin/local/gdc-node-ops.sh create-fallback-ca \
+  --project="anthos-bare-metal-lab-1" \
+  --location="us-east4" \
+  --secret="gdc-fallback-sub-ca" \
+  --output=".cache/pki/fallback-sub-ca.json"
+```
+
+### Ingestion Retrieval Command
+During node bootstrap (`pki_ingest.yml`) or ISO remastering, the node accesses the latest version without `--location`:
+```bash
+gcloud secrets versions access latest \
+  --secret={{ gdc_fallback_sub_ca_gsm_name }} \
+  --project={{ gdc_fallback_sub_ca_gsm_project }}
+```
+*Note: The secret is stored with `--replication-policy="user-managed" --locations="..."`, making it a global secret resource in Secret Manager with regional data placement. The location flag is only needed when creating/storing the secret; `--location` is NOT needed when pulling the latest version (and will trigger an `INVALID_ARGUMENT` error).*

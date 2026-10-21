@@ -71,6 +71,38 @@
   register: nexus_binary_installed
   tags: ["strictly-local"]
 
+- name: "GDC-TASK-02 | Ensure nexus system group exists"
+  ansible.builtin.group:
+    name: nexus
+    state: present
+    system: true
+  when: nexus_binary_installed.stat.exists
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Ensure nexus system user exists"
+  ansible.builtin.user:
+    name: nexus
+    group: nexus
+    shell: /bin/false
+    comment: "Sonatype Nexus Service User"
+    home: /var/lib/nexus
+    create_home: false
+    state: present
+    system: true
+  when: nexus_binary_installed.stat.exists
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-02 | Ensure /var/lib/nexus ownership and write permissions are nexus:nexus"
+  ansible.builtin.file:
+    path: /var/lib/nexus
+    owner: nexus
+    group: nexus
+    mode: "u+rwX,g+rX,o+rX"
+    recurse: true
+    state: directory
+  when: nexus_binary_installed.stat.exists
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-02 | Wait for Nexus REST API to become responsive"
   ansible.builtin.uri:
     url: "http://127.0.0.1:8081/service/rest/v1/status"

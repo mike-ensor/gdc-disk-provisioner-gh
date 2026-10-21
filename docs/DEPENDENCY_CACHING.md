@@ -28,6 +28,13 @@ The central Google Cloud Storage (GCS) bucket (e.g., `gs://${DEPENDENCY_CACHE_GC
 *   **Connected Mode:** Local `apt-get upgrade` hits the Nexus Proxy (`gdc-apt-proxy`). Nexus fetches newer packages from Ubuntu mirrors, writes them to persistent storage (`/var/lib/nexus`), and streams them to the node.
 *   **Air-Gapped / Offline Mode:** Operators insert an update USB labeled `GDC-UPDATE-USB` or download an update bundle. The `udev`-triggered `gdc-headless-update.sh` script ingests new `.deb` files via the Nexus REST API into the `gdc-apt-hosted` repository.
 
+### 1.4. Vulnerability Auditing (OSV API) & Package Cache Metadata
+During package pre-seeding and cache generation:
+*   **Vulnerability Auditing:** The pre-seeding engine queries **Google's OSV API** batch endpoint (`POST https://api.osv.dev/v1/querybatch`) for each resolved package under ecosystem `Ubuntu:24.04`. Batching prevents HTTP 429 rate-limiting by consolidating up to 500 packages per request.
+*   **CVSS Scoring:** Extracted CVSS v3 vectors are evaluated to determine the base vulnerability score for each package (defaulting to `0.0 / Clear` when no CVEs exist).
+*   **Release Dates & Cache Timestamp:** Each `.deb` package's release date is derived from its control metadata (`dpkg-deb -f <deb> Date` or archive timestamp), and the overall run records `cache_last_updated` in `.cache/packages_metadata.json`.
+*   **Reporting:** Build reports (`build-report-*.json`) and After Action Reports (AARs) include `cache_last_updated`, `last_updated`, and `cvss_score` per package, rendered directly on the `gdc-companion` dashboard.
+
 ---
 
 ## 2. Container Packages (OCI Images)

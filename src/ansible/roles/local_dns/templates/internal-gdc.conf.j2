@@ -8,10 +8,6 @@ local=/{{ gdc_nexus_domain }}/
 {% if gdc_nexus_alias is defined and gdc_nexus_alias %}
 local=/{{ gdc_nexus_alias }}/
 {% endif %}
-{% if gdc_nexus_demo_domain is defined and gdc_nexus_demo_domain %}
-local=/{{ gdc_nexus_demo_domain }}/
-local=/demo.gdc-labs.com/
-{% endif %}
 local=/{{ gdc_gitea_domain }}/
 {% if gdc_gitea_alias is defined and gdc_gitea_alias %}
 local=/{{ gdc_gitea_alias }}/
@@ -23,9 +19,6 @@ local=/gdc.local/
 address=/{{ gdc_nexus_domain }}/{{ gdc_service_hub_ip }}
 {% if gdc_nexus_alias is defined and gdc_nexus_alias %}
 address=/{{ gdc_nexus_alias }}/{{ gdc_service_hub_ip }}
-{% endif %}
-{% if gdc_nexus_demo_domain is defined and gdc_nexus_demo_domain %}
-address=/{{ gdc_nexus_demo_domain }}/{{ gdc_service_hub_ip }}
 {% endif %}
 
 # Gitea Boundary Service Hub

@@ -174,7 +174,7 @@ echo "[-] Staging fallback Sub-CA credentials for offline lab turnup..."
 mkdir -p "${EXTRACT_DIR}/custom-data/pki"
 mkdir -p "${PROJECT_ROOT}/.cache/pki"
 FALLBACK_SUB_CA_DEST="${EXTRACT_DIR}/custom-data/pki/fallback-sub-ca.json"
-FALLBACK_SECRET_NAME="${FALLBACK_SUB_CA_SECRET_NAME:-gdc-labs-wildcard-pki}"
+FALLBACK_SECRET_NAME="${FALLBACK_SUB_CA_SECRET_NAME:-gdc-fallback-sub-ca}"
 PKI_CACHE_FILE="${PROJECT_ROOT}/.cache/pki/fallback-sub-ca.json"
 
 if [[ -n "${FALLBACK_SUB_CA_FILE:-}" && -f "${FALLBACK_SUB_CA_FILE}" ]]; then
@@ -186,11 +186,11 @@ elif [[ -f "${PKI_CACHE_FILE}" ]]; then
     cp "${PKI_CACHE_FILE}" "${FALLBACK_SUB_CA_DEST}"
 else
     echo "  [-] Fetching fallback Sub-CA '${FALLBACK_SECRET_NAME}' from Secret Manager..."
-    FETCH_PROJECT_FLAG=()
+    FETCH_FLAGS=()
     if [[ -n "${PROJECT_ID:-}" ]]; then
-        FETCH_PROJECT_FLAG=(--project="${PROJECT_ID}")
+        FETCH_FLAGS+=(--project="${PROJECT_ID}")
     fi
-    if command -v gcloud &>/dev/null && gcloud secrets versions access latest --secret="${FALLBACK_SECRET_NAME}" "${FETCH_PROJECT_FLAG[@]}" > "${FALLBACK_SUB_CA_DEST}" 2>/dev/null; then
+    if command -v gcloud &>/dev/null && gcloud secrets versions access latest --secret="${FALLBACK_SECRET_NAME}" "${FETCH_FLAGS[@]}" > "${FALLBACK_SUB_CA_DEST}" 2>/dev/null; then
         echo "  [x] Successfully fetched fallback Sub-CA from Secret Manager."
         cp "${FALLBACK_SUB_CA_DEST}" "${PKI_CACHE_FILE}"
     else
@@ -331,7 +331,7 @@ EOF
 
 echo "[-] Writing local JVM environment config for Sonatype Nexus..."
 cat <<'EOF' > "${EXTRACT_DIR}/custom-data/nexus/nexus-bin/bin/nexus.rc"
-run_as_user="root"
+run_as_user="nexus"
 INSTALL4J_JAVA_HOME_OVERRIDE="/var/lib/nexus/jre"
 EOF
 

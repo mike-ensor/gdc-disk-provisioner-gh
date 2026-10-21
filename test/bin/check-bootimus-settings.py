@@ -28,12 +28,48 @@ import urllib.request
 import urllib.parse
 import json
 
+# Auto-detect profile if ISO_ENVIRONMENT not explicitly set
+if os.environ.get("ISO_ENVIRONMENT", "local") == "local":
+    for a in sys.argv[1:]:
+        if "gdc-labs" in a or "barn" in a:
+            os.environ["ISO_ENVIRONMENT"] = "barn"
+            break
+        elif "honeywell" in a:
+            os.environ["ISO_ENVIRONMENT"] = "honeywell"
+            break
+
 # Add project src to path so we can reuse bootimus module methods
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src/build')))
 from bootimus import BOOTIMUS_API_HOST, BOOTIMUS_API_PORT, API_BASE, get_bootimus_credentials, api_request, auto_heal_boot_params, extract_images
 
 def main():
-    target_args = [arg for arg in sys.argv[1:] if not arg.startswith("-")]
+    raw_args = sys.argv[1:]
+    target_args = []
+    cli_user = None
+    cli_pass = None
+    cli_provider = None
+    cli_file = None
+
+    idx = 0
+    while idx < len(raw_args):
+        arg = raw_args[idx]
+        if arg in ("--user", "--bootimus-user") and idx + 1 < len(raw_args):
+            cli_user = raw_args[idx + 1]
+            idx += 2
+        elif arg in ("--pass", "--bootimus-pass", "--password", "--bootimus-password") and idx + 1 < len(raw_args):
+            cli_pass = raw_args[idx + 1]
+            idx += 2
+        elif arg in ("--secret-method", "---secret-method", "--secret-provider", "--bootimus-secret-method", "--bootimus-secret-provider") and idx + 1 < len(raw_args):
+            cli_provider = raw_args[idx + 1]
+            idx += 2
+        elif arg in ("--secret-file", "--bootimus-secret-file") and idx + 1 < len(raw_args):
+            cli_file = raw_args[idx + 1]
+            idx += 2
+        elif not arg.startswith("-"):
+            target_args.append(arg)
+            idx += 1
+        else:
+            idx += 1
 
     print("==============================================================================")
     print(" GDC BOOTIMUS INTERACTIVE-MODE PREVENTION AUDITOR")
@@ -42,7 +78,12 @@ def main():
     print("==============================================================================")
 
     # 1. Authenticate
-    username, password = get_bootimus_credentials()
+    username, password = get_bootimus_credentials(
+        cli_user=cli_user,
+        cli_pass=cli_pass,
+        cli_provider=cli_provider,
+        cli_file=cli_file,
+    )
     print(f"[-] Authenticating with Bootimus at {BOOTIMUS_API_HOST}:{BOOTIMUS_API_PORT}...")
     try:
         login_res = api_request(

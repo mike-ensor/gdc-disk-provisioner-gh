@@ -246,14 +246,16 @@ else
     SCP_CMD_PREFIX="scp -P ${SSH_PORT} -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes"
 fi
 
-# 2. Detect Active SSH User (gdc-admin or temporary-installer)
+# 2. Detect Active SSH User (gdc-admin, temporary-installer, or forge)
 set +e
 if ${SSH_CMD_PREFIX} gdc-admin@${TARGET_HOST} "echo '[x] Connected as gdc-admin'" &>/dev/null; then
     TARGET_USER="gdc-admin"
 elif ${SSH_CMD_PREFIX} temporary-installer@${TARGET_HOST} "echo '[x] Connected as temporary-installer'" &>/dev/null; then
     TARGET_USER="temporary-installer"
+elif ${SSH_CMD_PREFIX} forge@${TARGET_HOST} "echo '[x] Connected as forge'" &>/dev/null; then
+    TARGET_USER="forge"
 else
-    echo "[!] Error: Unable to authenticate via SSH using either gdc-admin or temporary-installer." >&2
+    echo "[!] Error: Unable to authenticate via SSH using gdc-admin, temporary-installer, or forge." >&2
     exit 1
 fi
 set -e
@@ -283,6 +285,7 @@ ${SSH_CMD_PREFIX} "${TARGET_USER}@${TARGET_HOST}" "
     ${SSH_SUDO_PASS_CMD} mkdir -p /etc/gdc/ansible && \
     ${SSH_SUDO_PASS_CMD} rm -rf /etc/gdc/ansible/* && \
     ${SSH_SUDO_PASS_CMD} cp -r /tmp/ansible/* /etc/gdc/ansible/ && \
+    ( [ -f /var/gdc-install/playbooks/bootstrap/vars/all.yml ] && ${SSH_SUDO_PASS_CMD} cp /var/gdc-install/playbooks/bootstrap/vars/all.yml /etc/gdc/ansible/vars/all.yml || true ) && \
     ${SSH_SUDO_PASS_CMD} find /etc/gdc/ansible -type d -exec chmod 0755 {} + && \
     ${SSH_SUDO_PASS_CMD} find /etc/gdc/ansible -type f -exec chmod 0644 {} + && \
     ${SSH_SUDO_PASS_CMD} chown -R root:gdc-admin /etc/gdc/ansible && \

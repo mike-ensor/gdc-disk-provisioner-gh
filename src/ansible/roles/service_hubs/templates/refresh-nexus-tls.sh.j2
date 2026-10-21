@@ -36,9 +36,6 @@ if [[ "${needs_renewal}" == "true" ]]; then
 {% if gdc_nexus_alias is defined and gdc_nexus_alias %}
         --san="{{ gdc_nexus_alias }}" \
 {% endif %}
-{% if gdc_nexus_demo_domain is defined and gdc_nexus_demo_domain %}
-        --san="{{ gdc_nexus_demo_domain }}" \
-{% endif %}
         --bundle \
         --not-after=8760h \
         --no-password --insecure --force

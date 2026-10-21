@@ -360,6 +360,9 @@ if __name__ == "__main__":
     env['fallback_gcp_project_id'] = env.get('FALLBACK_GCP_PROJECT_ID', '')
     env['fallback_gcp_region'] = env.get('FALLBACK_GCP_REGION', '')
     env['fallback_gcp_primary_gsa'] = env.get('FALLBACK_GCP_PRIMARY_GSA', '')
+    env['fallback_sub_ca_gsm_name'] = env.get('FALLBACK_SUB_CA_SECRET_NAME', 'gdc-fallback-sub-ca')
+    env['fallback_sub_ca_gsm_location'] = env.get('FALLBACK_SUB_CA_GSM_LOCATION', 'us-east4')
+    env['fallback_sub_ca_gsm_project'] = env.get('FALLBACK_SUB_CA_GSM_PROJECT', env.get('PROJECT_ID', 'anthos-bare-metal-lab-1'))
     env['phys_iface'] = env.get('PHYS_IFACE', '__PHYS_IFACE__')
     
     # Process NTP Upstream Servers

@@ -51,20 +51,20 @@ This ensures that when Subiquity's storage engine provisions new partitions, the
 ## 3. Dynamic Topology & Scaling Rules
 
 ### A. Single-Disk Topology (1x NVMe/SSD $\ge 600\text{ GiB}$ / $1\text{ TB}$)
-* **The Constraint:** The sum of standard GDC Logical Volume targets (including 100 GiB logs and 300 GiB Nexus) requires at least 557 GiB baseline storage before customer SDS allocation.
+* **The Constraint:** The sum of standard GDC Logical Volume targets (including 80 GiB logs, 300 GiB containerd, and 270 GiB Nexus) requires at least 781 GiB baseline storage before customer SDS allocation.
 * **The Resolution:** Logical volumes are allocated with dedicated quotas:
-  * `lv_var_log` is allocated **100 GiB**.
-  * `lv_containerd` is allocated **43 GiB**.
+  * `lv_var_log` is allocated **80 GiB**.
+  * `lv_containerd` is allocated **300 GiB**.
   * `lv_gitea` is scaled to **5 GiB**.
-  * `lv_nexus` (registry mirror) is allocated **300 GiB**.
-  * `lv_local_disk` is scaled to **25 GiB**.
+  * `lv_nexus` (registry mirror) is allocated **270 GiB**.
+  * `lv_local_disk` is scaled to **20 GiB**.
   * `lv_sds` (Software-Defined Storage) is assigned all remaining capacity (`size: -1`).
 * **LUKS Container:** A single encrypted DM-Crypt container (`crypt-system`) is initialized, backing the Volume Group `vg_system`.
 
 ### B. Dual/Multi-Disk Topology (2x to 4x+ NVMe/SSD $\ge 600\text{ GiB}$ / $1\text{ TB}$)
 * **Workload Isolation (Separation of Concerns):** To maximize IOPS performance and satisfy etcd's low-latency requirements under high loads, system processes and customer container data pipelines are physically separated across independent physical drives:
-  * **Disk 1 (System Disk):** Automatically partitioned and mapped under the encrypted volume group `vg_system`. It hosts `/`, `/var`, `/var/log` (100 GiB), `containerd`, `etcd`, Gitea, and Nexus. Since local storage blocks are moved to Disk 2, the installer removes the fixed sizing limits on local mirrors, allowing `lv_nexus` to scale to the **entire remainder of Disk 1** (`size: -1`, guaranteed $\ge 300\text{ GiB}$ on compliant drives) to cache massive registries.
-  * **Disk 2 (Data Disk):** Initialized under a separate encrypted LVM Volume Group `vg_data`. This drive is dedicated entirely to high-volume user data: `/customer/local-disk` (100 GiB) and `/customer/sds` (remainder of Disk 2, `size: -1`).
+  * **Disk 1 (System Disk):** Automatically partitioned and mapped under the encrypted volume group `vg_system`. It hosts `/`, `/var`, `/var/log` (80 GiB), `containerd` (100 GiB), `etcd`, Gitea, and Nexus. Since local storage blocks are moved to Disk 2, the installer removes the fixed sizing limits on local mirrors, allowing `lv_nexus` to scale to the **entire remainder of Disk 1** (`size: -1`, guaranteed $\ge 270\text{ GiB}$ on compliant drives) to cache massive registries.
+  * **Disk 2 (Data Disk):** Initialized under a separate encrypted LVM Volume Group `vg_data`. This drive is dedicated entirely to high-volume user data: `/customer/local-disk` (95 GiB) and `/customer/sds` (remainder of Disk 2, `size: -1`).
   * **Outcome:** Write-heavy container extractions on Disk 2 do not cause I/O latency spikes on Disk 1, ensuring the etcd consensus database maintains uninterrupted quorum.
 
 ### C. Pristine Block Preservation (Disks 3 and 4)
@@ -83,21 +83,21 @@ The primary target drives are partitioned and formatted based on the detected to
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `lv_root` | `/` | 40 GiB | EXT4 | `defaults` | Host operating system binaries & basic tools. |
 | `lv_var` | `/var` | 20 GiB | EXT4 | `defaults,noatime` | Kubelet states and runtime data directories. |
-| `lv_var_log` | `/var/log` | 100 GiB | EXT4 | `defaults,noatime` | **Logs Isolation:** Fluent-bit buffers and journald logs isolated from system root. |
+| `lv_var_log` | `/var/log` | 80 GiB | EXT4 | `defaults,noatime` | **Logs Isolation:** Fluent-bit buffers and journald logs isolated from system root. |
 | `lv_var_opt_metrics` | `/var/opt/buffered-metrics` | 10 GiB | EXT4 | `defaults,noatime` | **Metrics Isolation:** GDC metrics collection buffer (10,016 MiB required). |
-| `lv_containerd` | `/var/lib/containerd` | 48 GiB* | XFS | `defaults,noatime,prjquota` | **CRI Isolation:** Container image storage; enforces XFS Project Quotas (`prjquota`). |
+| `lv_containerd` | `/var/lib/containerd` | 100 GiB (300 GiB on Single-Disk) | XFS | `defaults,noatime,prjquota` | **CRI Isolation:** Container image storage; enforces XFS Project Quotas (`prjquota`). |
 | `lv_etcd` | `/var/lib/etcd` | 20 GiB | EXT4 | `noatime,nodiratime,commit=1` | **Performance Isolation:** Core etcd database. `commit=1` minimizes consensus write latency. |
 | `lv_etcd_events` | `/var/lib/etcd-events` | 5 GiB | EXT4 | `noatime,nodiratime,commit=1` | **Performance Isolation:** etcd events database. `commit=1` minimizes event write latency. |
 | `lv_gitea` | `/var/lib/gitea` | 5 GiB | EXT4 | `defaults,noatime` | Local Gitea mirror git repositories storage boundary. |
-| `lv_nexus` | `/var/lib/nexus` | 300 GiB* | EXT4 | `defaults,noatime` | Local Nexus cache and blob stores (APT, OCI registry layers, LLMs). |
+| `lv_nexus` | `/var/lib/nexus` | 270 GiB* | EXT4 | `defaults,noatime` | Local Nexus cache and blob stores (APT, OCI registry layers, LLMs). |
 
-*\* Note: On Single-Disk topologies, `lv_var_log` is 100 GiB, `lv_containerd` is scaled to 43 GiB, `lv_gitea` is 5 GiB, `lv_nexus` to 300 GiB, and `lv_root`/`lv_var` to 40 GiB/25 GiB. On Dual-Disk topologies, `lv_root` is 40 GiB, `lv_containerd` is 48 GiB, `lv_gitea` is 5 GiB, and `lv_nexus` consumes the entire remainder of Disk 1 (`size: -1`, guaranteed $\ge 300\text{ GiB}$ on compliant drives).*
+*\* Note: On Single-Disk topologies, `lv_var_log` is 80 GiB, `lv_containerd` is scaled to 300 GiB, `lv_gitea` is 5 GiB, `lv_nexus` to 270 GiB, `lv_local_disk` to 20 GiB, and `lv_root`/`lv_var` to 40 GiB/25 GiB. On Dual-Disk topologies, `lv_root` is 40 GiB, `lv_var_log` is 80 GiB, `lv_containerd` is 100 GiB, `lv_gitea` is 5 GiB, and `lv_nexus` consumes the entire remainder of Disk 1 (`size: -1`, guaranteed $\ge 270\text{ GiB}$ on compliant drives).*
 
 ### Data Volume Group (`vg_data`) - Mounted on Disk 2 (Multi-Disk Only)
 
 | Logical Volume | Mount Point | Default Size | Filesystem | Mount Options | GDC Compliance Role & Tuning |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `lv_local_disk` | `/customer/local-disk` | 100 GiB | XFS | `defaults,noatime,prjquota` | GDC standalone `local-disk` storage provisioner boundary. |
+| `lv_local_disk` | `/customer/local-disk` | 95 GiB* | XFS | `defaults,noatime,prjquota` | GDC standalone `local-disk` storage provisioner boundary (95 GiB on dual-disk, 20 GiB on single-disk). |
 | `lv_sds` | `/customer/sds` | Remainder | XFS | `defaults,noatime` | Allocated as backing storage for our custom SDS engine. |
 
 ---

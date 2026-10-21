@@ -28,7 +28,7 @@ set -euo pipefail
 CERT_DIR="/var/gdc-install/keys"
 CLIENT_CRT="${CERT_DIR}/client.crt"
 CLIENT_KEY="${CERT_DIR}/client.key"
-CA_URL="${STEP_CA_URL:-https://step-ca.ensor-labs.com}"
+CA_URL="${STEP_CA_URL:-https://step-ca.gdc-labs.com}"
 CA_FINGERPRINT="${STEP_CA_FINGERPRINT:-}" # Must be injected via Ansible environment if not using system roots
 PROVISIONER_NAME="${STEP_PROVISIONER_NAME:-tpm}"
 

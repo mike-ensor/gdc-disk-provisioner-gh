@@ -68,7 +68,17 @@
           (slurped_mock.content | b64decode | from_json | combine({'is_fallback': false}))
           if mock_file_stat.stat.exists
           else (
-            (api_response.json.variables | default(api_response.json | default({})) | combine({'is_fallback': false}))
+            (
+              api_response.json
+              | combine(api_response.json.variables | default({}), recursive=True)
+              | combine({
+                  'peers': api_response.json.peers
+                } if (api_response.json.peers is defined and (api_response.json.peers | length > 0) and ((api_response.json.variables | default({})).peers is not defined or (api_response.json.variables | default({})).peers | length == 0)) else {})
+              | combine({
+                  'cluster': api_response.json.cluster
+                } if (api_response.json.cluster is defined and api_response.json.cluster and ((api_response.json.variables | default({})).cluster is not defined or not (api_response.json.variables | default({})).cluster)) else {})
+              | combine({'is_fallback': false})
+            )
             if (api_response is defined and api_response.json is defined)
             else {}
           )
@@ -321,8 +331,34 @@
 
 - name: "GDC-ORCH | Set cluster_config and gcp_project_id facts"
   ansible.builtin.set_fact:
-    cluster_config: "{{ cluster_config | default(machine_config.cluster | default({})) }}"
-    gcp_project_id: "{{ gcp_project_id | default((machine_config.gcp_info | default({})).project_id | default('')) }}"
+    cluster_config: >-
+      {{
+        cluster_config
+        if (cluster_config is defined and cluster_config)
+        else (
+          machine_config.cluster
+          if (machine_config is defined and machine_config and machine_config.cluster is defined and machine_config.cluster)
+          else (
+            (api_response.json.cluster | default({}))
+            if (api_response is defined and api_response.json is defined and api_response.json.cluster is defined and api_response.json.cluster)
+            else {}
+          )
+        )
+      }}
+    gcp_project_id: >-
+      {{
+        gcp_project_id
+        if (gcp_project_id is defined and gcp_project_id | trim | length > 0)
+        else (
+          (machine_config.gcp_info | default({})).project_id
+          if (machine_config is defined and machine_config and machine_config.gcp_info is defined and (machine_config.gcp_info | default({})).project_id is defined and (machine_config.gcp_info | default({})).project_id | trim | length > 0)
+          else (
+            ((api_response.json.gcp_info | default({})).project_id | default(''))
+            if (api_response is defined and api_response.json is defined and api_response.json.gcp_info is defined)
+            else ''
+          )
+        )
+      }}
 
 - name: "GDC-ORCH | Ingest Enterprise Sub-CA from Secret Manager"
   ansible.builtin.include_tasks: pki_ingest.yml
