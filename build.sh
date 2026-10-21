@@ -108,6 +108,8 @@ Testing & Pre-flight:
 PXE & Deployment:
   --bootimus                  Trigger Bootimus PXE registration and setting verification
                               (Default: false - Bootimus is NOT run unless explicitly passed)
+  --skip-auth                 Skip pre-flight Bootimus authentication check
+                              (Default: false - Bootimus credentials are ALWAYS verified when --bootimus is active)
 
 Cloud & Storage Settings:
   -b, --bucket <name>         Destination GCS bucket name (sync/ and reports/)
@@ -322,6 +324,7 @@ CLI_BUILD_VERSION=""
 CLI_DEBUG=""
 CLI_COMPANION=""
 CLI_CUSTOMER_ASSETS=""
+CHECK_BOOTIMUS_AUTH=true
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -372,6 +375,30 @@ while [[ $# -gt 0 ]]; do
         --bootimus)
             RUN_BOOTIMUS=true
             shift
+            ;;
+        --skip-auth|--skip-bootimus-auth)
+            CHECK_BOOTIMUS_AUTH=false
+            shift
+            ;;
+        --bootimus-user)
+            BOOTIMUS_USER="$2"
+            export BOOTIMUS_USER
+            shift 2
+            ;;
+        --bootimus-pass|--bootimus-password)
+            BOOTIMUS_PASS="$2"
+            export BOOTIMUS_PASS
+            shift 2
+            ;;
+        --bootimus-secret-method|--secret-method|---secret-method|--secret-provider|--bootimus-secret-provider)
+            BOOTIMUS_SECRET_METHOD="$2"
+            export BOOTIMUS_SECRET_METHOD
+            shift 2
+            ;;
+        --bootimus-secret-file|--secret-file)
+            BOOTIMUS_SECRET_FILE="$2"
+            export BOOTIMUS_SECRET_FILE
+            shift 2
             ;;
         -s|--skip-increment)
             SKIP_INCREMENT=true
@@ -665,6 +692,27 @@ if [[ "${SKIP_TESTS}" != "true" ]]; then
         exit 1
     fi
     echo "  [x] Python test suites passed cleanly."
+
+    if [[ "${RUN_BOOTIMUS}" == "true" ]]; then
+        if [[ "${CHECK_BOOTIMUS_AUTH}" == "true" ]]; then
+            echo "[-] Gate 3/3: Validating Bootimus PXE credentials & endpoint connectivity..."
+            t_env="${TARGET_ENVS[0]:-barn}"
+            BOOTIMUS_PREFLIGHT_FLAGS=()
+            [[ -n "${BOOTIMUS_USER:-}" ]] && BOOTIMUS_PREFLIGHT_FLAGS+=(--user "${BOOTIMUS_USER}")
+            [[ -n "${BOOTIMUS_PASS:-}" ]] && BOOTIMUS_PREFLIGHT_FLAGS+=(--pass "${BOOTIMUS_PASS}")
+            [[ -n "${BOOTIMUS_SECRET_METHOD:-}" ]] && BOOTIMUS_PREFLIGHT_FLAGS+=(--secret-method "${BOOTIMUS_SECRET_METHOD}")
+            [[ -n "${BOOTIMUS_SECRET_FILE:-}" ]] && BOOTIMUS_PREFLIGHT_FLAGS+=(--secret-file "${BOOTIMUS_SECRET_FILE}")
+
+            if ! ISO_ENVIRONMENT="${t_env}" PYTHON_BIN="${PYTHON_BIN}" "${PROJECT_ROOT}/bootimus.sh" --check-auth "${BOOTIMUS_PREFLIGHT_FLAGS[@]}"; then
+                echo -e "\033[91m[!] Pre-flight failure: Unable to authenticate with Bootimus! Halting build before Cloud Build execution.\033[0m" >&2
+                echo -e "    Check credentials, pass --bootimus-user/--bootimus-pass, or pass --skip-auth to bypass." >&2
+                exit 1
+            fi
+            echo "  [x] Bootimus credentials and endpoint connectivity verified."
+        else
+            echo "[-] Gate 3/3: Skipped Bootimus authentication verification (--skip-auth specified)."
+        fi
+    fi
     echo -e "\033[92m[x] All pre-flight gates passed successfully.\033[0m\n"
 else
     echo -e "\n\033[93m[!] NOTICE: Skipping local pre-flight checks (--skip-tests active).\033[0m\n"
@@ -965,14 +1013,20 @@ if [[ "${RUN_BOOTIMUS}" == "true" ]]; then
                 break
             fi
         done
+        BOOTIMUS_CLI_FLAGS=()
+        [[ -n "${BOOTIMUS_USER:-}" ]] && BOOTIMUS_CLI_FLAGS+=(--user "${BOOTIMUS_USER}")
+        [[ -n "${BOOTIMUS_PASS:-}" ]] && BOOTIMUS_CLI_FLAGS+=(--pass "${BOOTIMUS_PASS}")
+        [[ -n "${BOOTIMUS_SECRET_METHOD:-}" ]] && BOOTIMUS_CLI_FLAGS+=(--secret-method "${BOOTIMUS_SECRET_METHOD}")
+        [[ -n "${BOOTIMUS_SECRET_FILE:-}" ]] && BOOTIMUS_CLI_FLAGS+=(--secret-file "${BOOTIMUS_SECRET_FILE}")
+
         echo "[-] Deploying to Bootimus: ${iso_name} (profile: ${t_env})..."
-        ISO_ENVIRONMENT="${t_env}" PYTHON_BIN="${PYTHON_BIN}" timeout 1200s "${PROJECT_ROOT}/bootimus.sh" "${iso_name}" || true
+        ISO_ENVIRONMENT="${t_env}" PYTHON_BIN="${PYTHON_BIN}" timeout 1200s "${PROJECT_ROOT}/bootimus.sh" "${iso_name}" "${BOOTIMUS_CLI_FLAGS[@]}" || true
     done
 
     echo "[-] Running Bootimus stability auditor & settings healer..."
     BOOTIMUS_VERIFIED=false
     for i in {1..80}; do
-        if "${PYTHON_BIN}" "${PROJECT_ROOT}/test/bin/check-bootimus-settings.py" "${SUCCESSFUL_ISOS[@]}"; then
+        if ISO_ENVIRONMENT="${t_env}" "${PYTHON_BIN}" "${PROJECT_ROOT}/test/bin/check-bootimus-settings.py" "${SUCCESSFUL_ISOS[@]}" "${BOOTIMUS_CLI_FLAGS[@]}"; then
             echo -e "\033[92m[x] Bootimus configuration locked and verified successfully.\033[0m"
             BOOTIMUS_VERIFIED=true
             break
@@ -987,7 +1041,7 @@ if [[ "${RUN_BOOTIMUS}" == "true" ]]; then
     fi
 
     echo "[-] Querying current Bootimus boot menu tree:"
-    PYTHON_BIN="${PYTHON_BIN}" "${PROJECT_ROOT}/bootimus.sh" --list || true
+    ISO_ENVIRONMENT="${t_env}" PYTHON_BIN="${PYTHON_BIN}" "${PROJECT_ROOT}/bootimus.sh" --list || true
     echo -e "\033[92m[x] Bootimus deployment complete for all targets.\033[0m"
 else
     echo -e "\n[-] Notice: Bootimus deployment skipped (pass --bootimus to enable)."

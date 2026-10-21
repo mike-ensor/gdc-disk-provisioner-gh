@@ -80,14 +80,14 @@ The primary target SSD/NVMe drive is formatted with three partitions:
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `lv_root` | `/` | 40 GiB | EXT4 | `defaults` | Base system files & temporary tools |
 | `lv_var` | `/var` | 25 GiB | EXT4 | `defaults,noatime` | Kubelet states and runtime data |
-| `lv_var_log` | `/var/log` | 100 GiB | EXT4 | `defaults,noatime` | **Logs Isolation:** Fluent-bit buffers and journald logs |
+| `lv_var_log` | `/var/log` | 80 GiB | EXT4 | `defaults,noatime` | **Logs Isolation:** Fluent-bit buffers and journald logs |
 | `lv_metrics` | `/var/opt/buffered-metrics` | 10 GiB | EXT4 | `defaults,noatime` | **Metrics Isolation:** GDC metrics buffers (10,016 MiB req) |
-| `lv_containerd` | `/var/lib/containerd` | 43–48 GiB | XFS | `defaults,noatime,prjquota` | **Image Isolation:** containerd container space |
+| `lv_containerd` | `/var/lib/containerd` | 300 GiB (single) / 100 GiB (dual) | XFS | `defaults,noatime,prjquota` | **Image Isolation:** containerd container space |
 | `lv_etcd` | `/var/lib/etcd` | 20 GiB | EXT4 | `noatime,nodiratime,commit=1` | **Performance Isolation:** etcd core database (20 GiB req) |
 | `lv_etcd_events` | `/var/lib/etcd-events` | 5 GiB | EXT4 | `noatime,nodiratime,commit=1` | **Performance Isolation:** etcd event records (5 GiB req) |
 | `lv_gitea` | `/var/lib/gitea` | 5 GiB | EXT4 | `defaults,noatime` | Persistent Gitea git storage boundary |
-| `lv_nexus` | `/var/lib/nexus` | 300 GiB (single) / Remainder (dual) | EXT4 | `defaults,noatime` | Persistent Nexus package/image storage boundary |
-| `lv_local_disk` | `/customer/local-disk` | 100 GiB | XFS | `defaults,noatime,prjquota` | **GDC Bounds:** Standalone `local-disk` provisioner |
+| `lv_nexus` | `/var/lib/nexus` | 270 GiB (single) / Remainder (dual) | EXT4 | `defaults,noatime` | Persistent Nexus package/image storage boundary |
+| `lv_local_disk` | `/customer/local-disk` | 20 GiB (single) / 95 GiB (dual) | XFS | `defaults,noatime,prjquota` | **GDC Bounds:** Standalone `local-disk` provisioner |
 | `lv_sds` | `/customer/sds` | Remainder | XFS | `defaults,noatime` | **SDS Storage:** Allocated for SDS system backends |
 
 *Note on etcd mounts: Specifying `commit=1` forces write barriers to sync metadata changes in under 1 second, reducing etcd database write latency to guarantee cluster consensus loops under high load.*
@@ -98,13 +98,13 @@ To support hardware nodes containing either **1 or 2 physical disks** of varying
 This script outputs a tailored, GDC-compliant Subiquity storage layout block based on the discovered disk count:
 
 #### A. Single-Disk Topology (1x NVMe/SSD $\ge 600\text{ GiB}$ / $1\text{ TB}$)
-* **The Sizing Constraint:** The sum of standard GDC Logical Volume targets (including 100 GiB logs and 300 GiB Nexus) requires at least 557 GiB baseline storage before customer SDS allocation.
-* **The Resolution:** Fixed allocations (`lv_var_log` at 100G, `lv_nexus` at 300G, `lv_local_disk` at 25G, `lv_containerd` at 43G, `lv_gitea` at 5G) provide dedicated quotas, leaving all remaining capacity to `/customer/sds` (`size: -1`).
+* **The Sizing Constraint:** The sum of standard GDC Logical Volume targets (including 80 GiB logs, 300 GiB containerd, and 270 GiB Nexus) requires at least 781 GiB baseline storage before customer SDS allocation.
+* **The Resolution:** Fixed allocations (`lv_var_log` at 80G, `lv_nexus` at 270G, `lv_local_disk` at 20G, `lv_containerd` at 300G on single-disk / 100G on dual-disk, `lv_gitea` at 5G) provide dedicated quotas, leaving all remaining capacity to `/customer/sds` (`size: -1`).
 
 #### B. Dual-Disk Topology (2x NVMe/SSD $\ge 600\text{ GiB}$ / $1\text{ TB}$)
 * **Workload Separation (Separation of Concerns):** To maximize performance and satisfy etcd leader latency parameters, we isolate standard system operations from high-volume customer storage pipelines across the two physical drives:
-  * **Disk 1 (System Disk):** Holds EFI, Boot, and the core encrypted OS volume group (`vg_system`), carrying the operating system, logging (100 GiB), containerd CRI, etcd databases, local Service Hubs (Gitea and Nexus). `lv_nexus` takes the entire remainder of Disk 1 (`size: -1`, guaranteed $\ge 300\text{ GiB}$ on compliant drives).
-  * **Disk 2 (Data Disk):** Initialized as a separate encrypted volume group (`vg_data`), dedicated entirely to `/customer/local-disk` (100G) and `/customer/sds` (remainder of Disk 2, `size: -1`). If Disk 2 is a 1TB SSD, `/customer/sds` automatically receives the remaining ~800GB.
+  * **Disk 1 (System Disk):** Holds EFI, Boot, and the core encrypted OS volume group (`vg_system`), carrying the operating system, logging (80 GiB), containerd CRI (100 GiB), etcd databases, local Service Hubs (Gitea and Nexus). `lv_nexus` takes the entire remainder of Disk 1 (`size: -1`, guaranteed $\ge 270\text{ GiB}$ on compliant drives).
+  * **Disk 2 (Data Disk):** Initialized as a separate encrypted volume group (`vg_data`), dedicated entirely to `/customer/local-disk` (95G) and `/customer/sds` (remainder of Disk 2, `size: -1`). If Disk 2 is a 1TB SSD, `/customer/sds` automatically receives the remaining space.
   * *Result:* Heavy container image extractions and customer storage I/O on Disk 2 are mathematically isolated from the low-latency consensus database of etcd on Disk 1.
 
 ---

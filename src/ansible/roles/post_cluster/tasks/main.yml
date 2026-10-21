@@ -28,6 +28,18 @@
   ansible.builtin.include_tasks: cert_manager_pki.yml
   tags: ["corp-cert"]
 
+- name: "GDC-POST | Sync cluster labels to Fleet Hub membership"
+  ansible.builtin.command: >-
+    gcloud container fleet memberships update {{ cluster_name }}
+    --update-labels={{ cluster_config.fleet_cluster_labels | join(',') }}
+    --project={{ gcp_project_id }}
+  when:
+    - gcp_project_id is defined and gcp_project_id | length > 0
+    - cluster_config is defined and cluster_config.fleet_cluster_labels is defined
+    - cluster_config.fleet_cluster_labels | length > 0
+  changed_when: true
+  failed_when: false
+
 - name: "GDC-EVIDENCE | Structure PostCluster Evidence Facts"
   ansible.builtin.set_fact:
     post_cluster_evidence:

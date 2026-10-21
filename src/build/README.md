@@ -63,6 +63,23 @@ You can dynamically override build configurations (like the target GCS bucket, v
 
 ---
 
+## Agent Turnkey Workflow: Single-Command Full Rebuild & Fleet Reboot
+
+For AI agents and automated pipelines, the complete lifecycle (**Profile Sync** $\rightarrow$ **Cloud Build** $\rightarrow$ **Bootimus Verification & Auto-Heal** $\rightarrow$ **UEFI PXE Next-Boot & Node Reboot**) can be triggered via a single command:
+
+```bash
+# Execute unattended full rebuild cycle for profile 'barn':
+./bin/local/gdc-node-ops.sh rebuild-cycle --profile barn --version 0.11.3 --yes
+
+# Or simulate via dry-run:
+./bin/local/gdc-node-ops.sh rebuild-cycle --profile barn --dry-run
+```
+
+For complete architectural details, parameter reference, and step-by-step guidance, see:
+👉 [Agent Rebuild Guide](../../docs/AGENT_REBUILD_GUIDE.md)
+
+---
+
 ## Build Configuration & Air-Gapped Fallbacks
 
 The build process relies heavily on environment variables defined in `src/build/build.env` (or overridden locally via `local.env`).

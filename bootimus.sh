@@ -104,6 +104,10 @@ Options:
   --mac <mac_address>         Target client MAC address
   --all-targets               Target all registered clients
   -f, --force                 Force Bootimus to re-ingest and extract the ISO even if it exists
+  --user <user>               Bootimus API username (or export BOOTIMUS_USER)
+  --pass <password>           Bootimus API password (or export BOOTIMUS_PASS)
+  --secret-method <method>    Secret provider to query: env (default), file, infisical, gcloud
+  --secret-file <path>        Path to secret file containing JSON or raw password
   -h, --help                  Display this help message
 
 Environment:
@@ -141,6 +145,7 @@ while [[ $# -gt 0 ]]; do
             ACTION="NEXT_BOOT"
             EXTRA_ARGS+=("$1")
             if [[ $# -gt 1 && ! "$2" =~ ^- ]]; then
+                NEXT_BOOT_ISO="$2"
                 EXTRA_ARGS+=("$2")
                 shift
             fi
@@ -151,9 +156,39 @@ while [[ $# -gt 0 ]]; do
             EXTRA_ARGS+=("$1")
             shift
             ;;
+        --check-auth|--test-creds)
+            ACTION="CHECK_AUTH"
+            EXTRA_ARGS+=("$1")
+            shift
+            ;;
         -f|--force)
             EXTRA_ARGS+=("$1")
             shift
+            ;;
+        --user|--bootimus-user)
+            EXTRA_ARGS+=("--user" "$2")
+            export BOOTIMUS_USER="$2"
+            shift 2
+            ;;
+        --pass|--bootimus-pass|--password|--bootimus-password)
+            EXTRA_ARGS+=("--pass" "$2")
+            export BOOTIMUS_PASS="$2"
+            shift 2
+            ;;
+        --env|--profile)
+            ISO_ENVIRONMENT="$2"
+            load_env_file "${PROJECT_ROOT}/src/build/${ISO_ENVIRONMENT}.env"
+            shift 2
+            ;;
+        --secret-method|--secret-provider|---secret-method|--bootimus-secret-method|--bootimus-secret-provider)
+            EXTRA_ARGS+=("--secret-method" "$2")
+            export BOOTIMUS_SECRET_METHOD="$2"
+            shift 2
+            ;;
+        --secret-file|--bootimus-secret-file)
+            EXTRA_ARGS+=("--secret-file" "$2")
+            export BOOTIMUS_SECRET_FILE="$2"
+            shift 2
             ;;
         -h|--help)
             usage 0
@@ -178,6 +213,20 @@ if [[ "${ACTION}" == "INGEST" && -z "${ISO_FILENAME}" ]]; then
     usage 1
 fi
 
+# Auto-detect profile from ISO filename if default local was used
+target_iso_detect="${ISO_FILENAME:-${NEXT_BOOT_ISO:-}}"
+if [[ "${ISO_ENVIRONMENT}" == "local" && -n "${target_iso_detect}" ]]; then
+    if [[ "${target_iso_detect}" == *gdc-labs* || "${target_iso_detect}" == *barn* ]] && [[ -f "${PROJECT_ROOT}/src/build/barn.env" ]]; then
+        ISO_ENVIRONMENT="barn"
+        load_env_file "${PROJECT_ROOT}/src/build/barn.env"
+    elif [[ "${target_iso_detect}" == *honeywell* ]] && [[ -f "${PROJECT_ROOT}/src/build/honeywell.env" ]]; then
+        ISO_ENVIRONMENT="honeywell"
+        load_env_file "${PROJECT_ROOT}/src/build/honeywell.env"
+    fi
+fi
+
+export BOOTIMUS_SECRET_METHOD="${BOOTIMUS_SECRET_METHOD:-${BOOTIMUS_SECRET_PROVIDER:-infisical}}"
+
 # ==========================================
 # Validate Environment Variables
 # ==========================================
@@ -199,6 +248,8 @@ fi
 echo "=============================================================================="
 if [[ "${ACTION}" == "LIST" ]]; then
     echo " ACTION:           Querying Bootimus PXE Tree"
+elif [[ "${ACTION}" == "CHECK_AUTH" ]]; then
+    echo " ACTION:           Testing Bootimus Authentication Credentials"
 elif [[ "${ACTION}" == "NEXT_BOOT" || "${ACTION}" == "CLEAR_NEXT_BOOT" ]]; then
     echo " ACTION:           Bootimus Next-Boot Automation"
 else
@@ -206,13 +257,13 @@ else
     echo " TARGET ISO:       ${ISO_FILENAME}"
 fi
 echo " PXE SERVER:       http://${PXE_SERVER_HOST}:${PXE_SERVER_PORT}"
-echo " AUTHENTICATION:   $([[ -n "${BOOTIMUS_USER:-}" ]] && echo "Environment Variables" || echo "Infisical Managed Secrets")"
+echo " AUTHENTICATION:   $([[ -n "${BOOTIMUS_USER:-}" && -n "${BOOTIMUS_PASS:-}" ]] && echo "Environment Variables" || echo "Provider (${BOOTIMUS_SECRET_METHOD:-none})")"
 echo "=============================================================================="
 
 # ==========================================
 # Execute Python Bootimus Script
 # ==========================================
-if [[ "${ACTION}" == "LIST" ]]; then
+if [[ "${ACTION}" == "LIST" || "${ACTION}" == "CHECK_AUTH" ]]; then
     exec "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" "${EXTRA_ARGS[@]}"
 elif [[ "${ACTION}" == "NEXT_BOOT" || "${ACTION}" == "CLEAR_NEXT_BOOT" ]]; then
     exec "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" "${ALL_ARGS[@]}"

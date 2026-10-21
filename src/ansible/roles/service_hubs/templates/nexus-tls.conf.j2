@@ -14,7 +14,7 @@ server {
 {% else %}
     listen {{ gdc_nexus_https_port | default(443) }} ssl;
 {% endif %}
-    server_name {{ gdc_nexus_domain }}{% if gdc_nexus_alias is defined and gdc_nexus_alias %} {{ gdc_nexus_alias }}{% endif %}{% if gdc_nexus_demo_domain is defined and gdc_nexus_demo_domain %} {{ gdc_nexus_demo_domain }}{% endif %};
+    server_name {{ gdc_nexus_domain }}{% if gdc_nexus_alias is defined and gdc_nexus_alias %} {{ gdc_nexus_alias }}{% endif %};
 
     # Certificate & Key
     ssl_certificate     {{ gdc_nexus_cert_path }};

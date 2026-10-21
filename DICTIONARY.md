@@ -118,21 +118,21 @@ A GRUB display parameter (`video=efifb:1280x1024`) that forces a standard 16:9 1
 A GDC Bare Metal compliant storage partitioning standard. It isolates system partitions (EFI, boot) from 9 to 11 dedicated Logical Volumes inside an encrypted Volume Group (`vg_system`), preventing single-filesystem saturation from impacting Kubernetes operations:
 * `/` (`lv_root`): 40 GiB — Base operating system.
 * `/var` (`lv_var`): 20 GiB — Kubelet states and runtime data.
-* `/var/log` (`lv_var_log`): 100 GiB — Fluent-bit, journald, and system log isolation.
+* `/var/log` (`lv_var_log`): 80 GiB — Fluent-bit, journald, and system log isolation.
 * `/var/opt/buffered-metrics` (`lv_var_opt_metrics`): 10 GiB — GDC telemetry metrics buffer.
-* `/var/lib/containerd` (`lv_containerd`): 43–48 GiB — CRI runtime container storage (XFS with `prjquota`).
+* `/var/lib/containerd` (`lv_containerd`): 300 GiB (single-disk) / 100 GiB (dual-disk) — CRI runtime container storage (XFS with `prjquota`).
 * `/var/lib/etcd` (`lv_etcd`): 20 GiB — etcd consensus database (`commit=1` mount optimization).
 * `/var/lib/etcd-events` (`lv_etcd_events`): 5 GiB — etcd events database (`commit=1`).
 * `/var/lib/gitea` (`lv_gitea`): 5 GiB — Local Gitea repository storage.
-* `/var/lib/nexus` (`lv_nexus`): 300 GiB (single-disk) or remainder (dual-disk) — Local Nexus caching registries and blob stores.
+* `/var/lib/nexus` (`lv_nexus`): 270 GiB (single-disk) or remainder (dual-disk) — Local Nexus caching registries and blob stores.
 
 ### Single-Disk Topology
-The automated storage layout deployed on servers with exactly one NVMe/SSD ($\ge 560\text{ GiB}$ / $600\text{ GB+}$). Accommodates the full standard LVM allocations (including 100 GiB logs and 300 GiB Nexus), assigning all remaining capacity to `/customer/sds`.
+The automated storage layout deployed on servers with exactly one NVMe/SSD ($\ge 560\text{ GiB}$ / $600\text{ GB+}$). Accommodates the full standard LVM allocations (including 80 GiB logs and 270 GiB Nexus), assigning all remaining capacity to `/customer/sds`.
 
 ### Dual/Multi-Disk Topology
 The high-performance storage layout deployed on servers with two or more NVMe/SSDs ($\ge 560\text{ GiB}$ / $600\text{ GB+}$). It enforces physical workload isolation across separate physical block devices:
 * **Disk 1 (System Disk - `vg_system`):** Hosts OS, etcd, containerd, Gitea, and Nexus. `lv_nexus` expands to consume all remaining space on Disk 1.
-* **Disk 2 (Data Disk - `vg_data`):** Dedicated entirely to customer container volumes: `/customer/local-disk` (100 GiB) and `/customer/sds` (remainder of Disk 2). Write-intensive customer storage cannot cause I/O starvation on Disk 1 etcd consensus logs.
+* **Disk 2 (Data Disk - `vg_data`):** Dedicated entirely to customer container volumes: `/customer/local-disk` (95 GiB) and `/customer/sds` (remainder of Disk 2). Write-intensive customer storage cannot cause I/O starvation on Disk 1 etcd consensus logs.
 
 ### Pristine Block Preservation
 The architectural requirement where any physical drives beyond Disk 2 (e.g., Disks 3 and 4 in 4-bay servers) are completely ignored during installation. They are left raw without partition tables, LVM signatures, or filesystems, allowing Kubernetes Software-Defined Storage (SDS) controllers to detect and format them dynamically post-turnup.
@@ -141,7 +141,7 @@ The architectural requirement where any physical drives beyond Disk 2 (e.g., Dis
 The distributed, replicated storage subsystem (such as Portworx, Ceph/Rook, or GDC local-volume-provisioner) that runs on top of bare-metal nodes, consuming `/customer/sds` or pristine raw block drives to provide persistent volumes for containerized workloads.
 
 ### `local-disk` Provisioner
-The GDC standalone static disk provisioner that allocates local host storage paths mounted on `/customer/local-disk` (capped at 100 GiB) directly to Kubernetes Persistent Volume Claims (PVCs).
+The GDC standalone static disk provisioner that allocates local host storage paths mounted on `/customer/local-disk` (20 GiB single-disk, 95 GiB dual-disk) directly to Kubernetes Persistent Volume Claims (PVCs).
 
 ### Recursive Superblock Wiping
 The storage cleaning method executed during automated re-installations. `wipe: superblock-recursive` is applied to physical disks to scrub stale LUKS, LVM, and partition headers, while `wipe: superblock` is used on sub-logical volumes to prevent Curtin from colliding with udev asynchronous probing (`NotExclusiveError`).

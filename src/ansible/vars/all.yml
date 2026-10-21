@@ -203,12 +203,12 @@ desired_state_log_path: "/var/gdc-install/logs/gdc-desired-state.log"
 # GDC Companion Global Variables (Hydrated at Build Time)
 # ==============================================================================
 gdc_companion_base_url: "https://gdc-companion.gdc-labs.com/"
-gdc_companion_api_key: "AOgIcFproZQpYgaqDJrsUOD1MfhxwFqBANp2JumB5wM="
+gdc_companion_api_key: ""
 gdc_companion_ingest_url: "https://gdc-companion.gdc-labs.com/v1/install-logs"
 gdc_companion_reports_url: "https://gdc-companion.gdc-labs.com/v1/machine-reports/ingest"
-gdc_step_ca_url: "https://step-ca.ensor-labs.com"
+gdc_step_ca_url: "https://step-ca.gdc-labs.com"
 gdc_step_provisioner_name: "admin"
-gdc_step_provisioner_password: "JvXiHJWZNKR2qqX2yXywmjvuDIvBMgig"
+gdc_step_provisioner_password: ""
 gdc_step_ca_fingerprint: ""
 
 # ==============================================================================
@@ -237,5 +237,7 @@ gdc_nexus_cert_path: "/etc/ssl/certs/nexus.bundle.crt"
 gdc_nexus_key_path: "/etc/ssl/private/nexus.key"
 gdc_nexus_tls_renew_threshold_seconds: 2592000 # 30 days
 gdc_fallback_sub_ca_path: "/var/gdc-install/pki/fallback-sub-ca.json"
-gdc_nexus_demo_domain: "nexus.demo.gdc-labs.com"
+gdc_fallback_sub_ca_gsm_name: "gdc-fallback-sub-ca"
+gdc_fallback_sub_ca_gsm_location: "us-east4"
+gdc_fallback_sub_ca_gsm_project: "anthos-bare-metal-lab-1"
 

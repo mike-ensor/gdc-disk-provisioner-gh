@@ -54,6 +54,7 @@ ENV_CONFIGURE_CLUSTER_DNS="${CONFIGURE_CLUSTER_DNS:-}"
 ENV_ANTHOS_VERSION="${ANTHOS_VERSION:-${ANTHOS_BARE_METAL_VERSION:-}}"
 ENV_POD_CIDR="${POD_CIDR:-}"
 ENV_SERVICE_CIDR="${SERVICE_CIDR:-}"
+ENV_FLEET_LABELS="${FLEET_LABELS:-${CLUSTER_LABELS:-}}"
 FACTS_FILE="${FACTS_FILE:-}"
 
 CLI_CLUSTER_NAME=""
@@ -64,6 +65,7 @@ CLI_CLUSTER_VIP=""
 CLI_CLUSTER_INGRESS=""
 CLI_PRIMARY_LOAD_BALANCER=""
 CLI_ADMIN_USER_EMAIL=""
+CLI_FLEET_LABELS=""
 CLI_PRIMARY_ROOT_REPO=""
 CLI_ROOT_REPO_TYPE=""
 CLI_ROOT_REPO_BRANCH=""
@@ -141,6 +143,7 @@ Options:
                          Kubernetes secret name for CA Certificate
   --repo-sync-dir <DIR>  Directory path in repository for RepoSync (default: repository root)
   --admin-email <EMAIL>  Administrator email for ClusterRoleBinding (optional)
+  --labels <LABELS>      Fleet membership labels, comma-separated (e.g. env=lab,location=edge)
   --dry-run              Validate configuration and simulate inception without modifying system
   -y, --yes              Skip confirmation prompt
   -h, --help             Display this help message and exit
@@ -274,6 +277,10 @@ while [[ $# -gt 0 ]]; do
             CLI_ADMIN_USER_EMAIL="$2"
             shift 2
             ;;
+        --labels)
+            CLI_FLEET_LABELS="$2"
+            shift 2
+            ;;
         --dry-run)
             DRY_RUN=true
             shift
@@ -394,6 +401,7 @@ FACT_ANTHOS_VERSION=""
 FACT_POD_CIDR=""
 FACT_SERVICE_CIDR=""
 CLUSTER_ADMIN_EMAILS=()
+FLEET_CLUSTER_LABELS=()
 
 if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     echo "[-] Sourcing cluster parameters from facts: ${FACTS_FILE}"
@@ -521,6 +529,19 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     while IFS= read -r email; do
         [[ -n "${email}" ]] && CLUSTER_ADMIN_EMAILS+=("${email}")
     done < <(get_json_array "${FACTS_FILE}" ".cluster.cluster_admin_emails")
+    while IFS= read -r label; do
+        [[ -n "${label}" ]] && FLEET_CLUSTER_LABELS+=("${label}")
+    done < <(get_json_array "${FACTS_FILE}" ".cluster.fleet_cluster_labels")
+fi
+
+RAW_FLEET_LABELS="${CLI_FLEET_LABELS:-${ENV_FLEET_LABELS:-}}"
+if [[ -n "${RAW_FLEET_LABELS}" ]]; then
+    FLEET_CLUSTER_LABELS=()
+    IFS=',' read -ra ADDR <<< "${RAW_FLEET_LABELS}"
+    for l in "${ADDR[@]}"; do
+        l_trimmed=$(echo "${l}" | xargs)
+        [[ -n "${l_trimmed}" ]] && FLEET_CLUSTER_LABELS+=("${l_trimmed}")
+    done
 fi
 
 # Precedence hierarchy: CLI arguments > Environment variables > Facts file
@@ -779,6 +800,11 @@ if [[ ${#CLUSTER_ADMIN_EMAILS[@]} -gt 0 ]]; then
     printf "  %-35s %s\n" "Cluster Admin Emails (${#CLUSTER_ADMIN_EMAILS[@]}):" "${CLUSTER_ADMIN_EMAILS[*]}"
 else
     printf "  %-35s %s\n" "Cluster Admin Emails (0):" "none"
+fi
+if [[ ${#FLEET_CLUSTER_LABELS[@]} -gt 0 ]]; then
+    printf "  %-35s %s\n" "Fleet Cluster Labels (${#FLEET_CLUSTER_LABELS[@]}):" "${FLEET_CLUSTER_LABELS[*]}"
+else
+    printf "  %-35s %s\n" "Fleet Cluster Labels (0):" "none"
 fi
 printf "  %-35s %s\n" "GOOGLE_APP_CREDS:" "${GOOGLE_APP_CREDS}"
 printf "  %-35s %s\n" "gcloud token authenticated:" "${GCLOUD_TOKEN_AUTH}"
@@ -1312,6 +1338,21 @@ EOF
 		fi
 	else
 		echo "[-] No RepoSync repo specified. Skipping RepoSync deployment."
+	fi
+
+	# 9. Apply Fleet Membership Labels
+	if [[ -n "${PROJECT_ID}" && ${#FLEET_CLUSTER_LABELS[@]} -gt 0 ]]; then
+		echo "[-] Applying fleet cluster labels to membership '${CLUSTER_NAME}' in project '${PROJECT_ID}'..."
+		LABELS_CSV=$(IFS=,; echo "${FLEET_CLUSTER_LABELS[*]}")
+		if gcloud container fleet memberships update "${CLUSTER_NAME}" \
+			--update-labels="${LABELS_CSV}" \
+			--project="${PROJECT_ID}"; then
+			echo "[OK] Fleet membership labels applied: ${LABELS_CSV}"
+		else
+			echo "[!] Warning: Failed to apply fleet membership labels. Continuing."
+		fi
+	else
+		echo "[-] No fleet cluster labels defined or PROJECT_ID empty. Skipping fleet membership labels."
 	fi
 else
 	echo "[!] Warning: /etc/kubernetes/admin.conf not found. Ensure the cluster creation completed successfully."

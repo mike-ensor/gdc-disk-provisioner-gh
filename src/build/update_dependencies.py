@@ -463,9 +463,10 @@ def add_binary_dependency(name, version, url, sha256=None, filename=None, subpat
     return True
 
 
-def run_preseed_debian_packages(use_docker=False, enable_gcs=False, bucket_name=None):
+def run_preseed_debian_packages(use_docker=False, enable_gcs=False, bucket_name=None, system_upgrades=False):
     """Executes the Debian package resolution pipeline natively or inside an Ubuntu 24.04 container."""
     print("[-] Starting Debian Package Pre-seeding Pipeline for Ubuntu 24.04 (Noble)...")
+    env_upgrades = "true" if (system_upgrades or os.environ.get("CACHE_SYSTEM_UPGRADES", "").lower() == "true") else "false"
     if use_docker:
         print("  [-] Executing via isolated Docker container 'ubuntu:24.04'...")
         cmd = [
@@ -480,6 +481,8 @@ def run_preseed_debian_packages(use_docker=False, enable_gcs=False, bucket_name=
             f"DEPENDENCY_CACHE_GCS_BUCKET={bucket_name or ''}",
             "-e",
             f"ENABLE_GCS={'true' if enable_gcs else 'false'}",
+            "-e",
+            f"CACHE_SYSTEM_UPGRADES={env_upgrades}",
             "ubuntu:24.04",
             "bash",
             "-c",
@@ -492,6 +495,7 @@ def run_preseed_debian_packages(use_docker=False, enable_gcs=False, bucket_name=
         if bucket_name:
             env["DEPENDENCY_CACHE_GCS_BUCKET"] = bucket_name
         env["ENABLE_GCS"] = "true" if enable_gcs else "false"
+        env["CACHE_SYSTEM_UPGRADES"] = env_upgrades
         subprocess.run(["bash", script_path], cwd=REPO_ROOT, env=env, check=True)
 
 
@@ -610,6 +614,14 @@ def main():
         action="store_true",
         default=False,
         help="Run the Noble 24.04 Debian package resolution pipeline to refresh .deb files.",
+    )
+    parser.add_argument(
+        "--system-upgrades",
+        "--with-upgrades",
+        dest="system_upgrades",
+        action="store_true",
+        default=False,
+        help="Simulate and include upstream base-OS security updates (apt-get upgrade) in package cache.",
     )
     parser.add_argument(
         "--docker",
@@ -745,6 +757,7 @@ def main():
             use_docker=args.docker,
             enable_gcs=args.sync_gcs,
             bucket_name=bucket,
+            system_upgrades=args.system_upgrades,
         )
 
     # Handle GCS Synchronization

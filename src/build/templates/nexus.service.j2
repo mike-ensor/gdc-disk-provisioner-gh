@@ -8,7 +8,8 @@ LimitNOFILE=65536
 Environment=INSTALL4J_JAVA_HOME=/var/lib/nexus/jre
 ExecStart=/var/lib/nexus/nexus-bin/bin/nexus start
 ExecStop=/var/lib/nexus/nexus-bin/bin/nexus stop
-User=root
+User=nexus
+Group=nexus
 Restart=on-abort
 
 [Install]

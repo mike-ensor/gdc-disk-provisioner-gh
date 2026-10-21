@@ -39,6 +39,10 @@ class TestNexusTLSPKI(unittest.TestCase):
             "gdc_nexus_cert_path": "/etc/ssl/certs/nexus.bundle.crt",
             "gdc_nexus_key_path": "/etc/ssl/private/nexus.key",
             "gdc_nexus_tls_renew_threshold_seconds": 2592000,
+            "gdc_fallback_sub_ca_path": "/var/gdc-install/pki/fallback-sub-ca.json",
+            "gdc_fallback_sub_ca_gsm_name": "gdc-fallback-sub-ca",
+            "gdc_fallback_sub_ca_gsm_location": "us-east4",
+            "gdc_fallback_sub_ca_gsm_project": "anthos-bare-metal-lab-1",
         }
 
         for var_name, expected_val in expected_vars.items():
@@ -72,6 +76,9 @@ class TestNexusTLSPKI(unittest.TestCase):
         self.assertTrue(any("Fallback: Access Sub-CA Secret payload as global resource" in name for name in task_names))
         self.assertTrue(any("Adopt fallback Sub-CA payload if successful" in name for name in task_names))
         self.assertTrue(any("Fail if Sub-CA secret retrieval failed" in name for name in task_names))
+        self.assertTrue(any("Access Central Fallback Sub-CA Secret payload via gcloud" in name for name in task_names))
+        self.assertTrue(any("Adopt Central Fallback Sub-CA payload if successful" in name for name in task_names))
+        self.assertTrue(any("Fail stage if neither primary nor fallback Sub-CA was resolved" in name for name in task_names))
         self.assertTrue(any("Write Corporate Root CA" in name for name in task_names))
         self.assertTrue(any("Write Sub-CA Private Key" in name for name in task_names))
 
@@ -80,6 +87,8 @@ class TestNexusTLSPKI(unittest.TestCase):
             "Access Sub-CA Secret payload via gcloud",
             "Fallback: Access Sub-CA Secret payload as global resource",
             "Adopt fallback Sub-CA payload if successful",
+            "Access Central Fallback Sub-CA Secret payload via gcloud",
+            "Adopt Central Fallback Sub-CA payload if successful",
             "Write Sub-CA Private Key",
         ]
         for kw in sensitive_keywords:
@@ -121,14 +130,14 @@ class TestNexusTLSPKI(unittest.TestCase):
         with open(pki_task_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        guard_snippet = "{% if gcp_project_id is defined and gcp_project_id | trim | length > 0 %}--project={{ gcp_project_id }}{% endif %}"
+        guard_snippet = "{% if sub_ca_gsm_project is defined and sub_ca_gsm_project | trim | length > 0 %}--project={{ sub_ca_gsm_project }}{% endif %}"
         self.assertIn(guard_snippet, content, "pki_ingest.yml must guard --project flag")
 
         env = Environment()
         template = env.from_string(guard_snippet)
-        self.assertEqual(template.render(gcp_project_id="").strip(), "")
-        self.assertEqual(template.render(gcp_project_id="   ").strip(), "")
-        self.assertEqual(template.render(gcp_project_id="my-project").strip(), "--project=my-project")
+        self.assertEqual(template.render(sub_ca_gsm_project="").strip(), "")
+        self.assertEqual(template.render(sub_ca_gsm_project="   ").strip(), "")
+        self.assertEqual(template.render(sub_ca_gsm_project="my-project").strip(), "--project=my-project")
 
     def test_rotation_script_and_systemd_templates(self):
         """Verifies refresh-nexus-tls script, service, and timer templates render valid syntax."""
@@ -595,30 +604,61 @@ class TestNexusTLSPKI(unittest.TestCase):
         self.assertEqual(file_args.get("state"), "absent")
 
     def test_remaster_stages_fallback_sub_ca(self):
-        """Verifies remaster.sh stages fallback Sub-CA credentials into /custom-data/pki/."""
+        """Verifies remaster.sh stages fallback Sub-CA credentials into /custom-data/pki/ without location."""
         remaster_path = os.path.join(PROJECT_ROOT, "src/build/remaster.sh")
         with open(remaster_path, "r", encoding="utf-8") as f:
             content = f.read()
 
         self.assertIn("custom-data/pki", content)
         self.assertIn("fallback-sub-ca.json", content)
-        self.assertIn("gdc-labs-wildcard-pki", content)
+        self.assertIn("gdc-fallback-sub-ca", content)
+        # Pulling latest version must not pass location
+        self.assertNotIn("--location=", content[content.find("Staging fallback Sub-CA credentials"):content.find("Smallstep CLI package")])
 
-    def test_refresh_nexus_tls_includes_demo_san(self):
-        """Verifies refresh-nexus-tls.sh.j2 mints leaf cert covering the demo domain."""
+    def test_fallback_sub_ca_pull_omits_location(self):
+        """Verifies pki_ingest.yml accesses fallback Sub-CA latest version without --location."""
+        pki_task_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/machine_orchestration/tasks/pki_ingest.yml")
+        with open(pki_task_path, "r", encoding="utf-8") as f:
+            tasks = yaml.safe_load(f)
+
+        all_tasks = []
+        def extract_tasks(task_list):
+            for t in task_list:
+                if isinstance(t, dict):
+                    all_tasks.append(t)
+                    if "block" in t:
+                        extract_tasks(t["block"])
+        extract_tasks(tasks)
+
+        fallback_task = next(
+            (t for t in all_tasks if "Access Central Fallback Sub-CA Secret payload via gcloud" in t.get("name", "")),
+            None
+        )
+        self.assertIsNotNone(fallback_task, "Access Central Fallback Sub-CA task not found")
+        assert fallback_task is not None
+        cmd = fallback_task.get("ansible.builtin.command", "")
+        self.assertNotIn("--location", cmd, "Fallback Sub-CA command must not include --location")
+
+    def test_refresh_nexus_tls_sans_strictly_local(self):
+        """Verifies refresh-nexus-tls.sh.j2 mints leaf cert for internal domains without public demo domain."""
         template_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/service_hubs/templates/refresh-nexus-tls.sh.j2")
         with open(template_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        self.assertIn("gdc_nexus_demo_domain", content)
+        self.assertIn("gdc_nexus_domain", content)
+        self.assertIn("gdc_nexus_alias", content)
+        self.assertNotIn("gdc_nexus_demo_domain", content)
+        self.assertNotIn("gdc-labs.com", content)
 
-    def test_local_dns_resolves_demo_domain(self):
-        """Verifies internal-gdc.conf.j2 includes DNS resolution for demo domain."""
+    def test_local_dns_authoritative_internal_domains(self):
+        """Verifies internal-gdc.conf.j2 resolves internal domains without public demo domain."""
         dns_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/local_dns/templates/internal-gdc.conf.j2")
         with open(dns_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        self.assertIn("gdc_nexus_demo_domain", content)
+        self.assertIn("gdc_nexus_domain", content)
+        self.assertNotIn("gdc_nexus_demo_domain", content)
+        self.assertNotIn("demo.gdc-labs.com", content)
 
 if __name__ == "__main__":
     unittest.main()

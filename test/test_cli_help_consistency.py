@@ -46,7 +46,7 @@ class TestCLIHelpConsistency(unittest.TestCase):
     def test_node_ops_main_help(self):
         self.assert_help_succeeds(
             ["bin/local/gdc-node-ops.sh"],
-            ["usage:", "push-facts", "push-playbook", "push-token", "rotate-token", "reset-pxe", "refresh-telemetry", "pull-profile"]
+            ["usage:", "push-facts", "push-playbook", "push-token", "rotate-token", "reset-pxe", "refresh-telemetry", "pull-profile", "create-fallback-ca"]
         )
 
     def test_node_ops_push_facts_help(self):
@@ -76,7 +76,7 @@ class TestCLIHelpConsistency(unittest.TestCase):
     def test_node_ops_reset_pxe_help(self):
         self.assert_help_succeeds(
             ["bin/local/gdc-node-ops.sh", "reset-pxe"],
-            ["usage:", "--nodes", "--user", "--key", "--yes"]
+            ["usage:", "--nodes", "--user", "--key", "--yes", "--secret-method", "--bootimus-user", "--bootimus-pass"]
         )
 
     def test_node_ops_refresh_telemetry_help(self):
@@ -89,6 +89,12 @@ class TestCLIHelpConsistency(unittest.TestCase):
         self.assert_help_succeeds(
             ["bin/local/gdc-node-ops.sh", "pull-profile"],
             ["usage:", "--name", "--companion-url", "--api-key", "--list"]
+        )
+
+    def test_node_ops_create_fallback_ca_help(self):
+        self.assert_help_succeeds(
+            ["bin/local/gdc-node-ops.sh", "create-fallback-ca"],
+            ["usage:", "--project", "--secret", "--location", "--output", "--days", "--subject", "--dry-run"]
         )
 
     # 2. gdc-forensics.sh

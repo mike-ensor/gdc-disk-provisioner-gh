@@ -235,6 +235,8 @@ gdc_nexus_cert_path: "/etc/ssl/certs/nexus.bundle.crt"
 gdc_nexus_key_path: "/etc/ssl/private/nexus.key"
 gdc_nexus_tls_renew_threshold_seconds: 2592000 # 30 days
 gdc_fallback_sub_ca_path: "/var/gdc-install/pki/fallback-sub-ca.json"
-gdc_nexus_demo_domain: "nexus.demo.gdc-labs.com"
+gdc_fallback_sub_ca_gsm_name: "{{ fallback_sub_ca_gsm_name | default(gdc_fallback_sub_ca_gsm_name | default('gdc-fallback-sub-ca')) }}"
+gdc_fallback_sub_ca_gsm_location: "{{ fallback_sub_ca_gsm_location | default(gdc_fallback_sub_ca_gsm_location | default('us-east4')) }}"
+gdc_fallback_sub_ca_gsm_project: "{{ fallback_sub_ca_gsm_project | default(gdc_fallback_sub_ca_gsm_project | default('anthos-bare-metal-lab-1')) }}"
 
 

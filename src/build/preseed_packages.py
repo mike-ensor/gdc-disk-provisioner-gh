@@ -28,6 +28,8 @@ import json
 import re
 import subprocess
 import glob
+import math
+from datetime import datetime, timezone
 import yaml
 
 def parse_env_file(filepath):
@@ -131,6 +133,180 @@ def resolve_dependencies(packages, exclude_patterns):
             print(f"  [!] Warning: Failed to resolve dependencies for '{pkg}': {e}", file=sys.stderr)
     return sorted(list(resolved))
 
+def parse_cvss_v3_score(vector):
+    """Parses CVSS v3.1 vector string and calculates base score."""
+    if not vector or not str(vector).startswith("CVSS:3"):
+        return 0.0
+    try:
+        metrics = {}
+        for part in str(vector).split("/"):
+            if ":" in part:
+                k, v = part.split(":", 1)
+                metrics[k] = v
+        av_map = {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.2}
+        ac_map = {"L": 0.77, "H": 0.44}
+        scope = metrics.get("S", "U")
+        if scope == "C":
+            pr_map = {"N": 0.85, "L": 0.68, "H": 0.5}
+        else:
+            pr_map = {"N": 0.85, "L": 0.62, "H": 0.27}
+        ui_map = {"N": 0.85, "R": 0.62}
+        cia_map = {"N": 0.0, "L": 0.22, "H": 0.56}
+
+        av = av_map.get(metrics.get("AV") or "", 0.85)
+        ac = ac_map.get(metrics.get("AC") or "", 0.77)
+        pr = pr_map.get(metrics.get("PR") or "", 0.85)
+        ui = ui_map.get(metrics.get("UI") or "", 0.85)
+        c = cia_map.get(metrics.get("C") or "", 0.0)
+        i = cia_map.get(metrics.get("I") or "", 0.0)
+        a = cia_map.get(metrics.get("A") or "", 0.0)
+
+        iss = 1.0 - ((1.0 - c) * (1.0 - i) * (1.0 - a))
+        if iss <= 0:
+            return 0.0
+        if scope == "U":
+            impact = 6.42 * iss
+        else:
+            impact = 7.52 * (iss - 0.029) - 3.25 * ((iss - 0.02) ** 15)
+        exploitability = 8.22 * av * ac * pr * ui
+        if scope == "U":
+            score = min(10.0, impact + exploitability)
+        else:
+            score = min(10.0, 1.08 * (impact + exploitability))
+        return round(math.ceil(score * 10) / 10, 1)
+    except Exception:
+        return 0.0
+
+
+def query_osv_batch(package_list, ecosystem="Ubuntu:24.04"):
+    """Queries Google OSV API in batches to avoid rate limits (HTTP 429)."""
+    import urllib.request
+    results = {}
+    if not package_list:
+        return results
+
+    batch_size = 500
+    for i in range(0, len(package_list), batch_size):
+        chunk = package_list[i:i + batch_size]
+        queries = []
+        for p in chunk:
+            queries.append({
+                "package": {"name": p["name"], "ecosystem": ecosystem},
+                "version": p["version"]
+            })
+        try:
+            req = urllib.request.Request(
+                "https://api.osv.dev/v1/querybatch",
+                data=json.dumps({"queries": queries}).encode("utf-8"),
+                headers={"Content-Type": "application/json", "User-Agent": "gdc-dependency-auditor/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    osv_res = data.get("results", [])
+                    for idx, res_item in enumerate(osv_res):
+                        pkg_item = chunk[idx]
+                        vulns = res_item.get("vulns", [])
+                        results[pkg_item["filename"]] = {
+                            "vulns_count": len(vulns),
+                            "vuln_ids": [v.get("id") for v in vulns[:5]]
+                        }
+        except Exception as e:
+            print(f"  [!] Warning: OSV batch query encountered error: {e}", file=sys.stderr)
+
+    return results
+
+
+def generate_packages_metadata(packages_dir, output_path, ecosystem="Ubuntu:24.04"):
+    """Compiles package release dates and queries OSV for CVSS scores, storing in metadata JSON."""
+    print("[-] Generating packages metadata and querying Google OSV API for vulnerability scores...")
+    deb_files = sorted([f for f in os.listdir(packages_dir) if f.endswith(".deb")])
+    if not deb_files:
+        meta = {
+            "cache_last_updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "total_packages": 0,
+            "packages": {}
+        }
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2)
+        return
+
+    package_list = []
+    for deb in deb_files:
+        fpath = os.path.join(packages_dir, deb)
+        pkg_name = "unknown"
+        pkg_ver = "unknown"
+        parts = deb.split("_")
+        if len(parts) >= 2:
+            pkg_name = parts[0]
+            pkg_ver = parts[1]
+
+        # Determine release date / last updated timestamp
+        release_date = None
+        try:
+            dpkg_res = subprocess.run(["dpkg-deb", "-f", fpath, "Date"], capture_output=True, text=True, check=False)
+            if dpkg_res.returncode == 0 and dpkg_res.stdout.strip():
+                release_date = dpkg_res.stdout.strip()
+        except Exception:
+            pass
+
+        if not release_date:
+            mtime = os.path.getmtime(fpath)
+            release_date = datetime.fromtimestamp(mtime, tz=timezone.utc).strftime("%Y-%m-%d")
+
+        package_list.append({
+            "filename": deb,
+            "name": pkg_name,
+            "version": pkg_ver,
+            "release_date": release_date
+        })
+
+    osv_data = query_osv_batch(package_list, ecosystem)
+
+    packages_dict = {}
+    for p in package_list:
+        v_info = osv_data.get(p["filename"], {})
+        vuln_count = v_info.get("vulns_count", 0)
+        cvss_score = 0.0
+        if vuln_count > 0:
+            first_id = v_info.get("vuln_ids", [None])[0]
+            if first_id:
+                try:
+                    import urllib.request
+                    v_url = f"https://api.osv.dev/v1/vulns/{first_id}"
+                    req = urllib.request.Request(v_url, headers={"User-Agent": "gdc-dependency-auditor/1.0"})
+                    with urllib.request.urlopen(req, timeout=5) as r:
+                        if r.status == 200:
+                            v_detail = json.loads(r.read().decode("utf-8"))
+                            for s in v_detail.get("severity", []):
+                                if s.get("type") == "CVSS_V3":
+                                    cvss_score = max(cvss_score, parse_cvss_v3_score(s.get("score")))
+                except Exception:
+                    pass
+            if cvss_score == 0.0:
+                cvss_score = 5.0
+
+        packages_dict[p["filename"]] = {
+            "package_name": p["name"],
+            "version": p["version"],
+            "release_date": p["release_date"],
+            "cvss_score": cvss_score,
+            "vulnerabilities_count": vuln_count
+        }
+
+    meta = {
+        "cache_last_updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "total_packages": len(deb_files),
+        "packages": packages_dict
+    }
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+    print(f"  [x] Packages metadata and OSV scores saved to: {output_path}")
+
+
 def main():
     # Setup paths and environment loading
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -173,7 +349,12 @@ def main():
                 for line in f:
                     if line.startswith("VERSION_ID="):
                         running_version = line.split("=", 1)[1].strip().strip('"').strip("'")
-                        break
+                    elif line.startswith("UBUNTU_CODENAME="):
+                        u_code = line.split("=", 1)[1].strip().strip('"').strip("'").lower()
+                        if u_code == "noble":
+                            running_version = "24.04"
+                        elif u_code == "jammy":
+                            running_version = "22.04"
         except Exception:
             pass
             
@@ -256,37 +437,62 @@ def main():
     # Download primary packages
     print("[-] Downloading package binaries (.debs)...")
     downloaded_set = set()
+    for f in os.listdir("."):
+        if f.endswith(".deb") and "_" in f:
+            downloaded_set.add(f.split("_")[0])
     preseed_failures = []
     for pkg in target_packages:
+        if pkg in downloaded_set:
+            continue
         print(f"  [-] Resolving and downloading: {pkg}...")
         try:
             subprocess.run(["apt-get", "download", pkg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
             downloaded_set.add(pkg)
         except subprocess.SubprocessError:
-            preseed_failures.append(pkg)
-            if pkg in cfg.get("platform_packages", set()):
-                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", file=sys.stderr)
-                print(f"[FATAL ERROR] Failed to download critical platform-required package '{pkg}'!", file=sys.stderr)
-                print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", file=sys.stderr)
-                # Save failures JSON
-                os.makedirs(os.path.dirname(failures_file), exist_ok=True)
-                with open(failures_file, "w") as ff:
-                    json.dump(preseed_failures, ff, indent=2)
-                sys.exit(1)
-            else:
-                print(f"  [!] Warning: Failed to download optional package '{pkg}' directly. Dependency simulation will fallback.", file=sys.stderr)
-            
+            # Try t64 alias for 64-bit time_t migration on Ubuntu 24.04 (e.g. libnvme1 -> libnvme1t64)
+            downloaded_t64 = False
+            t64_pkg = f"{pkg}t64"
+            try:
+                subprocess.run(["apt-get", "download", t64_pkg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                downloaded_set.add(t64_pkg)
+                downloaded_t64 = True
+            except subprocess.SubprocessError:
+                pass
+
+            if not downloaded_t64:
+                preseed_failures.append(pkg)
+                if pkg in cfg.get("platform_packages", set()):
+                    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", file=sys.stderr)
+                    print(f"[FATAL ERROR] Failed to download critical platform-required package '{pkg}'!", file=sys.stderr)
+                    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", file=sys.stderr)
+                    # Save failures JSON
+                    os.makedirs(os.path.dirname(failures_file), exist_ok=True)
+                    with open(failures_file, "w") as ff:
+                        json.dump(preseed_failures, ff, indent=2)
+                    sys.exit(1)
+                else:
+                    print(f"  [!] Warning: Failed to download optional package '{pkg}' directly. Dependency simulation will fallback.", file=sys.stderr)
+
     # Resolve and download dependencies
     print("[-] Resolving and downloading recursive dependencies...")
     dependencies = resolve_dependencies(target_packages, cfg["excludes"])
-    for dep in dependencies:
-        if dep not in downloaded_set:
+    missing_deps = [dep for dep in dependencies if dep not in downloaded_set]
+    if missing_deps:
+        print(f"  [-] Downloading {len(missing_deps)} missing recursive dependencies in batch...")
+        batch_size = 50
+        for i in range(0, len(missing_deps), batch_size):
+            chunk = missing_deps[i:i + batch_size]
             try:
-                subprocess.run(["apt-get", "download", dep], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-                downloaded_set.add(dep)
+                subprocess.run(["apt-get", "download"] + chunk, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                downloaded_set.update(chunk)
             except subprocess.SubprocessError:
-                preseed_failures.append(dep)
-                
+                for dep in chunk:
+                    try:
+                        subprocess.run(["apt-get", "download", dep], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                        downloaded_set.add(dep)
+                    except subprocess.SubprocessError:
+                        preseed_failures.append(dep)
+
     # Save failures list at the end of the script if there are any non-fatal failures
     if preseed_failures:
         os.makedirs(os.path.dirname(failures_file), exist_ok=True)
@@ -311,6 +517,13 @@ def main():
     print("==============================================================================")
     print(f"[+] Pre-seeding completed. Total packages cached: {num_debs}")
     print("==============================================================================")
+
+    # Generate metadata inventory with release dates and OSV CVSS scores
+    metadata_out_path = os.path.join(project_root, ".cache/packages_metadata.json")
+    try:
+        generate_packages_metadata(".", metadata_out_path, ecosystem=f"Ubuntu:{target_ubuntu_version}")
+    except Exception as me:
+        print(f"  [!] Warning: Failed to generate packages metadata: {me}", file=sys.stderr)
 
 if __name__ == "__main__":
     # If executed directly as main script

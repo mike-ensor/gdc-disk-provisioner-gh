@@ -5,15 +5,30 @@
     nexus_tls_should_exist: "{{ gdc_nexus_tls_enabled | default(true) | bool }}"
     sub_ca_gsm_name: >-
       {{
-        (cluster_config.sub_ca_secret['gsm-name']
-         if (cluster_config is defined and cluster_config.sub_ca_secret is defined and cluster_config.sub_ca_secret['gsm-name'] is defined)
-         else '')
+        ((cluster_config | default({})).sub_ca_secret | default({})).get('gsm-name')
+        or ((cluster_config | default({})).sub_ca_secret | default({})).get('gsm_name')
+        or ''
       }}
     sub_ca_gsm_location: >-
       {{
-        (cluster_config.sub_ca_secret['gsm-location']
-         if (cluster_config is defined and cluster_config.sub_ca_secret is defined and cluster_config.sub_ca_secret['gsm-location'] is defined and cluster_config.sub_ca_secret['gsm-location'] | trim | length > 0)
-         else 'global')
+        ((cluster_config | default({})).sub_ca_secret | default({})).get('gsm-location')
+        or ((cluster_config | default({})).sub_ca_secret | default({})).get('gsm_location')
+        or 'global'
+      }}
+    sub_ca_gsm_project: >-
+      {{
+        ((cluster_config | default({})).sub_ca_secret | default({})).get('gsm-project')
+        or ((cluster_config | default({})).sub_ca_secret | default({})).get('gsm_project')
+        or ((cluster_config | default({})).sub_ca_secret | default({})).get('gcp_project')
+        or ((cluster_config | default({})).sub_ca_secret | default({})).get('gcp-project')
+        or gcp_project_id
+        | default('')
+      }}
+    fallback_sub_ca_gsm_project: >-
+      {{
+        gdc_fallback_sub_ca_gsm_project
+        | default(sub_ca_gsm_project, true)
+        | default(gcp_project_id | default(''), true)
       }}
   tags: ["corp-cert"]
 
@@ -34,7 +49,7 @@
       ansible.builtin.command: >-
         gcloud secrets versions access latest
         --secret={{ sub_ca_gsm_name }}
-        {% if gcp_project_id is defined and gcp_project_id | trim | length > 0 %}--project={{ gcp_project_id }}{% endif %}
+        {% if sub_ca_gsm_project is defined and sub_ca_gsm_project | trim | length > 0 %}--project={{ sub_ca_gsm_project }}{% endif %}
         {% if sub_ca_gsm_location is defined and sub_ca_gsm_location | trim | length > 0 and sub_ca_gsm_location != 'global' %}
         --location={{ sub_ca_gsm_location }}
         {% endif %}
@@ -47,7 +62,7 @@
       ansible.builtin.command: >-
         gcloud secrets versions access latest
         --secret={{ sub_ca_gsm_name }}
-        {% if gcp_project_id is defined and gcp_project_id | trim | length > 0 %}--project={{ gcp_project_id }}{% endif %}
+        {% if sub_ca_gsm_project is defined and sub_ca_gsm_project | trim | length > 0 %}--project={{ sub_ca_gsm_project }}{% endif %}
       register: gsm_sub_ca_res_fallback
       when:
         - gsm_sub_ca_res.rc != 0
@@ -103,6 +118,44 @@
           stdout: "{{ fallback_sub_ca_raw.content | b64decode }}"
         is_demo_fallback_pki: true
       no_log: true
+
+- name: "GDC-PKI | Ingest Central Fallback Sub-CA from Secret Manager"
+  when:
+    - nexus_tls_should_exist | bool
+    - not (existing_sub_ca_key_stat.stat.exists | default(false))
+    - sub_ca_gsm_name | trim | length == 0
+    - not (fallback_sub_ca_stat.stat.exists | default(false))
+    - gdc_fallback_sub_ca_gsm_name is defined and gdc_fallback_sub_ca_gsm_name | trim | length > 0
+  tags: ["corp-cert"]
+  block:
+    - name: "GDC-PKI | Access Central Fallback Sub-CA Secret payload via gcloud"
+      ansible.builtin.command: >-
+        gcloud secrets versions access latest
+        --secret={{ gdc_fallback_sub_ca_gsm_name }}
+        {% if fallback_sub_ca_gsm_project is defined and fallback_sub_ca_gsm_project | trim | length > 0 %}--project={{ fallback_sub_ca_gsm_project }}{% endif %}
+      register: gsm_fallback_res
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: "GDC-PKI | Adopt Central Fallback Sub-CA payload if successful"
+      ansible.builtin.set_fact:
+        gsm_sub_ca_res: "{{ gsm_fallback_res }}"
+        is_demo_fallback_pki: true
+      when:
+        - gsm_fallback_res is defined
+        - gsm_fallback_res.rc is defined
+        - gsm_fallback_res.rc == 0
+      no_log: true
+
+- name: "GDC-PKI | Fail stage if neither primary nor fallback Sub-CA was resolved"
+  ansible.builtin.fail:
+    msg: "PKI Stage Failure: No primary Sub-CA configured in machine-info, and fallback Sub-CA payload is missing or inaccessible."
+  when:
+    - nexus_tls_should_exist | bool
+    - not (existing_sub_ca_key_stat.stat.exists | default(false))
+    - gsm_sub_ca_res is not defined or gsm_sub_ca_res.rc is not defined or gsm_sub_ca_res.rc != 0
+  tags: ["corp-cert"]
 
 - name: "GDC-PKI | Write Sub-CA credentials and register Root CA trust"
   when:

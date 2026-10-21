@@ -723,6 +723,17 @@ def main():
     # Count debs in offline preseed cache
     packages_dir = os.path.join(project_root, ".cache/packages")
     report["packages_seeding"]["packages"] = []
+    packages_meta = {}
+    pkg_meta_file = os.path.join(project_root, ".cache/packages_metadata.json")
+    if os.path.exists(pkg_meta_file):
+        try:
+            with open(pkg_meta_file, "r") as pmf:
+                packages_meta = json.load(pmf)
+        except Exception:
+            pass
+
+    report["packages_seeding"]["cache_last_updated"] = packages_meta.get("cache_last_updated")
+
     if os.path.exists(packages_dir):
         deb_files = sorted([f for f in os.listdir(packages_dir) if f.endswith(".deb")])
         report["packages_seeding"]["total_cached"] = len(deb_files)
@@ -743,13 +754,21 @@ def main():
             verified = True
             if expected_sha != "N/A" and actual_sha != expected_sha:
                 verified = False
-                
+
+            pkg_data = packages_meta.get("packages", {}).get(deb, {})
+            last_updated_deb = pkg_data.get("release_date") or pkg_data.get("last_updated")
+            if not last_updated_deb and os.path.exists(filepath):
+                last_updated_deb = datetime.fromtimestamp(os.path.getmtime(filepath), tz=timezone.utc).strftime("%Y-%m-%d")
+            cvss_score = pkg_data.get("cvss_score", 0.0)
+
             report["packages_seeding"]["packages"].append({
                 "filename": deb,
                 "expected_sha": expected_sha,
                 "actual_sha": actual_sha,
                 "verified": verified,
-                "size_kb": size_kb
+                "size_kb": size_kb,
+                "last_updated": last_updated_deb,
+                "cvss_score": cvss_score
             })
     else:
         report["packages_seeding"]["total_cached"] = 0
@@ -905,13 +924,16 @@ def main():
 ## 5. Offline Package Pre-Seeding Audit (.deb files)
 * **Total Core Packages Requested:** `{report["packages_seeding"]["total_requested"]}`
 * **Total Packages Successfully Downloaded:** `{report["packages_seeding"]["total_cached"]}`
+* **Cache Last Updated:** `{report["packages_seeding"].get("cache_last_updated") or "N/A"}`
 
-| Offline Package Filename | Verification Status | Size (KB) | Cryptographic Hash |
-| :--- | :---: | :---: | :--- |
+| Offline Package Filename | Verification Status | Size (KB) | Release Date | CVSS Score | Cryptographic Hash |
+| :--- | :---: | :---: | :---: | :---: | :--- |
 """
     for pkg_obj in report["packages_seeding"]["packages"]:
         status_txt = "[PASSED]" if pkg_obj["verified"] else "[FAILED]"
-        md_content += f"| `{pkg_obj['filename']}` | **{status_txt}** | `{pkg_obj['size_kb']} KB` | `{pkg_obj['actual_sha']}` |\n"
+        cvss_disp = f"`{pkg_obj.get('cvss_score', 0.0)}`" if pkg_obj.get("cvss_score") is not None else "`0.0`"
+        date_disp = pkg_obj.get("last_updated") or "N/A"
+        md_content += f"| `{pkg_obj['filename']}` | **{status_txt}** | `{pkg_obj['size_kb']} KB` | `{date_disp}` | {cvss_disp} | `{pkg_obj['actual_sha']}` |\n"
     if report["packages_seeding"]["failures"]:
         md_content += "\n### Package Download Failures:\n"
         for fail in report["packages_seeding"]["failures"]:

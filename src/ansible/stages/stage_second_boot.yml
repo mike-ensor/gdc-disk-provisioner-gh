@@ -26,10 +26,13 @@
   register: second_boot_hubs_check
 
 - name: "GDC-STATE | Verify LUKS auto-decrypt unsealed cleanly"
-  ansible.builtin.stat:
-    path: /dev/mapper/crypt-system
+  ansible.builtin.shell: |
+    if [ -e /dev/mapper/crypt-system ] || ls /dev/mapper/luks-* >/dev/null 2>&1; then
+      exit 0
+    fi
+    exit 1
   register: luks_system_mapped
-  failed_when: not luks_system_mapped.stat.exists
+  changed_when: false
 
 - name: "GDC-NETWORK | Network Sanity Check (Ping Gateway with DHCP wait)"
   ansible.builtin.shell: |

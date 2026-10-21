@@ -60,6 +60,14 @@ def _load_env_defaults():
     """Loads baseline build.env defaults merged with active ISO_ENVIRONMENT.env overrides."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     iso_env = os.environ.get("ISO_ENVIRONMENT", "local")
+    if iso_env == "local":
+        for a in sys.argv:
+            if "gdc-labs" in a or "barn" in a:
+                iso_env = "barn"
+                break
+            elif "honeywell" in a:
+                iso_env = "honeywell"
+                break
     merged = {}
     merged.update(_parse_env_file(os.path.join(script_dir, "build.env")))
     merged.update(_parse_env_file(os.path.join(script_dir, f"{iso_env}.env")))
@@ -107,28 +115,92 @@ API_BASE = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_API_PORT}/api"
 BOOTIMUS_SCAN_RETRIES = _get_int_env(["BOOTIMUS_SCAN_RETRIES"], 80)
 BOOTIMUS_SCAN_DELAY = _get_int_env(["BOOTIMUS_SCAN_DELAY", "BOOTIMUS_SCAN_INTERVAL_SECONDS"], 15)
 
-def get_bootimus_credentials():
-    """Retrieves credentials from environment or dynamically from Infisical."""
-    user = os.environ.get("BOOTIMUS_USER")
-    passwd = os.environ.get("BOOTIMUS_PASS")
-    
+def get_bootimus_credentials(cli_user=None, cli_pass=None, cli_provider=None, cli_file=None):
+    """Retrieves credentials using an isolated, configurable lookup strategy:
+    1. Explicit CLI arguments (--user, --pass)
+    2. Direct environment variables (BOOTIMUS_USER, BOOTIMUS_PASS)
+    3. Secret file (--secret-file or BOOTIMUS_SECRET_FILE)
+    4. Configured secret provider (infisical, gcloud) ONLY if explicitly opted in via
+       --secret-method / BOOTIMUS_SECRET_METHOD.
+    """
+    # 1. CLI arguments
+    if cli_user and cli_pass:
+        return cli_user, cli_pass
+
+    # 2. Environment variables
+    user = cli_user or os.environ.get("BOOTIMUS_USER")
+    passwd = cli_pass or os.environ.get("BOOTIMUS_PASS")
     if user and passwd:
         return user, passwd
-        
-    print("[-] Credentials not in environment. Querying Infisical for 'bootimus_creds'...")
-    try:
-        # Fetch dynamically using the Infisical CLI
-        res = subprocess.run(
-            ["infisical", "secrets", "get", "bootimus_creds", "--json"],
-            capture_output=True, text=True, check=True
-        )
-        data = json.loads(res.stdout)
-        secret_val = json.loads(data["secretValue"])
-        return secret_val["username"], secret_val["password"]
-    except Exception as e:
-        print(f"[!] Warning: Failed to retrieve secrets from Infisical ({e}).")
-        print("[!] Please export BOOTIMUS_USER and BOOTIMUS_PASS in your environment.")
-        sys.exit(1)
+
+    # 3. Secret file
+    secret_file = cli_file or os.environ.get("BOOTIMUS_SECRET_FILE")
+    if secret_file and os.path.exists(secret_file):
+        try:
+            with open(secret_file, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content.startswith("{"):
+                    data = json.loads(content)
+                    return data.get("username", user or "admin"), data["password"]
+                else:
+                    return user or "admin", content
+        except Exception as e:
+            print(f"[!] Warning: Failed to read credentials from {secret_file}: {e}", file=sys.stderr)
+
+    # 4. Check configured secret provider
+    provider = (cli_provider or os.environ.get("BOOTIMUS_SECRET_PROVIDER") or os.environ.get("BOOTIMUS_SECRET_METHOD") or "infisical").strip().lower()
+
+    if provider in ("infisical", "infiscial", "infisicial") or provider.startswith("infis"):
+        print("[-] Querying Infisical for 'bootimus_creds' (BOOTIMUS_SECRET_METHOD=infisical)...")
+        project_id = os.environ.get("INFISICAL_PROJECT_ID", "534a5b11-13bd-42fc-9937-426995d98707")
+        inf_env = os.environ.get("INFISICAL_ENV", "prod")
+        cmds = [
+            ["infisical", "secrets", "get", "bootimus_creds", "--plain"],
+            ["infisical", "secrets", "get", "bootimus_creds", "--projectId", project_id, "--env", inf_env, "--plain"],
+            ["infisical", "secrets", "get", "bootimus_creds", "-o", "json"],
+        ]
+        for cmd in cmds:
+            try:
+                res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                out = res.stdout.strip()
+                if out.startswith("{") and "username" in out:
+                    d = json.loads(out)
+                    if "username" in d and "password" in d:
+                        return d["username"], d["password"]
+                data = json.loads(out)
+                if isinstance(data, dict) and "secretValue" in data:
+                    secret_val = json.loads(data["secretValue"]) if isinstance(data["secretValue"], str) else data["secretValue"]
+                    return secret_val["username"], secret_val["password"]
+            except Exception:
+                continue
+        print("[!] Warning: Failed to retrieve 'bootimus_creds' from Infisical.", file=sys.stderr)
+
+    elif provider in ("gcloud", "gsm"):
+        secret_name = os.environ.get("BOOTIMUS_GSM_SECRET", "bootimus_creds")
+        project_arg = [f"--project={os.environ['PROJECT_ID']}"] if "PROJECT_ID" in os.environ else []
+        print(f"[-] Querying Google Secret Manager for '{secret_name}' (BOOTIMUS_SECRET_METHOD=gcloud)...")
+        try:
+            res = subprocess.run(
+                ["gcloud", "secrets", "versions", "access", "latest", f"--secret={secret_name}"] + project_arg,
+                capture_output=True, text=True, check=True
+            )
+            out = res.stdout.strip()
+            if out.startswith("{") and "username" in out:
+                d = json.loads(out)
+                return d["username"], d["password"]
+            return user or "admin", out
+        except Exception as e:
+            print(f"[!] Warning: Failed to retrieve secret from GSM: {e}", file=sys.stderr)
+
+    print("==============================================================================")
+    print("  ERROR: Missing Bootimus API credentials.")
+    print("  Please provide credentials via any of the following methods:")
+    print("    1. Environment variables:  export BOOTIMUS_USER='admin' BOOTIMUS_PASS='...'")
+    print("    2. CLI flags:              --user <USER> --pass <PASS>")
+    print("    3. Secret file:            --secret-file /path/to/creds.json (or BOOTIMUS_SECRET_FILE)")
+    print("    4. Configured provider:    --secret-method [infisical|gcloud|env]")
+    print("==============================================================================")
+    sys.exit(1)
 
 def api_request(url, method="GET", data=None, token=None, retries=5, retry_delay=5, timeout=30, allow_404=False):
     """Utility wrapper to perform HTTP API requests with automatic network retry for intermittent connectivity."""
@@ -505,13 +577,60 @@ def main():
     filename = None
     force_extract = False
     list_only = False
+    check_auth = False
     group_filter = None
     next_boot_image = None
     clear_next_boot = False
     target_mac = None
     all_targets = False
     target_nodes_raw = None
-    
+    cli_user = None
+    cli_pass = None
+    cli_provider = None
+    cli_file = None
+
+    for ca_flag in ["--check-auth", "--test-credentials", "--test-creds"]:
+        if ca_flag in args:
+            check_auth = True
+            args.remove(ca_flag)
+            break
+
+    for u_flag in ["--user", "--bootimus-user"]:
+        if u_flag in args:
+            idx = args.index(u_flag)
+            if idx + 1 < len(args):
+                cli_user = args[idx+1]
+                args.pop(idx+1)
+                args.pop(idx)
+            break
+
+    for p_flag in ["--pass", "--bootimus-pass", "--password", "--bootimus-password"]:
+        if p_flag in args:
+            idx = args.index(p_flag)
+            if idx + 1 < len(args):
+                cli_pass = args[idx+1]
+                args.pop(idx+1)
+                args.pop(idx)
+            break
+
+    for m_flag in ["--secret-method", "---secret-method", "--secret-provider", "--bootimus-secret-method", "--bootimus-secret-provider"]:
+        if m_flag in args:
+            idx = args.index(m_flag)
+            if idx + 1 < len(args):
+                cli_provider = args[idx+1]
+                args.pop(idx+1)
+                args.pop(idx)
+            break
+
+    for f_flag in ["--secret-file", "--bootimus-secret-file"]:
+        if f_flag in args:
+            idx = args.index(f_flag)
+            if idx + 1 < len(args):
+                cli_file = args[idx+1]
+                args.pop(idx+1)
+                args.pop(idx)
+            break
+
     if "--force" in args:
         force_extract = True
         args.remove("--force")
@@ -573,6 +692,34 @@ def main():
             print("[!] Error: --mac requires a MAC address.")
             sys.exit(1)
             
+    if check_auth:
+        username, password = get_bootimus_credentials(
+            cli_user=cli_user,
+            cli_pass=cli_pass,
+            cli_provider=cli_provider,
+            cli_file=cli_file,
+        )
+        print(f"[-] Pre-flight check: Testing Bootimus credentials at {BOOTIMUS_API_HOST}:{BOOTIMUS_API_PORT}...")
+        try:
+            login_res = api_request(
+                f"{API_BASE}/login",
+                method="POST",
+                data={"username": username, "password": password},
+                retries=2,
+                retry_delay=2,
+                timeout=10,
+            )
+            token = login_res.get("data", {}).get("token")
+            if token:
+                print(f"[x] Pre-flight SUCCESS: Authenticated successfully with Bootimus as '{username}'.")
+                sys.exit(0)
+            else:
+                print("[!] Pre-flight FAILURE: Login succeeded but no token returned.", file=sys.stderr)
+                sys.exit(1)
+        except Exception as e:
+            print(f"[!] Pre-flight FAILURE: Unable to authenticate with Bootimus at {BOOTIMUS_API_HOST}:{BOOTIMUS_API_PORT}: {e}", file=sys.stderr)
+            sys.exit(1)
+
     if (next_boot_image or clear_next_boot) and not target_mac and not all_targets and not target_nodes_raw:
         target_nodes_raw = os.environ.get("TARGET_TEST_MACHINES") or _ENV_DEFAULTS.get("TARGET_TEST_MACHINES")
 
@@ -581,7 +728,12 @@ def main():
             print("[!] Error: Next-boot action requires --mac <mac_address>, --targets <IPs>, --all-targets, or export TARGET_TEST_MACHINES.")
             sys.exit(1)
             
-        username, password = get_bootimus_credentials()
+        username, password = get_bootimus_credentials(
+            cli_user=cli_user,
+            cli_pass=cli_pass,
+            cli_provider=cli_provider,
+            cli_file=cli_file,
+        )
         print(f"[-] Authenticating with Bootimus at {BOOTIMUS_API_HOST}:{BOOTIMUS_API_PORT}...")
         try:
             login_res = api_request(
@@ -665,7 +817,12 @@ def main():
         print(f"[-] Target Ingest Image: {filename} (Force Re-extract: {force_extract})")
     
     # 2. Authenticate
-    username, password = get_bootimus_credentials()
+    username, password = get_bootimus_credentials(
+        cli_user=cli_user,
+        cli_pass=cli_pass,
+        cli_provider=cli_provider,
+        cli_file=cli_file,
+    )
     print(f"[-] Authenticating with Bootimus at {BOOTIMUS_API_HOST}:{BOOTIMUS_API_PORT}...")
     try:
         login_res = api_request(

@@ -62,6 +62,12 @@ All implementations in this repository must align with the following core archit
   * To trigger ISO compilations and release packaging, explicitly ask to **"Build a new ISO"** or **"Build a new ISO Version"**. This ensures `ask-matt` and intelligent routers map directly to `gdc-iso-build-deploy`.
   * The `gdc-grub-recovery` skill is strictly ring-fenced for *post-deployment* physical server node recovery when stuck in the `grub>` command line shell.
 
+### Rule 1.11: Turnkey Single-Command Environment Rebuilds
+* **Directive:** When an agent is requested to rebuild, stage, and redeploy an environment, it must utilize the unified rebuild orchestrator rather than manually chaining disjoint scripts.
+* **Enforcement:**
+  * Execute: `./bin/local/gdc-node-ops.sh rebuild-cycle --profile <PROFILE> --version <VER> --yes` (or `./bin/local/gdc-rebuild-environment.sh`).
+  * The orchestrator automatically executes the 4-phase lifecycle: (1) `pull-profile`, (2) `build.sh --bootimus`, (3) `check-bootimus-settings.py` / `bootimus.sh` auto-healing, and (4) `reset-pxe`. See `docs/AGENT_REBUILD_GUIDE.md`.
+
 ---
 
 ## 2. Coding & Tooling Standards

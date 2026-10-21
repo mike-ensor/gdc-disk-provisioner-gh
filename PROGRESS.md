@@ -18,6 +18,7 @@ Immediate blockers and high-profile bugs prioritized for upcoming releases:
 | :--- | :--- | :--- | :--- | :--- |
 | **P0 (Bug)** | **Netplan VRF Indentation Error** | `Stage 5: Cluster Ready` | `/etc/netplan/01-netcfg.yaml:18:8: Error in network definition: expected mapping (check indentation) vrfs: ^`. Breaks network generation on boot for multi-VRF nodes. | Correct Netplan Jinja2 template indentation and nesting rules in `src/build/templates/netplan.j2`. |
 | **P0 (Bug)** | **mTLS Hostname CN Mismatch (HTTP 403)** | `Stage 5: Cluster Ready` | `provision-mtls-cert.sh` requests certificates using physical MAC address instead of `machine_config.hostname`. Zero-Trust Companion API rejects connection with HTTP 403. | Align certificate subject CN generation with `machine_config.hostname`. |
+| **P1 (Bug/Arch)** | **Silent Failure Masking During Telemetry Outage** | `All Stages (Rescue)` | When stage tasks fail due to Companion or network outages (e.g. `[Errno 111] Connection refused`), `gdc-collector` telemetry upload also fails. Since upload failure is suppressed (`failed_when: false`), the node halts with no telemetry sent, leaving the central dashboard frozen on the prior completed stage. | Implement local store-and-forward spooling daemon (`gdc-telemetry-spooler`) and Companion heartbeat watchdog. |
 | **P1 (Bug)** | **HTTP 301 Telemetry POST Drop** | `Stage 1 & Stage 5` | Non-HTTPS Companion URLs receive HTTP 301 redirects from gateways, dropping POST bodies and losing diagnostic uploads. | Enforce strict HTTPS URL schemes in `INSTALL_COMPANION_URL` and template configs. |
 | **P1 (Feature)** | **Zero-SSH NodeAgent Pre-Seeding** | `Stage 2: First Boot` | Current bootstrapping requires preliminary SSH access for operator debugging. | Automate pre-seeding of Server CA, Client CA, and Node Server Certs during Stage 2. |
 | **P1 (Feature)** | **Automated Offline Standalone Turnup** | `Stage 6: Cluster Up` | `bmctl create cluster` previously required manual execution of `create_cluster.sh`. | Fully automated standalone cluster turnup via Stage 6 `CLUSTER_TURNUP` Ansible role and dynamic facts. |
@@ -26,6 +27,35 @@ Immediate blockers and high-profile bugs prioritized for upcoming releases:
 | **P2 (Feature)** | **Non-LUKS Storage Mode (`GDC-SPEC-008`)** | `Stage 1: LiveCD` | Bare-metal lab hardware lacking TPM 2.0 or UEFI support cannot complete installation. | Implement `GDC_ENABLE_LUKS=false` build parameter to conditionally bypass LUKS partitioning. |
 | **P2 (Feature)** | **3-Node HA Cluster Orchestration** | `Stage 6: Cluster Up` | Multi-node turnup requires manual trust exchanges and registry sharing across nodes. | Implement primary-secondary node role assignment, Gitea SSH key exchange, and registry proxy routing. |
 | **P3 (Feature)** | **Dual Console Routing & Debug TTY (`GDC-SPEC-015`)** | `Stage 1: LiveCD` | Physical monitor stops updating after DRM driver handoff while serial streams installer logs. | Dual-tee installer logs to `/dev/tty0` and evaluate dynamic console precedence in debug builds. |
+
+### 1.1 Architectural Thought Exercise: Failure Reporting During Endpoint Outages
+
+#### Problem Statement
+In `src/ansible/local.yml`, stage rescue blocks catch fatal task failures, write state locally to `/var/gdc-install/state/<stage>.json`, and then invoke:
+```bash
+/usr/local/bin/gdc-collector --stage <stage> --companion-url="{{ gdc_companion_reports_url }}"
+```
+with `failed_when: false` so that telemetry upload errors do not mask the primary Ansible root cause.
+
+However, when an installation failure is **itself** triggered by an outage of the Companion service or intermediate network (e.g. downloading custom extension bundles or checking in returns `[Errno 111] Connection refused`):
+1. The failure telemetry upload to `/v1/machine-reports/ingest` fails synchronously with the same connection error.
+2. Because `failed_when: false` suppresses the upload error, Ansible proceeds to `fail: msg="GDC ... failed!"` and halts execution.
+3. The central Companion UI and Fleet Dashboard remain **frozen on the last successfully reported stage** (e.g., Stage 4 `LINUX_READY`), showing `stage_status: COMPLETED` with 0 failed stages.
+4. If operators inspect pre-seeded stage files, downstream stages appear as `status: bypassed` (seeded by `stop_stage`), creating the false impression that provisioning completed or is stuck in downstream stages (`POST_CLUSTER`) rather than failed in `CLUSTER_READY`.
+
+#### Architectural Evaluation: How to Reliably Report Failures When Reporting Endpoints Are Down
+
+| Strategy | Description | Pros | Cons / Trade-offs |
+| :--- | :--- | :--- | :--- |
+| **1. Store-and-Forward Spooler (`gdc-telemetry-spooler`)** | `gdc-collector` saves tarballs to a local persistent spool `/var/gdc-install/spool/telemetry/`. A lightweight, independent systemd timer/service (`gdc-telemetry-spooler.service`) continuously flushes queued reports with exponential backoff and jitter whenever the endpoint becomes reachable. | • Guaranteed eventual delivery.<br>• Chronological event history preserved.<br>• Decouples Ansible play execution from API availability. | Requires an ongoing systemd timer/daemon on the target node. |
+| **2. Dual-Channel Out-of-Band Fallback (GCP / Local Hub)** | If the Companion endpoint fails, `gdc-collector` attempts secondary reporting paths: (a) Cloud Logging / PubSub using node ADC/WIF if WAN is up; (b) committing failure receipts to the local Gitea mirror (`/var/lib/gitea/repos/...`); or (c) staging to local Nexus raw blob storage. | • Resilient to single-point-of-failure on Companion.<br>• Works even when Companion container is restarting. | Requires fallback credentials or local hub service availability. |
+| **3. Server-Side Heartbeat Watchdog ("Dead-Man's Snitch")** | The Companion API enforces expected stage progression deadlines. If a node finishes Stage 4 (`LINUX_READY`) and does not report Stage 5 within a configurable TTL (e.g. 15 minutes), the server automatically transitions the node status to `UNRESPONSIVE_IN_STAGE_5` or `HEARTBEAT_TIMEOUT`. | • Zero node-side changes required.<br>• Detects silent kernel panics, power losses, and network partitions immediately. | Cannot deliver granular task error messages without the node report. |
+| **4. Physical & Local Console Beaconing** | On unreportable fatal failure, emit local signals: (a) dual-tee error banner to `/dev/console` and `/dev/ttyS0`; (b) emit UDP beacon broadcast on local management subnet; (c) set motherboard chassis fault LED / buzzer via IPMI or sysfs. | • Immediate local visibility without network/API dependencies. | Requires physical/serial/LAN access to observe. |
+
+#### Recommended Phased Roadmap
+- **Phase 1 (Immediate / Low Risk):** Enhance `local.yml` rescue blocks with a short retry loop (e.g., 3 attempts spaced by 10s) before giving up, and write a conspicuous fatal banner to `/dev/console` / `/dev/ttyS0`.
+- **Phase 2 (Medium Term):** Deploy `gdc-telemetry-spooler.timer` in `FIRST_BOOT` to retry sending any pending tarballs in `/var/gdc-install/spool/telemetry/`.
+- **Phase 3 (Platform):** Add Dead-Man's Snitch TTL tracking in the GDC Companion backend for active provisioning sessions.
 
 ---
 

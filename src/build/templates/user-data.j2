@@ -115,7 +115,7 @@ autoinstall:
 
 {% if enable_phone_home %}
       # Dispatch JSON-compatible phone-home event directly to companion
-      curl -s --connect-timeout 5 -m 10 -X POST "{{ companion_url }}/public?version={{ ISO_VERSION }}&build_id=${BOOT_ID}&mac=${PRIMARY_MAC}&logname=phone-home" \
+      curl -sk --connect-timeout 5 -m 10 -X POST "{{ companion_url }}/public?version={{ ISO_VERSION }}&build_id=${BOOT_ID}&mac=${PRIMARY_MAC}&logname=phone-home" \
         -H "Content-Type: application/json" \
         -d "{\"origin\": \"cloud-init-phone-home\", \"hostname\": \"$(hostname)\"}" 2>/dev/null || true
 {% endif %}
@@ -527,7 +527,8 @@ autoinstall:
       SUCCESS=false
       for i in 1 2 3; do
         echo "[-] Attempt $i of 3: Connecting to Step CA at ${CA_URL}..."
-        if curl -s -I -m 5 "${CA_URL}/health" &>/dev/null; then
+        if curl -s -f -I -m 5 "${CA_URL}/health" >/dev/null 2>&1 || \
+           curl -s -f -k -I -m 5 "${CA_URL}/health" >/dev/null 2>&1; then
           echo "[-] Connection to Step CA established successfully!"
           SUCCESS=true
           break
@@ -552,10 +553,16 @@ autoinstall:
       echo "=============================================================================="
       logger -t gdc-provisioner "[GOAL] Verifying connectivity to GDC Installation Companion"
       COMPANION_URL="{{ companion_url }}"
+      COMPANION_HEALTH="${COMPANION_URL%/v1/install-logs*}/health"
       SUCCESS=false
       for i in 1 2 3; do
         echo "[-] Attempt $i of 3: Connecting to GDC Companion at ${COMPANION_URL}..."
-        if curl -s -I -H "X-Client-Cert-CN: gdc-provision-{{ ISO_VERSION }}" --connect-timeout 2 "${COMPANION_URL}" &>/dev/null; then
+        if curl -s -f -I -m 5 "${COMPANION_HEALTH}" >/dev/null 2>&1 || \
+           curl -s -f -k -I -m 5 "${COMPANION_HEALTH}" >/dev/null 2>&1 || \
+           curl -s -f -I -H "X-Client-Cert-CN: gdc-provision-{{ ISO_VERSION }}" -m 5 "${COMPANION_URL}" >/dev/null 2>&1 || \
+           curl -s -f -k -I -H "X-Client-Cert-CN: gdc-provision-{{ ISO_VERSION }}" -m 5 "${COMPANION_URL}" >/dev/null 2>&1 || \
+           curl -s -f -X POST -H "Content-Type: application/json" -H "X-Client-Cert-CN: gdc-provision-{{ ISO_VERSION }}" -d '{"origin":"probe"}' -m 5 "${COMPANION_URL}" >/dev/null 2>&1 || \
+           curl -s -f -k -X POST -H "Content-Type: application/json" -H "X-Client-Cert-CN: gdc-provision-{{ ISO_VERSION }}" -d '{"origin":"probe"}' -m 5 "${COMPANION_URL}" >/dev/null 2>&1; then
           echo "[-] Connection to GDC Installation Companion established successfully!"
           SUCCESS=true
           break
@@ -681,7 +688,11 @@ autoinstall:
         curtin in-target -- groupadd --system git || true
         curtin in-target -- useradd --system --shell /bin/bash --comment "Gitea Service User" --home-dir /var/lib/gitea --gid git git || true
         curtin in-target -- chown -R git:git /var/lib/gitea
-        curtin in-target -- chown -R root:root /var/lib/nexus
+        curtin in-target -- chmod -R u+w /var/lib/gitea
+        curtin in-target -- groupadd --system nexus || true
+        curtin in-target -- useradd --system --uid 990 --gid nexus --shell /bin/false --comment "Sonatype Nexus Service User" --home-dir /var/lib/nexus nexus || true
+        curtin in-target -- chown -R nexus:nexus /var/lib/nexus
+        curtin in-target -- chmod -R u+w /var/lib/nexus
         curtin in-target -- chown -R root:root /var/gdc-install/iso-cache
         logger -t gdc-provisioner "[GOAL] Asset synchronization completed successfully"
       else
@@ -1087,7 +1098,7 @@ autoinstall:
         # Apply standard GDC Boot Order Policy: set SSD as primary UEFI boot target after LiveCD installation
         logger -t gdc-provisioner "[GOAL] Applying standard UEFI boot re-ordering to prioritize local disk"
         if [ -d /sys/firmware/efi ]; then
-          if command -v efibootmgr &>/dev/null; then
+          if command -v efibootmgr >/dev/null 2>&1; then
             # Identify the target local disk EFI boot option (matching GDC, ubuntu, NVMe, or SATA)
             BOOT_NUM=$(efibootmgr | grep -i "GDC" | head -n 1 | awk '{print $1}' | sed 's/Boot//g' | tr -d '*' | tr -d ':')
             if [ -z "${BOOT_NUM}" ]; then

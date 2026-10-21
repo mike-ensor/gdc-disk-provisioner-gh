@@ -31,7 +31,9 @@ Commands:
   push-token         Push GCP bearer token into node containerd and runtime auth directories
   rotate-token       Force execution of refresh-gdc-credentials.sh and verify token rotation
   reset-pxe          Schedule one-time UEFI PXE boot and reboot target nodes
+  rebuild-cycle      Run full rebuild cycle: pull-profile -> build.sh -> bootimus -> reset-pxe
   refresh-telemetry  Force gdc-collector diagnostics refresh and push payload to Companion
+  create-fallback-ca Generate self-signed fallback Sub-CA and upload to Secret Manager
 
 Run '$(basename "$0") <command> --help' for detailed options on any command.
 EOF
@@ -994,6 +996,11 @@ cmd_reset_pxe() {
     local auto_yes=false
     local skip_fleet=false
     local next_boot_iso=""
+    local bootimus_secret_method=""
+    local bootimus_user=""
+    local bootimus_pass=""
+    local bootimus_secret_file=""
+    local iso_env=""
 
     reset_usage() {
         cat <<EOF
@@ -1008,6 +1015,11 @@ Options:
   --user <USER>             SSH user (default: gdc-admin)
   --key <KEY_PATH>          Path to SSH private key
   --iso, --next-boot <ISO>  Configure Bootimus one-shot next-boot image for target MAC before reboot
+  --env, --profile <NAME>   Target environment profile (default: auto-detected from ISO or barn)
+  --secret-method <METHOD>  Bootimus secret method: infisical (default), gcloud, file, or env
+  --bootimus-user <USER>    Bootimus API username (default: from secret provider or BOOTIMUS_USER)
+  --bootimus-pass <PASS>    Bootimus API password (default: from secret provider or BOOTIMUS_PASS)
+  --secret-file <FILE>      Bootimus secret file path
   --skip-fleet              Skip unregistering cluster from Google Cloud Fleet / GKE Hub
   -y, --yes                 Skip confirmation prompt
   -h, --help                Display this help message
@@ -1033,6 +1045,26 @@ EOF
                 next_boot_iso="$2"
                 shift 2
                 ;;
+            --env|--profile)
+                iso_env="$2"
+                shift 2
+                ;;
+            --secret-method|--bootimus-secret-method|--secret-provider|--bootimus-secret-provider|---secret-method)
+                bootimus_secret_method="$2"
+                shift 2
+                ;;
+            --bootimus-user)
+                bootimus_user="$2"
+                shift 2
+                ;;
+            --bootimus-pass|--bootimus-password)
+                bootimus_pass="$2"
+                shift 2
+                ;;
+            --secret-file|--bootimus-secret-file)
+                bootimus_secret_file="$2"
+                shift 2
+                ;;
             --skip-fleet|--no-fleet)
                 skip_fleet=true
                 shift
@@ -1054,6 +1086,27 @@ EOF
                 ;;
         esac
     done
+
+    if [[ -z "${iso_env}" && -n "${next_boot_iso}" ]]; then
+        if [[ "${next_boot_iso}" == *gdc-labs* || "${next_boot_iso}" == *barn* ]]; then
+            iso_env="barn"
+        elif [[ "${next_boot_iso}" == *honeywell* ]]; then
+            iso_env="honeywell"
+        fi
+    fi
+    iso_env="${iso_env:-${ISO_ENVIRONMENT:-barn}}"
+
+    bootimus_secret_method="${bootimus_secret_method:-${BOOTIMUS_SECRET_METHOD:-${BOOTIMUS_SECRET_PROVIDER:-infisical}}}"
+    bootimus_user="${bootimus_user:-${BOOTIMUS_USER:-}}"
+    bootimus_pass="${bootimus_pass:-${BOOTIMUS_PASS:-}}"
+    bootimus_secret_file="${bootimus_secret_file:-${BOOTIMUS_SECRET_FILE:-}}"
+
+    local bootimus_cmd_flags=()
+    [[ -n "${bootimus_user}" ]] && bootimus_cmd_flags+=(--bootimus-user "${bootimus_user}")
+    [[ -n "${bootimus_pass}" ]] && bootimus_cmd_flags+=(--bootimus-pass "${bootimus_pass}")
+    [[ -n "${bootimus_secret_method}" ]] && bootimus_cmd_flags+=(--secret-method "${bootimus_secret_method}")
+    [[ -n "${bootimus_secret_file}" ]] && bootimus_cmd_flags+=(--secret-file "${bootimus_secret_file}")
+    [[ -n "${iso_env}" ]] && bootimus_cmd_flags+=(--env "${iso_env}")
 
     if [[ -z "${target_raw}" && -n "${TARGET_TEST_MACHINES:-}" ]]; then
         target_raw="${TARGET_TEST_MACHINES}"
@@ -1150,12 +1203,21 @@ FLEET_EOF
         if [[ -n "${next_boot_iso}" ]]; then
             local node_mac=""
             node_mac=$(ssh "${ssh_opts[@]}" "${ssh_user}@$ip" "cat /sys/class/net/\$(ip route show | grep '^default' | awk '{print \$5}' | head -n 1 || ip -o link show | grep -v 'LOOPBACK' | grep 'state UP' | awk -F': ' '{print \$2}' | head -n 1)/address 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'" 2>/dev/null || true)
+            local script_root
+            script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
             if [[ -n "${node_mac}" ]]; then
                 echo "  [-] Configuring Bootimus next-boot to '${next_boot_iso}' for MAC ${node_mac}..."
-                local script_root
-                script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-                if [[ -f "${script_root}/src/build/bootimus.py" ]]; then
-                    python3 "${script_root}/src/build/bootimus.py" --next-boot "${next_boot_iso}" --mac "${node_mac}" || echo -e "  \033[93m[!] Warning: Could not set next-boot on Bootimus for ${node_mac}.\033[0m"
+                if [[ -x "${script_root}/bootimus.sh" ]]; then
+                    ISO_ENVIRONMENT="${iso_env}" "${script_root}/bootimus.sh" --next-boot "${next_boot_iso}" --mac "${node_mac}" "${bootimus_cmd_flags[@]}" || echo -e "  \033[93m[!] Warning: Could not set next-boot on Bootimus for ${node_mac}.\033[0m"
+                elif [[ -f "${script_root}/src/build/bootimus.py" ]]; then
+                    ISO_ENVIRONMENT="${iso_env}" python3 "${script_root}/src/build/bootimus.py" --next-boot "${next_boot_iso}" --mac "${node_mac}" "${bootimus_cmd_flags[@]}" || echo -e "  \033[93m[!] Warning: Could not set next-boot on Bootimus for ${node_mac}.\033[0m"
+                fi
+            else
+                echo "  [-] SSH MAC lookup failed; configuring Bootimus next-boot by node IP ($ip)..."
+                if [[ -x "${script_root}/bootimus.sh" ]]; then
+                    ISO_ENVIRONMENT="${iso_env}" "${script_root}/bootimus.sh" --next-boot "${next_boot_iso}" --nodes "${ip}" "${bootimus_cmd_flags[@]}" || echo -e "  \033[93m[!] Warning: Could not set next-boot on Bootimus for $ip.\033[0m"
+                elif [[ -f "${script_root}/src/build/bootimus.py" ]]; then
+                    ISO_ENVIRONMENT="${iso_env}" python3 "${script_root}/src/build/bootimus.py" --next-boot "${next_boot_iso}" --nodes "${ip}" "${bootimus_cmd_flags[@]}" || echo -e "  \033[93m[!] Warning: Could not set next-boot on Bootimus for $ip.\033[0m"
                 fi
             fi
         fi
@@ -1325,6 +1387,218 @@ EOF
 }
 
 # ==============================================================================
+# SUBCOMMAND: create-fallback-ca
+# ==============================================================================
+cmd_create_fallback_ca() {
+    local project_id=""
+    local secret_name="gdc-fallback-sub-ca"
+    local location="us-east4"
+    local output_file=""
+    local validity_days=3650
+    local subject="/CN=GDC Fallback Local CA/O=Google Distributed Cloud"
+    local dry_run=false
+
+    fallback_ca_usage() {
+        cat <<EOF
+Usage: $(basename "$0") create-fallback-ca [OPTIONS]
+
+Generates a self-signed Root/Sub-CA (basicConstraints: CA:TRUE, keyCertSign,
+no Name Constraints), formats it into the standard JSON schema (root.crt,
+sub-ca.crt, sub-ca.key), and uploads it to Google Cloud Secret Manager.
+
+Options:
+  --project <PROJECT_ID>  Target GCP Project ID (defaults to active gcloud project)
+  --secret <SECRET_NAME>  Name of the GSM secret (default: gdc-fallback-sub-ca)
+  --location <LOCATION>   Replication region for regional secret (default: us-east4)
+  --output <FILE_PATH>    Also save the generated JSON payload to a local file
+  --days <DAYS>           Validity period in days (default: 3650)
+  --subject <SUBJECT>     Certificate subject DN (default: /CN=GDC Fallback Local CA/O=Google Distributed Cloud)
+  --dry-run               Generate certificates locally without uploading to Secret Manager
+  -h, --help              Display this help message
+EOF
+        exit "${1:-0}"
+    }
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --project=*)
+                project_id="${1#*=}"
+                shift
+                ;;
+            --project)
+                project_id="$2"
+                shift 2
+                ;;
+            --secret=*)
+                secret_name="${1#*=}"
+                shift
+                ;;
+            --secret)
+                secret_name="$2"
+                shift 2
+                ;;
+            --location=*|--locations=*)
+                location="${1#*=}"
+                shift
+                ;;
+            --location|--locations)
+                location="$2"
+                shift 2
+                ;;
+            --output=*)
+                output_file="${1#*=}"
+                shift
+                ;;
+            --output)
+                output_file="$2"
+                shift 2
+                ;;
+            --days=*)
+                validity_days="${1#*=}"
+                shift
+                ;;
+            --days)
+                validity_days="$2"
+                shift 2
+                ;;
+            --subject=*)
+                subject="${1#*=}"
+                shift
+                ;;
+            --subject)
+                subject="$2"
+                shift 2
+                ;;
+            --dry-run)
+                dry_run=true
+                shift
+                ;;
+            -h|--help)
+                fallback_ca_usage 0
+                ;;
+            *)
+                echo "Error: Unknown argument '$1' for create-fallback-ca" >&2
+                fallback_ca_usage 1
+                ;;
+        esac
+    done
+
+    # Resolve project ID and location defaults from environment / build.env
+    local env_fallback_proj=""
+    local env_fallback_loc=""
+    if [[ -f "${REPO_ROOT}/src/build/build.env" ]]; then
+        env_fallback_proj=$(grep -E '^[[:space:]]*FALLBACK_SUB_CA_GSM_PROJECT=' "${REPO_ROOT}/src/build/build.env" 2>/dev/null | cut -d'=' -f2- | tr -d '"'\'' ' || true)
+        env_fallback_loc=$(grep -E '^[[:space:]]*FALLBACK_SUB_CA_GSM_LOCATION(S)?=' "${REPO_ROOT}/src/build/build.env" 2>/dev/null | cut -d'=' -f2- | tr -d '"'\'' ' || true)
+    fi
+
+    if [[ -z "${project_id}" ]]; then
+        project_id="${FALLBACK_SUB_CA_GSM_PROJECT:-${env_fallback_proj:-${PROJECT_ID:-}}}"
+        if [[ -z "${project_id}" ]]; then
+            project_id="$(gcloud config get-value project 2>/dev/null || true)"
+        fi
+        if [[ -z "${project_id}" ]]; then
+            project_id="anthos-bare-metal-lab-1"
+        fi
+    fi
+
+    if [[ -z "${location}" ]]; then
+        location="${FALLBACK_SUB_CA_GSM_LOCATIONS:-${FALLBACK_SUB_CA_GSM_LOCATION:-${env_fallback_loc:-us-east4}}}"
+    fi
+
+    echo "=============================================================================="
+    echo " GDC SELF-SIGNED FALLBACK SUB-CA GENERATOR"
+    echo "=============================================================================="
+    echo "  Secret Name:   ${secret_name}"
+    echo "  GCP Project:   ${project_id}"
+    echo "  Location:      ${location}"
+    echo "  Validity Days: ${validity_days}"
+    echo "  Subject DN:    ${subject}"
+    echo "  Dry Run:       ${dry_run}"
+    echo "=============================================================================="
+
+    local work_dir
+    work_dir=$(mktemp -d "/tmp/gdc-fallback-ca.XXXXXX")
+    trap 'rm -rf "${work_dir:-}" 2>/dev/null || true' EXIT INT TERM
+
+    echo "[-] Generating 4096-bit RSA self-signed CA authority..."
+    openssl req -x509 -newkey rsa:4096 -nodes -days "${validity_days}" \
+        -keyout "${work_dir}/sub-ca.key" -out "${work_dir}/sub-ca.crt" \
+        -subj "${subject}" \
+        -addext "basicConstraints=critical,CA:TRUE" \
+        -addext "keyUsage=critical,keyCertSign,cRLSign" 2>/dev/null
+
+    echo "[-] Packaging certificate bundle into JSON schema..."
+    python3 -c '
+import json, sys
+crt_path, key_path, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(crt_path) as f:
+    crt = f.read()
+with open(key_path) as f:
+    key = f.read()
+payload = {
+    "root.crt": crt,
+    "sub-ca.crt": crt,
+    "sub-ca.key": key
+}
+with open(out_path, "w") as out:
+    json.dump(payload, out, indent=2)
+' "${work_dir}/sub-ca.crt" "${work_dir}/sub-ca.key" "${work_dir}/payload.json"
+
+    if [[ -n "${output_file}" ]]; then
+        mkdir -p "$(dirname "${output_file}")"
+        cp "${work_dir}/payload.json" "${output_file}"
+        chmod 0600 "${output_file}"
+        echo "  [x] Saved local copy to: ${output_file}"
+    fi
+
+    if [[ "${dry_run}" == "true" ]]; then
+        echo "[!] DRY RUN MODE: Skipping Secret Manager upload."
+        echo "Generated JSON payload preview:"
+        head -n 15 "${work_dir}/payload.json"
+        echo "..."
+        rm -rf "${work_dir}"
+        trap - EXIT INT TERM
+        return 0
+    fi
+
+    echo "[-] Checking Google Secret Manager for secret '${secret_name}' in project '${project_id}'..."
+    if gcloud secrets describe "${secret_name}" --project="${project_id}" &>/dev/null; then
+        echo "  [-] Secret exists. Adding new version..."
+        gcloud secrets versions add "${secret_name}" \
+            --data-file="${work_dir}/payload.json" \
+            --project="${project_id}"
+        echo "  [+] New version added to '${secret_name}'."
+    else
+        echo "  [-] Secret not found. Creating regional secret '${secret_name}' in '${location}'..."
+        if [[ "${location}" == "global" ]]; then
+            gcloud secrets create "${secret_name}" \
+                --replication-policy="automatic" \
+                --data-file="${work_dir}/payload.json" \
+                --project="${project_id}"
+        else
+            gcloud secrets create "${secret_name}" \
+                --replication-policy="user-managed" \
+                --locations="${location}" \
+                --data-file="${work_dir}/payload.json" \
+                --project="${project_id}"
+        fi
+        echo "  [+] Secret '${secret_name}' created successfully."
+    fi
+
+    echo "[-] Verifying secret retrieval (without locations)..."
+    if gcloud secrets versions access latest --secret="${secret_name}" --project="${project_id}" >/dev/null 2>&1; then
+        echo "  [x] Successfully verified secret access for '${secret_name}' (latest version)."
+    fi
+
+    rm -rf "${work_dir}"
+    trap - EXIT INT TERM
+
+    echo "=============================================================================="
+    echo "[x] Fallback Sub-CA successfully staged in Secret Manager (${secret_name})."
+    echo "=============================================================================="
+}
+
+# ==============================================================================
 # MAIN ROUTING
 # ==============================================================================
 if [[ $# -eq 0 ]]; then
@@ -1353,8 +1627,14 @@ case "${COMMAND}" in
     reset-pxe)
         cmd_reset_pxe "$@"
         ;;
+    rebuild-cycle|rebuild)
+        exec "${SCRIPT_DIR}/gdc-rebuild-environment.sh" "$@"
+        ;;
     refresh-telemetry)
         cmd_refresh_telemetry "$@"
+        ;;
+    create-fallback-ca)
+        cmd_create_fallback_ca "$@"
         ;;
     -h|--help|help)
         usage 0

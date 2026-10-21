@@ -223,6 +223,10 @@
         "total_cached": {
           "type": "integer"
         },
+        "cache_last_updated": {
+          "type": "string",
+          "description": "RFC 3339 UTC timestamp indicating when the package cache was last resolved and updated."
+        },
         "failures": {
           "type": "array",
           "items": {
@@ -255,6 +259,14 @@
               },
               "size_kb": {
                 "type": "number"
+              },
+              "last_updated": {
+                "type": "string",
+                "description": "Timestamp or release date of the debian package."
+              },
+              "cvss_score": {
+                "type": "number",
+                "description": "Highest CVSS vulnerability score identified for this package version via OSV API (0.0 if clean)."
               }
             }
           }
