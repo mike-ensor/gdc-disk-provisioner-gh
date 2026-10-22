@@ -157,7 +157,7 @@ class TestCLIHelpConsistency(unittest.TestCase):
     def test_create_cluster_help(self):
         self.assert_help_succeeds(
             ["bin/cluster/create_cluster.sh"],
-            ["usage:", "--name", "--ip", "--project", "--vip", "--ingress", "--lb-range"]
+            ["usage:", "--name", "--k8s-ip", "--ip", "--project", "--vip", "--ingress", "--lb-range", "--cluster-dns", "--no-cluster-dns"]
         )
 
     def test_verify_upgrade_readiness_help(self):
