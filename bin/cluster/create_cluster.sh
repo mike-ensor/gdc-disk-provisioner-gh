@@ -28,7 +28,7 @@ set -euo pipefail
 ENV_CLUSTER_NAME="${CLUSTER_NAME:-}"
 ENV_PROJECT_ID="${PROJECT_ID:-}"
 ENV_REGION="${REGION:-}"
-ENV_MACHINE_IP="${MACHINE_IP:-}"
+ENV_K8S_NETWORK_IP="${K8S_NETWORK_IP:-${ENV_K8S_NETWORK_IP:-${MACHINE_IP:-${ENV_MACHINE_IP:-}}}}"
 ENV_CLUSTER_VIP="${CLUSTER_VIP:-}"
 ENV_CLUSTER_INGRESS="${CLUSTER_INGRESS:-}"
 ENV_PRIMARY_LOAD_BALANCER="${PRIMARY_LOAD_BALANCER:-}"
@@ -58,6 +58,7 @@ ENV_FLEET_LABELS="${FLEET_LABELS:-${CLUSTER_LABELS:-}}"
 FACTS_FILE="${FACTS_FILE:-}"
 
 CLI_CLUSTER_NAME=""
+CLI_K8S_NETWORK_IP=""
 CLI_MACHINE_IP=""
 CLI_PROJECT_ID=""
 CLI_REGION=""
@@ -102,7 +103,8 @@ Idempotent: skips creation if the cluster is already running.
 Options:
   --facts <FILE>         Path to JSON facts file (default: auto-detects from state/facts.d)
   --name <NAME>          Cluster name (default: ${ENV_CLUSTER_NAME:-none})
-  --ip <IP>              Node machine IP (default: ${ENV_MACHINE_IP:-none})
+  --k8s-ip <IP>          Node Kubernetes cluster network IP (default: ${ENV_K8S_NETWORK_IP:-none})
+  --ip <IP>              Legacy alias for --k8s-ip
   --project <PROJECT>    GCP Project ID (default: ${ENV_PROJECT_ID:-none})
   --region <REGION>      GCP Region (default: ${ENV_REGION:-us-west1})
   --vip <VIP>            Cluster Control Plane VIP (default: ${ENV_CLUSTER_VIP:-none})
@@ -159,6 +161,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --name)
             CLI_CLUSTER_NAME="$2"
+            shift 2
+            ;;
+        --k8s-ip)
+            CLI_K8S_NETWORK_IP="$2"
             shift 2
             ;;
         --ip)
@@ -549,11 +555,12 @@ CLUSTER_NAME="${CLI_CLUSTER_NAME:-${ENV_CLUSTER_NAME:-${FACT_CLUSTER_NAME:-}}}"
 PROJECT_ID="${CLI_PROJECT_ID:-${ENV_PROJECT_ID:-${FACT_PROJECT_ID:-}}}"
 REGION="${CLI_REGION:-${ENV_REGION:-${FACT_REGION:-us-west1}}}"
 
-FACT_MACHINE_IP=""
+FACT_K8S_NETWORK_IP=""
 if [[ -n "${FACT_IP_CIDR:-}" ]]; then
-    FACT_MACHINE_IP="${FACT_IP_CIDR%%/*}"
+    FACT_K8S_NETWORK_IP="${FACT_IP_CIDR%%/*}"
 fi
-MACHINE_IP="${CLI_MACHINE_IP:-${FACT_MACHINE_IP:-${ENV_MACHINE_IP:-}}}"
+K8S_NETWORK_IP="${CLI_K8S_NETWORK_IP:-${CLI_MACHINE_IP:-${ENV_K8S_NETWORK_IP:-${FACT_K8S_NETWORK_IP:-}}}}"
+MACHINE_IP="${K8S_NETWORK_IP}"
 
 CLUSTER_VIP="${CLI_CLUSTER_VIP:-${ENV_CLUSTER_VIP:-${FACT_CLUSTER_VIP:-}}}"
 CLUSTER_INGRESS="${CLI_CLUSTER_INGRESS:-${ENV_CLUSTER_INGRESS:-${FACT_CLUSTER_INGRESS:-}}}"
@@ -675,7 +682,7 @@ SERVICE_CIDR="${CLI_SERVICE_CIDR:-${ENV_SERVICE_CIDR:-${FACT_SERVICE_CIDR:-172.2
 MISSING_VARS=()
 [[ -z "${CLUSTER_NAME}" ]] && MISSING_VARS+=("CLUSTER_NAME (or --name)")
 [[ -z "${PROJECT_ID}" ]] && MISSING_VARS+=("PROJECT_ID (or --project)")
-[[ -z "${MACHINE_IP}" ]] && MISSING_VARS+=("MACHINE_IP (or --ip)")
+[[ -z "${K8S_NETWORK_IP}" ]] && MISSING_VARS+=("K8S_NETWORK_IP (or --k8s-ip / --ip / MACHINE_IP)")
 [[ -z "${CLUSTER_VIP}" ]] && MISSING_VARS+=("CLUSTER_VIP (or --vip)")
 [[ -z "${CLUSTER_INGRESS}" ]] && MISSING_VARS+=("CLUSTER_INGRESS (or --ingress)")
 [[ -z "${PRIMARY_LOAD_BALANCER}" ]] && MISSING_VARS+=("PRIMARY_LOAD_BALANCER (or --lb-range)")
@@ -690,7 +697,7 @@ if [[ ${#MISSING_VARS[@]} -gt 0 ]]; then
   echo "  When running manually, please export these environment variables ahead of time:" >&2
   echo "    export CLUSTER_NAME=\"my-cluster\"" >&2
   echo "    export PROJECT_ID=\"my-gcp-project-id\"" >&2
-  echo "    export MACHINE_IP=\"192.168.4.241\"" >&2
+  echo "    export K8S_NETWORK_IP=\"192.168.4.241\"" >&2
   echo "    export CLUSTER_VIP=\"192.168.4.100\"" >&2
   echo "    export CLUSTER_INGRESS=\"192.168.4.101\"" >&2
   echo "    export PRIMARY_LOAD_BALANCER=\"192.168.4.101-192.168.4.109\"" >&2
@@ -700,7 +707,8 @@ if [[ ${#MISSING_VARS[@]} -gt 0 ]]; then
   exit 1
 fi
 
-export MACHINE_IP
+export K8S_NETWORK_IP
+export MACHINE_IP="${K8S_NETWORK_IP}"
 export CLUSTER_NAME
 export PROJECT_ID
 export REGION
@@ -768,7 +776,7 @@ printf "  %-35s %s\n" "Cluster Name:" "${CLUSTER_NAME}"
 printf "  %-35s %s\n" "Project ID:" "${PROJECT_ID}"
 printf "  %-35s %s\n" "Region:" "${REGION}"
 printf "  %-35s %s\n" "Anthos Version:" "${ANTHOS_VERSION}"
-printf "  %-35s %s\n" "Machine IP:" "${MACHINE_IP}"
+printf "  %-35s %s\n" "K8s Network IP:" "${K8S_NETWORK_IP}"
 printf "  %-35s %s\n" "Cluster VIP:" "${CLUSTER_VIP}"
 printf "  %-35s %s\n" "Cluster Ingress:" "${CLUSTER_INGRESS}"
 printf "  %-35s %s\n" "Pod CIDR:" "${POD_CIDR}"
@@ -921,7 +929,7 @@ spec:
   controlPlane:
     nodePoolSpec:
       nodes:
-        - address: ${MACHINE_IP}
+        - address: ${K8S_NETWORK_IP}
   clusterNetwork:
     bundledIngress: false
     flatIPv4: false
@@ -1059,7 +1067,7 @@ EOF
 
 	# 5d. Configure ClusterDNS for local Nexus / GDC domain resolution
 	if [[ "${CONFIGURE_CLUSTER_DNS}" == "true" ]]; then
-		echo "[-] Configuring default ClusterDNS for local GDC domains (-> ${MACHINE_IP})..."
+		echo "[-] Configuring default ClusterDNS for local GDC domains (-> ${K8S_NETWORK_IP})..."
 		CLUSTER_DNS_FILE="${CLUSTER_CONFIG_DIR}/cluster-dns.yaml"
 		cat <<EOF >"${CLUSTER_DNS_FILE}"
 apiVersion: networking.gke.io/v1alpha1
@@ -1068,18 +1076,18 @@ metadata:
   name: default
 spec:
   upstreamNameservers:
-  - serverIP: ${MACHINE_IP}
+  - serverIP: ${K8S_NETWORK_IP}
     serverPort: 53
   domains:
   - name: gdc.local
     nameservers:
-    - serverIP: ${MACHINE_IP}
+    - serverIP: ${K8S_NETWORK_IP}
   - name: internal.gdc.local
     nameservers:
-    - serverIP: ${MACHINE_IP}
+    - serverIP: ${K8S_NETWORK_IP}
 EOF
 		if sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl apply -f "${CLUSTER_DNS_FILE}"; then
-			echo "[OK] ClusterDNS 'default' configured with upstream dnsmasq (${MACHINE_IP})."
+			echo "[OK] ClusterDNS 'default' configured with upstream dnsmasq (${K8S_NETWORK_IP})."
 		else
 			echo "[!] Warning: Failed to apply ClusterDNS manifest."
 		fi

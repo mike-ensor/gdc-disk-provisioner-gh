@@ -51,8 +51,42 @@ class TestClusterTurnupScript(unittest.TestCase):
         self.assertIn("Starting GDC Cluster Creation Process", result.stdout)
         self.assertIn("Cluster Name:                       gdc-manual-241", result.stdout)
         self.assertIn("Project ID:                         anthos-bare-metal-lab-1", result.stdout)
-        self.assertIn("Machine IP:                         192.168.9.241", result.stdout)
+        self.assertIn("K8s Network IP:                     192.168.9.241", result.stdout)
         self.assertIn("[DRY-RUN]", result.stdout)
+
+    def test_k8s_network_ip_env_execution(self):
+        result = subprocess.run(
+            [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run"],
+            capture_output=True, text=True,
+            env={
+                **os.environ,
+                "CLUSTER_NAME": "gdc-manual-241",
+                "PROJECT_ID": "anthos-bare-metal-lab-1",
+                "K8S_NETWORK_IP": "192.168.9.241",
+                "CLUSTER_VIP": "192.168.9.143",
+                "CLUSTER_INGRESS": "192.168.9.144",
+                "PRIMARY_LOAD_BALANCER": "192.168.9.144-192.168.9.150",
+            }
+        )
+        self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+        self.assertIn("K8s Network IP:                     192.168.9.241", result.stdout)
+
+    def test_k8s_network_ip_cli_parameter(self):
+        result = subprocess.run(
+            [
+                CREATE_CLUSTER_SCRIPT, "-y", "--dry-run",
+                "--k8s-ip", "192.168.10.55",
+                "--name", "gdc-k8s-ip-test",
+                "--project", "test-project",
+                "--vip", "192.168.10.50",
+                "--ingress", "192.168.10.51",
+                "--lb-range", "192.168.10.51-192.168.10.60"
+            ],
+            capture_output=True, text=True,
+            env=os.environ
+        )
+        self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+        self.assertIn("K8s Network IP:                     192.168.10.55", result.stdout)
 
     def test_manual_missing_env_fails(self):
         # When run without facts and with missing required ENV variables, script must fail fast
@@ -87,7 +121,7 @@ class TestClusterTurnupScript(unittest.TestCase):
         self.assertIn(f"Sourcing cluster parameters from facts: {VALID_FACTS_FILE}", result.stdout)
         self.assertIn("Cluster Name:                       gdc-extreme-1", result.stdout)
         self.assertIn("Project ID:                         anthos-bare-metal-lab-1", result.stdout)
-        self.assertIn("Machine IP:                         192.168.109.12", result.stdout)
+        self.assertIn("K8s Network IP:                     192.168.109.12", result.stdout)
         self.assertIn("Cluster VIP:                        192.168.109.2", result.stdout)
         self.assertIn("Cluster Ingress:                    192.168.109.100", result.stdout)
         self.assertIn("Primary Load Balancer:              192.168.109.100-192.168.109.150", result.stdout)
@@ -108,7 +142,7 @@ class TestClusterTurnupScript(unittest.TestCase):
         self.assertIn("Cluster Name:                       env-override-cluster", result.stdout)
         self.assertIn("Cluster VIP:                        10.0.0.99", result.stdout)
         # Non-overridden fields still source from facts file
-        self.assertIn("Machine IP:                         192.168.109.12", result.stdout)
+        self.assertIn("K8s Network IP:                     192.168.109.12", result.stdout)
         self.assertIn("Cluster Ingress:                    192.168.109.100", result.stdout)
 
     def test_cli_overrides_env_and_facts_file(self):
@@ -131,7 +165,7 @@ class TestClusterTurnupScript(unittest.TestCase):
         self.assertIn("Cluster Name:                       cli-edge-99", result.stdout)
         self.assertIn("Cluster VIP:                        10.0.0.50", result.stdout)
         # Non-overridden fields still source from facts file
-        self.assertIn("Machine IP:                         192.168.109.12", result.stdout)
+        self.assertIn("K8s Network IP:                     192.168.109.12", result.stdout)
 
     def test_custom_version_and_cidrs(self):
         # Verify custom version and CIDR flags override defaults
