@@ -853,6 +853,97 @@ echo "TYPE=$ROOT_REPO_TYPE;BRANCH=$ROOT_REPO_BRANCH;SECRET=$ROOT_REPO_SECRET;GSA
         res_env = subprocess.run(["bash", "-c", eval_script_env], capture_output=True, text=True, check=True)
         self.assertIn("TYPE=git;BRANCH=main;SECRET=;GSA=", res_env.stdout.strip())
 
+    def test_cluster_dns_default_enabled(self):
+        """Verify that ClusterDNS defaults to true when omitted."""
+        result = subprocess.run(
+            [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run"],
+            capture_output=True, text=True,
+            env={
+                **os.environ,
+                "CLUSTER_NAME": "dns-default-test",
+                "PROJECT_ID": "anthos-lab",
+                "K8S_NETWORK_IP": "192.168.1.10",
+                "CLUSTER_VIP": "192.168.1.11",
+                "CLUSTER_INGRESS": "192.168.1.12",
+                "PRIMARY_LOAD_BALANCER": "192.168.1.13-192.168.1.20",
+            }
+        )
+        self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+        self.assertIn("Configure ClusterDNS:               true", result.stdout)
+
+    def test_cluster_dns_cli_flags(self):
+        """Verify --no-cluster-dns and --cluster-dns CLI flags."""
+        base_env = {
+            **os.environ,
+            "CLUSTER_NAME": "dns-flag-test",
+            "PROJECT_ID": "anthos-lab",
+            "K8S_NETWORK_IP": "192.168.1.10",
+            "CLUSTER_VIP": "192.168.1.11",
+            "CLUSTER_INGRESS": "192.168.1.12",
+            "PRIMARY_LOAD_BALANCER": "192.168.1.13-192.168.1.20",
+        }
+        # Disable via flag
+        res_disabled = subprocess.run(
+            [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run", "--no-cluster-dns"],
+            capture_output=True, text=True,
+            env=base_env
+        )
+        self.assertEqual(res_disabled.returncode, 0, f"Failed with: {res_disabled.stderr}")
+        self.assertIn("Configure ClusterDNS:               false", res_disabled.stdout)
+
+        # Enable via flag
+        res_enabled = subprocess.run(
+            [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run", "--cluster-dns"],
+            capture_output=True, text=True,
+            env=base_env
+        )
+        self.assertEqual(res_enabled.returncode, 0, f"Failed with: {res_enabled.stderr}")
+        self.assertIn("Configure ClusterDNS:               true", res_enabled.stdout)
+
+    def test_cluster_dns_facts_disabled(self):
+        """Verify that explicit configure_cluster_dns: false in facts disables ClusterDNS."""
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as f:
+            json.dump({
+                "cluster": {
+                    "cluster_name": "dns-fact-test",
+                    "networking": {
+                        "cluster_vip": "192.168.1.11",
+                        "cluster_ingress": "192.168.1.12",
+                        "cluster_lb_range": "192.168.1.13-192.168.1.20",
+                        "configure_cluster_dns": False
+                    }
+                },
+                "network": {
+                    "cluster_network": {
+                        "ip_cidr": "192.168.1.10/24"
+                    }
+                },
+                "gcp_info": {
+                    "project_id": "anthos-lab",
+                    "region": "us-west1"
+                }
+            }, f)
+            f.flush()
+
+            result = subprocess.run(
+                [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run", "--facts", f.name],
+                capture_output=True, text=True,
+                env=os.environ
+            )
+            self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+            self.assertIn("Configure ClusterDNS:               false", result.stdout)
+
+    def test_cluster_dns_manifest_scoped(self):
+        """Verify that ClusterDNS manifest is scoped to gdc.local and internal.gdc.local without upstreamNameservers."""
+        with open(CREATE_CLUSTER_SCRIPT, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # The ClusterDNS block should exist and not include upstreamNameservers
+        self.assertIn("kind: ClusterDNS", content)
+        self.assertIn("name: gdc.local", content)
+        self.assertIn("name: internal.gdc.local", content)
+        self.assertNotIn("upstreamNameservers", content)
+
 
 
 class TestClusterTurnupAnsibleIntegration(unittest.TestCase):

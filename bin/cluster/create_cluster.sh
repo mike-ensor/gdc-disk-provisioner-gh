@@ -113,8 +113,10 @@ Options:
   --version <VERSION>    Anthos bare metal version (default: ${ENV_ANTHOS_VERSION:-1.35.300-gke.87})
   --pod-cidr <CIDR>      Pods CIDR block (default: ${ENV_POD_CIDR:-172.28.0.0/16})
   --service-cidr <CIDR>  Services CIDR block (default: ${ENV_SERVICE_CIDR:-172.29.0.0/20})
-  --configure-cluster-dns
-                         Configure default ClusterDNS pointing Nexus/GDC domains to local dnsmasq
+  --cluster-dns, --configure-cluster-dns
+                         Configure default ClusterDNS pointing Nexus/GDC domains to local dnsmasq (default: true)
+  --no-cluster-dns, --disable-cluster-dns
+                         Disable ClusterDNS configuration
   --config-sync          Explicitly enable Config Sync (default: true)
   --no-config-sync       Disable Config Sync installation
   --root-repo <REPO>     Git repo URL or OCI image for primary RootSync (default: ${ENV_PRIMARY_ROOT_REPO:-none})
@@ -203,8 +205,12 @@ while [[ $# -gt 0 ]]; do
             CLI_SERVICE_CIDR="$2"
             shift 2
             ;;
-        --configure-cluster-dns)
+        --cluster-dns|--configure-cluster-dns)
             CLI_CONFIGURE_CLUSTER_DNS="true"
+            shift
+            ;;
+        --no-cluster-dns|--disable-cluster-dns)
+            CLI_CONFIGURE_CLUSTER_DNS="false"
             shift
             ;;
         --config-sync|--enable-config-sync)
@@ -602,8 +608,8 @@ CONFIG_SYNC_ENABLED="${CLI_CONFIG_SYNC_ENABLED:-${ENV_CONFIG_SYNC_ENABLED:-${FAC
 if [[ "${CONFIG_SYNC_ENABLED}" != "false" ]]; then
     CONFIG_SYNC_ENABLED="true"
 fi
-CONFIGURE_CLUSTER_DNS="${CLI_CONFIGURE_CLUSTER_DNS:-${ENV_CONFIGURE_CLUSTER_DNS:-${FACT_CONFIGURE_CLUSTER_DNS:-false}}}"
-if [[ "${CONFIGURE_CLUSTER_DNS}" == "true" ]]; then
+CONFIGURE_CLUSTER_DNS="${CLI_CONFIGURE_CLUSTER_DNS:-${ENV_CONFIGURE_CLUSTER_DNS:-${FACT_CONFIGURE_CLUSTER_DNS:-true}}}"
+if [[ "${CONFIGURE_CLUSTER_DNS}" != "false" ]]; then
     CONFIGURE_CLUSTER_DNS="true"
 else
     CONFIGURE_CLUSTER_DNS="false"
@@ -1075,9 +1081,6 @@ kind: ClusterDNS
 metadata:
   name: default
 spec:
-  upstreamNameservers:
-  - serverIP: ${K8S_NETWORK_IP}
-    serverPort: 53
   domains:
   - name: gdc.local
     nameservers:
@@ -1086,10 +1089,24 @@ spec:
     nameservers:
     - serverIP: ${K8S_NETWORK_IP}
 EOF
-		if sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl apply -f "${CLUSTER_DNS_FILE}"; then
-			echo "[OK] ClusterDNS 'default' configured with upstream dnsmasq (${K8S_NETWORK_IP})."
+		echo "[-] Waiting for ClusterDNS CRD to be established..."
+		crd_found=false
+		for _ in {1..30}; do
+			if sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl get crd clusterdnses.networking.gke.io &>/dev/null; then
+				crd_found=true
+				break
+			fi
+			sleep 2
+		done
+
+		if [[ "${crd_found}" == "true" ]]; then
+			if sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl apply -f "${CLUSTER_DNS_FILE}"; then
+				echo "[OK] ClusterDNS 'default' configured for local GDC domains (-> ${K8S_NETWORK_IP})."
+			else
+				echo "[!] Warning: Failed to apply ClusterDNS manifest."
+			fi
 		else
-			echo "[!] Warning: Failed to apply ClusterDNS manifest."
+			echo "[!] Warning: Timed out waiting for clusterdnses.networking.gke.io CRD. Skipping ClusterDNS application."
 		fi
 	else
 		echo "[-] Configure ClusterDNS disabled. Skipping ClusterDNS configuration."
