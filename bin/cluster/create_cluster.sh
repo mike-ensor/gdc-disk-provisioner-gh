@@ -336,7 +336,9 @@ try:
             val = None
             break
         val = val.get(k)
-    if val is not None and not isinstance(val, (dict, list)):
+    if isinstance(val, bool):
+        print(str(val).lower())
+    elif val is not None and not isinstance(val, (dict, list)):
         print(val)
 except Exception:
     pass
@@ -605,14 +607,16 @@ CLUSTER_CONFIG_NAME="${CLI_CLUSTER_CONFIG_NAME:-${ENV_CLUSTER_CONFIG_NAME:-${FAC
 DEFAULT_ROOT_SYNC_DIR="config/clusters/${CLUSTER_CONFIG_NAME:-${CLUSTER_NAME}}"
 ROOT_SYNC_DIR="${CLI_ROOT_SYNC_DIR:-${ENV_ROOT_SYNC_DIR:-${FACT_ROOT_SYNC_DIR:-${DEFAULT_ROOT_SYNC_DIR}}}}"
 CONFIG_SYNC_ENABLED="${CLI_CONFIG_SYNC_ENABLED:-${ENV_CONFIG_SYNC_ENABLED:-${FACT_CONFIG_SYNC_ENABLED:-true}}}"
-if [[ "${CONFIG_SYNC_ENABLED}" != "false" ]]; then
+if [[ "${CONFIG_SYNC_ENABLED,,}" =~ ^(false|0|no)$ ]]; then
+    CONFIG_SYNC_ENABLED="false"
+else
     CONFIG_SYNC_ENABLED="true"
 fi
 CONFIGURE_CLUSTER_DNS="${CLI_CONFIGURE_CLUSTER_DNS:-${ENV_CONFIGURE_CLUSTER_DNS:-${FACT_CONFIGURE_CLUSTER_DNS:-true}}}"
-if [[ "${CONFIGURE_CLUSTER_DNS}" != "false" ]]; then
-    CONFIGURE_CLUSTER_DNS="true"
-else
+if [[ "${CONFIGURE_CLUSTER_DNS,,}" =~ ^(false|0|no)$ ]]; then
     CONFIGURE_CLUSTER_DNS="false"
+else
+    CONFIGURE_CLUSTER_DNS="true"
 fi
 
 ROOT_REPO_AUTH_DISPLAY="none (public)"
