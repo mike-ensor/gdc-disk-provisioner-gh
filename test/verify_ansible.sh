@@ -39,32 +39,31 @@ echo "==========================================================================
 echo "[-] Target Playbook:  ${PLAYBOOK_PATH}"
 
 # Check for Ansible CLI presence
-ANSIBLE_PLAYBOOK_CMD="ansible-playbook"
-ANSIBLE_LINT_CMD="ansible-lint"
-
-# Fallback to local virtual environments if CLI is not in system PATH
-if ! command -v "${ANSIBLE_PLAYBOOK_CMD}" &>/dev/null; then
-    if [[ -x "${PROJECT_ROOT}/venv/bin/ansible-playbook" ]]; then
-        ANSIBLE_PLAYBOOK_CMD="${PROJECT_ROOT}/venv/bin/ansible-playbook"
-    elif [[ -x "${PROJECT_ROOT}/.venv/bin/ansible-playbook" ]]; then
-        ANSIBLE_PLAYBOOK_CMD="${PROJECT_ROOT}/.venv/bin/ansible-playbook"
-    elif [[ -x "${PROJECT_ROOT}/src/build/.venv/bin/ansible-playbook" ]]; then
-        ANSIBLE_PLAYBOOK_CMD="${PROJECT_ROOT}/src/build/.venv/bin/ansible-playbook"
+find_runnable_ansible_cmd() {
+    local tool="$1"
+    if command -v "${tool}" &>/dev/null && "${tool}" --version &>/dev/null; then
+        echo "${tool}"
+        return 0
     fi
-fi
+    for candidate in \
+        "${PROJECT_ROOT}/venv/bin/${tool}" \
+        "${PROJECT_ROOT}/.venv/bin/${tool}" \
+        "${PROJECT_ROOT}/src/build/.venv/bin/${tool}" \
+        "/usr/local/bin/${tool}" \
+        "/usr/bin/${tool}"; do
+        if [[ -x "${candidate}" ]] && "${candidate}" --version &>/dev/null; then
+            echo "${candidate}"
+            return 0
+        fi
+    done
+    return 1
+}
 
-if ! command -v "${ANSIBLE_LINT_CMD}" &>/dev/null; then
-    if [[ -x "${PROJECT_ROOT}/venv/bin/ansible-lint" ]]; then
-        ANSIBLE_LINT_CMD="${PROJECT_ROOT}/venv/bin/ansible-lint"
-    elif [[ -x "${PROJECT_ROOT}/.venv/bin/ansible-lint" ]]; then
-        ANSIBLE_LINT_CMD="${PROJECT_ROOT}/.venv/bin/ansible-lint"
-    elif [[ -x "${PROJECT_ROOT}/src/build/.venv/bin/ansible-lint" ]]; then
-        ANSIBLE_LINT_CMD="${PROJECT_ROOT}/src/build/.venv/bin/ansible-lint"
-    fi
-fi
+ANSIBLE_PLAYBOOK_CMD=$(find_runnable_ansible_cmd "ansible-playbook" || echo "ansible-playbook")
+ANSIBLE_LINT_CMD=$(find_runnable_ansible_cmd "ansible-lint" || echo "ansible-lint")
 
 ANSIBLE_AVAILABLE=true
-if ! command -v "${ANSIBLE_PLAYBOOK_CMD}" &>/dev/null && [[ ! -x "${ANSIBLE_PLAYBOOK_CMD}" ]]; then
+if ! "${ANSIBLE_PLAYBOOK_CMD}" --version &>/dev/null; then
     ANSIBLE_AVAILABLE=false
 fi
 
