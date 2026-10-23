@@ -124,13 +124,26 @@
 # --------------------------------------------------------------------------
 # Task 08: NTP Alignment & Timezone
 # --------------------------------------------------------------------------
+- name: "GDC-TASK-08 | Check if systemd-timesyncd service is active"
+  ansible.builtin.command:
+    cmd: "systemctl is-active systemd-timesyncd"
+  register: timesyncd_active_check
+  changed_when: false
+  failed_when: false
+  tags: ["strictly-local"]
+
+- name: "GDC-TASK-08 | Stop active systemd-timesyncd service"
+  ansible.builtin.command:
+    cmd: "systemctl stop systemd-timesyncd"
+  when: timesyncd_active_check.rc == 0
+  changed_when: true
+  tags: ["strictly-local"]
+
 - name: "GDC-TASK-08 | Mask systemd-timesyncd daemon to avoid collision"
-  ansible.builtin.systemd:
-    name: systemd-timesyncd
-    enabled: false
-    masked: true
-    state: stopped
-  ignore_errors: true
+  ansible.builtin.command:
+    cmd: "systemctl mask systemd-timesyncd"
+  changed_when: false
+  failed_when: false
   tags: ["strictly-local"]
 
 - name: "GDC-TASK-08 | Enforce UTC system timezone"
