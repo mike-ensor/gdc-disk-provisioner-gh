@@ -16,13 +16,19 @@ Google Distributed Cloud (GDC) bare-metal nodes currently execute the CIS-CAT As
 While a customer-provided CIS hardening package (`forge-cognition-Hardening-CIS-Ubuntu24-master.zip`) contains the official CIS Linux Build Kit and extensive remediation scripts, hardcoding third-party shell scripts into GDC core Ansible roles introduces severe maintenance debt, breaks modularity, and risks clobbering native GDC workloads (such as Anthos bare-metal container networking, containerd, and Nexus TLS).
 
 ### 1.2 Solution Overview
-This specification establishes an **External CIS Security Bundle Architecture**:
-1. **Loose Coupling & Independent Ownership:** An external party (Customer / Vendor Security Team) maintains, versions, and compiles the CIS Build Kit, remediation scripts, and Assessor tool into a self-contained tarball (`cis-hardening-amd64.tar.gz`).
-2. **Standardized Interface Contract:** GDC defines `GDC-SPEC-CIS-BUNDLE-v1.0`, specifying bundle entrypoints (`bin/run-hardening.sh`), a machine-readable `manifest.json`, standard environment variables, and exit code conventions.
-3. **Strict Idempotency & Coexistence:** Because GDC maintains local hardening rules (in `security_hardening` and `system_tuning`), all configurations must use non-destructive drop-in directories (`/etc/sysctl.d/`, `/etc/audit/rules.d/`, `/etc/ssh/sshd_config.d/`). Re-running the bundle against an already-hardened system must be a verified zero-change no-op.
-4. **Platform Guardrails Injection:** GDC's harness injects mandatory platform flags ensuring that Anthos Bare Metal requirements (UFW disabled, containerd overlayfs enabled, IP forwarding active, rp_filter=2, /dev/shm execution allowed, GPU ptrace allowed, Nginx TLS proxy preserved) are never overridden.
-5. **Automated Kernel Reboot:** When GRUB parameters (`audit=1 audit_backlog_limit=8192`) change, the bundle touches `/var/run/reboot-required`, allowing GDC's existing Stage 4.5 harness to reboot the node cleanly into the audited kernel before Stage 5 (`CLUSTER_READY`).
-6. **Telemetry Ingestion:** Standardized JSON evidence (`/var/gdc-install/state/cis-benchmark.json`) is slurped into `linux-ready.json` and uploaded via `gdc-collector`.
+This specification establishes a **Two-Tiered CIS Security Architecture**:
+1. **Tier 1 — Host Operating System (Stage 4 `LINUX_READY`):**
+   - **Loose Coupling & Independent Ownership:** An external party (Customer / Vendor Security Team) maintains, versions, and compiles the CIS Build Kit, remediation scripts, and Assessor tool into a self-contained tarball (`cis-hardening-amd64.tar.gz`).
+   - **Standardized Interface Contract:** GDC defines `GDC-SPEC-CIS-BUNDLE-v1.0`, specifying bundle entrypoints (`bin/run-hardening.sh`), a machine-readable `manifest.json`, standard environment variables, and exit code conventions.
+   - **Strict Idempotency & Coexistence:** Because GDC maintains local hardening rules (in `security_hardening` and `system_tuning`), all configurations must use non-destructive drop-in directories (`/etc/sysctl.d/`, `/etc/audit/rules.d/`, `/etc/ssh/sshd_config.d/`). Re-running the bundle against an already-hardened system must be a verified zero-change no-op.
+   - **Platform Guardrails Injection:** GDC's harness injects mandatory platform flags ensuring that Anthos Bare Metal requirements (UFW disabled, containerd overlayfs enabled, IP forwarding active, rp_filter=2, /dev/shm execution allowed, GPU ptrace allowed, Nginx TLS proxy preserved) are never overridden.
+   - **Automated Kernel Reboot:** When GRUB parameters (`audit=1 audit_backlog_limit=8192`) change, the bundle touches `/var/run/reboot-required`, allowing GDC's existing Stage 4.5 harness to reboot the node cleanly into the audited kernel before Stage 5 (`CLUSTER_READY`).
+   - **Host Evidence Ingestion:** Standardized JSON evidence (`/var/gdc-install/state/cis-benchmark.json`) is slurped into `linux-ready.json` and uploaded via `gdc-collector`.
+
+2. **Tier 2 — Kubernetes Cluster Benchmarking (Stage 7 `POST_CLUSTER`):**
+   - **Aqua Security `kube-bench` Integration:** Pre-seeded via ISO cache at `/custom-data/tools/kube-bench/` and installed to `/usr/local/bin/kube-bench` with configuration in `/etc/kube-bench/cfg/`.
+   - **Targeted Audit Execution:** After bare-metal cluster turnup and readiness validation in Stage 7 (`POST_CLUSTER`), the provisioner executes `kube-bench run --targets master,node --benchmark 2.0 --json` per official [Google Distributed Cloud CIS Kubernetes Benchmark guidelines](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/concepts/cis-benchmarks).
+   - **Cluster Evidence Ingestion:** Findings are stored in `/var/gdc-install/logs/cis/kube-bench.json` and structured into `post_cluster_evidence.cis_kubernetes_benchmarks` in `/var/gdc-install/state/post-validation.json`.
 
 ---
 
@@ -62,6 +68,29 @@ This specification establishes an **External CIS Security Bundle Architecture**:
 ┌────────────────────────────────────────────────────────────────────────┐
 │                       Stage 5: CLUSTER_READY                           │
 │ - Anthos Bare Metal inception begins on fully hardened node            │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                       Stage 6: CLUSTER_TURNUP                          │
+│ - create_cluster.sh provisions standalone / HA Kubernetes cluster      │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Stage 7: POST_CLUSTER                           │
+│                                                                        │
+│ 1. Nodes & CoreDNS Readiness Checks                                    │
+│ 2. StorageClasses & ConfigSync Synchronization                         │
+│ 3. In-Cluster cert-manager Sub-CA Handover                             │
+│ 4. Fleet Hub Membership Label Sync                                     │
+│ 5. Execute kube-bench Audit:                                           │
+│    +──────────────────────────────────────────────────────────────+    │
+│    | - Invokes: kube-bench run --targets master,node              |    │
+│    |            --benchmark 2.0 --json                            |    │
+│    | - Writes: /var/gdc-install/logs/cis/kube-bench.json          |    │
+│    | - Ingests: post_cluster_evidence.cis_kubernetes_benchmarks   |    │
+│    +──────────────────────────────────────────────────────────────+    │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -157,12 +186,50 @@ The bundle must output structured results conforming to:
 }
 ```
 
+### 3.6 Kubernetes CIS Benchmark Specification (`kube-bench`)
+Per [official Google Distributed Cloud CIS Kubernetes Benchmark documentation](https://docs.cloud.google.com/kubernetes-engine/distributed-cloud/bare-metal/docs/concepts/cis-benchmarks), Kubernetes control planes and worker nodes are audited post-deployment using `kube-bench`.
+
+#### 3.6.1 Binary Packaging & Placement
+- **Upstream Source:** Aqua Security `kube-bench` (Linux x86_64 distribution).
+- **GCS Cache Location:** `gs://gdc-disk-provisioner-isos/binaries/kube-bench_${KUBE_BENCH_VERSION}_linux_amd64.tar.gz`.
+- **ISO Staging Path:** `/custom-data/tools/kube-bench/` (unpacked during `src/build/remaster.sh`).
+- **Target OS Installation:**
+  - Binary installed to: `/usr/local/bin/kube-bench` (executable `0755`).
+  - Configuration files & benchmark definitions installed to: `/etc/kube-bench/cfg/`.
+
+#### 3.6.2 Execution Command in Stage 7 (`POST_CLUSTER`)
+```bash
+kube-bench run \
+  --targets master,node \
+  --benchmark 2.0 \
+  --config-dir /etc/kube-bench/cfg \
+  --include-test-output \
+  --outputfile /var/gdc-install/logs/cis/kube-bench.json \
+  --json
+```
+
+#### 3.6.3 Stage 7 Evidence Structuring
+The output `/var/gdc-install/logs/cis/kube-bench.json` is parsed into `post_cluster_evidence.cis_kubernetes_benchmarks`:
+```json
+{
+  "benchmark_version": "2.0",
+  "execution_status": "COMPLETED",
+  "summary": {
+    "total_pass": 84,
+    "total_fail": 3,
+    "total_warn": 8,
+    "total_info": 2
+  },
+  "raw_report_path": "/var/gdc-install/logs/cis/kube-bench.json"
+}
+```
+
 ---
 
 ## 4. Requirements
 
 ### 4.1 Functional Requirements (FR)
-- **FR-1 (ISO Packaging & Offline Delivery):** The build engine (`src/build/remaster.sh`) must package `cis-hardening-amd64.tar.gz` into `/custom-data/security/` on the outer ISO filesystem. `user-data.j2` must rsync this archive to `/var/gdc-install/iso-cache/security/`.
+- **FR-1 (ISO Packaging & Offline Delivery):** The build engine (`src/build/remaster.sh`) must package `cis-hardening-amd64.tar.gz` into `/custom-data/security/` and `kube-bench` into `/custom-data/tools/kube-bench/` on the outer ISO filesystem. `user-data.j2` must rsync these archives to `/var/gdc-install/iso-cache/`.
 - **FR-2 (Harness Execution):** In `stage_linux_ready.yml`, the `cis_bundle_harness` role must extract the archive to `/opt/cis-hardening/`, validate `manifest.json`, export `GDC_*` environment guardrails, and execute `bin/run-hardening.sh`.
 - **FR-3 (Strict Idempotency):** Both the bundle and GDC local tasks must use modular configuration drop-ins (`/etc/sysctl.d/99-cis.conf`, `/etc/audit/rules.d/99-cis.rules`, `/etc/ssh/sshd_config.d/99-cis.conf`). Multiple runs must produce zero drift and zero duplication.
 - **FR-4 (Platform Workload Compatibility):**
@@ -172,7 +239,10 @@ The bundle must output structured results conforming to:
   - `/dev/shm` retains execution privileges (`nodev,nosuid,exec`).
   - `kernel.yama.ptrace_scope = 1` remains active.
 - **FR-5 (Reboot Reconciliation):** If GRUB commandline changes (`audit=1 audit_backlog_limit=8192`), the bundle must touch `/var/run/reboot-required`. Stage 4.5 in `local.yml` must execute the clean reboot before Stage 5.
-- **FR-6 (Telemetry Evidence):** `/var/gdc-install/state/cis-benchmark.json` must be slurped into Ansible facts and included in `/var/gdc-install/state/linux-ready.json` under `evidence.cis_benchmarks`.
+- **FR-6 (Host Telemetry Evidence):** `/var/gdc-install/state/cis-benchmark.json` must be slurped into Ansible facts and included in `/var/gdc-install/state/linux-ready.json` under `evidence.cis_benchmarks`.
+- **FR-7 (Kube-Bench Installation & Cluster Audit):**
+  - `kube-bench` must be deployed to `/usr/local/bin/kube-bench` with configurations under `/etc/kube-bench/cfg/`.
+  - In `stage_post_cluster.yml`, `post_cluster` role must run `kube-bench run --targets master,node --benchmark 2.0 --json` and ingest findings into `post_cluster_evidence.cis_kubernetes_benchmarks` in `/var/gdc-install/state/post-validation.json`.
 
 ### 4.2 Non-Functional Requirements (NFR)
 - **NFR-1 (Sub-10s Compilation):** The core Ubuntu SquashFS must remain untouched. Bundle packaging occurs strictly on the outer ISO partition (`/custom-data/security/`).

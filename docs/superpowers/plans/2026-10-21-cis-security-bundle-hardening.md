@@ -54,8 +54,20 @@ Implement the loosely-coupled CIS Security Bundle architecture on GDC bare-metal
 ### Component 4: Static Audits & Dependency Management
 * **File**: `src/dependencies.env`
   - Verify `CIS_TARBALL_FILENAME=cis-hardening-amd64.tar.gz` and `CIS_ISO_DEST_DIR=/custom-data/security`.
+  - Add `KUBE_BENCH_*` declarations (`KUBE_BENCH_PACKAGE_FILENAME`, `KUBE_BENCH_PACKAGE_SHA256`, `KUBE_BENCH_ISO_DEST_DIR=/custom-data/tools/kube-bench`).
+* **File**: `docs/BINARIES.md`
+  - Document `kube-bench` in administrative binaries table and cluster operations section.
 * **File**: `test/validate_iso_static.py`
-  - Verify test assertion checks for `/custom-data/security/cis-hardening-amd64.tar.gz`.
+  - Verify test assertion checks for `/custom-data/security/cis-hardening-amd64.tar.gz` and `/custom-data/tools/kube-bench/`.
+
+### Component 5: Kube-Bench Installation & Stage 7 Post-Cluster Audit
+* **File**: `src/build/remaster.sh`
+  - Ensure `kube-bench` is staged to `${EXTRACT_DIR}/custom-data/tools/kube-bench/`.
+* **File**: `src/ansible/roles/system_tuning/tasks/main.yml` (or `host_foundations`):
+  - Ensure `/usr/local/bin/kube-bench` is symlinked and `/etc/kube-bench/cfg/` is populated from `/var/gdc-install/tools/kube-bench/`.
+* **File**: `src/ansible/roles/post_cluster/tasks/main.yml`:
+  - Execute `kube-bench run --targets master,node --benchmark 2.0 --config-dir /etc/kube-bench/cfg --outputfile /var/gdc-install/logs/cis/kube-bench.json --json`.
+  - Ingest results into `post_cluster_evidence.cis_kubernetes_benchmarks` in `/var/gdc-install/state/post-validation.json`.
 
 ---
 

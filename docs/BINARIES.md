@@ -15,6 +15,7 @@ This document outlines the administrative scripts, diagnostic tools, and operati
 | **`helm`** | *N/A* | `custom-data/tools/helm/` | **Target Machine** | **Always** (`/usr/local/bin/helm`) | Kubernetes Package Manager | Official Helm CLI binary used to deploy and configure Kubernetes workloads, charts, and CSI drivers (e.g. Longhorn). |
 | **`kubestr`** | *N/A* | `custom-data/tools/kubestr/` | **Target Machine** | **Always** (`/usr/local/bin/kubestr`) | Storage Capability Benchmark CLI | Official Kubestr CLI binary used to discover storage classes and execute storage performance benchmarks (`kubestr fio`). |
 | **`oras`** | *N/A* | `custom-data/tools/oras/` | **Target Machine** | **Always** (`/usr/local/bin/oras`) | OCI Registry As Storage CLI | Official ORAS CLI binary used to push, pull, and distribute arbitrary OCI artifacts and container packages offline. |
+| **`kube-bench`** | *N/A* | `custom-data/tools/kube-bench/` | **Target Machine** | **Always** (`/usr/local/bin/kube-bench`) | Kubernetes CIS Benchmark Auditor | Aqua Security CLI auditing Kubernetes cluster control plane and worker nodes against CIS Kubernetes Benchmark 2.0. |
 | **`gdc-node-ops.sh`** | `push-facts` | `bin/local/` | **Local Workstation** | **No** (Host tool) | Fact Injection & State Reset | Validates local JSON against `machine-schema.json`, uploads to `/var/gdc-install/state/gdc-fact-manual.json`, wipes `cluster-ready.json`, and restarts `gdc-provision.service`. |
 | | `push-playbook` | `bin/local/` | **Local Workstation** | **No** (Host tool) | Hotfix Playbook Sync | Hydrates local Ansible variables and syncs playbooks into the remote node's local Gitea repository to test changes without rebuilding the ISO. |
 | | `push-token` | `bin/local/` | **Local Workstation** | **No** (Host tool) | GCP Bearer Token Sideload | Extracts local workstation OAuth2 access token via `gcloud` and pushes it to remote containerd and `/run/gdc-auth/` directories. |
@@ -66,6 +67,14 @@ This document outlines the administrative scripts, diagnostic tools, and operati
 * **When to Use:** Executed after cluster turnup and Longhorn deployment to benchmark storage performance (IOPS, bandwidth, latency) before running production workloads.
 * **Options:** Includes `--help` (`-h`), `--storage-class <SC>`, `--volume-size <SIZE>`, `--kubeconfig <PATH>`, `--timeout <SEC>`, `--state-file <PATH>`, `--json` (`--json-output`), `--dry-run`, `--skip-guard`, `--kubestr-path <PATH>`, and `--allow-download`.
 * **Dependencies:** `kubectl`, `kubestr`, Python 3
+
+### `kube-bench`
+* **Target OS Path:** `/usr/local/bin/kube-bench`
+* **Configuration Path:** `/etc/kube-bench/cfg/`
+* **Summary:** Official Aqua Security CLI auditing Kubernetes cluster control plane and worker node components against the CIS Kubernetes Benchmark.
+* **When to Use:** Executed during Stage 7 (`POST_CLUSTER`) immediately after cluster turnup, CoreDNS, and ConfigSync initialization to assess cluster security against CIS Kubernetes Benchmark 2.0 (`kube-bench run --targets master,node --benchmark 2.0 --json`).
+* **Options:** Includes `--benchmark 2.0`, `run --targets master,node`, `--json`, `--outputfile <PATH>`, `--include-test-output`, and `--config-dir <DIR>`.
+* **Dependencies:** `kubectl`, active cluster credentials (`/etc/kubernetes/admin.conf`).
 
 ---
 
