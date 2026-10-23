@@ -133,6 +133,11 @@
           "description": "Optional toggle to install ConfigSync operator. Defaults to true.",
           "default": true
         },
+        "configure_cluster_dns": {
+          "type": "boolean",
+          "default": true,
+          "description": "Optional legacy alias for cluster.networking.configure_cluster_dns."
+        },
         "primary_root_repo": {
           "description": "Primary RootSync repository configuration (git or oci).",
           "oneOf": [
@@ -487,6 +492,11 @@
             },
             "cluster_lb_range": {
               "type": "string"
+            },
+            "configure_cluster_dns": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether to inject an Anthos ClusterDNS resource routing '*.gdc.local' and '*.internal.gdc.local' to the host's local dnsmasq service."
             }
           }
         },
