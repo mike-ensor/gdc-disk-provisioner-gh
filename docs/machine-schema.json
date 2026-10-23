@@ -138,6 +138,11 @@
           "default": true,
           "description": "Optional legacy alias for cluster.networking.configure_cluster_dns."
         },
+        "force_re_register_fleet": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, automatically deregisters any stale Google Cloud Fleet Hub membership before cluster inception if the local node cluster was wiped."
+        },
         "primary_root_repo": {
           "description": "Primary RootSync repository configuration (git or oci).",
           "oneOf": [

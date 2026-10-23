@@ -64,6 +64,35 @@
     local_cluster_healthy: "{{ (admin_kubeconfig_stat.stat.exists | bool) and (local_nodes_probe.rc | default(1) == 0) }}"
     fleet_membership_associated: "{{ (fleet_membership_query.stdout_lines | default([]) | map('trim') | select('equalto', turnup_cluster_name) | list | length > 0) if (fleet_membership_query is defined and fleet_membership_query.stdout_lines is defined) else false }}"
 
+- name: "GDC-TURNUP | Resolve force_re_register_fleet fact"
+  ansible.builtin.set_fact:
+    turnup_force_re_register_fleet: >-
+      {{
+        machine_config.cluster.force_re_register_fleet | default(false) | bool
+        if (machine_config is defined and machine_config.cluster is defined and machine_config.cluster.force_re_register_fleet is defined)
+        else (gdc_force_re_register_fleet | default(false) | bool)
+      }}
+
+- name: "GDC-TURNUP | Auto-deregister stale Fleet Hub membership if force_re_register_fleet is active"
+  ansible.builtin.command: >-
+    gcloud container fleet memberships delete {{ turnup_cluster_name }}
+    --project={{ turnup_gcp_project_id }}
+    --quiet
+  when:
+    - turnup_force_re_register_fleet | bool
+    - fleet_membership_associated | bool
+    - not (local_cluster_healthy | bool)
+  register: auto_fleet_delete_res
+  changed_when: auto_fleet_delete_res.rc == 0
+  failed_when: false
+
+- name: "GDC-TURNUP | Refresh Fleet Hub association state if deregistered"
+  ansible.builtin.set_fact:
+    fleet_membership_associated: false
+  when:
+    - auto_fleet_delete_res is defined
+    - auto_fleet_delete_res.changed | default(false)
+
 - name: "GDC-TURNUP | Guard: Fail fast if Fleet Hub shows cluster membership but local cluster is absent"
   ansible.builtin.assert:
     that:

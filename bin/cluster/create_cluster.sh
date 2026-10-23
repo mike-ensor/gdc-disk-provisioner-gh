@@ -51,6 +51,7 @@ ENV_REPO_SYNC_CA_CERT_SECRET="${REPO_SYNC_CA_CERT_SECRET:-}"
 ENV_REPO_SYNC_DIR="${REPO_SYNC_DIR:-}"
 ENV_CONFIG_SYNC_ENABLED="${CONFIG_SYNC_ENABLED:-}"
 ENV_CONFIGURE_CLUSTER_DNS="${CONFIGURE_CLUSTER_DNS:-}"
+ENV_FORCE_RE_REGISTER_FLEET="${FORCE_RE_REGISTER_FLEET:-}"
 ENV_ANTHOS_VERSION="${ANTHOS_VERSION:-${ANTHOS_BARE_METAL_VERSION:-}}"
 ENV_POD_CIDR="${POD_CIDR:-}"
 ENV_SERVICE_CIDR="${SERVICE_CIDR:-}"
@@ -85,6 +86,7 @@ CLI_REPO_SYNC_CA_CERT_SECRET=""
 CLI_REPO_SYNC_DIR=""
 CLI_CONFIG_SYNC_ENABLED=""
 CLI_CONFIGURE_CLUSTER_DNS=""
+CLI_FORCE_RE_REGISTER_FLEET=""
 CLI_ANTHOS_VERSION=""
 CLI_POD_CIDR=""
 CLI_SERVICE_CIDR=""
@@ -148,6 +150,8 @@ Options:
   --repo-sync-dir <DIR>  Directory path in repository for RepoSync (default: repository root)
   --admin-email <EMAIL>  Administrator email for ClusterRoleBinding (optional)
   --labels <LABELS>      Fleet membership labels, comma-separated (e.g. env=lab,location=edge)
+  --force-re-register-fleet
+                         Automatically deregister stale GCP Fleet membership before cluster inception
   --dry-run              Validate configuration and simulate inception without modifying system
   -y, --yes              Skip confirmation prompt
   -h, --help             Display this help message and exit
@@ -292,6 +296,10 @@ while [[ $# -gt 0 ]]; do
         --labels)
             CLI_FLEET_LABELS="$2"
             shift 2
+            ;;
+        --force-re-register-fleet)
+            CLI_FORCE_RE_REGISTER_FLEET="true"
+            shift
             ;;
         --dry-run)
             DRY_RUN=true
@@ -536,6 +544,7 @@ if [[ -n "${FACTS_FILE}" && -f "${FACTS_FILE}" ]]; then
     if [[ -z "${FACT_CONFIGURE_CLUSTER_DNS}" ]]; then
         FACT_CONFIGURE_CLUSTER_DNS=$(get_json_val "${FACTS_FILE}" ".cluster.configure_cluster_dns")
     fi
+    FACT_FORCE_RE_REGISTER_FLEET=$(get_json_val "${FACTS_FILE}" ".cluster.force_re_register_fleet")
 
     FACT_ANTHOS_VERSION=$(get_json_val "${FACTS_FILE}" ".cluster.anthos_bare_metal_version")
     FACT_POD_CIDR=$(get_json_val "${FACTS_FILE}" ".cluster.networking.pod_cidr")
@@ -617,6 +626,12 @@ if [[ "${CONFIGURE_CLUSTER_DNS,,}" =~ ^(false|0|no)$ ]]; then
     CONFIGURE_CLUSTER_DNS="false"
 else
     CONFIGURE_CLUSTER_DNS="true"
+fi
+FORCE_RE_REGISTER_FLEET="${CLI_FORCE_RE_REGISTER_FLEET:-${ENV_FORCE_RE_REGISTER_FLEET:-${FACT_FORCE_RE_REGISTER_FLEET:-false}}}"
+if [[ "${FORCE_RE_REGISTER_FLEET,,}" =~ ^(true|1|yes)$ ]]; then
+    FORCE_RE_REGISTER_FLEET="true"
+else
+    FORCE_RE_REGISTER_FLEET="false"
 fi
 
 ROOT_REPO_AUTH_DISPLAY="none (public)"
@@ -728,6 +743,7 @@ export PRIMARY_LOAD_BALANCER
 export ADMIN_USER_EMAIL
 export PRIMARY_ROOT_REPO
 export CONFIGURE_CLUSTER_DNS
+export FORCE_RE_REGISTER_FLEET
 export ANTHOS_VERSION
 export POD_CIDR
 export SERVICE_CIDR
@@ -793,6 +809,7 @@ printf "  %-35s %s\n" "Pod CIDR:" "${POD_CIDR}"
 printf "  %-35s %s\n" "Service CIDR:" "${SERVICE_CIDR}"
 printf "  %-35s %s\n" "Primary Load Balancer:" "${PRIMARY_LOAD_BALANCER}"
 printf "  %-35s %s\n" "Configure ClusterDNS:" "${CONFIGURE_CLUSTER_DNS}"
+printf "  %-35s %s\n" "Force Re-Register Fleet:" "${FORCE_RE_REGISTER_FLEET}"
 printf "  %-35s %s\n" "Config Sync:" "${CONFIG_SYNC_ENABLED}"
 printf "  %-35s %s\n" "Primary Root Repo:" "${PRIMARY_ROOT_REPO:-none}"
 if [[ "${CONFIG_SYNC_ENABLED}" == "true" && -n "${PRIMARY_ROOT_REPO}" && "${PRIMARY_ROOT_REPO}" != "none" ]]; then
@@ -867,12 +884,24 @@ if [[ "${LOCAL_CLUSTER_HEALTHY}" == "true" && "${FLEET_ASSOCIATED}" == "true" ]]
 	exit 0
 fi
 
-# State 2: Fleet Hub membership exists in GCP, but no local cluster -> Fail fast on orphan/desync
+# State 2: Fleet Hub membership exists in GCP, but no local cluster -> Fail fast on orphan/desync or auto-deregister
 if [[ "${LOCAL_CLUSTER_HEALTHY}" == "false" && "${FLEET_ASSOCIATED}" == "true" ]]; then
-	echo "[!] ERROR: Cluster '${CLUSTER_NAME}' is already registered in Fleet Hub (project '${PROJECT_ID}'), but no healthy local cluster (/etc/kubernetes/admin.conf) exists on this host." >&2
-	echo "    Aborting cluster turnup to prevent GKE Hub resource collision and corrupt state." >&2
-	echo "    Remediation: Delete the stale Fleet membership in GCP or restore the local cluster." >&2
-	exit 1
+	if [[ "${FORCE_RE_REGISTER_FLEET}" == "true" ]]; then
+		echo "[-] Stale Fleet membership detected for '${CLUSTER_NAME}' in project '${PROJECT_ID}'. FORCE_RE_REGISTER_FLEET is active."
+		echo "[-] Automatically deregistering stale Fleet Hub membership..."
+		if gcloud container fleet memberships delete "${CLUSTER_NAME}" --project="${PROJECT_ID}" --location="${REGION}" --quiet 2>/dev/null || \
+		   gcloud container fleet memberships delete "${CLUSTER_NAME}" --project="${PROJECT_ID}" --quiet; then
+			echo "[OK] Stale Fleet Hub membership '${CLUSTER_NAME}' deleted successfully."
+			FLEET_ASSOCIATED="false"
+		else
+			echo "[!] Warning: Failed to automatically delete stale Fleet Hub membership. Proceeding, but bmctl create cluster may fail." >&2
+		fi
+	else
+		echo "[!] ERROR: Cluster '${CLUSTER_NAME}' is already registered in Fleet Hub (project '${PROJECT_ID}'), but no healthy local cluster (/etc/kubernetes/admin.conf) exists on this host." >&2
+		echo "    Aborting cluster turnup to prevent GKE Hub resource collision and corrupt state." >&2
+		echo "    Remediation: Delete the stale Fleet membership in GCP, enable --force-re-register-fleet, or restore the local cluster." >&2
+		exit 1
+	fi
 fi
 
 # State 4: Local cluster exists, but Fleet Hub registration is absent -> Skip destructive inception

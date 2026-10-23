@@ -944,6 +944,67 @@ echo "TYPE=$ROOT_REPO_TYPE;BRANCH=$ROOT_REPO_BRANCH;SECRET=$ROOT_REPO_SECRET;GSA
         self.assertIn("name: internal.gdc.local", content)
         self.assertNotIn("upstreamNameservers", content)
 
+    def test_force_re_register_fleet_cli_and_facts(self):
+        """Verify --force-re-register-fleet CLI flag and facts resolution."""
+        base_env = {
+            **os.environ,
+            "CLUSTER_NAME": "fleet-force-test",
+            "PROJECT_ID": "anthos-lab",
+            "K8S_NETWORK_IP": "192.168.1.10",
+            "CLUSTER_VIP": "192.168.1.11",
+            "CLUSTER_INGRESS": "192.168.1.12",
+            "PRIMARY_LOAD_BALANCER": "192.168.1.13-192.168.1.20",
+        }
+        # Default is false
+        res_default = subprocess.run(
+            [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run"],
+            capture_output=True, text=True,
+            env=base_env
+        )
+        self.assertEqual(res_default.returncode, 0, f"Failed with: {res_default.stderr}")
+        self.assertIn("Force Re-Register Fleet:            false", res_default.stdout)
+
+        # Flag enables it
+        res_flag = subprocess.run(
+            [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run", "--force-re-register-fleet"],
+            capture_output=True, text=True,
+            env=base_env
+        )
+        self.assertEqual(res_flag.returncode, 0, f"Failed with: {res_flag.stderr}")
+        self.assertIn("Force Re-Register Fleet:            true", res_flag.stdout)
+
+        # Facts file enables it
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as f:
+            json.dump({
+                "cluster": {
+                    "cluster_name": "fleet-fact-test",
+                    "force_re_register_fleet": True,
+                    "networking": {
+                        "cluster_vip": "192.168.1.11",
+                        "cluster_ingress": "192.168.1.12",
+                        "cluster_lb_range": "192.168.1.13-192.168.1.20"
+                    }
+                },
+                "network": {
+                    "cluster_network": {
+                        "ip_cidr": "192.168.1.10/24"
+                    }
+                },
+                "gcp_info": {
+                    "project_id": "anthos-lab",
+                    "region": "us-west1"
+                }
+            }, f)
+            f.flush()
+
+            res_facts = subprocess.run(
+                [CREATE_CLUSTER_SCRIPT, "-y", "--dry-run", "--facts", f.name],
+                capture_output=True, text=True,
+                env=os.environ
+            )
+            self.assertEqual(res_facts.returncode, 0, f"Failed with: {res_facts.stderr}")
+            self.assertIn("Force Re-Register Fleet:            true", res_facts.stdout)
+
 
 
 class TestClusterTurnupAnsibleIntegration(unittest.TestCase):
@@ -1008,6 +1069,7 @@ class TestClusterTurnupAnsibleIntegration(unittest.TestCase):
         self.assertTrue(any("Probe local cluster responsiveness" in name for name in task_names))
         self.assertTrue(any("Query Fleet Hub for existing cluster membership" in name for name in task_names))
         self.assertTrue(any("Set cluster presence and fleet association facts" in name for name in task_names))
+        self.assertTrue(any("Auto-deregister stale Fleet Hub membership" in name for name in task_names))
         
         # Orphan guard assert
         orphan_guard = next(t for t in tasks if isinstance(t, dict) and "Fail fast if Fleet Hub shows cluster membership" in t.get("name", ""))
