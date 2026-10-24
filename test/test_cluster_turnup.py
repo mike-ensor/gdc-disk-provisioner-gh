@@ -1288,6 +1288,73 @@ EOF
         self.assertIn("RootSync Wait Readiness:", result_no_wait.stdout)
         self.assertIn("false (timeout: 900s, interval: 30s, initial delay: 30s)", result_no_wait.stdout)
 
+    def test_ensure_config_sync_auth_secret_skips_when_no_secret(self):
+        """Verify ensure_config_sync_auth_secret skips execution when no secret is defined."""
+        cmd = f'bash -c "source {CREATE_CLUSTER_SCRIPT} && ensure_config_sync_auth_secret \"\" \"\""'
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0)
+
+        cmd_none = f'bash -c "source {CREATE_CLUSTER_SCRIPT} && ensure_config_sync_auth_secret \"none\" \"none\""'
+        result_none = subprocess.run(cmd_none, shell=True, capture_output=True, text=True)
+        self.assertEqual(result_none.returncode, 0)
+
+    def test_ensure_config_sync_auth_secret_already_exists(self):
+        """Verify ensure_config_sync_auth_secret returns 0 when secret already exists in K8s."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_kubectl = os.path.join(tmpdir, "kubectl")
+            with open(mock_kubectl, "w") as f:
+                f.write("""#!/usr/bin/env bash
+if [[ "$*" == *"get secret"* ]]; then
+    exit 0
+fi
+exit 1
+""")
+            os.chmod(mock_kubectl, 0o755)
+
+            cmd = f'PATH="{tmpdir}:$PATH" bash -c "source {CREATE_CLUSTER_SCRIPT} && SKIP_SUDO=true ensure_config_sync_auth_secret my-secret my-secret global oci test-proj"'
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"Failed: {result.stderr}")
+            self.assertIn("already exists", result.stdout)
+
+    def test_ensure_config_sync_auth_secret_pulls_and_creates(self):
+        """Verify ensure_config_sync_auth_secret fetches from GSM and creates Kubernetes secret."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_kubectl = os.path.join(tmpdir, "kubectl")
+            applied_file = os.path.join(tmpdir, "applied.json")
+            with open(mock_kubectl, "w") as f:
+                f.write(f"""#!/usr/bin/env bash
+if [[ "$*" == *"get secret"* ]]; then
+    exit 1
+elif [[ "$*" == *"create namespace"* ]]; then
+    exit 0
+elif [[ "$*" == *"apply"* ]]; then
+    cat - > "{applied_file}"
+    exit 0
+fi
+exit 0
+""")
+            os.chmod(mock_kubectl, 0o755)
+
+            mock_gcloud = os.path.join(tmpdir, "gcloud")
+            with open(mock_gcloud, "w") as f:
+                f.write("""#!/usr/bin/env bash
+echo '{"username": "oauth2", "token": "glpat-test-secret-123"}'
+exit 0
+""")
+            os.chmod(mock_gcloud, 0o755)
+
+            # Test OCI secret creation
+            cmd = f'PATH="{tmpdir}:$PATH" bash -c "source {CREATE_CLUSTER_SCRIPT} && SKIP_SUDO=true ensure_config_sync_auth_secret es-gitlab-creds-us-west1 es-gitlab-creds-us-west1 us-west1 oci test-proj"'
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+            self.assertIn("Successfully created secret 'es-gitlab-creds-us-west1'", result.stdout)
+
+            with open(applied_file, "r") as f:
+                applied_json = json.load(f)
+            self.assertEqual(applied_json["metadata"]["name"], "es-gitlab-creds-us-west1")
+            self.assertEqual(applied_json["stringData"]["username"], "oauth2")
+            self.assertEqual(applied_json["stringData"]["password"], "glpat-test-secret-123")
+
 
 if __name__ == "__main__":
     unittest.main()

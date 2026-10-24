@@ -551,6 +551,129 @@ except Exception as ex:
     done
 }
 
+ensure_config_sync_auth_secret() {
+    local k8s_secret="${1:-}"
+    local gsm_secret="${2:-}"
+    local location="${3:-global}"
+    local repo_type="${4:-oci}"
+    local project_id="${5:-${PROJECT_ID:-}}"
+    local namespace="${6:-config-management-system}"
+    local kubeconfig="${7:-${KUBECONFIG:-/etc/kubernetes/admin.conf}}"
+
+    # If no secret is defined, assume auth: none - do not pull or create any secret
+    if [[ -z "${k8s_secret}" && -z "${gsm_secret}" ]] || [[ "${k8s_secret}" == "none" ]] || [[ "${gsm_secret}" == "none" ]]; then
+        return 0
+    fi
+
+    local secret_name="${k8s_secret:-${gsm_secret}}"
+    local gsm_name="${gsm_secret:-${k8s_secret}}"
+
+    local kubectl_cmd=(kubectl --kubeconfig="${kubeconfig}")
+    if [[ "${SKIP_SUDO:-false}" != "true" && "$(id -u)" -ne 0 ]] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+        kubectl_cmd=(sudo KUBECONFIG="${kubeconfig}" kubectl)
+    fi
+
+    # Check if Kubernetes secret already exists
+    if "${kubectl_cmd[@]}" get secret "${secret_name}" -n "${namespace}" &>/dev/null; then
+        echo "[+] Kubernetes auth secret '${secret_name}' already exists in namespace '${namespace}'."
+        return 0
+    fi
+
+    echo "[-] Sourcing credential payload for '${secret_name}' from Google Secret Manager (secret: ${gsm_name}, project: ${project_id})..."
+    local gsm_payload=""
+    if [[ -n "${location}" && "${location}" != "global" ]]; then
+        gsm_payload=$(gcloud secrets versions access latest --secret="${gsm_name}" --project="${project_id}" --location="${location}" 2>/dev/null || true)
+    fi
+    if [[ -z "${gsm_payload}" ]]; then
+        gsm_payload=$(gcloud secrets versions access latest --secret="${gsm_name}" --project="${project_id}" 2>/dev/null || true)
+    fi
+
+    if [[ -z "${gsm_payload}" ]]; then
+        echo "[!] Warning: Unable to retrieve GSM secret '${gsm_name}' from project '${project_id}' via gcloud." >&2
+        return 1
+    fi
+
+    echo "[-] Ensuring namespace '${namespace}' exists before injecting secret..."
+    if ! "${kubectl_cmd[@]}" get namespace "${namespace}" &>/dev/null; then
+        if ! "${kubectl_cmd[@]}" create namespace "${namespace}" &>/dev/null; then
+            cat <<EOF | "${kubectl_cmd[@]}" apply -f - >/dev/null 2>&1 || true
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${namespace}
+EOF
+        fi
+    fi
+
+    if ! "${kubectl_cmd[@]}" get namespace "${namespace}" &>/dev/null; then
+        echo "[!] Warning: Target namespace '${namespace}' does not exist and could not be created." >&2
+        return 1
+    fi
+
+    echo "[-] Injecting auth secret '${secret_name}' into namespace '${namespace}'..."
+
+    local secret_manifest
+    secret_manifest=$(python3 -c '
+import json, sys
+
+payload_raw = sys.stdin.read().strip()
+repo_type = sys.argv[1].lower() if len(sys.argv) > 1 else "oci"
+k8s_name = sys.argv[2] if len(sys.argv) > 2 else "git-creds"
+namespace = sys.argv[3] if len(sys.argv) > 3 else "config-management-system"
+
+try:
+    data = json.loads(payload_raw)
+except Exception:
+    data = {"token": payload_raw}
+
+string_data = {}
+if repo_type == "git":
+    ssh_key = data.get("ssh-privatekey")
+    if ssh_key:
+        string_data["ssh-privatekey"] = ssh_key
+    else:
+        token = data.get("token") or data.get("password") or payload_raw
+        string_data["token"] = token
+        if data.get("username"):
+            string_data["username"] = data["username"]
+else:
+    username = data.get("username") or "oauth2"
+    password = data.get("password") or data.get("token") or payload_raw
+    string_data["username"] = username
+    string_data["password"] = password
+
+manifest = {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+        "name": k8s_name,
+        "namespace": namespace
+    },
+    "type": "Opaque",
+    "stringData": string_data
+}
+print(json.dumps(manifest))
+' "${repo_type}" "${secret_name}" "${namespace}" <<< "${gsm_payload}" 2>/dev/null || true)
+
+    if [[ -n "${secret_manifest}" ]]; then
+        if echo "${secret_manifest}" | "${kubectl_cmd[@]}" apply -f - >/dev/null; then
+            echo "[+] Successfully created secret '${secret_name}' in namespace '${namespace}'."
+            if [[ -n "${gsm_name}" && "${gsm_name}" != "${secret_name}" ]]; then
+                echo "${secret_manifest}" | python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+d["metadata"]["name"] = sys.argv[1]
+print(json.dumps(d))
+' "${gsm_name}" 2>/dev/null | "${kubectl_cmd[@]}" apply -f - >/dev/null 2>&1 || true
+            fi
+            return 0
+        fi
+    fi
+
+    echo "[!] Warning: Failed to apply auth secret '${secret_name}' to namespace '${namespace}'." >&2
+    return 1
+}
+
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
     return 0 2>/dev/null || exit 0
 fi
@@ -758,8 +881,11 @@ if [[ -n "${CLI_PRIMARY_ROOT_REPO}" || -n "${ENV_PRIMARY_ROOT_REPO}" ]]; then
     ROOT_REPO_TYPE="${CLI_ROOT_REPO_TYPE:-${ENV_ROOT_REPO_TYPE:-}}"
     ROOT_REPO_SECRET="${CLI_ROOT_REPO_SECRET:-${ENV_ROOT_REPO_SECRET:-}}"
     ROOT_REPO_GSA="${CLI_ROOT_REPO_GSA:-${ENV_ROOT_REPO_GSA:-}}"
-ROOT_REPO_CA_CERT_SECRET="${CLI_ROOT_REPO_CA_CERT_SECRET:-${ENV_ROOT_REPO_CA_CERT_SECRET:-}}"
+    ROOT_REPO_CA_CERT_SECRET="${CLI_ROOT_REPO_CA_CERT_SECRET:-${ENV_ROOT_REPO_CA_CERT_SECRET:-}}"
     ROOT_REPO_BRANCH="${CLI_ROOT_REPO_BRANCH:-${ENV_ROOT_REPO_BRANCH:-main}}"
+    ROOT_REPO_GSM_SECRET="${CLI_ROOT_REPO_SECRET:-${ENV_ROOT_REPO_SECRET:-}}"
+    ROOT_REPO_GSM_LOCATION="global"
+    ROOT_REPO_K8S_SECRET="${ROOT_REPO_SECRET}"
     if [[ -n "${PRIMARY_ROOT_REPO}" && "${PRIMARY_ROOT_REPO}" != "none" ]]; then
         if [[ "${PRIMARY_ROOT_REPO}" == *.git || "${PRIMARY_ROOT_REPO}" == http* || "${PRIMARY_ROOT_REPO}" == git@* || "${PRIMARY_ROOT_REPO}" == ssh://* ]]; then
             ROOT_REPO_TYPE="git"
@@ -772,6 +898,9 @@ else
     ROOT_REPO_BRANCH="${FACT_ROOT_REPO_BRANCH:-main}"
     ROOT_REPO_SECRET="${FACT_ROOT_REPO_SECRET:-}"
     ROOT_REPO_GSA="${FACT_ROOT_REPO_GSA:-}"
+    ROOT_REPO_GSM_SECRET="${FACT_ROOT_REPO_GSM_SECRET:-${FACT_ROOT_REPO_SECRET:-}}"
+    ROOT_REPO_GSM_LOCATION="${FACT_ROOT_REPO_GSM_LOCATION:-global}"
+    ROOT_REPO_K8S_SECRET="${FACT_ROOT_REPO_K8S_SECRET:-${FACT_ROOT_REPO_SECRET:-}}"
     if [[ -n "${PRIMARY_ROOT_REPO}" && "${PRIMARY_ROOT_REPO}" != "none" ]]; then
         if [[ -z "${ROOT_REPO_TYPE}" ]]; then
             if [[ "${PRIMARY_ROOT_REPO}" == *.git || "${PRIMARY_ROOT_REPO}" == http* || "${PRIMARY_ROOT_REPO}" == git@* || "${PRIMARY_ROOT_REPO}" == ssh://* ]]; then
@@ -782,6 +911,9 @@ else
         fi
     fi
 fi
+ROOT_REPO_GSM_SECRET="${ROOT_REPO_GSM_SECRET:-${ROOT_REPO_SECRET:-}}"
+ROOT_REPO_GSM_LOCATION="${ROOT_REPO_GSM_LOCATION:-global}"
+ROOT_REPO_K8S_SECRET="${ROOT_REPO_K8S_SECRET:-${ROOT_REPO_SECRET:-}}"
 CLUSTER_CONFIG_NAME="${CLI_CLUSTER_CONFIG_NAME:-${ENV_CLUSTER_CONFIG_NAME:-${FACT_CLUSTER_CONFIG_NAME:-}}}"
 DEFAULT_ROOT_SYNC_DIR="config/clusters/${CLUSTER_CONFIG_NAME:-${CLUSTER_NAME}}"
 ROOT_SYNC_DIR="${CLI_ROOT_SYNC_DIR:-${ENV_ROOT_SYNC_DIR:-${FACT_ROOT_SYNC_DIR:-${DEFAULT_ROOT_SYNC_DIR}}}}"
@@ -1379,6 +1511,14 @@ EOF
 					else
 						ROOT_GIT_AUTH="token"
 					fi
+					ensure_config_sync_auth_secret \
+						"${ROOT_REPO_SECRET}" \
+						"${ROOT_REPO_GSM_SECRET:-${ROOT_REPO_SECRET}}" \
+						"${ROOT_REPO_GSM_LOCATION:-global}" \
+						"git" \
+						"${PROJECT_ID}" \
+						"config-management-system" \
+						"/etc/kubernetes/admin.conf" || true
 				fi
 				cat <<EOF >"${ROOTSYNC_FILE}"
 apiVersion: configsync.gke.io/v1beta1
@@ -1433,6 +1573,14 @@ EOF
     gcpServiceAccountEmail: ${ROOT_REPO_GSA}@${PROJECT_ID}.iam.gserviceaccount.com
 EOF
 				elif [[ -n "${ROOT_REPO_SECRET:-}" ]]; then
+					ensure_config_sync_auth_secret \
+						"${ROOT_REPO_SECRET}" \
+						"${ROOT_REPO_GSM_SECRET:-${ROOT_REPO_SECRET}}" \
+						"${ROOT_REPO_GSM_LOCATION:-global}" \
+						"oci" \
+						"${PROJECT_ID}" \
+						"config-management-system" \
+						"/etc/kubernetes/admin.conf" || true
 					cat <<EOF >>"${ROOTSYNC_FILE}"
     auth: token
     secretRef:
@@ -1474,6 +1622,14 @@ EOF
 				else
 					REPO_SYNC_GIT_AUTH="token"
 				fi
+				ensure_config_sync_auth_secret \
+					"${REPO_SYNC_SECRET}" \
+					"${REPO_SYNC_SECRET}" \
+					"global" \
+					"git" \
+					"${PROJECT_ID}" \
+					"${REPO_SYNC_NAMESPACE}" \
+					"/etc/kubernetes/admin.conf" || true
 			fi
 			cat <<EOF >"${REPOSYNC_FILE}"
 apiVersion: configsync.gke.io/v1beta1
@@ -1536,6 +1692,14 @@ EOF
     gcpServiceAccountEmail: ${REPO_SYNC_GSA}@${PROJECT_ID}.iam.gserviceaccount.com
 EOF
 			elif [[ -n "${REPO_SYNC_SECRET}" ]]; then
+				ensure_config_sync_auth_secret \
+					"${REPO_SYNC_SECRET}" \
+					"${REPO_SYNC_SECRET}" \
+					"global" \
+					"oci" \
+					"${PROJECT_ID}" \
+					"${REPO_SYNC_NAMESPACE}" \
+					"/etc/kubernetes/admin.conf" || true
 				cat <<EOF >>"${REPOSYNC_FILE}"
     auth: token
     secretRef:
