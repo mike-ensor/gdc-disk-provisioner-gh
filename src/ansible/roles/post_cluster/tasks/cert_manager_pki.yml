@@ -53,6 +53,8 @@
           changed_when: false
 
         - name: "GDC-K8S-PKI | Seed Sub-CA TLS secret into cert-manager"
+          vars:
+            pem_newline: "\n"
           ansible.builtin.command:
             cmd: "kubectl --kubeconfig={{ gdc_admin_kubeconfig | default('/etc/kubernetes/admin.conf') }} apply -f -"
             stdin: |
@@ -63,7 +65,7 @@
                 namespace: cert-manager
               type: kubernetes.io/tls
               data:
-                tls.crt: "{{ ([slurped_sub_ca_cert.content | b64decode | trim, slurped_enterprise_root_cert.content | b64decode | trim] | join('\n')) | b64encode }}"
+                tls.crt: "{{ (([slurped_sub_ca_cert.content | b64decode | trim, slurped_enterprise_root_cert.content | b64decode | trim] | join(pem_newline)) + pem_newline) | b64encode }}"
                 tls.key: "{{ slurped_sub_ca_key.content }}"
           register: seed_sub_ca_k8s_res
           changed_when: "'created' in seed_sub_ca_k8s_res.stdout or 'configured' in seed_sub_ca_k8s_res.stdout"

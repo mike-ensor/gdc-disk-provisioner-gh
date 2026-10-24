@@ -1101,6 +1101,193 @@ class TestClusterTurnupAnsibleIntegration(unittest.TestCase):
         self.assertIn("kubectl patch stackdriver stackdriver -n kube-system", content)
         self.assertIn("'{\"spec\":{\"enableGMPForApplications\":true}}'", content)
 
+    def test_rootsync_readiness_success(self):
+        """Verify verify_rootsync_readiness detects successful RootSync synchronization."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_kubectl = os.path.join(tmpdir, "kubectl")
+            with open(mock_kubectl, "w") as f:
+                f.write("""#!/usr/bin/env bash
+cat << 'EOF'
+{
+  "apiVersion": "configsync.gke.io/v1beta1",
+  "kind": "RootSync",
+  "metadata": {"name": "root-sync", "namespace": "config-management-system"},
+  "status": {
+    "conditions": [
+      {"type": "Syncing", "status": "False", "reason": "Sync", "message": "Sync Completed"}
+    ],
+    "sync": {
+      "commit": "4a502cfec0d294d21bd7bc63e3c99fc242fd46e8f1c002cff5b54534c2bfe492"
+    }
+  }
+}
+EOF
+""")
+            os.chmod(mock_kubectl, 0o755)
+
+            cmd = f'PATH="{tmpdir}:$PATH" bash -c "source {CREATE_CLUSTER_SCRIPT} && SKIP_SUDO=true ROOTSYNC_INITIAL_DELAY=0 ROOTSYNC_WAIT_TIMEOUT=5 ROOTSYNC_CHECK_INTERVAL=0 verify_rootsync_readiness root-sync config-management-system"'
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+            self.assertIn("[OK] RootSync 'root-sync' synchronized successfully", result.stdout)
+            self.assertIn("commit: 4a502cf", result.stdout)
+
+    def test_rootsync_readiness_terminal_error_fail_fast(self):
+        """Verify verify_rootsync_readiness fails fast after 3 consecutive terminal errors."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_kubectl = os.path.join(tmpdir, "kubectl")
+            with open(mock_kubectl, "w") as f:
+                f.write("""#!/usr/bin/env bash
+cat << 'EOF'
+{
+  "apiVersion": "configsync.gke.io/v1beta1",
+  "kind": "RootSync",
+  "metadata": {"name": "root-sync", "namespace": "config-management-system"},
+  "status": {
+    "conditions": [
+      {"type": "Syncing", "status": "False", "reason": "Source", "message": "Source"}
+    ],
+    "source": {
+      "errorSummary": {"totalCount": 1},
+      "errors": [
+        {"code": "2004", "errorMessage": "KNV2004: error in the oci-sync container: failed to pull image ... DENIED: access forbidden"}
+      ]
+    }
+  }
+}
+EOF
+""")
+            os.chmod(mock_kubectl, 0o755)
+
+            cmd = f'PATH="{tmpdir}:$PATH" bash -c "source {CREATE_CLUSTER_SCRIPT} && SKIP_SUDO=true ROOTSYNC_INITIAL_DELAY=0 ROOTSYNC_WAIT_TIMEOUT=10 ROOTSYNC_CHECK_INTERVAL=0 verify_rootsync_readiness root-sync config-management-system"'
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Terminal sync error detected (1/3)", result.stdout)
+            self.assertIn("Terminal sync error detected (2/3)", result.stdout)
+            self.assertIn("Terminal sync error detected (3/3)", result.stdout)
+            self.assertIn("CRITICAL ERROR: RootSync 'root-sync' failed with persistent terminal error", result.stderr)
+
+    def test_rootsync_readiness_transient_error_recovery(self):
+        """Verify verify_rootsync_readiness recovers when terminal error transiently clears."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            counter_file = os.path.join(tmpdir, "count.txt")
+            with open(counter_file, "w") as f:
+                f.write("0")
+
+            mock_kubectl = os.path.join(tmpdir, "kubectl")
+            with open(mock_kubectl, "w") as f:
+                f.write(f"""#!/usr/bin/env bash
+CNT=$(cat "{counter_file}")
+CNT=$((CNT + 1))
+echo "$CNT" > "{counter_file}"
+
+if [ "$CNT" -eq 1 ]; then
+  cat << 'EOF'
+{{
+  "status": {{
+    "source": {{
+      "errors": [{{"code": "2004", "errorMessage": "KNV2004: temporary access forbidden"}}]
+    }}
+  }}
+}}
+EOF
+else
+  cat << 'EOF'
+{{
+  "status": {{
+    "conditions": [{{"type": "Syncing", "status": "False"}}],
+    "sync": {{"commit": "beef1234567890"}}
+  }}
+}}
+EOF
+fi
+""")
+            os.chmod(mock_kubectl, 0o755)
+
+            cmd = f'PATH="{tmpdir}:$PATH" bash -c "source {CREATE_CLUSTER_SCRIPT} && SKIP_SUDO=true ROOTSYNC_INITIAL_DELAY=0 ROOTSYNC_WAIT_TIMEOUT=5 ROOTSYNC_CHECK_INTERVAL=0 verify_rootsync_readiness root-sync config-management-system"'
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+            self.assertIn("Terminal sync error detected (1/3)", result.stdout)
+            self.assertIn("[OK] RootSync 'root-sync' synchronized successfully", result.stdout)
+            self.assertIn("commit: beef123", result.stdout)
+
+    def test_rootsync_readiness_timeout(self):
+        """Verify verify_rootsync_readiness aborts with error on timeout."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_kubectl = os.path.join(tmpdir, "kubectl")
+            with open(mock_kubectl, "w") as f:
+                f.write("""#!/usr/bin/env bash
+cat << 'EOF'
+{
+  "status": {
+    "conditions": [{"type": "Reconciling", "status": "True"}]
+  }
+}
+EOF
+""")
+            os.chmod(mock_kubectl, 0o755)
+
+            cmd = f'PATH="{tmpdir}:$PATH" bash -c "source {CREATE_CLUSTER_SCRIPT} && SKIP_SUDO=true ROOTSYNC_INITIAL_DELAY=0 ROOTSYNC_WAIT_TIMEOUT=1 ROOTSYNC_CHECK_INTERVAL=1 verify_rootsync_readiness root-sync config-management-system"'
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("ERROR: Timed out waiting for RootSync 'root-sync' to synchronize", result.stderr)
+
+    def test_rootsync_readiness_skip_flag(self):
+        """Verify verify_rootsync_readiness cleanly skips when ROOTSYNC_WAIT is false."""
+        cmd = f'bash -c "source {CREATE_CLUSTER_SCRIPT} && ROOTSYNC_WAIT=false verify_rootsync_readiness root-sync config-management-system"'
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("RootSync readiness verification skipped (--no-rootsync-wait)", result.stdout)
+
+    def test_rootsync_readiness_initial_grace_period(self):
+        """Verify verify_rootsync_readiness logs initial grace period delay."""
+        cmd = f'bash -c "source {CREATE_CLUSTER_SCRIPT} && ROOTSYNC_INITIAL_DELAY=1 ROOTSYNC_WAIT_TIMEOUT=2 ROOTSYNC_CHECK_INTERVAL=1 ROOTSYNC_WAIT=false verify_rootsync_readiness root-sync config-management-system"'
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0)
+
+    def test_rootsync_cli_flags_parsing(self):
+        """Verify create_cluster.sh parses RootSync wait CLI flags in dry-run mode."""
+        # 1. Custom timeout, interval, and initial delay
+        result = subprocess.run(
+            [
+                CREATE_CLUSTER_SCRIPT, "-y", "--dry-run",
+                "--name", "gdc-test-flags",
+                "--project", "test-proj",
+                "--k8s-ip", "192.168.1.10",
+                "--vip", "192.168.1.20",
+                "--ingress", "192.168.1.21",
+                "--lb-range", "192.168.1.21-192.168.1.25",
+                "--root-repo", "oci://registry.gitlab.com/test/repo:v1",
+                "--rootsync-wait-timeout", "900",
+                "--rootsync-check-interval", "30",
+                "--rootsync-initial-delay", "45",
+            ],
+            capture_output=True, text=True,
+            env=os.environ
+        )
+        self.assertEqual(result.returncode, 0, f"Failed with: {result.stderr}")
+        self.assertIn("RootSync Wait Readiness:", result.stdout)
+        self.assertIn("true (timeout: 900s, interval: 30s, initial delay: 45s)", result.stdout)
+
+        # 2. Disabled wait flag
+        result_no_wait = subprocess.run(
+            [
+                CREATE_CLUSTER_SCRIPT, "-y", "--dry-run",
+                "--name", "gdc-test-flags",
+                "--project", "test-proj",
+                "--k8s-ip", "192.168.1.10",
+                "--vip", "192.168.1.20",
+                "--ingress", "192.168.1.21",
+                "--lb-range", "192.168.1.21-192.168.1.25",
+                "--root-repo", "oci://registry.gitlab.com/test/repo:v1",
+                "--no-rootsync-wait",
+            ],
+            capture_output=True, text=True,
+            env=os.environ
+        )
+        self.assertEqual(result_no_wait.returncode, 0, f"Failed with: {result_no_wait.stderr}")
+        self.assertIn("RootSync Wait Readiness:", result_no_wait.stdout)
+        self.assertIn("false (timeout: 900s, interval: 30s, initial delay: 30s)", result_no_wait.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

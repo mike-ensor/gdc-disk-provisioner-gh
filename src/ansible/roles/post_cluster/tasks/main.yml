@@ -21,12 +21,12 @@
   changed_when: false
   failed_when: false
 
-- name: "GDC-POST | Execute ConfigSync and RootSync deployment"
-  ansible.builtin.include_tasks: config_sync.yml
-
 - name: "GDC-POST | Ingest and Handover Sub-CA PKI to In-Cluster cert-manager"
   ansible.builtin.include_tasks: cert_manager_pki.yml
   tags: ["corp-cert"]
+
+- name: "GDC-POST | Execute ConfigSync and RootSync deployment"
+  ansible.builtin.include_tasks: config_sync.yml
 
 - name: "GDC-POST | Sync cluster labels to Fleet Hub membership"
   ansible.builtin.command: >-

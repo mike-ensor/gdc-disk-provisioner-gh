@@ -50,6 +50,10 @@ ENV_REPO_SYNC_GSA="${REPO_SYNC_GSA:-}"
 ENV_REPO_SYNC_CA_CERT_SECRET="${REPO_SYNC_CA_CERT_SECRET:-}"
 ENV_REPO_SYNC_DIR="${REPO_SYNC_DIR:-}"
 ENV_CONFIG_SYNC_ENABLED="${CONFIG_SYNC_ENABLED:-}"
+ENV_ROOTSYNC_WAIT_TIMEOUT="${ROOTSYNC_WAIT_TIMEOUT:-900}"
+ENV_ROOTSYNC_CHECK_INTERVAL="${ROOTSYNC_CHECK_INTERVAL:-30}"
+ENV_ROOTSYNC_INITIAL_DELAY="${ROOTSYNC_INITIAL_DELAY:-30}"
+ENV_ROOTSYNC_WAIT="${ROOTSYNC_WAIT:-true}"
 ENV_CONFIGURE_CLUSTER_DNS="${CONFIGURE_CLUSTER_DNS:-}"
 ENV_FORCE_RE_REGISTER_FLEET="${FORCE_RE_REGISTER_FLEET:-}"
 ENV_ANTHOS_VERSION="${ANTHOS_VERSION:-${ANTHOS_BARE_METAL_VERSION:-}}"
@@ -76,6 +80,10 @@ CLI_ROOT_REPO_GSA=""
 CLI_ROOT_REPO_CA_CERT_SECRET=""
 CLI_CLUSTER_CONFIG_NAME=""
 CLI_ROOT_SYNC_DIR=""
+CLI_ROOTSYNC_WAIT_TIMEOUT=""
+CLI_ROOTSYNC_CHECK_INTERVAL=""
+CLI_ROOTSYNC_INITIAL_DELAY=""
+CLI_ROOTSYNC_WAIT=""
 CLI_REPO_SYNC_REPO=""
 CLI_REPO_SYNC_NAMESPACE=""
 CLI_REPO_SYNC_TYPE=""
@@ -134,6 +142,13 @@ Options:
   --root-sync-dir <DIR>  Directory path in repository for RootSync (default: ${ENV_ROOT_SYNC_DIR:-config/clusters/<cluster-config-name|cluster-name>})
   --cluster-config-name <NAME>
                          Subfolder override under config/clusters/ (default: cluster name)
+  --rootsync-wait-timeout <SEC>
+                         Timeout in seconds waiting for primary RootSync readiness (default: ${ENV_ROOTSYNC_WAIT_TIMEOUT:-900})
+  --rootsync-check-interval <SEC>
+                         Interval in seconds between RootSync readiness checks (default: ${ENV_ROOTSYNC_CHECK_INTERVAL:-30})
+  --rootsync-initial-delay <SEC>
+                         Initial grace period in seconds before first check (default: ${ENV_ROOTSYNC_INITIAL_DELAY:-30})
+  --no-rootsync-wait     Skip polling RootSync readiness after creation
   --repo-sync-repo <REPO>
                          Git repo URL or OCI image for RepoSync (default: ${ENV_REPO_SYNC_REPO:-none})
   --repo-sync-namespace <NAMESPACE>
@@ -256,6 +271,22 @@ while [[ $# -gt 0 ]]; do
         --cluster-config-name)
             CLI_CLUSTER_CONFIG_NAME="$2"
             shift 2
+            ;;
+        --rootsync-wait-timeout)
+            CLI_ROOTSYNC_WAIT_TIMEOUT="$2"
+            shift 2
+            ;;
+        --rootsync-check-interval)
+            CLI_ROOTSYNC_CHECK_INTERVAL="$2"
+            shift 2
+            ;;
+        --rootsync-initial-delay)
+            CLI_ROOTSYNC_INITIAL_DELAY="$2"
+            shift 2
+            ;;
+        --no-rootsync-wait)
+            CLI_ROOTSYNC_WAIT="false"
+            shift
             ;;
         --repo-sync-repo)
             CLI_REPO_SYNC_REPO="$2"
@@ -384,6 +415,145 @@ except Exception:
 ' "$file" "$jsonpath" 2>/dev/null || true
     fi
 }
+
+verify_rootsync_readiness() {
+    local rootsync_name="${1:-root-sync}"
+    local namespace="${2:-config-management-system}"
+    local kubeconfig="${3:-${KUBECONFIG:-/etc/kubernetes/admin.conf}}"
+    local timeout="${ROOTSYNC_WAIT_TIMEOUT:-900}"
+    local interval="${ROOTSYNC_CHECK_INTERVAL:-30}"
+    local initial_delay="${ROOTSYNC_INITIAL_DELAY:-30}"
+
+    if [[ "${ROOTSYNC_WAIT:-true}" != "true" ]]; then
+        echo "[-] RootSync readiness verification skipped (--no-rootsync-wait)."
+        return 0
+    fi
+
+    if [[ "${initial_delay}" -gt 0 ]]; then
+        echo "[-] Waiting ${initial_delay}s initial grace period before checking RootSync readiness to avoid false positives..."
+        sleep "${initial_delay}"
+    fi
+
+    echo "[-] Verifying RootSync '${rootsync_name}' initial synchronization (timeout: ${timeout}s, interval: ${interval}s)..."
+
+    local start_time
+    start_time=$(date +%s)
+    local attempt=0
+    local consecutive_terminal_errors=0
+    local last_error_msg=""
+
+    while true; do
+        attempt=$((attempt + 1))
+        local now
+        now=$(date +%s)
+        local elapsed=$((now - start_time))
+
+        local rootsync_json=""
+        if [[ "${SKIP_SUDO:-false}" == "true" ]] || [[ "$(id -u)" -eq 0 ]]; then
+            rootsync_json=$(KUBECONFIG="${kubeconfig}" kubectl get rootsync "${rootsync_name}" -n "${namespace}" -o json 2>/dev/null || true)
+        elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            rootsync_json=$(sudo KUBECONFIG="${kubeconfig}" kubectl get rootsync "${rootsync_name}" -n "${namespace}" -o json 2>/dev/null || true)
+        else
+            rootsync_json=$(KUBECONFIG="${kubeconfig}" kubectl get rootsync "${rootsync_name}" -n "${namespace}" -o json 2>/dev/null || true)
+        fi
+
+        if [[ -z "${rootsync_json}" ]]; then
+            echo "[-] Attempt ${attempt} (${elapsed}s/${timeout}s): RootSync '${rootsync_name}' not yet found in API. Retrying in ${interval}s..."
+        else
+            local parsed_status
+            parsed_status=$(python3 -c '
+import json, sys
+try:
+    d = json.loads(sys.stdin.read())
+    status = d.get("status", {})
+
+    sync_commit = status.get("sync", {}).get("commit", "") or status.get("source", {}).get("commit", "") or status.get("rendering", {}).get("commit", "")
+
+    errors = []
+    for block_name in ("source", "rendering", "sync"):
+        block = status.get(block_name, {})
+        for e in block.get("errors", []):
+            msg = e.get("errorMessage") or str(e)
+            if msg:
+                errors.append(msg)
+    for e in status.get("errors", []):
+        errors.append(str(e))
+
+    for cond in status.get("conditions", []):
+        if cond.get("type") == "Stalled" and cond.get("status") == "True":
+            errors.append(cond.get("message") or "Stalled")
+
+    sync_condition_status = ""
+    for cond in status.get("conditions", []):
+        if cond.get("type") == "Syncing":
+            sync_condition_status = cond.get("status", "")
+
+    is_terminal = False
+    for err in errors:
+        err_upper = err.upper()
+        if any(term in err_upper for term in ["DENIED", "ACCESS FORBIDDEN", "KNV2004", "KNV1061", "UNAUTHORIZED", "AUTHENTICATION FAILED"]):
+            is_terminal = True
+            break
+
+    is_synced = bool(sync_commit) and len(errors) == 0 and sync_condition_status != "True"
+
+    short_c = sync_commit[:7] if sync_commit else ""
+    first_e = errors[0].replace("\n", " ").replace("|", "/") if errors else ""
+    print(f"{is_synced}|{is_terminal}|{len(errors)}|{first_e}|{short_c}")
+except Exception as ex:
+    print(f"False|False|1|{ex}|")
+' <<< "${rootsync_json}" 2>/dev/null || echo "False|False|1|Parse error|")
+
+            local is_synced is_terminal err_count first_err short_commit
+            IFS='|' read -r is_synced is_terminal err_count first_err short_commit <<< "${parsed_status}"
+
+            if [[ "${is_synced}" == "True" ]]; then
+                echo "[OK] RootSync '${rootsync_name}' synchronized successfully (commit: ${short_commit}, elapsed: ${elapsed}s)."
+                return 0
+            fi
+
+            if [[ "${is_terminal}" == "True" ]]; then
+                consecutive_terminal_errors=$((consecutive_terminal_errors + 1))
+                last_error_msg="${first_err}"
+                echo "[!] Attempt ${attempt} (${elapsed}s/${timeout}s): Terminal sync error detected (${consecutive_terminal_errors}/3): ${first_err}"
+                if [[ ${consecutive_terminal_errors} -ge 3 ]]; then
+                    echo "==============================================================================" >&2
+                    echo "[!] CRITICAL ERROR: RootSync '${rootsync_name}' failed with persistent terminal error:" >&2
+                    echo "    ${last_error_msg}" >&2
+                    echo "==============================================================================" >&2
+                    if [[ -x /usr/local/bin/gdc-collector ]]; then
+                        echo "[-] Collecting diagnostic bundle before exit..."
+                        /usr/local/bin/gdc-collector --stage cluster-turnup || true
+                    fi
+                    return 1
+                fi
+            else
+                consecutive_terminal_errors=0
+                echo "[-] Attempt ${attempt} (${elapsed}s/${timeout}s): RootSync reconciling (errors: ${err_count}, commit: ${short_commit:-none}). Waiting ${interval}s..."
+            fi
+        fi
+
+        if [[ ${elapsed} -ge ${timeout} ]]; then
+            echo "==============================================================================" >&2
+            echo "[!] ERROR: Timed out waiting for RootSync '${rootsync_name}' to synchronize after ${elapsed}s." >&2
+            if [[ -n "${last_error_msg}" ]]; then
+                echo "    Last error: ${last_error_msg}" >&2
+            fi
+            echo "==============================================================================" >&2
+            if [[ -x /usr/local/bin/gdc-collector ]]; then
+                echo "[-] Collecting diagnostic bundle before exit..."
+                /usr/local/bin/gdc-collector --stage cluster-turnup || true
+            fi
+            return 1
+        fi
+
+        sleep "${interval}"
+    done
+}
+
+if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
+    return 0 2>/dev/null || exit 0
+fi
 
 # Auto-detect facts file if not explicitly supplied
 if [[ -z "${FACTS_FILE}" ]]; then
@@ -634,6 +804,16 @@ else
     FORCE_RE_REGISTER_FLEET="false"
 fi
 
+ROOTSYNC_WAIT_TIMEOUT="${CLI_ROOTSYNC_WAIT_TIMEOUT:-${ENV_ROOTSYNC_WAIT_TIMEOUT:-900}}"
+ROOTSYNC_CHECK_INTERVAL="${CLI_ROOTSYNC_CHECK_INTERVAL:-${ENV_ROOTSYNC_CHECK_INTERVAL:-30}}"
+ROOTSYNC_INITIAL_DELAY="${CLI_ROOTSYNC_INITIAL_DELAY:-${ENV_ROOTSYNC_INITIAL_DELAY:-30}}"
+ROOTSYNC_WAIT="${CLI_ROOTSYNC_WAIT:-${ENV_ROOTSYNC_WAIT:-true}}"
+if [[ "${ROOTSYNC_WAIT,,}" =~ ^(false|0|no)$ ]]; then
+    ROOTSYNC_WAIT="false"
+else
+    ROOTSYNC_WAIT="true"
+fi
+
 ROOT_REPO_AUTH_DISPLAY="none (public)"
 if [[ "${ROOT_REPO_TYPE}" == "oci" ]]; then
     if [[ -n "${ROOT_REPO_GSA}" ]]; then
@@ -819,6 +999,7 @@ if [[ "${CONFIG_SYNC_ENABLED}" == "true" && -n "${PRIMARY_ROOT_REPO}" && "${PRIM
     fi
     printf "  %-35s %s\n" "Target Sync Directory:" "${ROOT_SYNC_DIR}"
     printf "  %-35s %s\n" "Root Repo Authentication:" "${ROOT_REPO_AUTH_DISPLAY}"
+    printf "  %-35s %s\n" "RootSync Wait Readiness:" "${ROOTSYNC_WAIT} (timeout: ${ROOTSYNC_WAIT_TIMEOUT}s, interval: ${ROOTSYNC_CHECK_INTERVAL}s, initial delay: ${ROOTSYNC_INITIAL_DELAY}s)"
 fi
 printf "  %-35s %s\n" "RepoSync Repo:" "${REPO_SYNC_REPO:-none}"
 if [[ "${CONFIG_SYNC_ENABLED}" == "true" && -n "${REPO_SYNC_REPO}" ]]; then
@@ -1267,6 +1448,10 @@ EOF
 			echo "[-] Applying RootSync 'root-sync' to cluster..."
 			if sudo KUBECONFIG="/etc/kubernetes/admin.conf" kubectl apply -f "${ROOTSYNC_FILE}"; then
 				echo "[OK] Primary RootSync deployed successfully."
+				if ! verify_rootsync_readiness "root-sync" "config-management-system" "/etc/kubernetes/admin.conf"; then
+					echo "[!] ERROR: Primary RootSync readiness verification failed." >&2
+					exit 1
+				fi
 			else
 				echo "[!] Warning: Failed to apply RootSync manifest. Delegating to Stage 7 post_cluster."
 			fi
