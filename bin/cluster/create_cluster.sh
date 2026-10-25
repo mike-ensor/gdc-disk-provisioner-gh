@@ -1193,6 +1193,16 @@ fi
 
 # State 1: Local cluster healthy AND Fleet Hub membership associated -> Clean skip
 if [[ "${LOCAL_CLUSTER_HEALTHY}" == "true" && "${FLEET_ASSOCIATED}" == "true" ]]; then
+	if [[ "${CONFIG_SYNC_ENABLED}" == "true" && -n "${ROOT_REPO_SECRET:-}" ]]; then
+		ensure_config_sync_auth_secret \
+			"${ROOT_REPO_SECRET}" \
+			"${ROOT_REPO_GSM_SECRET:-${ROOT_REPO_SECRET}}" \
+			"${ROOT_REPO_GSM_LOCATION:-global}" \
+			"${ROOT_REPO_TYPE:-oci}" \
+			"${PROJECT_ID}" \
+			"config-management-system" \
+			"/etc/kubernetes/admin.conf" || true
+	fi
 	echo "[OK] Cluster '${CLUSTER_NAME}' is already installed locally and registered in Fleet Hub. Skipping creation."
 	exit 0
 fi
@@ -1219,6 +1229,16 @@ fi
 
 # State 4: Local cluster exists, but Fleet Hub registration is absent -> Skip destructive inception
 if [[ "${LOCAL_CLUSTER_HEALTHY}" == "true" && "${FLEET_ASSOCIATED}" == "false" ]]; then
+	if [[ "${CONFIG_SYNC_ENABLED}" == "true" && -n "${ROOT_REPO_SECRET:-}" ]]; then
+		ensure_config_sync_auth_secret \
+			"${ROOT_REPO_SECRET}" \
+			"${ROOT_REPO_GSM_SECRET:-${ROOT_REPO_SECRET}}" \
+			"${ROOT_REPO_GSM_LOCATION:-global}" \
+			"${ROOT_REPO_TYPE:-oci}" \
+			"${PROJECT_ID}" \
+			"config-management-system" \
+			"/etc/kubernetes/admin.conf" || true
+	fi
 	echo "[OK] Cluster '${CLUSTER_NAME}' is already running locally (/etc/kubernetes/admin.conf). Skipping destructive inception."
 	exit 0
 fi

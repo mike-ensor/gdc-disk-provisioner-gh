@@ -1355,6 +1355,108 @@ exit 0
             self.assertEqual(applied_json["stringData"]["username"], "oauth2")
             self.assertEqual(applied_json["stringData"]["password"], "glpat-test-secret-123")
 
+    def test_healthy_cluster_early_exit_ensures_auth_secret(self):
+        """Verify that early exit for an already-healthy cluster still ensures auth secret exists."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_bin = os.path.join(tmpdir, "bin")
+            os.makedirs(mock_bin, exist_ok=True)
+            mock_applied_file = os.path.join(tmpdir, "secret_applied.json")
+
+            mock_kubectl = os.path.join(mock_bin, "kubectl")
+            with open(mock_kubectl, "w") as f:
+                f.write(f"""#!/usr/bin/env bash
+if [[ "$*" == *"get nodes"* ]]; then
+    exit 0
+elif [[ "$*" == *"get secret"* ]]; then
+    exit 1
+elif [[ "$*" == *"create namespace"* ]]; then
+    exit 0
+elif [[ "$*" == *"apply"* ]]; then
+    cat - > "{mock_applied_file}"
+    exit 0
+fi
+exit 0
+""")
+            os.chmod(mock_kubectl, 0o755)
+
+            mock_sudo = os.path.join(mock_bin, "sudo")
+            with open(mock_sudo, "w") as f:
+                f.write("""#!/usr/bin/env bash
+if [[ "$*" == *"kubectl"* ]]; then
+    shift
+    exec kubectl "$@"
+fi
+exec "$@"
+""")
+            os.chmod(mock_sudo, 0o755)
+
+            mock_gcloud = os.path.join(mock_bin, "gcloud")
+            with open(mock_gcloud, "w") as f:
+                f.write("""#!/usr/bin/env bash
+if [[ "$*" == *"fleet memberships list"* ]]; then
+    echo "test-cluster"
+    exit 0
+elif [[ "$*" == *"secrets versions access"* ]]; then
+    echo '{"token": "glpat-secret-token"}'
+    exit 0
+fi
+exit 0
+""")
+            os.chmod(mock_gcloud, 0o755)
+
+            mock_id = os.path.join(mock_bin, "id")
+            with open(mock_id, "w") as f:
+                f.write("""#!/usr/bin/env bash
+if [[ "$*" == *"-un"* ]]; then
+    echo "gdc-admin"
+    exit 0
+elif [[ "$*" == *"-u"* ]]; then
+    echo "1000"
+    exit 0
+fi
+exec /usr/bin/id "$@"
+""")
+            os.chmod(mock_id, 0o755)
+
+            facts_file = os.path.join(tmpdir, "gdc.fact")
+            with open(facts_file, "w") as f:
+                json.dump({
+                    "cluster": {
+                        "cluster_name": "test-cluster",
+                        "config_sync_enabled": True,
+                        "primary_root_repo": {
+                            "git": {
+                                "repo-url": "https://gitlab.com/retail-edge/test.git",
+                                "branch": "main",
+                                "gsm-auth-secret": {
+                                    "gsm-name": "es-gitlab-creds",
+                                    "k8s-name": "es-gitlab-creds"
+                                }
+                            }
+                        },
+                        "networking": {
+                            "cluster_vip": "192.168.1.100",
+                            "cluster_ingress": "192.168.1.101",
+                            "cluster_lb_range": "192.168.1.101-192.168.1.109"
+                        }
+                    },
+                    "gcp_info": {
+                        "project_id": "test-proj",
+                        "region": "us-west1"
+                    },
+                    "network": {
+                        "cluster_network": {
+                            "ip_cidr": "192.168.1.10/24"
+                        }
+                    }
+                }, f)
+
+            runner_cmd = f'PATH="{mock_bin}:$PATH" bash -c "SKIP_SUDO=true {CREATE_CLUSTER_SCRIPT} --facts {facts_file} --yes"'
+            result = subprocess.run(runner_cmd, shell=True, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"Script failed with: {result.stderr}\nStdout: {result.stdout}")
+            self.assertIn("already installed locally and registered in Fleet Hub. Skipping creation.", result.stdout)
+            self.assertTrue(os.path.exists(mock_applied_file), "Expected ensure_config_sync_auth_secret to create the secret before early exit")
+
 
 if __name__ == "__main__":
     unittest.main()
