@@ -259,6 +259,22 @@ else
     echo "  [!] WARNING: Oras package not found in cache! Run 'make deps' first." >&2
 fi
 
+echo "[-] Extracting and staging Kube-bench CLI binary and configs..."
+mkdir -p "${EXTRACT_DIR}/custom-data/tools/kube-bench"
+if [[ -f "${BIN_CACHE_DIR}/${KUBE_BENCH_PACKAGE_FILENAME}" ]]; then
+    TEMP_KUBE_BENCH_DIR=$(mktemp -d)
+    tar -xzf "${BIN_CACHE_DIR}/${KUBE_BENCH_PACKAGE_FILENAME}" -C "${TEMP_KUBE_BENCH_DIR}"
+    cp "${TEMP_KUBE_BENCH_DIR}/kube-bench" "${EXTRACT_DIR}/custom-data/tools/kube-bench/kube-bench"
+    chmod +x "${EXTRACT_DIR}/custom-data/tools/kube-bench/kube-bench"
+    if [[ -d "${TEMP_KUBE_BENCH_DIR}/cfg" ]]; then
+        cp -r "${TEMP_KUBE_BENCH_DIR}/cfg" "${EXTRACT_DIR}/custom-data/tools/kube-bench/cfg"
+    fi
+    rm -rf "${TEMP_KUBE_BENCH_DIR}"
+    echo "  [x] Kube-bench CLI and configs staged successfully at /custom-data/tools/kube-bench/."
+else
+    echo "  [!] WARNING: Kube-bench package not found in cache! Run 'make deps' first." >&2
+fi
+
 echo "[-] Copying pre-seeded offline Debian packages..."
 mkdir -p "${EXTRACT_DIR}/custom-data/packages"
 if ls "${PROJECT_ROOT}/.cache/packages"/*.deb &>/dev/null; then

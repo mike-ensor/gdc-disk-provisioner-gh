@@ -67,6 +67,106 @@
   changed_when: true
   failed_when: false
 
+# --------------------------------------------------------------------------
+# CIS Kubernetes Benchmark Audit (kube-bench)
+# --------------------------------------------------------------------------
+- name: "GDC-CIS-K8S | Preflight - Ensure kube-bench and cluster admin credentials exist"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/local/bin/kube-bench
+    - /etc/kubernetes/admin.conf
+  register: kube_bench_prereqs
+
+- name: "GDC-CIS-K8S | Ensure Kube-Bench output directory exists"
+  ansible.builtin.file:
+    path: /var/gdc-install/logs/cis/kube
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  when: (kube_bench_prereqs.results | default([]) | map(attribute='stat.exists') | min | default(false))
+
+- name: "GDC-CIS-K8S | Execute CIS Kubernetes Benchmark via kube-bench (cluster-admin)"
+  ansible.builtin.command: >-
+    /usr/local/bin/kube-bench run
+    --targets master,node
+    --benchmark 2.0
+    --config-dir /etc/kube-bench/cfg
+    --include-test-output
+    --outputfile /var/gdc-install/logs/cis/kube/kube-bench.json
+    --json
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: kube_bench_run
+  failed_when: false
+  changed_when: true
+  when: (kube_bench_prereqs.results | default([]) | map(attribute='stat.exists') | min | default(false))
+
+- name: "GDC-CIS-K8S | Generate human-readable plaintext report with remediation output"
+  ansible.builtin.shell: >-
+    /usr/local/bin/kube-bench run
+    --targets master,node
+    --benchmark 2.0
+    --config-dir /etc/kube-bench/cfg
+    --include-test-output > /var/gdc-install/logs/cis/kube/kube-bench.txt 2>&1
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  failed_when: false
+  changed_when: false
+  when: (kube_bench_prereqs.results | default([]) | map(attribute='stat.exists') | min | default(false))
+
+- name: "GDC-CIS-K8S | Copy persistent audit report"
+  ansible.builtin.copy:
+    src: /var/gdc-install/logs/cis/kube/kube-bench.json
+    dest: /opt/cis-benchmark/reports/kube-bench.json
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0640'
+  ignore_errors: true
+  when: (kube_bench_prereqs.results | default([]) | map(attribute='stat.exists') | min | default(false))
+
+- name: "GDC-CIS-K8S | Slurp and parse kube-bench summary facts"
+  ansible.builtin.shell: |
+    python3 -c '
+    import json, os
+    out_file = "/var/gdc-install/logs/cis/kube/kube-bench.json"
+    if not os.path.exists(out_file):
+        print(json.dumps({"execution_status": "SKIPPED", "summary": {}}))
+        exit(0)
+    try:
+        with open(out_file) as f:
+            data = json.load(f)
+        total_pass = sum(c.get("pass", 0) for c in data.get("Controls", []))
+        total_fail = sum(c.get("fail", 0) for c in data.get("Controls", []))
+        total_warn = sum(c.get("warn", 0) for c in data.get("Controls", []))
+        total_info = sum(c.get("info", 0) for c in data.get("Controls", []))
+        out = {
+            "execution_status": "COMPLETED",
+            "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+            "benchmark_version": "2.0",
+            "summary": {
+                "total_pass": total_pass,
+                "total_fail": total_fail,
+                "total_warn": total_warn,
+                "total_info": total_info
+            },
+            "report_path": "/opt/cis-benchmark/reports/kube-bench.json"
+        }
+    except Exception as e:
+        out = {
+            "execution_status": "FAILED",
+            "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+            "benchmark_version": "2.0",
+            "error": str(e)
+        }
+    print(json.dumps(out))
+    '
+  register: kube_bench_parsed
+  changed_when: false
+  when: (kube_bench_prereqs.results | default([]) | map(attribute='stat.exists') | min | default(false))
+
 - name: "GDC-EVIDENCE | Structure PostCluster Evidence Facts"
   ansible.builtin.set_fact:
     post_cluster_evidence:
@@ -74,3 +174,6 @@
       coredns_operational: "{{ coredns_rollout_check.rc == 0 }}"
       storage_classes_present: "{{ storage_class_check.rc == 0 }}"
       config_sync: "{{ config_sync_evidence | default({}) }}"
+      cis_benchmarks:
+        kubernetes: "{{ (kube_bench_parsed.stdout | from_json) if (kube_bench_parsed is defined and kube_bench_parsed.stdout is defined and (kube_bench_parsed.stdout | length > 0)) else {'execution_status': 'NOT_EVALUATED'} }}"
+      cis_kubernetes_benchmarks: "{{ (kube_bench_parsed.stdout | from_json) if (kube_bench_parsed is defined and kube_bench_parsed.stdout is defined and (kube_bench_parsed.stdout | length > 0)) else {'execution_status': 'NOT_EVALUATED'} }}"

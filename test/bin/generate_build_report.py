@@ -618,6 +618,7 @@ def main():
         ("HELM_PACKAGE_FILENAME", "HELM_PACKAGE_SHA256", dependencies_env.get("HELM_VERSION", "3.22.0"), "helm/helm"),
         ("KUBESTR_PACKAGE_FILENAME", "KUBESTR_PACKAGE_SHA256", dependencies_env.get("KUBESTR_VERSION", "0.4.48"), "kubestr/kubestr"),
         ("ORAS_PACKAGE_FILENAME", "ORAS_PACKAGE_SHA256", dependencies_env.get("ORAS_VERSION", "1.3.4"), "oras/oras"),
+        ("KUBE_BENCH_PACKAGE_FILENAME", "KUBE_BENCH_PACKAGE_SHA256", dependencies_env.get("KUBE_BENCH_VERSION", "0.16.0"), "kube-bench/kube-bench"),
         ("BMCTL_BINARY_FILENAME", "BMCTL_BINARY_SHA256", build_env.get("BOOTSTRAP_BMCTL_VERSION", "1.35.300-gke.87"), "bmctl/bmctl"),
         ("NODEAGENTD_BINARY_FILENAME", "NODEAGENTD_BINARY_SHA256", build_env.get("BOOTSTRAP_BMCTL_VERSION", "1.35.300-gke.87"), "node-agent/nodeagentd"),
         ("GITEA_BINARY_FILENAME", "GITEA_BINARY_SHA256", "1.22.1", None),

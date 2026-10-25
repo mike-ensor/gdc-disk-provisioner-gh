@@ -140,6 +140,8 @@ def main():
         host_cache_success = False
     if not verify_host_cache(deps.get("KUBESTR_PACKAGE_FILENAME", ""), deps.get("KUBESTR_PACKAGE_SHA256", ""), cache_dir):
         host_cache_success = False
+    if not verify_host_cache(deps.get("KUBE_BENCH_PACKAGE_FILENAME", ""), deps.get("KUBE_BENCH_PACKAGE_SHA256", ""), cache_dir):
+        host_cache_success = False
 
     if not host_cache_success:
         log_error("Host cached binaries validation failed. Ensure dependencies are pulled.")
@@ -161,6 +163,7 @@ def main():
         "/custom-data/tools/helm/helm",
         "/custom-data/tools/kubestr/kubestr",
         "/custom-data/tools/oras/oras",
+        "/custom-data/tools/kube-bench/kube-bench",
         "/boot/grub/grub.cfg"
     ]
 
