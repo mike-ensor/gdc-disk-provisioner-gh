@@ -78,8 +78,16 @@ class TestBuildScript(unittest.TestCase):
         self.assertIn("Execution Mode:     CLOUD", stdout)
         self.assertIn("Run Pre-flight:     YES", stdout)
         self.assertIn("Deploy to Bootimus: NO", stdout)
+        self.assertIn("Stop Stage:", stdout)
         self.assertIn("Target Count:       1", stdout)
         self.assertIn("DRY-RUN SUCCESS", stdout)
+
+    def test_dry_run_stop_stage_flag(self):
+        """Verifies --stop-stage is displayed in header banner and per-target output."""
+        res = self.run_build_sh(["--dry-run", "--stop-stage", "SECOND_BOOT"])
+        self.assertEqual(res.returncode, 0, f"--stop-stage dry-run failed: {res.stderr}")
+        self.assertIn("Stop Stage:         SECOND_BOOT", res.stdout)
+        self.assertIn("Stop Stage: SECOND_BOOT", res.stdout)
 
     def test_dry_run_concurrent_matrix(self):
         """Verifies --concurrent parses multi-target matrix with environment prefixes."""

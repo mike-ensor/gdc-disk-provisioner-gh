@@ -134,6 +134,8 @@ Build Modifiers:
                               (Default: true | Derived from $GDC_DEBUG_MODE)
   -l, --companion <VAL>       GDC Companion telemetry: TRUE or FALSE
                               (Default: 'TRUE' | Derived from $GDC_COMPANION)
+  --stop-stage <STAGE>        Halt provisioning after stage: SECOND_BOOT, LINUX_READY, CLUSTER_READY
+                              (Default: none | Derived from $MACHINE_STATE_STOP_STAGE)
   -c-assets, --customer-assets <URI>
                               Customer-supplied assets tarball URI (GCS or HTTPS)
                               (Default: none | Derived from $CUSTOMER_ASSETS_URI)
@@ -324,6 +326,7 @@ CLI_BUILD_VERSION=""
 CLI_DEBUG=""
 CLI_COMPANION=""
 CLI_CUSTOMER_ASSETS=""
+CLI_STOP_STAGE=""
 CHECK_BOOTIMUS_AUTH=true
 
 while [[ $# -gt 0 ]]; do
@@ -420,6 +423,14 @@ while [[ $# -gt 0 ]]; do
             CLI_COMPANION="$2"
             shift 2
             ;;
+        --stop-stage|--machine-state-stop-stage)
+            if [[ $# -lt 2 ]]; then
+                echo "[!] Error: --stop-stage requires a stage name (e.g. SECOND_BOOT, LINUX_READY, CLUSTER_READY)." >&2
+                exit 1
+            fi
+            CLI_STOP_STAGE="$2"
+            shift 2
+            ;;
         -b|--bucket)
             if [[ $# -lt 2 ]]; then
                 echo "[!] Error: --bucket requires a bucket name." >&2
@@ -510,18 +521,20 @@ SOURCE_ISO_FILENAME="${CLI_FILENAME:-${SOURCE_ISO_FILENAME:-ubuntu-24.04.5-live-
 GDC_DEBUG_MODE="${CLI_DEBUG:-${GDC_DEBUG_MODE:-true}}"
 GDC_COMPANION_DEFAULT="${CLI_COMPANION:-${GDC_COMPANION:-TRUE}}"
 CUSTOMER_ASSETS_URI="${CLI_CUSTOMER_ASSETS:-${CUSTOMER_ASSETS_URI:-}}"
+MACHINE_STATE_STOP_STAGE="${CLI_STOP_STAGE:-${MACHINE_STATE_STOP_STAGE:-}}"
 
 # ==============================================================================
 # Step 4: Parse Build Target Matrix
 # ==============================================================================
 # A build target structure holds:
-#   env | version | prefix | companion | iso_name
+#   env | version | prefix | companion | iso_name | stop_stage
 declare -a TARGET_ENVS=()
 declare -a TARGET_VERSIONS=()
 declare -a TARGET_PREFIXES=()
 declare -a TARGET_COMPANIONS=()
 declare -a TARGET_ISO_NAMES=()
 declare -a TARGET_PROFILES=()
+declare -a TARGET_STOP_STAGES=()
 
 resolve_target_details() {
     local t_env="$1"
@@ -556,9 +569,10 @@ resolve_target_details() {
         fi
 
         iso_name="${prefix}-v${t_ver}${comp_suffix}${debug_suffix}.iso"
+        stop_stage="${CLI_STOP_STAGE:-${MACHINE_STATE_STOP_STAGE:-}}"
 
         # Output tab-separated tuple
-        printf "%s\t%s\t%s\t%s\t%s\n" "${t_env}" "${t_ver}" "${prefix}" "${t_comp}" "${iso_name}"
+        printf "%s\t%s\t%s\t%s\t%s\t%s\n" "${t_env}" "${t_ver}" "${prefix}" "${t_comp}" "${iso_name}" "${stop_stage}"
     )
 }
 
@@ -593,13 +607,14 @@ if [[ -n "${CONCURRENT_MATRIX}" ]]; then
         fi
 
         resolved=$(resolve_target_details "${m_env}" "${m_ver}")
-        IFS=$'\t' read -r r_env r_ver r_pref r_comp r_isoname <<< "${resolved}"
+        IFS=$'\t' read -r r_env r_ver r_pref r_comp r_isoname r_stop <<< "${resolved}"
 
         TARGET_ENVS+=("${r_env}")
         TARGET_VERSIONS+=("${r_ver}")
         TARGET_PREFIXES+=("${r_pref}")
         TARGET_COMPANIONS+=("${r_comp}")
         TARGET_ISO_NAMES+=("${r_isoname}")
+        TARGET_STOP_STAGES+=("${r_stop}")
         if [[ "${m_env}" != "base" && "${m_env}" != "build" && "${m_env}" != "default" && "${m_env}" != "local" ]]; then
             TARGET_PROFILES+=("${m_env}")
         else
@@ -628,7 +643,7 @@ else
     fi
 
     resolved=$(resolve_target_details "${s_env}" "${s_ver}")
-    IFS=$'\t' read -r r_env r_ver r_pref r_comp r_isoname <<< "${resolved}"
+    IFS=$'\t' read -r r_env r_ver r_pref r_comp r_isoname r_stop <<< "${resolved}"
 
     TARGET_ENVS+=("${r_env}")
     TARGET_VERSIONS+=("${r_ver}")
@@ -636,6 +651,10 @@ else
     TARGET_COMPANIONS+=("${r_comp}")
     TARGET_ISO_NAMES+=("${r_isoname}")
     TARGET_PROFILES+=("${TARGET_ENV_ARG:-}")
+    TARGET_STOP_STAGES+=("${r_stop}")
+    if [[ -z "${CLI_STOP_STAGE}" && -n "${r_stop}" ]]; then
+        MACHINE_STATE_STOP_STAGE="${r_stop}"
+    fi
 fi
 
 if [[ ${#TARGET_ENVS[@]} -eq 0 ]]; then
@@ -659,10 +678,11 @@ echo "  Destination Bucket: gs://${GCS_BUCKET_NAME}"
 echo "  Source Bucket:      gs://${SOURCE_GCS_BUCKET_NAME}"
 echo "  Source ISO Name:    ${SOURCE_ISO_FILENAME}"
 echo "  Debug ISO Mode:     ${GDC_DEBUG_MODE}"
+echo "  Stop Stage:         ${MACHINE_STATE_STOP_STAGE:-none}"
 echo "------------------------------------------------------------------------------"
 echo "  Target Count:       ${#TARGET_ENVS[@]}"
 for i in "${!TARGET_ENVS[@]}"; do
-    echo "  [Target $((i + 1))] Env: ${TARGET_ENVS[$i]} | Ver: ${TARGET_VERSIONS[$i]} | Profile: ${TARGET_PROFILES[$i]:-none} | Companion: ${TARGET_COMPANIONS[$i]} | Output: ${TARGET_ISO_NAMES[$i]}"
+    echo "  [Target $((i + 1))] Env: ${TARGET_ENVS[$i]} | Ver: ${TARGET_VERSIONS[$i]} | Profile: ${TARGET_PROFILES[$i]:-none} | Stop Stage: ${TARGET_STOP_STAGES[$i]:-none} | Companion: ${TARGET_COMPANIONS[$i]} | Output: ${TARGET_ISO_NAMES[$i]}"
 done
 echo "=============================================================================="
 
@@ -713,6 +733,16 @@ if [[ "${SKIP_TESTS}" != "true" ]]; then
             echo "[-] Gate 3/3: Skipped Bootimus authentication verification (--skip-auth specified)."
         fi
     fi
+    if [[ "${BUILD_MODE}" == "cloud" ]]; then
+        echo "[-] Validating Google Cloud SDK authentication & project access..."
+        if ! gcloud auth print-access-token --project="${PROJECT_ID}" &>/dev/null; then
+            echo -e "\033[91m[!] Pre-flight failure: Unable to obtain valid Google Cloud credentials via gcloud CLI! Halting build.\033[0m" >&2
+            echo -e "    Run 'gcloud auth login' or check 'gcloud config list' and active project." >&2
+            exit 1
+        fi
+        echo "  [x] Google Cloud SDK authentication verified for project '${PROJECT_ID}'."
+    fi
+
     echo -e "\033[92m[x] All pre-flight gates passed successfully.\033[0m\n"
 else
     echo -e "\n\033[93m[!] NOTICE: Skipping local pre-flight checks (--skip-tests active).\033[0m\n"
@@ -724,9 +754,14 @@ fi
 if [[ "${BUILD_MODE}" == "cloud" ]]; then
     echo "[-] Verifying destination GCS bucket for filename collisions..."
     for iso_name in "${TARGET_ISO_NAMES[@]}"; do
-        if gcloud storage objects describe "gs://${GCS_BUCKET_NAME}/sync/${iso_name}" --project="${PROJECT_ID}" &>/dev/null; then
+        desc_out=$(gcloud storage objects describe "gs://${GCS_BUCKET_NAME}/sync/${iso_name}" --project="${PROJECT_ID}" 2>&1) && desc_rc=0 || desc_rc=$?
+        if [[ ${desc_rc} -eq 0 ]]; then
             echo -e "\033[91m[!] Collision Error: GCS target 'gs://${GCS_BUCKET_NAME}/sync/${iso_name}' already exists!\033[0m" >&2
             echo "[!] Please increment version or check GCS state." >&2
+            exit 1
+        elif [[ ! "${desc_out}" =~ (404|not\ found|NotFoundException) ]]; then
+            echo -e "\033[91m[!] GCS Access Error: Unable to query destination bucket gs://${GCS_BUCKET_NAME}!\033[0m" >&2
+            echo -e "${desc_out}" >&2
             exit 1
         fi
         echo "  [x] No collision: '${iso_name}' is unique."

@@ -41,6 +41,11 @@ fi
 mkdir -p "${CERT_DIR}"
 chmod 0700 "${CERT_DIR}"
 
+NODE_MAC="${STEP_NODE_MAC:-}"
+if [[ -z "${NODE_MAC}" ]]; then
+    NODE_MAC=$(ip -br link 2>/dev/null | awk '$1 !~ "lo|vir|wl|docker|veth" { print $3 }' | head -n 1 | tr '[:upper:]' '[:lower:]' || true)
+fi
+
 MOCK_MTLS="${STEP_MOCK_MTLS:-false}"
 
 if [[ "${MOCK_MTLS}" == "true" ]] || [[ -f "/etc/gdc/mock-mtls" ]]; then
@@ -54,8 +59,9 @@ if [[ "${MOCK_MTLS}" == "true" ]] || [[ -f "/etc/gdc/mock-mtls" ]]; then
         echo "[*] Generating self-signed mock certificates..."
         # Generate an ephemeral mock certificate using node_mac as the Common Name
         MOCK_HOSTNAME="${STEP_MOCK_HOSTNAME:-gdc-mock-node}"
+        SAN_MAC="${NODE_MAC:-00:00:00:00:00:00}"
         openssl req -x509 -newkey rsa:2048 -keyout "${CLIENT_KEY}" -out "${CLIENT_CRT}" \
-            -days 365 -nodes -subj "/CN=${MOCK_HOSTNAME}" -addext "subjectAltName = DNS:${NODE_MAC}" 2>/dev/null
+            -days 365 -nodes -subj "/CN=${MOCK_HOSTNAME}" -addext "subjectAltName = DNS:${SAN_MAC}" 2>/dev/null
     fi
         
     chmod 0600 "${CLIENT_KEY}"
@@ -71,11 +77,6 @@ fi
 if ! command -v step &> /dev/null; then
     echo "FAIL: step-cli binary not found in PATH."
     exit 1
-fi
-
-NODE_MAC="${STEP_NODE_MAC:-}"
-if [[ -z "${NODE_MAC}" ]]; then
-    NODE_MAC=$(ip -br link | awk '$1 !~ "lo|vir|wl|docker|veth" { print $3 }' | head -n 1 | tr '[:upper:]' '[:lower:]')
 fi
 
 if [[ -z "${NODE_MAC}" ]]; then

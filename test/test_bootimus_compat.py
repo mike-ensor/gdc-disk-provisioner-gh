@@ -163,11 +163,12 @@ class TestBootimusApiCompatibility(unittest.TestCase):
         with mock.patch.object(bootimus, "get_bootimus_credentials", return_value=("admin", "secret")):
             with mock.patch.object(bootimus, "api_request", side_effect=mock_api_call):
                 with mock.patch("time.sleep"):
-                    # Calling main with the target ISO
-                    test_args = ["bootimus.py", target_iso]
-                    with mock.patch.object(sys, "argv", test_args):
-                        # Should complete without throwing AttributeError: 'str' object has no attribute 'get'
-                        bootimus.main()
+                    with mock.patch("sys.stdout", new_callable=io.StringIO):
+                        # Calling main with the target ISO
+                        test_args = ["bootimus.py", target_iso]
+                        with mock.patch.object(sys, "argv", test_args):
+                            # Should complete without throwing AttributeError: 'str' object has no attribute 'get'
+                            bootimus.main()
 
     def test_format_mac_address(self):
         """Verifies MAC address normalization across various standard delimiters and casings."""
@@ -231,9 +232,10 @@ class TestBootimusApiCompatibility(unittest.TestCase):
                     "--mac", "00:11:22:33:44:55"
                 ]
                 with mock.patch.object(sys, "argv", test_args):
-                    with self.assertRaises(SystemExit) as cm:
-                        bootimus.main()
-                    self.assertEqual(cm.exception.code, 0)
+                    with mock.patch("sys.stdout", new_callable=io.StringIO):
+                        with self.assertRaises(SystemExit) as cm:
+                            bootimus.main()
+                        self.assertEqual(cm.exception.code, 0)
                 mock_req.assert_any_call(
                     f"{bootimus.API_BASE}/clients/next-boot",
                     method="POST",
@@ -263,9 +265,10 @@ class TestBootimusApiCompatibility(unittest.TestCase):
                 ]
                 test_args = ["bootimus.py", "--clear-next-boot", "--all-targets"]
                 with mock.patch.object(sys, "argv", test_args):
-                    with self.assertRaises(SystemExit) as cm:
-                        bootimus.main()
-                    self.assertEqual(cm.exception.code, 0)
+                    with mock.patch("sys.stdout", new_callable=io.StringIO):
+                        with self.assertRaises(SystemExit) as cm:
+                            bootimus.main()
+                        self.assertEqual(cm.exception.code, 0)
 
     def test_parse_target_machines_space_and_csv(self):
         """Verifies parse_target_machines correctly parses both space-separated and CSV IP strings."""
@@ -303,9 +306,10 @@ class TestBootimusApiCompatibility(unittest.TestCase):
                     "--targets", "00:11:22:33:44:11, 00:11:22:33:44:22"
                 ]
                 with mock.patch.object(sys, "argv", test_args):
-                    with self.assertRaises(SystemExit) as cm:
-                        bootimus.main()
-                    self.assertEqual(cm.exception.code, 0)
+                    with mock.patch("sys.stdout", new_callable=io.StringIO):
+                        with self.assertRaises(SystemExit) as cm:
+                            bootimus.main()
+                        self.assertEqual(cm.exception.code, 0)
 
 
 if __name__ == "__main__":
