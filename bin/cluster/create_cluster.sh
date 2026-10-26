@@ -364,11 +364,11 @@ get_json_val() {
         fi
     elif command -v python3 >/dev/null 2>&1; then
         python3 -c '
-import json, sys
+import json, re, sys
 try:
     with open(sys.argv[1]) as f:
         data = json.load(f)
-    keys = sys.argv[2].strip(".").split(".")
+    keys = [m[0] or m[1] for m in re.findall(r"\[[\"\x27]?([^\"\x27\]]+)[\"\x27]?\]|([^.\[\]\s\"\x27]+)", sys.argv[2].strip())]
     val = data
     for k in keys:
         if val is None or not isinstance(val, dict):
@@ -395,11 +395,11 @@ get_json_array() {
         jq -r "${jsonpath} // [] | .[]" "$file" 2>/dev/null || true
     elif command -v python3 >/dev/null 2>&1; then
         python3 -c '
-import json, sys
+import json, re, sys
 try:
     with open(sys.argv[1]) as f:
         data = json.load(f)
-    keys = sys.argv[2].strip(".").split(".")
+    keys = [m[0] or m[1] for m in re.findall(r"\[[\"\x27]?([^\"\x27\]]+)[\"\x27]?\]|([^.\[\]\s\"\x27]+)", sys.argv[2].strip())]
     val = data
     for k in keys:
         if val is None or not isinstance(val, dict):

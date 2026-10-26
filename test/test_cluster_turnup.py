@@ -16,7 +16,9 @@
 
 import json
 import os
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import yaml
@@ -1456,6 +1458,55 @@ exec /usr/bin/id "$@"
             self.assertEqual(result.returncode, 0, f"Script failed with: {result.stderr}\nStdout: {result.stdout}")
             self.assertIn("already installed locally and registered in Fleet Hub. Skipping creation.", result.stdout)
             self.assertTrue(os.path.exists(mock_applied_file), "Expected ensure_config_sync_auth_secret to create the secret before early exit")
+
+    def test_get_json_val_and_array_python_fallback(self):
+        """Verify get_json_val and get_json_array handle bracketed keys when jq is absent."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sample_file = os.path.join(tmpdir, "sample.json")
+            with open(sample_file, "w") as f:
+                json.dump({
+                    "cluster": {
+                        "name": "edge-1",
+                        "enabled": True,
+                        "primary_root_repo": {
+                            "git": {
+                                "repo-url": "https://gitlab.com/retail-edge/test.git",
+                                "gsm-auth-secret": {
+                                    "gsm-name": "es-gitlab-creds"
+                                }
+                            }
+                        },
+                        "admins": ["admin1@example.com", "admin2@example.com"]
+                    }
+                }, f)
+
+            # Isolate PATH to only bash and python3 so command -v jq is guaranteed to fail
+            isolated_bin = os.path.join(tmpdir, "isolated_bin")
+            os.makedirs(isolated_bin, exist_ok=True)
+            bash_path = shutil.which("bash") or "/bin/bash"
+            py_path = shutil.which("python3") or sys.executable
+            os.symlink(bash_path, os.path.join(isolated_bin, "bash"))
+            os.symlink(py_path, os.path.join(isolated_bin, "python3"))
+
+            bash_script = (
+                f"source {CREATE_CLUSTER_SCRIPT}\n"
+                f"get_json_val {sample_file} '.cluster.primary_root_repo.git[\"repo-url\"]'\n"
+                f"get_json_val {sample_file} '.cluster.primary_root_repo.git[\"gsm-auth-secret\"][\"gsm-name\"]'\n"
+                f"get_json_val {sample_file} .cluster.enabled\n"
+                f"get_json_array {sample_file} .cluster.admins\n"
+            )
+            result = subprocess.run(
+                ["bash", "-c", bash_script],
+                capture_output=True,
+                text=True,
+                env={"PATH": isolated_bin, "HOME": os.environ.get("HOME", "/root")},
+            )
+            self.assertEqual(result.returncode, 0, f"Failed: {result.stderr}")
+            lines = result.stdout.strip().splitlines()
+            self.assertEqual(lines[0], "https://gitlab.com/retail-edge/test.git")
+            self.assertEqual(lines[1], "es-gitlab-creds")
+            self.assertEqual(lines[2], "true")
+            self.assertEqual(lines[3:], ["admin1@example.com", "admin2@example.com"])
 
 
 if __name__ == "__main__":
