@@ -229,6 +229,22 @@ def check_upstream_versions(current_deps):
     except Exception as e:
         results["oras"] = {"current": curr_oras, "latest": f"Error: {e}", "update_available": False}
 
+    # 9. Kube-bench CLI
+    curr_kb = current_deps.get("KUBE_BENCH_VERSION", "unknown")
+    try:
+        data = http_get_json("https://api.github.com/repos/aquasecurity/kube-bench/releases/latest")
+        tag = data.get("tag_name", "").lstrip("v")
+        results["kube-bench"] = {
+            "current": curr_kb,
+            "latest": tag,
+            "update_available": tag != curr_kb and tag != "",
+            "repo": "aquasecurity/kube-bench",
+            "url": f"https://github.com/aquasecurity/kube-bench/releases/download/v{tag}/kube-bench_{tag}_linux_amd64.tar.gz",
+            "filename": f"kube-bench_{tag}_linux_amd64.tar.gz",
+        }
+    except Exception as e:
+        results["kube-bench"] = {"current": curr_kb, "latest": f"Error: {e}", "update_available": False}
+
     return results
 
 
@@ -298,6 +314,11 @@ def update_dependencies_env(binary_name, new_info):
         content = re.sub(r"ORAS_PACKAGE_URL=.*", f"ORAS_PACKAGE_URL={url}", content)
         content = re.sub(r"ORAS_PACKAGE_FILENAME=.*", f"ORAS_PACKAGE_FILENAME={filename}", content)
         content = re.sub(r"ORAS_PACKAGE_SHA256=.*", f"ORAS_PACKAGE_SHA256={sha256}", content)
+    elif binary_name == "kube-bench":
+        content = re.sub(r"KUBE_BENCH_VERSION=.*", f"KUBE_BENCH_VERSION={latest_ver}", content)
+        content = re.sub(r"KUBE_BENCH_PACKAGE_URL=.*", f"KUBE_BENCH_PACKAGE_URL={url}", content)
+        content = re.sub(r"KUBE_BENCH_PACKAGE_FILENAME=.*", f"KUBE_BENCH_PACKAGE_FILENAME={filename}", content)
+        content = re.sub(r"KUBE_BENCH_PACKAGE_SHA256=.*", f"KUBE_BENCH_PACKAGE_SHA256={sha256}", content)
     elif binary_name == "helm":
         content = re.sub(r"HELM_VERSION=.*", f"HELM_VERSION={latest_ver}", content)
         content = re.sub(r"HELM_PACKAGE_URL=.*", f"HELM_PACKAGE_URL={url}", content)

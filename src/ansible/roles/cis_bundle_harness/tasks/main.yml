@@ -1,0 +1,92 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "GDC-CIS | Ensure extracted tooling directory exists"
+  ansible.builtin.file:
+    path: "{{ cis_bundle_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Unpack CIS Security Bundle from iso-cache"
+  ansible.builtin.unarchive:
+    src: "{{ cis_bundle_tarball_path }}"
+    dest: "{{ cis_bundle_install_dir }}/"
+    remote_src: true
+    owner: root
+    group: root
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Check if manifest.json exists in root or wrapper directory"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ cis_bundle_install_dir }}/manifest.json"
+    - "{{ cis_bundle_install_dir }}/cis-hardening-amd64/manifest.json"
+  register: _cis_manifest_checks
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Resolve canonical bundle root directory"
+  ansible.builtin.set_fact:
+    _cis_active_bundle_root: "{{ (item.stat.path | dirname) if item.stat.exists else omit }}"
+  loop: "{{ _cis_manifest_checks.results | default([]) }}"
+  when: item.stat.exists
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Ensure hardening entrypoint has executable permissions"
+  ansible.builtin.file:
+    path: "{{ _cis_active_bundle_root | default(cis_bundle_install_dir) }}/bin/run-hardening.sh"
+    mode: '0750'
+    owner: root
+    group: root
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Ensure assessment entrypoint has executable permissions"
+  ansible.builtin.file:
+    path: "{{ _cis_active_bundle_root | default(cis_bundle_install_dir) }}/bin/run-assessment.sh"
+    mode: '0750'
+    owner: root
+    group: root
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Execute External CIS Security Bundle Hardening"
+  ansible.builtin.command: "{{ _cis_active_bundle_root | default(cis_bundle_install_dir) }}/bin/run-hardening.sh"
+  environment:
+    GDC_STATE_FILE: "{{ cis_bundle_state_file }}"
+    GDC_REPORT_DIR: "{{ cis_bundle_report_dir }}"
+    GDC_LOG_DIR: "{{ cis_bundle_log_dir }}"
+    GDC_FIREWALL_POLICY: "disabled"
+    GDC_ENABLE_CONTAINERD: "true"
+    GDC_ENABLE_K8S_ROUTING: "true"
+    GDC_ENABLE_SHM_EXEC: "true"
+    GDC_ENABLE_GPU_PTRACE: "true"
+    GDC_ENABLE_NGINX: "true"
+    GDC_ENABLE_CHRONY: "true"
+  register: _bundle_execution
+  failed_when: _bundle_execution.rc > 1
+  changed_when: _bundle_execution.rc == 0
+  timeout: "{{ cis_bundle_timeout_seconds | int }}"
+  ignore_errors: true
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Check if cis-benchmark.json was generated"
+  ansible.builtin.stat:
+    path: "{{ cis_bundle_state_file }}"
+  register: _cis_state_file
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Slurp cis-benchmark.json into facts"
+  ansible.builtin.slurp:
+    src: "{{ cis_bundle_state_file }}"
+  register: _slurped_cis_benchmark
+  when: _cis_state_file.stat.exists
+  tags: ["strictly-local"]
+
+- name: "GDC-CIS | Expose benchmark results as fact"
+  ansible.builtin.set_fact:
+    cis_benchmark_facts: "{{ (_slurped_cis_benchmark.content | b64decode | from_json) if _cis_state_file.stat.exists else {'status': 'NOT_EVALUATED'} }}"
+  tags: ["strictly-local"]
