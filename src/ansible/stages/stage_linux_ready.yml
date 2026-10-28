@@ -25,9 +25,9 @@
   ansible.builtin.include_role:
     name: security_hardening
 
-- name: Run cis_benchmark audit role
+- name: Run cis_bundle_harness role
   ansible.builtin.include_role:
-    name: cis_benchmark
+    name: cis_bundle_harness
 
 - name: "GDC-EVIDENCE | Check Dracut configuration for TPM modules"
   ansible.builtin.shell: grep -q 'add_dracutmodules+=.*tpm2-tss' /etc/dracut.conf.d/gdc.conf
