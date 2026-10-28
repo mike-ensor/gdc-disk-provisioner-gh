@@ -6,3 +6,17 @@ cis_bundle_state_file: "/var/gdc-install/state/cis-benchmark.json"
 cis_bundle_report_dir: "/opt/cis-benchmark/reports"
 cis_bundle_log_dir: "/var/gdc-install/logs/cis"
 cis_bundle_timeout_seconds: 1800
+cis_bundle_skip_hardening: >-
+  {{
+    (lookup('env', 'GDC_SKIP_CIS_HARDENING') | default('', true) | bool)
+    if (lookup('env', 'GDC_SKIP_CIS_HARDENING') | default('', true) | length > 0)
+    else (
+      (((machine_config | default({})).security | default({})).skip_cis_hardening | default(
+        (machine_config | default({})).skip_cis_hardening | default(
+          (((ansible_local | default({})).gdc | default({})).security | default({})).skip_cis_hardening | default(
+            ((ansible_local | default({})).gdc | default({})).skip_cis_hardening | default(false)
+          )
+        )
+      )) | bool
+    )
+  }}
