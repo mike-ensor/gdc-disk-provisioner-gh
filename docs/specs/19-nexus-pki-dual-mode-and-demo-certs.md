@@ -15,9 +15,9 @@ This specification defines the architectural and operational design for the **Du
 To enable secure, turnkey turnup across both enterprise production environments and offline lab/demo environments, the provisioner supports two mutually exclusive certificate operating modes:
 
 1. **Enterprise Mode (Customer Delegated Sub-CA):**  
-   Active when the GDC Companion machine configuration provides a `cluster.sub_ca_secret`. The appliance retrieves an Intermediate Sub-CA keypair from Google Cloud Secret Manager (GSM) over hardware-attested mTLS, mints local host certificates for `nexus.internal.gdc.local`, and hands over the Sub-CA keypair to in-cluster `cert-manager`.
+   Active when the GDC Companion machine configuration provides `cluster.sub_ca_secret` (for cluster-assigned machines) or top-level `sub_ca_secret` (for unassigned warm-spare machines stopping at `CLUSTER_READY`). The appliance retrieves an Intermediate Sub-CA keypair from Google Cloud Secret Manager (GSM) over hardware-attested mTLS, mints local host certificates for `nexus.internal.gdc.local`, and hands over the Sub-CA keypair to in-cluster `cert-manager`.
 2. **Demo Mode (Pre-Baked 10-Year Demo Sub-CA):**  
-   Active when `cluster.sub_ca_secret` is omitted or empty (e.g. checkbox disabled in GDC Companion). The appliance activates a pre-baked, 10-year dedicated Demo Sub-CA embedded directly into the ISO image (`/custom-data/demo-certs/sub-ca.json`). The appliance writes the Demo Root CA into the system trust store, uses `step-cli` to mint local certificates valid for both `nexus.demo.gdc-labs.com` and `nexus.internal.gdc.local`, and seamlessly hands over the Sub-CA to `cert-manager`. This guarantees that offline demo ISOs can sit in storage or demo kits for years without encountering a 90-day certificate expiration brick.
+   Active when both `cluster.sub_ca_secret` and top-level `sub_ca_secret` are omitted or empty (e.g. checkbox disabled in GDC Companion). The appliance activates a pre-baked, 10-year dedicated Demo Sub-CA embedded directly into the ISO image (`/custom-data/demo-certs/sub-ca.json`). The appliance writes the Demo Root CA into the system trust store, uses `step-cli` to mint local certificates valid for both `nexus.demo.gdc-labs.com` and `nexus.internal.gdc.local`, and seamlessly hands over the Sub-CA to `cert-manager`. This guarantees that offline demo ISOs can sit in storage or demo kits for years without encountering a 90-day certificate expiration brick.
 
 ---
 
@@ -40,7 +40,7 @@ To utilize public certificates that are trusted out-of-the-box by all operating 
 
 | Dimension | Enterprise Mode (Production) | Demo / Lab Mode (Pre-Baked 10-Year Sub-CA) |
 | :--- | :--- | :--- |
-| **Activation Condition** | `cluster.sub_ca_secret` defined in Companion | `cluster.sub_ca_secret` is omitted / empty |
+| **Activation Condition** | `cluster.sub_ca_secret` or top-level `sub_ca_secret` defined in Companion | Both `cluster.sub_ca_secret` and `sub_ca_secret` are omitted / empty |
 | **Domain Name** | `nexus.internal.gdc.local` (alias `nexus.gdc.local`) | `nexus.demo.gdc-labs.com` & `nexus.internal.gdc.local` |
 | **Certificate Authority** | Enterprise Intermediate Sub-CA (from GSM) | Dedicated GDC Demo Intermediate Sub-CA (10-Year) |
 | **Certificate Scope** | Host leaf minted via `step-cli` for internal domain | Host leaf minted via `step-cli` with multi-domain SANs |

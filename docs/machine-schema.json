@@ -117,8 +117,11 @@
       }
     },
     "cluster": {
-      "type": "object",
-      "description": "Target cluster configuration metadata.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Target cluster configuration metadata (null when machine is unassigned).",
       "required": [
         "cluster_name",
         "networking",
@@ -560,6 +563,52 @@
               "description": "Identifier of the Google Cloud Project holding the Sub-CA secret (alias)"
             }
           }
+        }
+      }
+    },
+    "sub_ca_secret": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Machine-level or effective Enterprise Intermediate Sub-CA credentials stored in Google Cloud Secret Manager (used by unassigned warm-spare machines at CLUSTER_READY and mirrored from the cluster when assigned).",
+      "required": [
+        "gsm-name"
+      ],
+      "properties": {
+        "gsm-name": {
+          "type": "string",
+          "description": "Identifier of the Secret Manager secret holding the Sub-CA JSON payload"
+        },
+        "gsm_name": {
+          "type": "string",
+          "description": "Identifier of the Secret Manager secret holding the Sub-CA JSON payload (snake_case alias)"
+        },
+        "gsm-location": {
+          "type": "string",
+          "default": "global",
+          "description": "Secret Manager replication location (e.g., global, us-central1)"
+        },
+        "gsm_location": {
+          "type": "string",
+          "default": "global",
+          "description": "Secret Manager replication location (snake_case alias)"
+        },
+        "gsm-project": {
+          "type": "string",
+          "description": "Identifier of the Google Cloud Project holding the Sub-CA secret (defaults to gcp_info.project_id if omitted)"
+        },
+        "gsm_project": {
+          "type": "string",
+          "description": "Identifier of the Google Cloud Project holding the Sub-CA secret (snake_case alias)"
+        },
+        "gcp-project": {
+          "type": "string",
+          "description": "Identifier of the Google Cloud Project holding the Sub-CA secret (alias)"
+        },
+        "gcp_project": {
+          "type": "string",
+          "description": "Identifier of the Google Cloud Project holding the Sub-CA secret (alias)"
         }
       }
     },

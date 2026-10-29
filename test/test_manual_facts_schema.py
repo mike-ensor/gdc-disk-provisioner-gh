@@ -90,6 +90,29 @@ class TestManualFactsSchema(unittest.TestCase):
         with self.assertRaises(jsonschema.ValidationError):
             jsonschema.validate(instance=invalid_cluster, schema=cluster_schema)
 
+    def test_unassigned_machine_top_level_sub_ca_secret_schema_validation(self):
+        """Verifies unassigned machine payload (cluster: null) with top-level sub_ca_secret validates against machine-schema.json."""
+        valid_path = os.path.join(FIXTURES_DIR, "valid-gdc-fact-manual.json")
+        with open(valid_path, "r", encoding="utf-8") as f:
+            base_machine = json.load(f)
+
+        unassigned_machine = dict(base_machine)
+        unassigned_machine["cluster"] = None
+        unassigned_machine["sub_ca_secret"] = {
+            "gsm-name": "enterprise-sub-ca-secret",
+            "gsm-location": "us-central1",
+            "gsm-project": "corp-security-pki",
+        }
+        jsonschema.validate(instance=unassigned_machine, schema=self.schema)
+
+        # Assert top-level sub_ca_secret missing gsm-name fails schema validation
+        invalid_unassigned_machine = dict(unassigned_machine)
+        invalid_unassigned_machine["sub_ca_secret"] = {
+            "gsm-location": "us-central1",
+        }
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(instance=invalid_unassigned_machine, schema=self.schema)
+
     def test_no_divergence_from_upstream_companion(self):
         """Verifies local docs/machine-schema.json has not diverged from gdc-companion."""
         companion_schema = None
