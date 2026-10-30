@@ -4,26 +4,14 @@
   ansible.builtin.set_fact:
     nexus_tls_should_exist: "{{ gdc_nexus_tls_enabled | default(true) | bool }}"
     sub_ca_gsm_name: >-
-      {{
-        ((cluster_config | default({})).sub_ca_secret | default({})).get('gsm-name')
-        or ((cluster_config | default({})).sub_ca_secret | default({})).get('gsm_name')
-        or ''
-      }}
+      {%- set _s = (cluster_config | default({}, true)).sub_ca_secret or (machine_config | default({}, true)).sub_ca_secret or {} -%}
+      {{ _s.get('gsm-name') or _s.get('gsm_name') or '' }}
     sub_ca_gsm_location: >-
-      {{
-        ((cluster_config | default({})).sub_ca_secret | default({})).get('gsm-location')
-        or ((cluster_config | default({})).sub_ca_secret | default({})).get('gsm_location')
-        or 'global'
-      }}
+      {%- set _s = (cluster_config | default({}, true)).sub_ca_secret or (machine_config | default({}, true)).sub_ca_secret or {} -%}
+      {{ _s.get('gsm-location') or _s.get('gsm_location') or 'global' }}
     sub_ca_gsm_project: >-
-      {{
-        ((cluster_config | default({})).sub_ca_secret | default({})).get('gsm-project')
-        or ((cluster_config | default({})).sub_ca_secret | default({})).get('gsm_project')
-        or ((cluster_config | default({})).sub_ca_secret | default({})).get('gcp_project')
-        or ((cluster_config | default({})).sub_ca_secret | default({})).get('gcp-project')
-        or gcp_project_id
-        | default('')
-      }}
+      {%- set _s = (cluster_config | default({}, true)).sub_ca_secret or (machine_config | default({}, true)).sub_ca_secret or {} -%}
+      {{ _s.get('gsm-project') or _s.get('gsm_project') or _s.get('gcp_project') or _s.get('gcp-project') or gcp_project_id | default('') }}
     fallback_sub_ca_gsm_project: >-
       {{
         gdc_fallback_sub_ca_gsm_project

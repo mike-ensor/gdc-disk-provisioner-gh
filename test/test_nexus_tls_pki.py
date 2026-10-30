@@ -139,6 +139,90 @@ class TestNexusTLSPKI(unittest.TestCase):
         self.assertEqual(template.render(sub_ca_gsm_project="   ").strip(), "")
         self.assertEqual(template.render(sub_ca_gsm_project="my-project").strip(), "--project=my-project")
 
+    def test_pki_ingest_sub_ca_secret_resolution(self):
+        """Verifies pki_ingest.yml resolves sub_ca_secret from cluster_config or top-level machine_config."""
+        pki_task_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/machine_orchestration/tasks/pki_ingest.yml")
+        with open(pki_task_path, "r", encoding="utf-8") as f:
+            tasks = yaml.safe_load(f)
+
+        resolve_task = next(
+            (t for t in tasks if "Resolve Nexus TLS requirements & Sub-CA GSM configuration" in t.get("name", "")),
+            None
+        )
+        self.assertIsNotNone(resolve_task, "Resolve Nexus TLS requirements task not found")
+        assert resolve_task is not None
+        set_facts = resolve_task.get("ansible.builtin.set_fact", {})
+
+        env = Environment()
+        name_tmpl = env.from_string(set_facts["sub_ca_gsm_name"])
+        loc_tmpl = env.from_string(set_facts["sub_ca_gsm_location"])
+        proj_tmpl = env.from_string(set_facts["sub_ca_gsm_project"])
+
+        # 1. Cluster-assigned machine: cluster_config has sub_ca_secret
+        cluster_ctx = {
+            "cluster_config": {
+                "sub_ca_secret": {
+                    "gsm-name": "cluster-sub-ca",
+                    "gsm-location": "us-central1",
+                    "gsm-project": "cluster-pki-proj",
+                }
+            },
+            "machine_config": {},
+            "gcp_project_id": "default-node-proj",
+        }
+        self.assertEqual(name_tmpl.render(**cluster_ctx).strip(), "cluster-sub-ca")
+        self.assertEqual(loc_tmpl.render(**cluster_ctx).strip(), "us-central1")
+        self.assertEqual(proj_tmpl.render(**cluster_ctx).strip(), "cluster-pki-proj")
+
+        # 2. Unassigned machine: cluster_config is {} (cluster: null) and machine_config has top-level sub_ca_secret
+        unassigned_ctx = {
+            "cluster_config": {},
+            "machine_config": {
+                "cluster": None,
+                "sub_ca_secret": {
+                    "gsm-name": "machine-warm-spare-sub-ca",
+                    "gsm-location": "us-east4",
+                    "gsm-project": "machine-pki-proj",
+                },
+            },
+            "gcp_project_id": "default-node-proj",
+        }
+        self.assertEqual(name_tmpl.render(**unassigned_ctx).strip(), "machine-warm-spare-sub-ca")
+        self.assertEqual(loc_tmpl.render(**unassigned_ctx).strip(), "us-east4")
+        self.assertEqual(proj_tmpl.render(**unassigned_ctx).strip(), "machine-pki-proj")
+
+        # 3. Precedence: when both are present, cluster_config.sub_ca_secret takes precedence
+        both_ctx = {
+            "cluster_config": {
+                "sub_ca_secret": {
+                    "gsm-name": "cluster-sub-ca",
+                    "gsm-location": "us-west1",
+                    "gsm-project": "cluster-pki-proj",
+                }
+            },
+            "machine_config": {
+                "sub_ca_secret": {
+                    "gsm-name": "machine-sub-ca",
+                    "gsm-location": "us-east1",
+                    "gsm-project": "machine-pki-proj",
+                }
+            },
+            "gcp_project_id": "default-node-proj",
+        }
+        self.assertEqual(name_tmpl.render(**both_ctx).strip(), "cluster-sub-ca")
+        self.assertEqual(loc_tmpl.render(**both_ctx).strip(), "us-west1")
+        self.assertEqual(proj_tmpl.render(**both_ctx).strip(), "cluster-pki-proj")
+
+        # 4. Null cluster and null sub_ca_secret fall back cleanly to defaults without error
+        null_ctx = {
+            "cluster_config": None,
+            "machine_config": {"cluster": None, "sub_ca_secret": None},
+            "gcp_project_id": "default-node-proj",
+        }
+        self.assertEqual(name_tmpl.render(**null_ctx).strip(), "")
+        self.assertEqual(loc_tmpl.render(**null_ctx).strip(), "global")
+        self.assertEqual(proj_tmpl.render(**null_ctx).strip(), "default-node-proj")
+
     def test_rotation_script_and_systemd_templates(self):
         """Verifies refresh-nexus-tls script, service, and timer templates render valid syntax."""
         env = Environment()
