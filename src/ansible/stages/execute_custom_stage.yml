@@ -3,71 +3,115 @@
 - name: "GDC-EXTENSION | Reset custom extension evidence for {{ target_custom_stage | default('unknown') }}"
   ansible.builtin.set_fact:
     custom_extension_evidence: {}
-    _custom_stage_playbook_file: "{{ custom_extensions_playbooks_dir | default('/var/gdc-install/custom-playbooks') }}/{{ target_custom_stage }}.yml"
+    _custom_bundle_root: "{{ custom_extensions_bundle_dir | default('/var/gdc-install/bundle') }}"
+    _custom_manifest_file: "{{ custom_extensions_manifest_state_file | default('/var/gdc-install/state/bundle-manifest.json') }}"
 
-- name: "GDC-EXTENSION | Check for custom tasks: {{ target_custom_stage }}"
+- name: "GDC-EXTENSION | Check if bundle-manifest.json exists"
   ansible.builtin.stat:
-    path: "{{ _custom_stage_playbook_file }}"
-  register: _custom_stage_file_stat
+    path: "{{ _custom_manifest_file }}"
+  register: _active_manifest_stat
 
-- name: "GDC-EXTENSION | Execute custom {{ target_custom_stage }} tasks"
-  when: _custom_stage_file_stat.stat.exists
+- name: "GDC-EXTENSION | Evaluate bundle manifest and gate stage {{ target_custom_stage }}"
+  when: _active_manifest_stat.stat.exists
   block:
-    - name: "GDC-EXTENSION | Validate and normalize {{ target_custom_stage }}.yml if wrapped in play"
-      ansible.builtin.shell: |
-        python3 - << 'EOF'
-        import sys, yaml
-        fpath = "{{ _custom_stage_playbook_file }}"
-        try:
-            with open(fpath, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-                if "hosts" in data[0] or "gather_facts" in data[0]:
-                    extracted_tasks = []
-                    for play in data:
-                        if isinstance(play, dict) and "tasks" in play and isinstance(play["tasks"], list):
-                            extracted_tasks.extend(play["tasks"])
-                    if extracted_tasks:
-                        with open(fpath, "w", encoding="utf-8") as out_f:
-                            yaml.safe_dump(extracted_tasks, out_f, default_flow_style=False, sort_keys=False)
-                        print("NORMALIZED")
-                        sys.exit(0)
-                    else:
-                        print("INVALID_PLAYBOOK_NO_TASKS", file=sys.stderr)
-                        sys.exit(1)
-            print("VALID")
-            sys.exit(0)
-        except Exception as e:
-            print(f"ERROR: {e}", file=sys.stderr)
-            sys.exit(2)
-        EOF
-      args:
-        executable: /bin/bash
-      register: _custom_stage_normalize_res
-      changed_when: "'NORMALIZED' in _custom_stage_normalize_res.stdout"
+    - name: "GDC-EXTENSION | Slurp bundle manifest state"
+      ansible.builtin.slurp:
+        src: "{{ _custom_manifest_file }}"
+      register: _slurped_manifest_state
 
-    - name: "GDC-EXTENSION | Run {{ target_custom_stage }}.yml"
-      ansible.builtin.include_tasks:
-        file: "{{ _custom_stage_playbook_file }}"
-
-    - name: "GDC-EXTENSION | Record successful custom extension execution in evidence"
+    - name: "GDC-EXTENSION | Parse active bundle manifest"
       ansible.builtin.set_fact:
-        custom_extension_evidence:
-          executed: true
-          custom_stage: "{{ target_custom_stage }}"
-          custom_file: "{{ _custom_stage_playbook_file }}"
-          status: "SUCCESS"
-  rescue:
-    - name: "GDC-EXTENSION | Record failure evidence attributing external playbook"
-      ansible.builtin.set_fact:
-        custom_extension_evidence:
-          failed_in_custom_extension: true
-          executed: true
-          custom_stage: "{{ target_custom_stage }}"
-          custom_file: "{{ _custom_stage_playbook_file }}"
-          message: "Execution failed within external custom playbook ({{ target_custom_stage }}.yml). Inspect /var/log/gdc-ansible-pull.log for details."
-          error_detail: "{{ ansible_failed_result | default({}) }}"
+        _active_bundle_manifest: "{{ _slurped_manifest_state.content | b64decode | from_json }}"
 
-    - name: "GDC-EXTENSION | Fail stage due to external playbook failure"
-      ansible.builtin.fail:
-        msg: "Execution failed within external custom playbook ({{ target_custom_stage }}.yml). Inspect /var/log/gdc-ansible-pull.log for details."
+    - name: "GDC-EXTENSION | Check if stage {{ target_custom_stage }} is declared in manifest"
+      ansible.builtin.set_fact:
+        _stage_enabled_in_manifest: "{{ target_custom_stage in (_active_bundle_manifest.stages | default([])) }}"
+        _custom_stage_dir: "{{ _custom_bundle_root }}/{{ target_custom_stage }}"
+        _custom_stage_playbook_file: "{{ _custom_bundle_root }}/{{ target_custom_stage }}/playbook.yaml"
+
+    - name: "GDC-EXTENSION | Notice: Stage not declared in bundle manifest"
+      ansible.builtin.debug:
+        msg: >-
+          [GDC-EXTENSION] Stage '{{ target_custom_stage }}' is not declared in bundle manifest ({{ _active_bundle_manifest.name | default('unknown') }}).
+          Active stages: {{ _active_bundle_manifest.stages | default([]) }}. Skipping execution.
+      when: not _stage_enabled_in_manifest | bool
+
+    - name: "GDC-EXTENSION | Check for custom stage playbook: {{ _custom_stage_playbook_file }}"
+      ansible.builtin.stat:
+        path: "{{ _custom_stage_playbook_file }}"
+      register: _custom_stage_file_stat
+      when: _stage_enabled_in_manifest | bool
+
+    - name: "GDC-EXTENSION | Execute custom {{ target_custom_stage }} tasks"
+      when:
+        - _stage_enabled_in_manifest | bool
+        - _custom_stage_file_stat.stat.exists
+      block:
+        - name: "GDC-EXTENSION | Validate and normalize {{ target_custom_stage }}/playbook.yaml if wrapped in play"
+          ansible.builtin.shell: |
+            python3 - << 'EOF'
+            import sys, yaml
+            fpath = "{{ _custom_stage_playbook_file }}"
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+                if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+                    if "hosts" in data[0] or "gather_facts" in data[0]:
+                        extracted_tasks = []
+                        for play in data:
+                            if isinstance(play, dict) and "tasks" in play and isinstance(play["tasks"], list):
+                                extracted_tasks.extend(play["tasks"])
+                        if extracted_tasks:
+                            with open(fpath, "w", encoding="utf-8") as out_f:
+                                yaml.safe_dump(extracted_tasks, out_f, default_flow_style=False, sort_keys=False)
+                            print("NORMALIZED")
+                            sys.exit(0)
+                        else:
+                            print("INVALID_PLAYBOOK_NO_TASKS", file=sys.stderr)
+                            sys.exit(1)
+                print("VALID")
+                sys.exit(0)
+            except Exception as e:
+                print(f"ERROR: {e}", file=sys.stderr)
+                sys.exit(2)
+            EOF
+          args:
+            executable: /bin/bash
+          register: _custom_stage_normalize_res
+          changed_when: "'NORMALIZED' in _custom_stage_normalize_res.stdout"
+
+        - name: "GDC-EXTENSION | Run {{ target_custom_stage }}/playbook.yaml with asset context"
+          ansible.builtin.include_tasks:
+            file: "{{ _custom_stage_playbook_file }}"
+          vars:
+            bundle_root_dir: "{{ _custom_bundle_root }}"
+            bundle_stage_dir: "{{ _custom_stage_dir }}"
+            bundle_bin_dir: "{{ _custom_stage_dir }}/bin"
+            bundle_oci_dir: "{{ _custom_stage_dir }}/oci"
+            bundle_pkg_dir: "{{ _custom_stage_dir }}/pkg"
+
+        - name: "GDC-EXTENSION | Record successful custom extension execution in evidence"
+          ansible.builtin.set_fact:
+            custom_extension_evidence:
+              executed: true
+              custom_stage: "{{ target_custom_stage }}"
+              custom_file: "{{ _custom_stage_playbook_file }}"
+              bundle_name: "{{ _active_bundle_manifest.name | default('unknown') }}"
+              bundle_version: "{{ _active_bundle_manifest.version | default('unknown') }}"
+              status: "SUCCESS"
+      rescue:
+        - name: "GDC-EXTENSION | Record failure evidence attributing external playbook"
+          ansible.builtin.set_fact:
+            custom_extension_evidence:
+              failed_in_custom_extension: true
+              executed: true
+              custom_stage: "{{ target_custom_stage }}"
+              custom_file: "{{ _custom_stage_playbook_file }}"
+              bundle_name: "{{ _active_bundle_manifest.name | default('unknown') }}"
+              bundle_version: "{{ _active_bundle_manifest.version | default('unknown') }}"
+              message: "Execution failed within external custom playbook ({{ target_custom_stage }}/playbook.yaml). Inspect /var/log/gdc-ansible-pull.log for details."
+              error_detail: "{{ ansible_failed_result | default({}) }}"
+
+        - name: "GDC-EXTENSION | Fail stage due to external playbook failure"
+          ansible.builtin.fail:
+            msg: "Execution failed within external custom playbook ({{ target_custom_stage }}/playbook.yaml). Inspect /var/log/gdc-ansible-pull.log for details."

@@ -1,0 +1,27 @@
+# ==============================================================================
+# GDC Custom Playbook Lifecycle Extension Manifest
+# Specification: GDC-SPEC-017 & GDC-SPEC-018
+# ==============================================================================
+
+# Human-readable identifier for this extension bundle
+name: "bundle-template"
+
+# Upstream origin / CI-CD pipeline source tracking URI
+origin: "https://git.internal/gdc/platform/bundles/bundle-template"
+
+# Detailed description of the purpose, hardening, or tests run by this bundle
+description: |
+  Canonical reference template for GDC lifecycle playbook extension bundles.
+  Demonstrates modular per-stage tasks and convention folders (bin, oci, pkg).
+
+# Semantic version matching the VERSION file
+version: "0.0.1"
+
+# Ordered list of lifecycle stages enabled for execution.
+# Valid options: cluster_ready, cluster_turnup, post_cluster, upkeep.
+# Only stages listed below will execute, even if stage directories exist on disk.
+stages:
+  - cluster_ready
+  - cluster_turnup
+  - post_cluster
+  - upkeep

@@ -84,19 +84,28 @@ The machine configuration schema delivered via `GET /v1/machine-info/{mac}` must
 * **Content-Type:** `multipart/form-data`
 * **Request Fields:**
   * `file`: The `.tar.gz` bundle archive (max 200MB).
-  * `name`: Human-readable identifier (e.g., `burnin-suite-v1.0`).
-  * `description`: Optional text description.
-* **Backend Processing:**
+  * `name`: Optional human-readable identifier (defaults to `manifest.yaml` name if omitted).
+  * `description`: Optional text description (defaults to `manifest.yaml` description if omitted).
+* **Backend Processing & Upload Validation:**
   1. Validates that the uploaded file is a valid gzip-compressed tar archive.
   2. Computes the SHA-256 hash in a single streaming pass.
-  3. Verifies that the archive contains at least one recognized entry (e.g. `cluster_turnup.yml`, `post_cluster.yml`, or `requirements.yml`).
-  4. Stores the archive on persistent disk under `/var/lib/gdc-companion/bundles/{bundle_id}.tar.gz`.
-  5. Records metadata into database table `playbook_bundles`.
+  3. Validates that the archive contains mandatory `manifest.yaml` and `VERSION` files at its root, asserting that the trimmed content of `VERSION` matches the `version` field declared in `manifest.yaml`.
+  4. Inspects and parses `manifest.yaml` to extract `name`, `version`, and `stages`, verifying that `stages` is a non-empty list of supported lifecycle stages (`cluster_ready`, `cluster_turnup`, `post_cluster`, `upkeep`) and each declared stage contains `<stage>/playbook.yaml`.
+  5. Asserts archive sanitization: ensures tar file headers do not contain path traversal entries (e.g. `../../etc/shadow`).
+  6. Stores the archive on persistent disk under `/var/lib/gdc-companion/bundles/{bundle_id}.tar.gz`.
+  7. Records metadata into database table `playbook_bundles`, persisting extracted `name`, `version`, `stages`, `description`, `sha256`, and `size_bytes`.
 * **Response (HTTP 201 Created):**
   ```json
   {
     "bundle_id": "bnd_01j9a8c7b3e5f2",
-    "name": "burnin-suite-v1.0",
+    "name": "burnin-suite",
+    "version": "1.0.0",
+    "stages": [
+      "cluster_ready",
+      "cluster_turnup",
+      "post_cluster",
+      "upkeep"
+    ],
     "filename": "burnin-suite-v1.0.tar.gz",
     "size_bytes": 1428570,
     "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
@@ -117,7 +126,14 @@ The machine configuration schema delivered via `GET /v1/machine-info/{mac}` must
     "bundles": [
       {
         "bundle_id": "bnd_01j9a8c7b3e5f2",
-        "name": "burnin-suite-v1.0",
+        "name": "burnin-suite",
+        "version": "1.0.0",
+        "stages": [
+          "cluster_ready",
+          "cluster_turnup",
+          "post_cluster",
+          "upkeep"
+        ],
         "description": "Hardware stress test and storage burn-in suite",
         "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "size_bytes": 1428570,

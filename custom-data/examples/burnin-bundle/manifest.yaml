@@ -1,0 +1,11 @@
+# ==============================================================================
+# GDC Custom Playbook Lifecycle Extension Manifest - Burn-In Suite Reference
+# ==============================================================================
+name: "burnin-suite"
+origin: "https://git.internal/gdc/platform/bundles/burnin-suite"
+description: |
+  Reference hardware burn-in and workload validation bundle for GDC Bare Metal.
+version: "1.0.0"
+stages:
+  - cluster_turnup
+  - post_cluster

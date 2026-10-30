@@ -9,14 +9,32 @@
   ansible.builtin.include_role:
     name: upkeep
 
+- name: "GDC-UPKEEP-EXT | Execute custom upkeep extensions if declared in manifest"
+  ansible.builtin.include_tasks:
+    file: execute_custom_stage.yml
+  vars:
+    target_custom_stage: "upkeep"
+
 - name: "GDC-TIMING | Calculate Upkeep timing facts"
   ansible.builtin.set_fact:
     upkeep_end_time: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
     upkeep_duration_seconds: "{{ [(now(utc=true).strftime('%s') | int) - (upkeep_start_epoch | int), 0] | max }}"
 
-- name: "GDC-EVIDENCE | Update Upkeep Evidence Timing"
+- name: "GDC-EVIDENCE | Update Upkeep Evidence Timing and Custom Extension"
   ansible.builtin.set_fact:
-    upkeep_evidence: "{{ (upkeep_evidence | default({})) | combine({'timing': {'start_time': upkeep_start_time, 'end_time': upkeep_end_time, 'duration_seconds': upkeep_duration_seconds | int, 'overall_provisioning_start_time': provisioning_start_time | default(upkeep_start_time)}}) }}"
+    upkeep_evidence: >-
+      {{
+        (upkeep_evidence | default({}))
+        | combine({
+            'timing': {
+              'start_time': upkeep_start_time,
+              'end_time': upkeep_end_time,
+              'duration_seconds': upkeep_duration_seconds | int,
+              'overall_provisioning_start_time': provisioning_start_time | default(upkeep_start_time)
+            },
+            'custom_extension': (custom_extension_evidence | default({}))
+          })
+      }}
 
 - name: "GDC-STATE | Write Upkeep completion state"
   ansible.builtin.copy:
