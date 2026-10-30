@@ -42,6 +42,8 @@ skills/
 # Log files
 *.log
 *.tar.gz
+custom-data/**/*.tar.gz
+
 
 # ISO
 *.iso

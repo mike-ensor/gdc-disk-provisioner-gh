@@ -1,6 +1,8 @@
 # Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
 ---
 custom_extensions_base_dir: "/var/gdc-install"
-custom_extensions_playbooks_dir: "/var/gdc-install/custom-playbooks"
+custom_extensions_bundle_dir: "/var/gdc-install/bundle"
+custom_extensions_playbooks_dir: "/var/gdc-install/bundle"
 custom_extensions_sideload_tarball: "/var/gdc-install/custom-bundle.tar.gz"
+custom_extensions_manifest_state_file: "/var/gdc-install/state/bundle-manifest.json"
 custom_extensions_download_timeout: 300

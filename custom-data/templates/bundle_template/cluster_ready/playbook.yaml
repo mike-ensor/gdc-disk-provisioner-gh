@@ -1,0 +1,10 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+- name: "TEMPLATE-CLUSTER-READY | Log custom lifecycle extension hook start"
+  ansible.builtin.debug:
+    msg: "Executing custom lifecycle hook for stage from {{ bundle_stage_dir }}"
+
+# Convention folders:
+# - {{ bundle_bin_dir }}: Binaries & scripts to chmod +x or execute
+# - {{ bundle_oci_dir }}: Container images (*.tar) to load via nerdctl/crictl
+# - {{ bundle_pkg_dir }}: Debian packages (*.deb) to install via dpkg/apt

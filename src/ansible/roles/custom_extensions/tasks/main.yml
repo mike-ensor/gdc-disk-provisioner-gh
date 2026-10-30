@@ -4,7 +4,7 @@
   ansible.builtin.set_fact:
     _custom_ext_config: "{{ (machine_config | default({})).custom_extensions | default({}) }}"
     _custom_bundle_tarball: "{{ custom_extensions_sideload_tarball }}"
-    _custom_playbooks_path: "{{ custom_extensions_playbooks_dir }}"
+    _custom_bundle_path: "{{ custom_extensions_bundle_dir | default('/var/gdc-install/bundle') }}"
 
 - name: "GDC-EXTENSION | Check if sideloaded bundle exists on local filesystem"
   ansible.builtin.stat:
@@ -73,36 +73,123 @@
 - name: "GDC-EXTENSION | Unpack and install bundle when present"
   when: _active_bundle_stat.stat.exists
   block:
-    - name: "GDC-EXTENSION | Ensure destination playbooks directory exists"
+    - name: "GDC-EXTENSION | Ensure destination bundle directory exists"
       ansible.builtin.file:
-        path: "{{ _custom_playbooks_path }}"
+        path: "{{ _custom_bundle_path }}"
         state: directory
         owner: root
         group: root
         mode: '0750'
 
-    - name: "GDC-EXTENSION | Extract custom extension bundle into playbooks directory"
+    - name: "GDC-EXTENSION | Extract custom extension bundle into bundle directory"
       ansible.builtin.unarchive:
         src: "{{ _custom_bundle_tarball }}"
-        dest: "{{ _custom_playbooks_path }}"
+        dest: "{{ _custom_bundle_path }}"
         remote_src: true
         owner: root
         group: root
         mode: 'u=rwX,g=rX,o='
 
-    - name: "GDC-EXTENSION | Auto-normalize custom playbooks into task lists if wrapped in plays"
+    - name: "GDC-EXTENSION | Verify manifest.yaml exists in unpacked bundle"
+      ansible.builtin.stat:
+        path: "{{ _custom_bundle_path }}/manifest.yaml"
+      register: _bundle_manifest_stat
+
+    - name: "GDC-EXTENSION | Assert bundle contains mandatory manifest.yaml"
+      ansible.builtin.assert:
+        that:
+          - _bundle_manifest_stat.stat.exists
+        fail_msg: "Security Alert: Custom extension bundle {{ _custom_bundle_tarball }} is invalid: missing mandatory manifest.yaml!"
+        success_msg: "Bundle manifest.yaml presence confirmed."
+
+    - name: "GDC-EXTENSION | Validate manifest.yaml schema and persist bundle-manifest.json"
       ansible.builtin.shell: |
         python3 - << 'EOF'
-        import os, sys, yaml
+        import os, sys, json, yaml
 
-        pb_dir = "{{ _custom_playbooks_path }}"
-        for fname in ["cluster_ready.yml", "cluster_turnup.yml", "post_cluster.yml"]:
-            fpath = os.path.join(pb_dir, fname)
+        bundle_path = "{{ _custom_bundle_path }}"
+        manifest_file = os.path.join(bundle_path, "manifest.yaml")
+        state_file = "{{ custom_extensions_manifest_state_file | default('/var/gdc-install/state/bundle-manifest.json') }}"
+
+        try:
+            with open(manifest_file, "r", encoding="utf-8") as f:
+                manifest = yaml.safe_load(f)
+        except Exception as e:
+            print(f"ERROR: Cannot parse manifest.yaml: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        if not isinstance(manifest, dict):
+            print("ERROR: manifest.yaml must be a YAML dictionary.", file=sys.stderr)
+            sys.exit(1)
+
+        for req in ["name", "version", "stages"]:
+            if req not in manifest or not manifest[req]:
+                print(f"ERROR: manifest.yaml is missing required field '{req}'.", file=sys.stderr)
+                sys.exit(1)
+
+        version_file = os.path.join(bundle_path, "VERSION")
+        if not os.path.isfile(version_file):
+            print("ERROR: Bundle missing required VERSION file or VERSION does not match manifest.yaml version.", file=sys.stderr)
+            sys.exit(1)
+
+        try:
+            with open(version_file, "r", encoding="utf-8") as vf:
+                bundle_version = vf.read().strip()
+            if bundle_version != str(manifest["version"]).strip():
+                print("ERROR: Bundle missing required VERSION file or VERSION does not match manifest.yaml version.", file=sys.stderr)
+                sys.exit(1)
+        except Exception:
+            print("ERROR: Bundle missing required VERSION file or VERSION does not match manifest.yaml version.", file=sys.stderr)
+            sys.exit(1)
+
+        if not isinstance(manifest["stages"], list) or len(manifest["stages"]) == 0:
+            print("ERROR: manifest.yaml 'stages' must be a non-empty list.", file=sys.stderr)
+            sys.exit(1)
+
+        VALID_STAGES = {"cluster_ready", "cluster_turnup", "post_cluster", "upkeep"}
+
+        # Validate that each declared stage has a corresponding <stage>/playbook.yaml
+        for stage in manifest["stages"]:
+            if not isinstance(stage, str) or stage not in VALID_STAGES:
+                print(f"ERROR: Invalid stage '{stage}'. Must be one of: {sorted(VALID_STAGES)}", file=sys.stderr)
+                sys.exit(1)
+            playbook_path = os.path.join(bundle_path, stage, "playbook.yaml")
+            if not os.path.isfile(playbook_path):
+                print(f"ERROR: Declared stage '{stage}' missing required playbook at {playbook_path}", file=sys.stderr)
+                sys.exit(1)
+
+        os.makedirs(os.path.dirname(state_file), exist_ok=True)
+        with open(state_file, "w", encoding="utf-8") as sf:
+            json.dump(manifest, sf, indent=2)
+
+        print(f"Validated manifest for bundle '{manifest['name']}' v{manifest['version']} with stages: {manifest['stages']}")
+        EOF
+      args:
+        executable: /bin/bash
+      register: _manifest_validation_result
+      changed_when: false
+
+    - name: "GDC-EXTENSION | Auto-normalize custom stage playbooks into task lists if wrapped in plays"
+      ansible.builtin.shell: |
+        python3 - << 'EOF'
+        import os, sys, json, yaml
+
+        bundle_path = "{{ _custom_bundle_path }}"
+        state_file = "{{ custom_extensions_manifest_state_file | default('/var/gdc-install/state/bundle-manifest.json') }}"
+
+        if not os.path.isfile(state_file):
+            sys.exit(0)
+
+        with open(state_file, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+
+        for stage in manifest.get("stages", []):
+            fpath = os.path.join(bundle_path, stage, "playbook.yaml")
             if not os.path.isfile(fpath):
                 continue
             try:
-                with open(fpath, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
+                with open(fpath, "r", encoding="utf-8") as pf:
+                    data = yaml.safe_load(pf)
                 if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
                     if "tasks" in data[0] or "hosts" in data[0]:
                         extracted_tasks = []
@@ -112,9 +199,9 @@
                         if extracted_tasks:
                             with open(fpath, "w", encoding="utf-8") as out_f:
                                 yaml.safe_dump(extracted_tasks, out_f, default_flow_style=False, sort_keys=False)
-                            print(f"Normalized {fname} from playbook to task list.")
+                            print(f"Normalized {stage}/playbook.yaml from playbook to task list.")
             except Exception as e:
-                print(f"Warning: could not normalize {fname}: {e}", file=sys.stderr)
+                print(f"Warning: could not normalize {stage}/playbook.yaml: {e}", file=sys.stderr)
         EOF
       args:
         executable: /bin/bash
@@ -122,17 +209,17 @@
 
     - name: "GDC-EXTENSION | Check for requirements.yml in unpacked bundle"
       ansible.builtin.stat:
-        path: "{{ _custom_playbooks_path }}/requirements.yml"
+        path: "{{ _custom_bundle_path }}/requirements.yml"
       register: _requirements_stat
 
     - name: "GDC-EXTENSION | Install Ansible dependencies via galaxy if requirements.yml present"
       ansible.builtin.command:
-        cmd: "ansible-galaxy install -r {{ _custom_playbooks_path }}/requirements.yml"
+        cmd: "ansible-galaxy install -r {{ _custom_bundle_path }}/requirements.yml"
       when: _requirements_stat.stat.exists
       register: _galaxy_install_result
       changed_when: _galaxy_install_result.rc == 0
 
-- name: "GDC-EXTENSION | Execute Stage 5 post-hook if cluster_ready.yml is present"
+- name: "GDC-EXTENSION | Execute Stage 5 post-hook if cluster_ready is declared"
   ansible.builtin.include_tasks:
     file: "{{ playbook_dir }}/stages/execute_custom_stage.yml"
   vars:
