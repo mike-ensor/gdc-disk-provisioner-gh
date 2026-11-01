@@ -945,5 +945,43 @@ class TestGgdTemplateHydration(unittest.TestCase):
         self.assertIn('printf \'{\\n  "stage": "LIVECD",\\n  "status": "completed",\\n  "timestamp": "%s"\\n}\\n\' "$(date -u +\'%Y-%m-%dT%H:%M:%SZ\')" > /target/var/gdc-install/state/live-cd.json', rendered)
         self.assertIn('timeout 60s /usr/local/bin/gdc-collector --stage live-cd --companion-url="http://127.0.0.1:8080/v1/install-logs" >/dev/ttyS0 2>&1 || true', rendered)
 
+    def test_password_hash_generation_no_crypt_deprecation(self):
+        """Verifies that password hash generation produces valid SHA-512 crypt hashes without DeprecationWarning."""
+        import warnings
+        with warnings.catch_warnings(record=True) as recorded_warnings:
+            warnings.simplefilter("always")
+            pw_hash = render_templates.generate_sha512_password_hash("test-password-456")
+            self.assertTrue(pw_hash.startswith("$6$"), f"Expected $6$ SHA-512 crypt hash, got: {pw_hash}")
+            pw_hash2 = render_templates.generate_sha512_password_hash("test-password-456")
+            self.assertNotEqual(pw_hash, pw_hash2, "Expected distinct random salts across hash invocations")
+
+            crypt_warnings = [
+                w for w in recorded_warnings
+                if issubclass(w.category, DeprecationWarning) and 'crypt' in str(w.message).lower()
+            ]
+            self.assertEqual(len(crypt_warnings), 0, f"Encountered crypt DeprecationWarning: {crypt_warnings}")
+
+    def test_render_templates_debug_extra_password_no_crypt_deprecation(self):
+        """Verifies that render_templates handles DEBUG_EXTRA_PASSWORD without crypt DeprecationWarning."""
+        import warnings
+        test_out = os.path.join(self.test_dir, "render_test_out")
+        env = self.base_env.copy()
+        env['OUTPUT_FILE'] = os.path.join(test_out, "autoinstall-storage.yaml")
+        env['DEBUG_EXTRA_USER'] = 'extra-debug-admin'
+        env['DEBUG_EXTRA_PASSWORD'] = 'extra-debug-secret'
+        env.pop('debug_extra_password_hash', None)
+        env.pop('DEBUG_EXTRA_PASSWORD_HASH', None)
+
+        with warnings.catch_warnings(record=True) as recorded_warnings:
+            warnings.simplefilter("always")
+            render_templates.render_templates(self.template_dir, test_out, env)
+
+            self.assertTrue(env['debug_extra_password_hash'].startswith("$6$"))
+            crypt_warnings = [
+                w for w in recorded_warnings
+                if issubclass(w.category, DeprecationWarning) and 'crypt' in str(w.message).lower()
+            ]
+            self.assertEqual(len(crypt_warnings), 0, f"Encountered crypt DeprecationWarning: {crypt_warnings}")
+
 if __name__ == "__main__":
     unittest.main()
