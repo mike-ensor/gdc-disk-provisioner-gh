@@ -4,18 +4,25 @@
   ansible.builtin.set_fact:
     nexus_tls_should_exist: "{{ gdc_nexus_tls_enabled | default(true) | bool }}"
     sub_ca_gsm_name: >-
-      {%- set _s = (cluster_config | default({}, true)).sub_ca_secret or (machine_config | default({}, true)).sub_ca_secret or {} -%}
+      {%- set _c = (cluster_config | default({}, true)) or {} -%}
+      {%- set _m = (machine_config | default({}, true)) or {} -%}
+      {%- set _s = (_c.get('sub_ca_secret') if (_c is mapping and _c.get('sub_ca_secret') is mapping) else None) or (_m.get('sub_ca_secret') if (_m is mapping and _m.get('sub_ca_secret') is mapping) else None) or {} -%}
       {{ _s.get('gsm-name') or _s.get('gsm_name') or '' }}
     sub_ca_gsm_location: >-
-      {%- set _s = (cluster_config | default({}, true)).sub_ca_secret or (machine_config | default({}, true)).sub_ca_secret or {} -%}
+      {%- set _c = (cluster_config | default({}, true)) or {} -%}
+      {%- set _m = (machine_config | default({}, true)) or {} -%}
+      {%- set _s = (_c.get('sub_ca_secret') if (_c is mapping and _c.get('sub_ca_secret') is mapping) else None) or (_m.get('sub_ca_secret') if (_m is mapping and _m.get('sub_ca_secret') is mapping) else None) or {} -%}
       {{ _s.get('gsm-location') or _s.get('gsm_location') or 'global' }}
     sub_ca_gsm_project: >-
-      {%- set _s = (cluster_config | default({}, true)).sub_ca_secret or (machine_config | default({}, true)).sub_ca_secret or {} -%}
+      {%- set _c = (cluster_config | default({}, true)) or {} -%}
+      {%- set _m = (machine_config | default({}, true)) or {} -%}
+      {%- set _s = (_c.get('sub_ca_secret') if (_c is mapping and _c.get('sub_ca_secret') is mapping) else None) or (_m.get('sub_ca_secret') if (_m is mapping and _m.get('sub_ca_secret') is mapping) else None) or {} -%}
       {{ _s.get('gsm-project') or _s.get('gsm_project') or _s.get('gcp_project') or _s.get('gcp-project') or gcp_project_id | default('') }}
     fallback_sub_ca_gsm_project: >-
       {{
-        gdc_fallback_sub_ca_gsm_project
-        | default(sub_ca_gsm_project, true)
+        (gdc_fallback_sub_ca_gsm_project
+         if (gdc_fallback_sub_ca_gsm_project is defined and gdc_fallback_sub_ca_gsm_project | trim | length > 0 and gdc_fallback_sub_ca_gsm_project != 'gcp-project-id')
+         else (sub_ca_gsm_project | default('', true)))
         | default(gcp_project_id | default(''), true)
       }}
   tags: ["corp-cert"]

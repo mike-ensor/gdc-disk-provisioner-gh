@@ -28,6 +28,10 @@ ANSIBLE_LOOKUP_DIR = os.path.join(PROJECT_ROOT, "src", "ansible", "lookup_plugin
 if ANSIBLE_LOOKUP_DIR not in sys.path:
     sys.path.insert(0, ANSIBLE_LOOKUP_DIR)
 
+ANSIBLE_FILTER_DIR = os.path.join(PROJECT_ROOT, "src", "ansible", "filter_plugins")
+if ANSIBLE_FILTER_DIR not in sys.path:
+    sys.path.insert(0, ANSIBLE_FILTER_DIR)
+
 for venv_dir in (".venv", "venv"):
     py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
     venv_site = os.path.join(PROJECT_ROOT, venv_dir, "lib", py_ver, "site-packages")
@@ -290,6 +294,77 @@ class TestGdcStateMachine(unittest.TestCase):
 
         for stage_name, status in status_map.items():
             self.assertEqual(status, "pending", f"{stage_name} should be pending")
+
+    def test_error_details_truncation_under_100k(self):
+        """Validates that local.yml failure sanitization keeps evidence strictly under 100k."""
+        import yaml
+        from jinja2 import Environment
+
+        local_yml_path = os.path.join(PROJECT_ROOT, "src", "ansible", "local.yml")
+        with open(local_yml_path, "r", encoding="utf-8") as f:
+            plays = yaml.safe_load(f)
+        tasks = plays[0]["tasks"]
+
+        # Extract the ClusterTurnup copy task template
+        turnup_block = next(t for t in tasks if t.get("name") == "CLUSTER_TURNUP | GDC-STATE | Run Stage 6")
+        rescue_copy = next(t for t in turnup_block["rescue"] if "Record ClusterTurnup Failure state" in t.get("name", ""))
+        tmpl_content = rescue_copy["ansible.builtin.copy"]["content"]
+
+        from gdc_log_filters import clean_terminal_output
+        env = Environment()
+        import datetime
+        env.filters["to_json"] = lambda v: json.dumps(v, indent=2)
+        env.filters["from_json"] = json.loads
+        env.filters["clean_terminal_output"] = clean_terminal_output
+        env.globals["now"] = lambda utc=True, fmt=None: datetime.datetime.now(datetime.timezone.utc) if fmt is None else datetime.datetime.now(datetime.timezone.utc).strftime(fmt)
+        template = env.from_string(tmpl_content)
+
+        # Generate a massive failure result mimicking bmctl spinner blowup
+        huge_stdout = "".join(f"Waiting for preflight check job to finish: 1/4 spinner frame {i}\r" for i in range(3000))
+        huge_stdout += "\nFinal error: gdc-admin@192.168.109.13: Permission denied (publickey,password).\n"
+        huge_stderr = "Error line in stderr: something broke\n" * 1000
+
+        failed_result = {
+            "failed": True,
+            "cmd": ["/usr/local/bin/cluster/create_cluster.sh", "--yes"],
+            "rc": 1,
+            "msg": "non-zero return code",
+            "stdout": huge_stdout,
+            "stdout_lines": huge_stdout.splitlines(),
+            "stderr": huge_stderr,
+            "stderr_lines": huge_stderr.splitlines(),
+            "invocation": {"module_args": {"foo": "bar" * 500}},
+        }
+
+        rendered = template.render(
+            ansible_failed_result=failed_result,
+            cluster_turnup_evidence={"cluster_turnup_verified": False},
+            cluster_turnup_start_time="2026-11-01T18:00:00Z",
+            cluster_turnup_start_epoch=1793556000,
+            provisioning_start_time="2026-11-01T17:00:00Z",
+        )
+
+        state_doc = json.loads(rendered)
+        evidence = state_doc["evidence"]
+        evidence_bytes = len(json.dumps(evidence).encode("utf-8"))
+
+        # Strict assertion: evidence must be under 100,000 bytes
+        self.assertLess(evidence_bytes, 100000, f"Evidence size ({evidence_bytes} bytes) exceeded 100k limit")
+
+        # Verify key error content preserved
+        error_details = evidence["error_details"]
+        self.assertIsInstance(error_details["stdout"], list, "stdout should be formatted as an array of lines")
+        self.assertLessEqual(len(error_details["stdout"]), 50, "stdout should contain at most the last 50 lines")
+        combined_stdout = "\n".join(error_details["stdout"])
+        self.assertIn("Permission denied", combined_stdout)
+        self.assertNotIn("stdout_lines", error_details, "stdout_lines should be omitted to prevent duplication")
+        self.assertNotIn("stderr_lines", error_details, "stderr_lines should be omitted to prevent duplication")
+        self.assertNotIn("invocation", error_details, "invocation should be omitted to prevent duplication")
+
+        # Verify terminal control characters are thoroughly cleaned
+        self.assertNotIn("\b", combined_stdout, "Backspaces (\\b) must be stripped")
+        self.assertNotIn("\r", combined_stdout, "Carriage returns (\\r) must be normalized")
+        self.assertNotIn("\x1b", combined_stdout, "ANSI escape codes must be stripped")
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@
 import os
 import unittest
 import yaml
-from jinja2 import Environment
+from jinja2 import Environment, StrictUndefined
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -153,7 +153,7 @@ class TestNexusTLSPKI(unittest.TestCase):
         assert resolve_task is not None
         set_facts = resolve_task.get("ansible.builtin.set_fact", {})
 
-        env = Environment()
+        env = Environment(undefined=StrictUndefined)
         name_tmpl = env.from_string(set_facts["sub_ca_gsm_name"])
         loc_tmpl = env.from_string(set_facts["sub_ca_gsm_location"])
         proj_tmpl = env.from_string(set_facts["sub_ca_gsm_project"])
@@ -222,6 +222,42 @@ class TestNexusTLSPKI(unittest.TestCase):
         self.assertEqual(name_tmpl.render(**null_ctx).strip(), "")
         self.assertEqual(loc_tmpl.render(**null_ctx).strip(), "global")
         self.assertEqual(proj_tmpl.render(**null_ctx).strip(), "default-node-proj")
+
+        # 5. Assigned cluster without sub_ca_secret (Demo Mode) does not raise undefined attribute error
+        demo_ctx = {
+            "cluster_config": {"cluster_name": "gdc-extreme-243"},
+            "machine_config": {"hostname": "gdc-extreme-243"},
+            "gcp_project_id": "anthos-bare-metal-lab-1",
+        }
+        self.assertEqual(name_tmpl.render(**demo_ctx).strip(), "")
+        self.assertEqual(loc_tmpl.render(**demo_ctx).strip(), "global")
+        self.assertEqual(proj_tmpl.render(**demo_ctx).strip(), "anthos-bare-metal-lab-1")
+
+        # 6. Both cluster_config and machine_config are empty dicts (missing sub_ca_secret key)
+        empty_dicts_ctx = {
+            "cluster_config": {},
+            "machine_config": {},
+            "gcp_project_id": "default-node-proj",
+        }
+        self.assertEqual(name_tmpl.render(**empty_dicts_ctx).strip(), "")
+        self.assertEqual(loc_tmpl.render(**empty_dicts_ctx).strip(), "global")
+        self.assertEqual(proj_tmpl.render(**empty_dicts_ctx).strip(), "default-node-proj")
+
+        # 7. Snake_case alias support
+        snake_case_ctx = {
+            "cluster_config": {
+                "sub_ca_secret": {
+                    "gsm_name": "snake-sub-ca",
+                    "gsm_location": "europe-west1",
+                    "gsm_project": "snake-pki-proj",
+                }
+            },
+            "machine_config": {},
+            "gcp_project_id": "default-node-proj",
+        }
+        self.assertEqual(name_tmpl.render(**snake_case_ctx).strip(), "snake-sub-ca")
+        self.assertEqual(loc_tmpl.render(**snake_case_ctx).strip(), "europe-west1")
+        self.assertEqual(proj_tmpl.render(**snake_case_ctx).strip(), "snake-pki-proj")
 
     def test_rotation_script_and_systemd_templates(self):
         """Verifies refresh-nexus-tls script, service, and timer templates render valid syntax."""

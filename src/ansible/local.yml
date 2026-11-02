@@ -83,7 +83,31 @@
             mode: '0644'
             content: |
               {% set _evidence = first_boot_evidence | default({}) %}
-              {% set _error_detail = ansible_failed_result | default({}) %}
+              {% set _raw_err = ansible_failed_result | default({}) %}
+              {% set _error_detail = {} %}
+              {% if _raw_err is mapping %}
+                {% set _msg = _raw_err.msg | default(_raw_err.message | default('')) %}
+                {% set _ = _error_detail.update({
+                  "failed": _raw_err.failed | default(true),
+                  "msg": (_msg | string)[:10000] if _msg else 'Task execution failed'
+                }) %}
+                {% if _raw_err.rc is defined %}
+                  {% set _ = _error_detail.update({"rc": _raw_err.rc}) %}
+                {% endif %}
+                {% if _raw_err.cmd is defined %}
+                  {% set _ = _error_detail.update({"cmd": _raw_err.cmd}) %}
+                {% endif %}
+                {% set _stdout = _raw_err.stdout | default('') %}
+                {% if _stdout is string and _stdout %}
+                  {% set _ = _error_detail.update({"stdout": _stdout | clean_terminal_output(50)}) %}
+                {% endif %}
+                {% set _stderr = _raw_err.stderr | default('') %}
+                {% if _stderr is string and _stderr %}
+                  {% set _ = _error_detail.update({"stderr": _stderr | clean_terminal_output(50)}) %}
+                {% endif %}
+              {% else %}
+                {% set _ = _error_detail.update({"msg": (_raw_err | string)[:10000]}) %}
+              {% endif %}
               {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
               {% set _end_epoch = now(utc=true).strftime('%s') | int %}
               {% set _start_epoch = first_boot_start_epoch | default(_end_epoch) | int %}
@@ -155,7 +179,31 @@
             mode: '0644'
             content: |
               {% set _evidence = second_boot_evidence | default({}) %}
-              {% set _error_detail = ansible_failed_result | default({}) %}
+              {% set _raw_err = ansible_failed_result | default({}) %}
+              {% set _error_detail = {} %}
+              {% if _raw_err is mapping %}
+                {% set _msg = _raw_err.msg | default(_raw_err.message | default('')) %}
+                {% set _ = _error_detail.update({
+                  "failed": _raw_err.failed | default(true),
+                  "msg": (_msg | string)[:10000] if _msg else 'Task execution failed'
+                }) %}
+                {% if _raw_err.rc is defined %}
+                  {% set _ = _error_detail.update({"rc": _raw_err.rc}) %}
+                {% endif %}
+                {% if _raw_err.cmd is defined %}
+                  {% set _ = _error_detail.update({"cmd": _raw_err.cmd}) %}
+                {% endif %}
+                {% set _stdout = _raw_err.stdout | default('') %}
+                {% if _stdout is string and _stdout %}
+                  {% set _ = _error_detail.update({"stdout": _stdout | clean_terminal_output(50)}) %}
+                {% endif %}
+                {% set _stderr = _raw_err.stderr | default('') %}
+                {% if _stderr is string and _stderr %}
+                  {% set _ = _error_detail.update({"stderr": _stderr | clean_terminal_output(50)}) %}
+                {% endif %}
+              {% else %}
+                {% set _ = _error_detail.update({"msg": (_raw_err | string)[:10000]}) %}
+              {% endif %}
               {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
               {% set _end_epoch = now(utc=true).strftime('%s') | int %}
               {% set _start_epoch = second_boot_start_epoch | default(_end_epoch) | int %}
@@ -227,7 +275,31 @@
             mode: '0644'
             content: |
               {% set _evidence = linux_ready_evidence | default({}) %}
-              {% set _error_detail = ansible_failed_result | default({}) %}
+              {% set _raw_err = ansible_failed_result | default({}) %}
+              {% set _error_detail = {} %}
+              {% if _raw_err is mapping %}
+                {% set _msg = _raw_err.msg | default(_raw_err.message | default('')) %}
+                {% set _ = _error_detail.update({
+                  "failed": _raw_err.failed | default(true),
+                  "msg": (_msg | string)[:10000] if _msg else 'Task execution failed'
+                }) %}
+                {% if _raw_err.rc is defined %}
+                  {% set _ = _error_detail.update({"rc": _raw_err.rc}) %}
+                {% endif %}
+                {% if _raw_err.cmd is defined %}
+                  {% set _ = _error_detail.update({"cmd": _raw_err.cmd}) %}
+                {% endif %}
+                {% set _stdout = _raw_err.stdout | default('') %}
+                {% if _stdout is string and _stdout %}
+                  {% set _ = _error_detail.update({"stdout": _stdout | clean_terminal_output(50)}) %}
+                {% endif %}
+                {% set _stderr = _raw_err.stderr | default('') %}
+                {% if _stderr is string and _stderr %}
+                  {% set _ = _error_detail.update({"stderr": _stderr | clean_terminal_output(50)}) %}
+                {% endif %}
+              {% else %}
+                {% set _ = _error_detail.update({"msg": (_raw_err | string)[:10000]}) %}
+              {% endif %}
               {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
               {% set _end_epoch = now(utc=true).strftime('%s') | int %}
               {% set _start_epoch = linux_ready_start_epoch | default(_end_epoch) | int %}
@@ -328,7 +400,31 @@
             mode: '0644'
             content: |
               {% set _evidence = cluster_ready_evidence | default({}) %}
-              {% set _error_detail = ansible_failed_result | default({}) %}
+              {% set _raw_err = ansible_failed_result | default({}) %}
+              {% set _error_detail = {} %}
+              {% if _raw_err is mapping %}
+                {% set _msg = _raw_err.msg | default(_raw_err.message | default('')) %}
+                {% set _ = _error_detail.update({
+                  "failed": _raw_err.failed | default(true),
+                  "msg": (_msg | string)[:10000] if _msg else 'Task execution failed'
+                }) %}
+                {% if _raw_err.rc is defined %}
+                  {% set _ = _error_detail.update({"rc": _raw_err.rc}) %}
+                {% endif %}
+                {% if _raw_err.cmd is defined %}
+                  {% set _ = _error_detail.update({"cmd": _raw_err.cmd}) %}
+                {% endif %}
+                {% set _stdout = _raw_err.stdout | default('') %}
+                {% if _stdout is string and _stdout %}
+                  {% set _ = _error_detail.update({"stdout": _stdout | clean_terminal_output(50)}) %}
+                {% endif %}
+                {% set _stderr = _raw_err.stderr | default('') %}
+                {% if _stderr is string and _stderr %}
+                  {% set _ = _error_detail.update({"stderr": _stderr | clean_terminal_output(50)}) %}
+                {% endif %}
+              {% else %}
+                {% set _ = _error_detail.update({"msg": (_raw_err | string)[:10000]}) %}
+              {% endif %}
               {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
               {% set _end_epoch = now(utc=true).strftime('%s') | int %}
               {% set _start_epoch = cluster_ready_start_epoch | default(_end_epoch) | int %}
@@ -407,7 +503,31 @@
             mode: '0644'
             content: |
               {% set _evidence = cluster_turnup_evidence | default({}) %}
-              {% set _error_detail = ansible_failed_result | default({"msg": "Error creating a cluster. Check the 'bmctl-workspace' logs for details"}) %}
+              {% set _raw_err = ansible_failed_result | default({"msg": "Error creating a cluster. Check the 'bmctl-workspace' logs for details"}) %}
+              {% set _error_detail = {} %}
+              {% if _raw_err is mapping %}
+                {% set _msg = _raw_err.msg | default(_raw_err.message | default('Error creating a cluster. Check the \'bmctl-workspace\' logs for details')) %}
+                {% set _ = _error_detail.update({
+                  "failed": _raw_err.failed | default(true),
+                  "msg": (_msg | string)[:10000] if _msg else 'Task execution failed'
+                }) %}
+                {% if _raw_err.rc is defined %}
+                  {% set _ = _error_detail.update({"rc": _raw_err.rc}) %}
+                {% endif %}
+                {% if _raw_err.cmd is defined %}
+                  {% set _ = _error_detail.update({"cmd": _raw_err.cmd}) %}
+                {% endif %}
+                {% set _stdout = _raw_err.stdout | default('') %}
+                {% if _stdout is string and _stdout %}
+                  {% set _ = _error_detail.update({"stdout": _stdout | clean_terminal_output(50)}) %}
+                {% endif %}
+                {% set _stderr = _raw_err.stderr | default('') %}
+                {% if _stderr is string and _stderr %}
+                  {% set _ = _error_detail.update({"stderr": _stderr | clean_terminal_output(50)}) %}
+                {% endif %}
+              {% else %}
+                {% set _ = _error_detail.update({"msg": (_raw_err | string)[:10000]}) %}
+              {% endif %}
               {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
               {% set _end_epoch = now(utc=true).strftime('%s') | int %}
               {% set _start_epoch = cluster_turnup_start_epoch | default(_end_epoch) | int %}
@@ -479,7 +599,31 @@
             mode: '0644'
             content: |
               {% set _evidence = post_cluster_evidence | default({}) %}
-              {% set _error_detail = ansible_failed_result | default({}) %}
+              {% set _raw_err = ansible_failed_result | default({}) %}
+              {% set _error_detail = {} %}
+              {% if _raw_err is mapping %}
+                {% set _msg = _raw_err.msg | default(_raw_err.message | default('')) %}
+                {% set _ = _error_detail.update({
+                  "failed": _raw_err.failed | default(true),
+                  "msg": (_msg | string)[:10000] if _msg else 'Task execution failed'
+                }) %}
+                {% if _raw_err.rc is defined %}
+                  {% set _ = _error_detail.update({"rc": _raw_err.rc}) %}
+                {% endif %}
+                {% if _raw_err.cmd is defined %}
+                  {% set _ = _error_detail.update({"cmd": _raw_err.cmd}) %}
+                {% endif %}
+                {% set _stdout = _raw_err.stdout | default('') %}
+                {% if _stdout is string and _stdout %}
+                  {% set _ = _error_detail.update({"stdout": _stdout | clean_terminal_output(50)}) %}
+                {% endif %}
+                {% set _stderr = _raw_err.stderr | default('') %}
+                {% if _stderr is string and _stderr %}
+                  {% set _ = _error_detail.update({"stderr": _stderr | clean_terminal_output(50)}) %}
+                {% endif %}
+              {% else %}
+                {% set _ = _error_detail.update({"msg": (_raw_err | string)[:10000]}) %}
+              {% endif %}
               {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
               {% set _end_epoch = now(utc=true).strftime('%s') | int %}
               {% set _start_epoch = post_cluster_start_epoch | default(_end_epoch) | int %}
@@ -557,7 +701,31 @@
             mode: '0644'
             content: |
               {% set _evidence = upkeep_evidence | default({}) %}
-              {% set _error_detail = ansible_failed_result | default({}) %}
+              {% set _raw_err = ansible_failed_result | default({}) %}
+              {% set _error_detail = {} %}
+              {% if _raw_err is mapping %}
+                {% set _msg = _raw_err.msg | default(_raw_err.message | default('')) %}
+                {% set _ = _error_detail.update({
+                  "failed": _raw_err.failed | default(true),
+                  "msg": (_msg | string)[:10000] if _msg else 'Task execution failed'
+                }) %}
+                {% if _raw_err.rc is defined %}
+                  {% set _ = _error_detail.update({"rc": _raw_err.rc}) %}
+                {% endif %}
+                {% if _raw_err.cmd is defined %}
+                  {% set _ = _error_detail.update({"cmd": _raw_err.cmd}) %}
+                {% endif %}
+                {% set _stdout = _raw_err.stdout | default('') %}
+                {% if _stdout is string and _stdout %}
+                  {% set _ = _error_detail.update({"stdout": _stdout | clean_terminal_output(50)}) %}
+                {% endif %}
+                {% set _stderr = _raw_err.stderr | default('') %}
+                {% if _stderr is string and _stderr %}
+                  {% set _ = _error_detail.update({"stderr": _stderr | clean_terminal_output(50)}) %}
+                {% endif %}
+              {% else %}
+                {% set _ = _error_detail.update({"msg": (_raw_err | string)[:10000]}) %}
+              {% endif %}
               {% set _end_time = now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') %}
               {% set _end_epoch = now(utc=true).strftime('%s') | int %}
               {% set _start_epoch = upkeep_start_epoch | default(_end_epoch) | int %}

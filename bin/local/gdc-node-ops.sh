@@ -447,7 +447,7 @@ cmd_push_playbook() {
     local resume_stage=""
     local ssh_user="gdc-admin"
     local ssh_key=""
-    local valid_stages=("first-boot" "second-boot" "linux-ready" "cluster-ready")
+    local valid_stages=("first-boot" "second-boot" "linux-ready" "cluster-ready" "cluster-turnup" "post-cluster")
 
     playbook_usage() {
         cat <<EOF
@@ -463,7 +463,7 @@ Optional Arguments:
   --user <USER>       SSH user (default: gdc-admin)
   --key <KEY_PATH>    Path to SSH private key
   --resume-from <STG> Force Ansible to resume from a stage by wiping its state.
-                      Valid stages: first-boot, second-boot, linux-ready, cluster-ready
+                      Valid stages: first-boot, second-boot, linux-ready, cluster-ready, cluster-turnup, post-cluster
   --no-follow         Do not stream provisioner logs after restarting service
   -h, --help          Display this help message
 EOF
