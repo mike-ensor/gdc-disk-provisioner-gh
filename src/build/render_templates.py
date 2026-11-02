@@ -61,6 +61,64 @@ def load_env_properties():
         
     return env
 
+def generate_sha512_password_hash(password: str) -> str:
+    """
+    Generates a Modular Crypt Format SHA-512 password hash ($6$<salt>$<hash>)
+    compatible with Linux /etc/shadow and cloud-init.
+
+    Avoids importing Python's deprecated 'crypt' module (slated for removal in Python 3.13).
+    Tries OpenSSL CLI first, then ctypes libcrypt.so, then suppressed legacy crypt.
+    """
+    if not password:
+        return ''
+
+    # 1. Primary: Use OpenSSL CLI (standard on Linux/macOS build hosts)
+    try:
+        import subprocess
+        proc = subprocess.run(
+            ['openssl', 'passwd', '-6', password],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        out = proc.stdout.strip()
+        if out.startswith('$6$'):
+            return out
+    except Exception:
+        pass
+
+    # 2. Secondary fallback: C libcrypt via standard ctypes
+    try:
+        import ctypes
+        import ctypes.util
+        import secrets
+
+        lib_name = ctypes.util.find_library('crypt') or ctypes.util.find_library('c')
+        if lib_name:
+            lib = ctypes.CDLL(lib_name)
+            if hasattr(lib, 'crypt'):
+                lib.crypt.restype = ctypes.c_char_p
+                lib.crypt.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+                salt_chars = './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+                salt = '$6$' + ''.join(secrets.choice(salt_chars) for _ in range(16)) + '$'
+                res = lib.crypt(password.encode('utf-8'), salt.encode('ascii'))
+                if res:
+                    return res.decode('ascii')
+    except Exception:
+        pass
+
+    # 3. Tertiary fallback: legacy crypt with warning suppression (Python < 3.13)
+    try:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', DeprecationWarning)
+            import crypt  # pylint: disable=deprecated-module
+            return crypt.crypt(password, crypt.mksalt(crypt.METHOD_SHA512))
+    except Exception:
+        pass
+
+    return ''
+
 def render_templates(template_dir, output_dir, env):
     jinja_env = Environment(loader=FileSystemLoader(template_dir))
     
@@ -82,18 +140,7 @@ def render_templates(template_dir, output_dir, env):
     if 'debug_extra_password_hash' not in env or not env['debug_extra_password_hash']:
         extra_pwd = env.get('DEBUG_EXTRA_PASSWORD', '')
         if extra_pwd:
-            try:
-                import crypt
-                env['debug_extra_password_hash'] = crypt.crypt(extra_pwd, crypt.mksalt(crypt.METHOD_SHA512))
-            except Exception:
-                try:
-                    import subprocess
-                    env['debug_extra_password_hash'] = subprocess.check_output(
-                        ['openssl', 'passwd', '-6', extra_pwd],
-                        text=True
-                    ).strip()
-                except Exception:
-                    env['debug_extra_password_hash'] = ''
+            env['debug_extra_password_hash'] = generate_sha512_password_hash(extra_pwd)
         else:
             env['debug_extra_password_hash'] = env.get('DEBUG_EXTRA_PASSWORD_HASH', '')
     
@@ -385,34 +432,12 @@ if __name__ == "__main__":
     # Map and self-heal the temporary installer credential password hash
     env['password_hash'] = env.get('PASSWORD_HASH', '')
     if not env['password_hash'] and env.get('TEMPORARY_INSTALLER_PASSWORD'):
-        try:
-            import crypt
-            env['password_hash'] = crypt.crypt(env['TEMPORARY_INSTALLER_PASSWORD'], crypt.mksalt(crypt.METHOD_SHA512))
-        except Exception:
-            try:
-                import subprocess
-                env['password_hash'] = subprocess.check_output(
-                    ['openssl', 'passwd', '-6', env['TEMPORARY_INSTALLER_PASSWORD']],
-                    text=True
-                ).strip()
-            except Exception:
-                pass
+        env['password_hash'] = generate_sha512_password_hash(env['TEMPORARY_INSTALLER_PASSWORD'])
 
     # Map optional debug extra user
     env['debug_extra_user'] = env.get('DEBUG_EXTRA_USER', '').strip()
     env['debug_extra_password_hash'] = env.get('DEBUG_EXTRA_PASSWORD_HASH', '')
     if not env['debug_extra_password_hash'] and env.get('DEBUG_EXTRA_PASSWORD'):
-        try:
-            import crypt
-            env['debug_extra_password_hash'] = crypt.crypt(env['DEBUG_EXTRA_PASSWORD'], crypt.mksalt(crypt.METHOD_SHA512))
-        except Exception:
-            try:
-                import subprocess
-                env['debug_extra_password_hash'] = subprocess.check_output(
-                    ['openssl', 'passwd', '-6', env['DEBUG_EXTRA_PASSWORD']],
-                    text=True
-                ).strip()
-            except Exception:
-                pass
+        env['debug_extra_password_hash'] = generate_sha512_password_hash(env['DEBUG_EXTRA_PASSWORD'])
             
     render_templates(sys.argv[1], sys.argv[2], env)

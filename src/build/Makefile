@@ -482,7 +482,7 @@ hydrate: $(VENV_DIR) extract
 	$(call START_TIME,hydrate)
 	@echo "[-] [Stage: pre-artifact] Hydrating configurations and templates..."
 	@# Export dynamic crypt pass hash and environment parameters
-	@export PASSWORD_HASH=$$(python3 -c "import crypt; print(crypt.crypt('$(TEMPORARY_INSTALLER_PASSWORD)', crypt.mksalt(crypt.METHOD_SHA512)))" 2>/dev/null || openssl passwd -6 "$(TEMPORARY_INSTALLER_PASSWORD)"); \
+	@export PASSWORD_HASH=$$(openssl passwd -6 "$(TEMPORARY_INSTALLER_PASSWORD)" 2>/dev/null || $(VENV_DIR)/bin/python3 -c "import render_templates; print(render_templates.generate_sha512_password_hash('$(TEMPORARY_INSTALLER_PASSWORD)'))"); \
 	export BUILD_TIMESTAMP=$$(date +%s); \
 	export SINGLE_DISK="$${SINGLE_DISK:-true}"; \
 	export BOOT_MODE="$${BOOT_MODE:-bios}"; \
