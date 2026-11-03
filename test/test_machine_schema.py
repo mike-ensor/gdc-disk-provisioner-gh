@@ -309,6 +309,43 @@ class TestMachineSchema(unittest.TestCase):
         data["machine_state_stop_stage"] = None
         jsonschema.validate(instance=data, schema=self.schema)
 
+    def test_schema_validates_top_level_process_cis_hardening(self):
+        """Verify that process_cis_hardening is valid at the machine level of machine config."""
+        data = {
+            "hostname": "test-host",
+            "bmctl_version": "1.35.300-gke.87",
+            "process_cis_hardening": True,
+            "network": {
+                "management_network": {"dhcp_v4": True, "dns_servers": ["8.8.8.8"]},
+                "cluster_network": {"vlan_id": 9, "dhcp_v4": True},
+            },
+            "gcp_info": {
+                "project_id": "test-proj",
+                "region": "us-west1",
+                "primary_gsa": "sa@test-proj.iam.gserviceaccount.com",
+            },
+            "cluster": {
+                "cluster_name": "test-cluster",
+                "networking": {
+                    "cluster_vip": "192.168.9.100",
+                    "cluster_ingress": "192.168.9.101",
+                    "cluster_lb_range": "192.168.9.101-192.168.9.109",
+                },
+                "fleet_cluster_labels": ["type=test"],
+            },
+            "peers": [],
+        }
+        jsonschema.validate(instance=data, schema=self.schema)
+
+        # Verify false is valid
+        data["process_cis_hardening"] = False
+        jsonschema.validate(instance=data, schema=self.schema)
+
+        # Verify non-boolean raises ValidationError
+        data["process_cis_hardening"] = "true"
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(instance=data, schema=self.schema)
+
 
 if __name__ == "__main__":
     unittest.main()
