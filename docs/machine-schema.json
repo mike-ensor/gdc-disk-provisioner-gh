@@ -656,6 +656,13 @@
           "type": "string",
           "pattern": "^[a-fA-F0-9]{64}$",
           "description": "Hex-encoded SHA-256 checksum of the bundle tarball."
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Lifecycle stages targeted by the custom bundle extension."
         }
       },
       "required": [
@@ -669,6 +676,11 @@
         "null"
       ],
       "description": "Optional lifecycle stage at which to gracefully halt provisioning (e.g. FIRST_BOOT, SECOND_BOOT, LINUX_READY, CLUSTER_READY, CLUSTER_TURNUP, POST_CLUSTER, UPKEEP)."
+    },
+    "process_cis_hardening": {
+      "type": "boolean",
+      "default": false,
+      "description": "Optional toggle to enable execution of the external CIS Security Hardening Bundle during the LINUX_READY stage. Defaults to false."
     }
   }
 }

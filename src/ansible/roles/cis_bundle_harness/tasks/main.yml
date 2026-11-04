@@ -57,8 +57,8 @@
   ansible.builtin.debug:
     msg: >-
       [GDC-CIS] Skipping execution of {{ _cis_active_bundle_root | default(cis_bundle_install_dir) }}/bin/run-hardening.sh
-      because cis_bundle_skip_hardening is set to True (via ENV or gdc.facts).
-  when: cis_bundle_skip_hardening | bool
+      because cis_bundle_process_hardening is set to False (default; opt-in via PROCESS_CIS_HARDENING).
+  when: not (cis_bundle_process_hardening | bool)
   tags: ["strictly-local"]
 
 - name: "GDC-CIS | Execute External CIS Security Bundle Hardening"
@@ -79,7 +79,7 @@
   changed_when: _bundle_execution.rc == 0
   timeout: "{{ cis_bundle_timeout_seconds | int }}"
   ignore_errors: true
-  when: not (cis_bundle_skip_hardening | bool)
+  when: cis_bundle_process_hardening | bool
   tags: ["strictly-local"]
 
 - name: "GDC-CIS | Check if cis-benchmark.json was generated"
@@ -101,6 +101,6 @@
       {{
         (_slurped_cis_benchmark.content | b64decode | from_json)
         if (_cis_state_file.stat.exists | default(false))
-        else ({'status': 'SKIPPED'} if (cis_bundle_skip_hardening | bool) else {'status': 'NOT_EVALUATED'})
+        else ({'status': 'SKIPPED'} if not (cis_bundle_process_hardening | bool) else {'status': 'NOT_EVALUATED'})
       }}
   tags: ["strictly-local"]
