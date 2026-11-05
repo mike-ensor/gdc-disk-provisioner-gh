@@ -46,16 +46,23 @@ To ensure the local schema never silently drifts from `gdc-companion`, the follo
   Local schema has diverged from upstream! Run ./test/bin/sync-schemas.sh to synchronize.
   ```
 
-### 3.3. Drift Check Tooling (`test/bin/sync-schemas.sh`)
-The repository includes a dedicated synchronization utility:
+### 3.3. Drift Check & Synchronization Tooling (`test/bin/sync-schemas.sh`)
+The repository includes a dedicated synchronization utility supporting multi-mode companion resolution (local filesystem, cloud HTTP endpoint, or hermetic offline):
 
 ```bash
 # Check if schemas are identical (exits 0 if clean, 1 if diverged)
 ./test/bin/sync-schemas.sh --check
 
-# Synchronize local schema with upstream gdc-companion
-./test/bin/sync-schemas.sh
+# Synchronize local schema with upstream gdc-companion via local path or cloud endpoint
+./test/bin/sync-schemas.sh --source /path/to/gdc-companion
+./test/bin/sync-schemas.sh --source https://gdc-companion.example.com
+
+# Alternatively, set the environment variable
+export GDC_COMPANION_SOURCE=/path/to/gdc-companion
+./test/bin/sync-schemas.sh --check
 ```
+
+When `GDC_COMPANION_SOURCE` is unset or set to `none`/`disabled`/`offline`, the tooling operates hermetically, using local vendored schemas and skipping upstream network checks.
 
 ---
 
@@ -68,7 +75,10 @@ When updating the machine schema:
    - Submit and merge the changes into `gdc-companion`.
 2. **Synchronize in `gdc-disk-provisioner`:**
    ```bash
-   ./test/bin/sync-schemas.sh
+   # From local companion repo:
+   GDC_COMPANION_SOURCE=/path/to/gdc-companion ./test/bin/sync-schemas.sh
+   # Or from a live service endpoint:
+   ./test/bin/sync-schemas.sh --source https://gdc-companion.example.com
    ```
 3. **Verify tests:**
    ```bash
