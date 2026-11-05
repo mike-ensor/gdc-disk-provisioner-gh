@@ -38,7 +38,6 @@ class SchemaParsingError(ValueError):
 SCHEMA_ROUTE_MAP = {
     "machine-schema.json": "/v1/schema/machine",
     "report-schema.json": "/v1/schema/report",
-    "build-report-schema.json": "/v1/schema/build-report",
 }
 
 
@@ -129,8 +128,13 @@ class CompanionSourceResolver:
         if self.mode == CompanionMode.CLOUD_HTTP:
             if self.raw_source is None:
                 raise ValueError("Cloud HTTP companion endpoint is not specified.")
+            if schema_name not in SCHEMA_ROUTE_MAP:
+                raise ValueError(
+                    f"Schema '{schema_name}' is not exposed via HTTP API in gdc-companion "
+                    f"(supported HTTP schemas: {', '.join(sorted(SCHEMA_ROUTE_MAP.keys()))})."
+                )
             base_url = self.raw_source.strip().rstrip("/")
-            endpoint = SCHEMA_ROUTE_MAP.get(schema_name, f"/v1/schema/{schema_name.replace('.json', '')}")
+            endpoint = SCHEMA_ROUTE_MAP[schema_name]
             target_url = f"{base_url}{endpoint}"
             req = urllib.request.Request(
                 target_url,

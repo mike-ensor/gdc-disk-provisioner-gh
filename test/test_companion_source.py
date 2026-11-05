@@ -152,7 +152,6 @@ class TestCompanionSourceResolver(unittest.TestCase):
         test_routes = [
             ("machine-schema.json", "https://companion.example.com/v1/schema/machine"),
             ("report-schema.json", "https://companion.example.com/v1/schema/report"),
-            ("build-report-schema.json", "https://companion.example.com/v1/schema/build-report"),
         ]
 
         for schema_file, expected_url in test_routes:
@@ -181,7 +180,7 @@ class TestCompanionSourceResolver(unittest.TestCase):
     def test_mode_cloud_http_404_fallback_to_docs(self, mock_urlopen):
         """When /v1/schema/{name} returns 404, fallback to /docs/{schema_name}."""
         err_404 = urllib.error.HTTPError(
-            url="https://companion.example.com/v1/schema/build-report",
+            url="https://companion.example.com/v1/schema/machine",
             code=404,
             msg="Not Found",
             hdrs=email.message.Message(),
@@ -189,7 +188,7 @@ class TestCompanionSourceResolver(unittest.TestCase):
         )
 
         success_resp = MagicMock()
-        success_resp.read.return_value = json.dumps({"schema": "fallback-build-report"}).encode("utf-8")
+        success_resp.read.return_value = json.dumps({"schema": "fallback-machine"}).encode("utf-8")
         success_resp.__enter__.return_value = success_resp
 
         mock_urlopen.side_effect = [err_404, success_resp]
@@ -199,14 +198,23 @@ class TestCompanionSourceResolver(unittest.TestCase):
             with patch("sys.stdout", stdout_capture):
                 resolver = CompanionSourceResolver()
             self.assertEqual(resolver.get_mode(), CompanionMode.CLOUD_HTTP)
-            data = resolver.fetch_upstream_schema("build-report-schema.json")
-            self.assertEqual(data, {"schema": "fallback-build-report"})
+            data = resolver.fetch_upstream_schema("machine-schema.json")
+            self.assertEqual(data, {"schema": "fallback-machine"})
 
             self.assertEqual(mock_urlopen.call_count, 2)
             first_url = mock_urlopen.call_args_list[0][0][0].full_url
             second_url = mock_urlopen.call_args_list[1][0][0].full_url
-            self.assertEqual(first_url, "https://companion.example.com/v1/schema/build-report")
-            self.assertEqual(second_url, "https://companion.example.com/docs/build-report-schema.json")
+            self.assertEqual(first_url, "https://companion.example.com/v1/schema/machine")
+            self.assertEqual(second_url, "https://companion.example.com/docs/machine-schema.json")
+
+    def test_mode_cloud_http_unmapped_schema_raises_error(self):
+        """When an unmapped schema (e.g. build-report-schema.json) is requested via HTTP, raise ValueError."""
+        with patch.dict(os.environ, {"GDC_COMPANION_SOURCE": "https://companion.example.com"}, clear=True):
+            resolver = CompanionSourceResolver()
+            self.assertEqual(resolver.get_mode(), CompanionMode.CLOUD_HTTP)
+            with self.assertRaises(ValueError) as ctx:
+                resolver.fetch_upstream_schema("build-report-schema.json")
+            self.assertIn("not exposed via HTTP API in gdc-companion", str(ctx.exception))
 
     @patch("urllib.request.urlopen")
     def test_mode_cloud_http_non_404_raises_error(self, mock_urlopen):

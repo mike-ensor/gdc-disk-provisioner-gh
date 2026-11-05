@@ -103,7 +103,7 @@ except ImportError:
     from test.lib.companion_source import CompanionSourceResolver, CompanionMode, SCHEMA_ROUTE_MAP
 
 try:
-    resolver = CompanionSourceResolver(source=cli_source)
+    resolver = CompanionSourceResolver(source=cli_source, timeout=15.0)
 except Exception as e:
     sys.stderr.write(f"Error initializing companion resolver: {e}\n")
     sys.exit(1)
@@ -123,6 +123,10 @@ divergences = 0
 
 for schema_name in schemas:
     local_path = os.path.join(repo_root, "docs", schema_name)
+    if mode == CompanionMode.CLOUD_HTTP and schema_name not in SCHEMA_ROUTE_MAP:
+        print(f"[-] Skipping schema '{schema_name}': not exposed via HTTP API by gdc-companion (local filesystem only).")
+        continue
+
     if mode == CompanionMode.LOCAL_FS:
         if resolver.raw_source:
             upstream_loc = os.path.join(os.path.abspath(resolver.raw_source.strip()), "docs", schema_name)
