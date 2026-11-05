@@ -19,19 +19,15 @@ import os
 import unittest
 import jsonschema
 
+try:
+    from lib.companion_source import CompanionSourceResolver, CompanionMode
+except ImportError:
+    from test.lib.companion_source import CompanionSourceResolver, CompanionMode
+
 REPO_SCHEMA_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../docs/machine-schema.json")
 )
-DEFAULT_SCHEMA_PATH = "/d/projects/google/gdc-companion/docs/machine-schema.json"
-FALLBACK_SCHEMA_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "../../../gdc-companion/docs/machine-schema.json")
-)
-SCHEMA_PATH = os.environ.get(
-    "GDC_SCHEMA_PATH",
-    REPO_SCHEMA_PATH if os.path.exists(REPO_SCHEMA_PATH) else (
-        DEFAULT_SCHEMA_PATH if os.path.exists(DEFAULT_SCHEMA_PATH) else FALLBACK_SCHEMA_PATH
-    )
-)
+SCHEMA_PATH = os.environ.get("GDC_SCHEMA_PATH", REPO_SCHEMA_PATH)
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
 class TestManualFactsSchema(unittest.TestCase):
@@ -115,21 +111,17 @@ class TestManualFactsSchema(unittest.TestCase):
 
     def test_no_divergence_from_upstream_companion(self):
         """Verifies local docs/machine-schema.json has not diverged from gdc-companion."""
-        companion_schema = None
-        for candidate in [
-            os.environ.get("GDC_COMPANION_SCHEMA"),
-            DEFAULT_SCHEMA_PATH,
-            FALLBACK_SCHEMA_PATH,
-        ]:
-            if candidate and os.path.exists(candidate) and os.path.abspath(candidate) != REPO_SCHEMA_PATH:
-                companion_schema = candidate
-                break
+        resolver = CompanionSourceResolver()
+        if resolver.get_mode() == CompanionMode.OFFLINE:
+            self.skipTest("Upstream gdc-companion not configured (offline mode); skipping divergence check.")
 
-        if not companion_schema:
-            self.skipTest("Upstream gdc-companion not found on this system; skipping divergence check.")
+        try:
+            upstream_data = resolver.fetch_upstream_schema("machine-schema.json")
+        except Exception as e:
+            self.fail(f"Failed to fetch upstream schema from '{resolver.raw_source}': {e}")
 
-        with open(companion_schema, "r", encoding="utf-8") as f:
-            upstream_data = json.load(f)
+        if not upstream_data:
+            self.fail(f"Upstream schema could not be loaded from '{resolver.raw_source}'")
 
         with open(REPO_SCHEMA_PATH, "r", encoding="utf-8") as f:
             local_data = json.load(f)
@@ -141,7 +133,7 @@ class TestManualFactsSchema(unittest.TestCase):
         self.assertEqual(
             local_cmp,
             upstream_cmp,
-            f"Local schema '{REPO_SCHEMA_PATH}' has diverged from upstream '{companion_schema}'! "
+            f"Local schema '{REPO_SCHEMA_PATH}' has diverged from upstream companion source '{resolver.raw_source}'! "
             f"Run ./test/bin/sync-schemas.sh to synchronize."
         )
 
@@ -156,10 +148,28 @@ class TestManualFactsSchema(unittest.TestCase):
         self.assertEqual(help_res.returncode, 0)
         self.assertIn("--check", help_res.stdout)
 
-        if os.path.exists(DEFAULT_SCHEMA_PATH) or os.path.exists(FALLBACK_SCHEMA_PATH):
+        resolver = CompanionSourceResolver()
+        if resolver.get_mode() in (CompanionMode.LOCAL_FS, CompanionMode.CLOUD_HTTP):
             check_res = subprocess.run([sync_script, "--check"], capture_output=True, text=True)
             self.assertEqual(check_res.returncode, 0)
             self.assertIn("in sync", check_res.stdout)
+        elif resolver.get_mode() == CompanionMode.OFFLINE:
+            check_res_default = subprocess.run(
+                [sync_script, "--check"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(check_res_default.returncode, 0)
+            self.assertIn("in sync", check_res_default.stdout)
+
+            if "--source" in help_res.stdout:
+                check_res = subprocess.run(
+                    [sync_script, "--check", "--source", "none"],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(check_res.returncode, 0)
+                self.assertIn("in sync", check_res.stdout)
 
 if __name__ == "__main__":
     unittest.main()
