@@ -733,7 +733,8 @@ def main():
         except Exception:
             pass
 
-    report["packages_seeding"]["cache_last_updated"] = packages_meta.get("cache_last_updated")
+    if packages_meta.get("cache_last_updated"):
+        report["packages_seeding"]["cache_last_updated"] = packages_meta["cache_last_updated"]
 
     if os.path.exists(packages_dir):
         deb_files = sorted([f for f in os.listdir(packages_dir) if f.endswith(".deb")])
@@ -743,12 +744,14 @@ def main():
             filepath = os.path.join(packages_dir, deb)
             size_kb = round(os.path.getsize(filepath) / 1024, 1)
             actual_sha = get_sha256(filepath) or "MISSING"
-            pkg_name = "unknown"
-            pkg_ver = "unknown"
             parts = deb.split("_")
-            if len(parts) >= 2:
-                pkg_name = parts[0]
-                pkg_ver = parts[1]
+            pkg_name = parts[0] if len(parts) >= 1 else "unknown"
+            # URL-decode epoch notation (e.g. 1%3a1.36.1 -> 1:1.36.1)
+            raw_ver = parts[1] if len(parts) >= 2 else "unknown"
+            clean_ver = raw_ver.replace("%3a", ":").replace("%3A", ":")
+
+            # Determine target ecosystem (defaulting to Ubuntu:24.04 for noble)
+            target_ecosystem = os.environ.get("GDC_TARGET_ECOSYSTEM", "Ubuntu:24.04")
                 
             expected_sha = actual_sha
             
@@ -760,17 +763,27 @@ def main():
             last_updated_deb = pkg_data.get("release_date") or pkg_data.get("last_updated")
             if not last_updated_deb and os.path.exists(filepath):
                 last_updated_deb = datetime.fromtimestamp(os.path.getmtime(filepath), tz=timezone.utc).strftime("%Y-%m-%d")
-            cvss_score = pkg_data.get("cvss_score", 0.0)
 
-            report["packages_seeding"]["packages"].append({
+            pkg_entry = {
                 "filename": deb,
+                "package_name": pkg_name,
+                "version": clean_ver,
+                "ecosystem": target_ecosystem,
                 "expected_sha": expected_sha,
                 "actual_sha": actual_sha,
                 "verified": verified,
                 "size_kb": size_kb,
                 "last_updated": last_updated_deb,
-                "cvss_score": cvss_score
-            })
+                "cvss_score": pkg_data.get("cvss_score"),
+                "severity": pkg_data.get("severity"),
+                "cve_count": pkg_data.get("cve_count"),
+                "primary_cve": pkg_data.get("primary_cve"),
+                "details_url": pkg_data.get("details_url"),
+                "scanned_at": pkg_data.get("scanned_at")
+            }
+
+            # Only include non-None keys to preserve clean output
+            report["packages_seeding"]["packages"].append({k: v for k, v in pkg_entry.items() if v is not None})
     else:
         report["packages_seeding"]["total_cached"] = 0
     
@@ -932,7 +945,13 @@ def main():
 """
     for pkg_obj in report["packages_seeding"]["packages"]:
         status_txt = "[PASSED]" if pkg_obj["verified"] else "[FAILED]"
-        cvss_disp = f"`{pkg_obj.get('cvss_score', 0.0)}`" if pkg_obj.get("cvss_score") is not None else "`0.0`"
+        if pkg_obj.get("scanned_at"):
+            score = pkg_obj.get("cvss_score", 0.0)
+            sev = pkg_obj.get("severity", "CLEAN")
+            cves = pkg_obj.get("cve_count", 0)
+            cvss_disp = f"`{score:.1f} {sev}` ({cves} CVEs)" if score > 0 else "`Clean (0 CVEs)`"
+        else:
+            cvss_disp = "`Not Scanned`"
         date_disp = pkg_obj.get("last_updated") or "N/A"
         md_content += f"| `{pkg_obj['filename']}` | **{status_txt}** | `{pkg_obj['size_kb']} KB` | `{date_disp}` | {cvss_disp} | `{pkg_obj['actual_sha']}` |\n"
     if report["packages_seeding"]["failures"]:
