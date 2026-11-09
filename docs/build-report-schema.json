@@ -267,6 +267,45 @@
               "cvss_score": {
                 "type": "number",
                 "description": "Highest CVSS vulnerability score identified for this package version via OSV API (0.0 if clean)."
+              },
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "CLEAN",
+                  "LOW",
+                  "MEDIUM",
+                  "HIGH",
+                  "CRITICAL"
+                ],
+                "description": "Vulnerability severity tier."
+              },
+              "cve_count": {
+                "type": "integer",
+                "description": "Total number of identified CVEs for this package version."
+              },
+              "primary_cve": {
+                "type": "string",
+                "description": "Primary or highest severity CVE identifier (e.g. CVE-2024-1234, UBUNTU-CVE-2026-40228)."
+              },
+              "details_url": {
+                "type": "string",
+                "description": "External vulnerability reference link (e.g. OSV.dev details URL)."
+              },
+              "scanned_at": {
+                "type": "string",
+                "description": "RFC 3339 UTC timestamp indicating when this package vulnerability scan was executed."
+              },
+              "package_name": {
+                "type": "string",
+                "description": "Normalized Debian package name (e.g. systemd, curl)."
+              },
+              "version": {
+                "type": "string",
+                "description": "Normalized upstream and Debian package version string."
+              },
+              "ecosystem": {
+                "type": "string",
+                "description": "Package ecosystem identifier for vulnerability lookups (e.g. Ubuntu:24.04)."
               }
             }
           }
