@@ -34,7 +34,27 @@ The ISO build pipeline relies on Google Cloud Platform. You must have:
 
 * An active GCP Project configured locally via the `gcloud` CLI.
 * All 19 required [GDC GCP APIs](https://cloud.google.com/kubernetes-engine/docs/how-to/apis) enabled (e.g. `anthos.googleapis.com`, `cloudbuild.googleapis.com`, `gkeonprem.googleapis.com`).
-* Proper Google Service Accounts created in the active project (`admin-sa` and `baremetal-gcr`).
+* Proper Google Service Accounts created in the active project:
+  * `admin-sa`: Administrative service account used for node bootstrap, cluster management, and desired state synchronization.
+  * `baremetal-gcr`: Container registry mirror access for bare metal clusters.
+  * **GCP ISO Builder Google Service Account** (e.g. `gdc-iso-builder-sa`): Dedicated service account used by Google Cloud Build to compile, validate, and publish custom ISO artifacts.
+
+#### 3.1.1 GCP ISO Builder Google Service Account Permissions
+
+To adhere to the **Principle of Least Privilege (PoLP)** and enforce **Separation of Duties**, avoid executing ISO compilation under high-privilege administrative service accounts (such as `sa-companion` or `admin-sa`). Cloud Build should run with a dedicated **GCP ISO Builder Google Service Account** scoped strictly to the required resources:
+
+##### Least Privilege Permissions Matrix
+
+| GCP Service | Scope / Target Resource | Role Required | Why It Is Needed |
+| :--- | :--- | :--- | :--- |
+| **Cloud Storage** | Bucket: `gs://${GCS_BUCKET_NAME}` | `roles/storage.objectAdmin` | Uploads new ISOs, syncs package caches, and executes `gcloud storage mv` (copy + delete) for retention archiving. |
+| **Cloud Storage** | Bucket: `gs://${ISO_BLESSED_GCS_BUCKET}` | `roles/storage.objectViewer` | Read-only download of the source Ubuntu 24.04 server ISO. |
+| **Cloud Storage** | Bucket: `gs://${PROJECT_ID}_cloudbuild` | `roles/storage.objectViewer` | Cloud Build default staging bucket to unpack the source workspace tarball. |
+| **Secret Manager** | Secret: `${FALLBACK_SUB_CA_SECRET_NAME:-gdc-fallback-sub-ca}` | `roles/secretmanager.secretAccessor` | Reads the fallback Sub-CA credentials baked into the ISO custom data (`remaster.sh`). |
+| **Secret Manager** | Secret: `bootimus_creds` *(optional)* | `roles/secretmanager.secretAccessor` | Reads Bootimus credentials only if `BOOTIMUS_SECRET_METHOD=gcloud` is enabled. |
+| **Artifact Registry** | Repo: `gdc-build-images` (region: `${REGION}`) | `roles/artifactregistry.reader` *(or `writer`)* | Pulls `iso-builder:${BUILD_VERSION}` (and pushes if executing `./build-builder.sh`). |
+| **Cloud Logging** | Project: `${PROJECT_ID}` | `roles/logging.logWriter` | Required by Cloud Build to output step logs (`logging: CLOUD_LOGGING_ONLY`). |
+| **IAM Delegation** | On the dedicated GSA itself | `roles/iam.serviceAccountUser` | Granted to the Cloud Build Service Agent (`service-${PROJECT_NUMBER}@gcp-sa-cloudbuild.iam.gserviceaccount.com`) so Cloud Build can execute as this GSA. |
 
 **Critical CI/CD Variables**
 The Cloud Build pipeline produces environment-specific ISOs by injecting variables at build time. Below are sample variables passed into the pipeline:

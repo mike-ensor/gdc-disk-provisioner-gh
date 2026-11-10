@@ -18,6 +18,7 @@ Security begins at the ISO compilation stage to prevent malicious payload inject
   ```
 * **Non-Root Workspace Assembly:** Standard loopback mounting requires root administrative `sudo` privileges, which are highly restricted on secure CI/CD runners. We isolate our build environment by using `xorriso`'s non-privileged extraction and repackaging layer (`-osirrox on -extract`), eliminating the need for system privileges.
 * **SquashFS Isolation:** To ensure rapid and secure repackaging cycles, the base system SquashFS (`filesystem.squashfs`) is left completely untouched. Custom configurations, Gitea repositories, and Nexus package bundles reside on the uncompressed *outer* ISO directory (`/custom-data/`), keeping the boot kernel isolated from customization tasks.
+* **Dedicated GCP ISO Builder Google Service Account:** To enforce Least Privilege and prevent privilege escalation, Cloud Build runners must never execute with high-privilege administrative service accounts (such as `sa-companion` or `admin-sa`). Cloud Build operates under a dedicated **GCP ISO Builder Google Service Account** with resource-scoped access limited strictly to the required artifact buckets, Sub-CA secret, and container registries.
 
 ---
 
