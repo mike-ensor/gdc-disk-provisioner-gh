@@ -6,9 +6,9 @@ To support compliance, security, and velocity, the compilation pipeline can run 
 
 ---
 
-## The 3-Step Lifecycle: Containerization, Compilation, & Cloud Build
+## The Build Lifecycle: Setup, IAM, Compilation, & Cloud Build
 
-Follow these steps to set up your custom builder registry, compile the builder container, and trigger automated GDC ISO remastering runs in the cloud.
+Follow these steps to set up your custom builder registry, compile the builder container, configure build IAM permissions, and trigger automated GDC ISO remastering runs in the cloud.
 
 ### Step 1: Create your Artifact Registry (One-Time Setup)
 Create a secure, private Docker registry in your Google Cloud Project to host the custom compilation builder container:
@@ -42,7 +42,26 @@ gcloud builds submit src/build/ \
 
 ---
 
-### Step 3: Trigger a GDC ISO Cloud Build Run
+### Step 3: Configure the GCP ISO Builder Google Service Account (Least Privilege)
+
+To adhere to the **Principle of Least Privilege (PoLP)** and enforce **Separation of Duties**, avoid executing Cloud Build runs under broad administrative or node service accounts. Instead, configure and delegate a dedicated **GCP ISO Builder Google Service Account** (e.g. `gdc-iso-builder-sa@${PROJECT_ID}.iam.gserviceaccount.com`).
+
+#### Least Privilege Permissions Matrix
+
+| GCP Service | Scope / Target Resource | Role Required | Why It Is Needed |
+| :--- | :--- | :--- | :--- |
+| **Cloud Storage** | Bucket: `gs://${GCS_BUCKET_NAME}` | `roles/storage.objectAdmin` | Uploads new ISOs, syncs package caches, and executes `gcloud storage mv` (copy + delete) for retention archiving. |
+| **Cloud Storage** | Bucket: `gs://${ISO_BLESSED_GCS_BUCKET}` | `roles/storage.objectViewer` | Read-only download of the source Ubuntu 24.04 server ISO. |
+| **Cloud Storage** | Bucket: `gs://${PROJECT_ID}_cloudbuild` | `roles/storage.objectViewer` | Cloud Build default staging bucket to unpack the source workspace tarball. |
+| **Secret Manager** | Secret: `${FALLBACK_SUB_CA_SECRET_NAME:-gdc-fallback-sub-ca}` | `roles/secretmanager.secretAccessor` | Reads the fallback Sub-CA credentials baked into the ISO custom data (`remaster.sh`). |
+| **Secret Manager** | Secret: `bootimus_creds` *(optional)* | `roles/secretmanager.secretAccessor` | Reads Bootimus credentials only if `BOOTIMUS_SECRET_METHOD=gcloud` is enabled. |
+| **Artifact Registry** | Repo: `gdc-build-images` (region: `${REGION}`) | `roles/artifactregistry.reader` *(or `writer`)* | Pulls `iso-builder:${BUILD_VERSION}` (and pushes if executing `./build-builder.sh`). |
+| **Cloud Logging** | Project: `${PROJECT_ID}` | `roles/logging.logWriter` | Required by Cloud Build to output step logs (`logging: CLOUD_LOGGING_ONLY`). |
+| **IAM Delegation** | On the dedicated GSA itself | `roles/iam.serviceAccountUser` | Granted to the Cloud Build Service Agent (`service-${PROJECT_NUMBER}@gcp-sa-cloudbuild.iam.gserviceaccount.com`) so Cloud Build can execute as this GSA. |
+
+---
+
+### Step 4: Trigger a GDC ISO Cloud Build Run
 
 To build the GDC ISO, run the top-level `./build.sh` script on your workstation. This script automatically handles variables, respects local environments, ignores heavy directories (via `.gcloudignore`), and initiates the build instantly:
 
