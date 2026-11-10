@@ -22,6 +22,8 @@ Rather than utilizing a single monolithic compilation script, the build cycle is
   * *Mitigation:* The build uses TPM-based cryptographic enrollment during boot instead of static keys. Admin passwords are encrypted with SHA-512 rounds salted hashes inside the cloud-init template.
 * **Risk (Network Exposure):** Running Gitea and Nexus during the live-boot installation could expose port 3000 and 8081 to the wider provisioning LAN, risking unauthorized package injection.
   * *Mitigation:* During the Live ISO bootstrap phase, Gitea and Nexus are configured to bind strictly to the local loopback interface (`127.0.0.1`). They are only bound to public node network interfaces post-hardening in the target OS.
+* **Risk (Over-Privileged Build Identity):** Executing Cloud Build runs under administrative or node-level service accounts expands the blast radius if an untrusted build dependency is introduced.
+  * *Mitigation:* **GCP ISO Builder Google Service Account.** Builds execute under a dedicated service account restricted via Least Privilege strictly to the artifact buckets, Sub-CA secret, and container registries.
 
 ### 2.2. Operational Ability (Agility & Velocity)
 * **Risk (Rebuild Latency):** Compiling a custom ISO traditionally requires extracting and compressing the read-only SquashFS (`filesystem.squashfs`), which takes 10 to 20 minutes and requires massive CPU overhead.
