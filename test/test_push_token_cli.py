@@ -60,6 +60,18 @@ class TestPushTokenCLI(unittest.TestCase):
         self.assertIn("rotate-token", result.stdout)
         self.assertIn("--nodes", result.stdout)
         self.assertIn("--dry-run", result.stdout)
+        self.assertIn("--reissue-cert", result.stdout)
+
+    def test_node_ops_rotate_token_dry_run_reissue_cert(self):
+        result = subprocess.run(
+            [NODE_OPS_SCRIPT, "rotate-token", "--nodes", "192.168.4.10", "--reissue-cert", "--dry-run"],
+            capture_output=True, text=True
+        )
+        self.assertEqual(result.returncode, 0, f"Failed: {result.stderr}")
+        self.assertIn("DRY RUN MODE: rotate-token", result.stdout)
+        self.assertIn("192.168.4.10", result.stdout)
+        self.assertIn("Re-issue cert: true", result.stdout)
+        self.assertIn("step ca certificate", result.stdout)
 
     def test_node_ops_push_token_missing_nodes(self):
         env = os.environ.copy()

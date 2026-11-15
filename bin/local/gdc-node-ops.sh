@@ -856,6 +856,11 @@ cmd_rotate_token() {
     local ssh_user="gdc-admin"
     local ssh_key=""
     local dry_run=false
+    local reissue_cert=false
+    local iso_env=""
+    local step_ca_url=""
+    local step_prov_name=""
+    local step_prov_pass=""
 
     rotate_usage() {
         cat <<EOF
@@ -863,13 +868,19 @@ Usage: $(basename "$0") rotate-token [OPTIONS]
 
 Forces execution of /usr/local/bin/refresh-gdc-credentials.sh on target nodes
 and verifies that the rotated GCP Bearer token is valid and active in gcloud.
+Optionally re-issues expired mTLS client certificates via Step CA.
 
 Options:
-  --nodes, --ip <IPs>  Comma-separated list or space-separated IPs (defaults to TARGET_TEST_MACHINES)
-  --user <USER>        SSH username (default: gdc-admin)
-  --key <KEY_PATH>     Path to SSH private key
-  --dry-run            Display planned actions without connecting via SSH
-  -h, --help           Display this help message
+  --nodes, --ip <IPs>       Comma-separated list or space-separated IPs (defaults to TARGET_TEST_MACHINES)
+  --user <USER>             SSH username (default: gdc-admin)
+  --key <KEY_PATH>          Path to SSH private key
+  --reissue-cert            Re-issue mTLS client certificate via Step CA before refreshing token
+  --env, --profile <NAME>   Target profile to load Step CA credentials from (default: barn)
+  --step-ca <URL>           Step CA URL (overrides profile/env)
+  --provisioner <NAME>      Step CA provisioner name (default: admin)
+  --step-pass <PASS>        Step CA provisioner password (overrides profile/env)
+  --dry-run                 Display planned actions without connecting via SSH
+  -h, --help                Display this help message
 EOF
         exit "${1:-0}"
     }
@@ -887,6 +898,26 @@ EOF
                 ;;
             --key)
                 ssh_key="$2"
+                shift 2
+                ;;
+            --reissue-cert|--reissue|--reissue-mtls)
+                reissue_cert=true
+                shift
+                ;;
+            --env|--profile)
+                iso_env="$2"
+                shift 2
+                ;;
+            --step-ca|--ca-url)
+                step_ca_url="$2"
+                shift 2
+                ;;
+            --provisioner|--provisioner-name)
+                step_prov_name="$2"
+                shift 2
+                ;;
+            --step-pass|--provisioner-pass|--step-password)
+                step_prov_pass="$2"
                 shift 2
                 ;;
             --dry-run)
@@ -924,16 +955,63 @@ EOF
         ssh_opts+=(-i "${ssh_key}")
     fi
 
+    # If reissuing cert, resolve Step CA config from environment profile
+    if [[ "${reissue_cert}" == "true" ]]; then
+        iso_env="${iso_env:-${ISO_ENVIRONMENT:-barn}}"
+        local profile_file="${REPO_ROOT}/src/build/${iso_env}.env"
+        if [[ -f "${profile_file}" ]]; then
+            # Source profile safely for Step CA variables if not overridden
+            local env_ca
+            env_ca=$(grep -E '^[[:space:]]*STEP_CA_URL=' "${profile_file}" 2>/dev/null | tail -n 1 | cut -d'=' -f2- | tr -d '"'\'' ' || true)
+            local env_prov
+            env_prov=$(grep -E '^[[:space:]]*STEP_PROVISIONER_NAME=' "${profile_file}" 2>/dev/null | tail -n 1 | cut -d'=' -f2- | tr -d '"'\'' ' || true)
+            local env_pass
+            env_pass=$(grep -E '^[[:space:]]*STEP_PROVISIONER_PASSWORD=' "${profile_file}" 2>/dev/null | tail -n 1 | cut -d'=' -f2- | tr -d '"'\'' ' || true)
+
+            [[ -z "${step_ca_url}" ]] && step_ca_url="${env_ca}"
+            [[ -z "${step_prov_name}" ]] && step_prov_name="${env_prov}"
+            [[ -z "${step_prov_pass}" ]] && step_prov_pass="${env_pass}"
+        fi
+
+        step_ca_url="${step_ca_url:-${STEP_CA_URL:-https://step-ca.ensor-labs.com}}"
+        step_prov_name="${step_prov_name:-${STEP_PROVISIONER_NAME:-admin}}"
+        step_prov_pass="${step_prov_pass:-${STEP_PROVISIONER_PASSWORD:-}}"
+
+        if [[ -z "${step_prov_pass}" && "${dry_run}" != "true" ]]; then
+            echo "Error: Step CA provisioner password not found. Pass --step-pass or ensure STEP_PROVISIONER_PASSWORD is set." >&2
+            exit 1
+        fi
+
+        if ! command -v step >/dev/null 2>&1 && [[ "${dry_run}" != "true" ]]; then
+            echo "Error: 'step' CLI is required locally on workstation to generate mTLS provisioner tokens." >&2
+            exit 1
+        fi
+    fi
+
     if [[ "${dry_run}" == "true" ]]; then
         echo "=============================================================================="
         echo " DRY RUN MODE: rotate-token"
         echo "=============================================================================="
-        echo "  Target nodes: ${targets[*]}"
-        echo "  SSH User:     ${ssh_user}"
+        echo "  Target nodes:  ${targets[*]}"
+        echo "  SSH User:      ${ssh_user}"
+        echo "  Re-issue cert: ${reissue_cert}"
+        if [[ "${reissue_cert}" == "true" ]]; then
+            echo "  Step CA URL:   ${step_ca_url}"
+            echo "  Provisioner:   ${step_prov_name}"
+        fi
         echo ""
         echo "Would execute on each target node:"
-        echo "  1. ssh ${ssh_user}@<NODE> 'sudo /usr/local/bin/refresh-gdc-credentials.sh'"
-        echo "  2. ssh ${ssh_user}@<NODE> 'gcloud auth print-access-token'"
+        if [[ "${reissue_cert}" == "true" ]]; then
+            echo "  1. Discover node identity/hostname and primary MAC over SSH as ${ssh_user}"
+            echo "  2. Generate short-lived Step CA authorization token via local 'step ca token'"
+            echo "  3. ssh ${ssh_user}@<NODE> 'sudo step ca certificate <ID> /var/gdc-install/keys/client.crt /var/gdc-install/keys/client.key --token=<TOKEN> --force'"
+            echo "  4. ssh ${ssh_user}@<NODE> 'sudo chmod 0600 /var/gdc-install/keys/client.key && sudo chmod 0644 /var/gdc-install/keys/client.crt'"
+            echo "  5. ssh ${ssh_user}@<NODE> 'sudo /usr/local/bin/refresh-gdc-credentials.sh'"
+            echo "  6. ssh ${ssh_user}@<NODE> 'gcloud auth print-access-token'"
+        else
+            echo "  1. ssh ${ssh_user}@<NODE> 'sudo /usr/local/bin/refresh-gdc-credentials.sh'"
+            echo "  2. ssh ${ssh_user}@<NODE> 'gcloud auth print-access-token'"
+        fi
         return 0
     fi
 
@@ -950,6 +1028,66 @@ EOF
         if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "${ssh_opts[@]}" "${ssh_user}@$ip" "echo 'OK'" &>/dev/null; then
             echo "  [!] ERROR: Cannot connect to $ip as ${ssh_user}. Skipping."
             continue
+        fi
+
+        if [[ "${reissue_cert}" == "true" ]]; then
+            echo "  [-] Discovering node identity and MAC on $ip..."
+            local node_meta
+            node_meta=$(ssh "${ssh_opts[@]}" "${ssh_user}@$ip" bash -s << 'META_EOF' 2>/dev/null || true
+set -uo pipefail
+node_h=$(hostname 2>/dev/null || echo "")
+def_if=$(ip route show | grep '^default' | awk '{print $5}' | head -n 1 || true)
+[ -z "$def_if" ] && def_if=$(ls /sys/class/net 2>/dev/null | grep -E '^e' | grep -v '\.' | head -n 1 || true)
+node_m=$(cat "/sys/class/net/${def_if}/address" 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]' || true)
+echo "${node_h}|${node_m}"
+META_EOF
+)
+            local node_hostname
+            node_hostname=$(echo "${node_meta}" | cut -d'|' -f1 | xargs)
+            local node_mac
+            node_mac=$(echo "${node_meta}" | cut -d'|' -f2 | xargs)
+
+            if [[ -z "${node_mac}" ]]; then
+                echo "  [!] ERROR: Could not determine MAC address for $ip. Skipping cert re-issuance."
+                continue
+            fi
+
+            local cert_identity="${node_hostname:-$node_mac}"
+            echo "  [-] Node identity: ${cert_identity} (MAC: ${node_mac})"
+
+            echo "  [-] Generating Step CA authorization token locally..."
+            local token_err_file
+            token_err_file=$(mktemp)
+            local step_jwt=""
+            step_jwt=$(echo -n "${step_prov_pass}" | step ca token "${cert_identity}" \
+                --san="${node_mac}" \
+                --provisioner="${step_prov_name}" \
+                --ca-url="${step_ca_url}" \
+                --password-file=/dev/stdin 2>"${token_err_file}" || true)
+
+            if [[ -z "${step_jwt}" ]]; then
+                echo "  [!] ERROR: Failed to generate Step CA token:" >&2
+                cat "${token_err_file}" >&2
+                rm -f "${token_err_file}"
+                continue
+            fi
+            rm -f "${token_err_file}"
+            echo "  [+] Step CA token generated successfully."
+
+            echo "  [-] Re-issuing mTLS client certificate on $ip..."
+            ssh "${ssh_opts[@]}" "${ssh_user}@$ip" bash -s << REMOTE_CERT_EOF
+set -euo pipefail
+sudo step ca certificate "${cert_identity}" /var/gdc-install/keys/client.crt /var/gdc-install/keys/client.key \
+    --token="${step_jwt}" \
+    --ca-url="${step_ca_url}" \
+    --root="/var/gdc-install/keys/root_ca.crt" \
+    --force
+
+sudo chmod 0600 /var/gdc-install/keys/client.key
+sudo chmod 0644 /var/gdc-install/keys/client.crt
+sudo chown root:root /var/gdc-install/keys/client.key /var/gdc-install/keys/client.crt
+echo "  [+] mTLS client certificate re-issued and permissions verified."
+REMOTE_CERT_EOF
         fi
 
         echo "  [-] Executing /usr/local/bin/refresh-gdc-credentials.sh..."
