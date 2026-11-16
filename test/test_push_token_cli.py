@@ -71,6 +71,7 @@ class TestPushTokenCLI(unittest.TestCase):
         self.assertIn("DRY RUN MODE: rotate-token", result.stdout)
         self.assertIn("192.168.4.10", result.stdout)
         self.assertIn("Re-issue cert: true", result.stdout)
+        self.assertIn("Day-2 K8s STS", result.stdout)
         self.assertIn("step ca certificate", result.stdout)
 
     def test_node_ops_push_token_missing_nodes(self):
