@@ -213,5 +213,39 @@ class TestRefreshCredentialsFallback(unittest.TestCase):
         self.assertIn("WARN: STS token exchange unreachable (WAN offline)", result.stdout)
         temp_obj.cleanup()
 
+    def test_template_renders_without_explicit_vars(self):
+        # Verify template renders without raising UndefinedError when optional variables are omitted
+        import jinja2
+        with open(TEMPLATE_PATH, "r") as f:
+            template_content = f.read()
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        rendered = env.from_string(template_content).render()
+        self.assertIn("https://step-ca.gdc-labs.com", rendered)
+        self.assertIn("https://gdc-companion.gdc-labs.com/", rendered)
+
+    def test_post_cluster_workload_identity_template_path(self):
+        # Verify workload_identity.yml references a valid template path relative to role_path
+        import yaml
+        wif_task_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/post_cluster/tasks/workload_identity.yml")
+        with open(wif_task_path, "r") as f:
+            tasks = yaml.safe_load(f)
+
+        deploy_task = next(
+            t for t in tasks
+            if isinstance(t, dict) and t.get("name") == "GDC-WIF | Deploy Day-2 state-aware refresh-gdc-credentials.sh"
+        )
+        template_src = deploy_task["ansible.builtin.template"]["src"]
+
+        # Simulate role_path: src/ansible/roles/post_cluster
+        role_dir = os.path.join(PROJECT_ROOT, "src/ansible/roles/post_cluster")
+        resolved_src = template_src.replace("{{ role_path }}", role_dir)
+        norm_resolved = os.path.normpath(resolved_src)
+
+        self.assertTrue(
+            os.path.isfile(norm_resolved),
+            f"Template path in workload_identity.yml did not resolve to a file: {norm_resolved}"
+        )
+        self.assertEqual(norm_resolved, os.path.normpath(TEMPLATE_PATH))
+
 if __name__ == '__main__':
     unittest.main()

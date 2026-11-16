@@ -79,7 +79,7 @@
 
 - name: "GDC-WIF | Deploy Day-2 state-aware refresh-gdc-credentials.sh"
   ansible.builtin.template:
-    src: "{{ role_path }}/../../machine_orchestration/templates/refresh-gdc-credentials.sh.j2"
+    src: "{{ role_path }}/../machine_orchestration/templates/refresh-gdc-credentials.sh.j2"
     dest: /usr/local/bin/refresh-gdc-credentials.sh
     owner: root
     group: root
