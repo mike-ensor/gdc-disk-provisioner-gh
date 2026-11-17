@@ -115,6 +115,53 @@ API_BASE = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_API_PORT}/api"
 BOOTIMUS_SCAN_RETRIES = _get_int_env(["BOOTIMUS_SCAN_RETRIES"], 80)
 BOOTIMUS_SCAN_DELAY = _get_int_env(["BOOTIMUS_SCAN_DELAY", "BOOTIMUS_SCAN_INTERVAL_SECONDS"], 15)
 
+# Boot Parameters Configuration Defaults (Configurable via Environment)
+BOOT_RAMDISK_SIZE = os.environ.get("BOOT_RAMDISK_SIZE", "")
+BOOT_CONSOLE = os.environ.get("BOOT_CONSOLE", "console=tty1 console=ttyS0")
+BOOT_MODPROBE_BLACKLIST = os.environ.get("BOOT_MODPROBE_BLACKLIST", "pcie_mp2_amd,amd_sfh,ccp")
+BOOT_APPARMOR = os.environ.get("BOOT_APPARMOR", "0")
+BOOT_TPM_INTERRUPTS = os.environ.get("BOOT_TPM_INTERRUPTS", "0")
+BOOT_EXTRA_PARAMS = os.environ.get("BOOT_EXTRA_PARAMS", "").strip()
+
+
+def calculate_ramdisk_size(iso_size_bytes=None):
+    """Calculates ramdisk_size (in KiB) with dynamic headroom above ISO size.
+    Enforces a battle-tested 7.5GB (7500000 KiB) minimum floor, expanding
+    dynamically by +1.5GB (1572864 KiB) if the ISO size exceeds headroom.
+    """
+    if BOOT_RAMDISK_SIZE:
+        return BOOT_RAMDISK_SIZE
+
+    floor_kib = 7500000
+    headroom_kib = 1572864  # 1.5 GiB buffer for overlay filesystem and installer logs
+
+    if iso_size_bytes and iso_size_bytes > 0:
+        iso_kib = iso_size_bytes // 1024
+        return str(max(floor_kib, iso_kib + headroom_kib))
+    return str(floor_kib)
+
+
+def get_boot_params(filename, iso_size_bytes=None):
+    """Constructs dynamic Bootimus kernel parameters using template variables or env overrides."""
+    # Support Bootimus native template substitution ({{BASE_URL}}, {{FILENAME}}, {{CACHE_DIR}})
+    # while allowing explicit URL overrides if provided in the environment.
+    iso_url = os.environ.get("BOOTIMUS_ISO_URL", "{{BASE_URL}}/isos/{{FILENAME}}")
+    seed_url = os.environ.get("BOOTIMUS_SEED_URL", "{{BASE_URL}}/isos/{{CACHE_DIR}}/iso/nocloud/")
+    ramdisk_size = calculate_ramdisk_size(iso_size_bytes)
+
+    apparmor_val = BOOT_APPARMOR if BOOT_APPARMOR != "0" else "0"
+    params = (
+        f"boot=casper initrd=initrd ip=dhcp netboot=url "
+        f"iso-url={iso_url} "
+        f"root=/dev/ram0 ramdisk_size={ramdisk_size} autoinstall "
+        f"apparmor=0 {BOOT_CONSOLE} "
+        f"tpm_tis.interrupts={BOOT_TPM_INTERRUPTS} modprobe.blacklist={BOOT_MODPROBE_BLACKLIST} "
+        f"ds=nocloud-net;s={seed_url}"
+    )
+    if BOOT_EXTRA_PARAMS:
+        params = f"{params} {BOOT_EXTRA_PARAMS}"
+    return params
+
 def get_bootimus_credentials(cli_user=None, cli_pass=None, cli_provider=None, cli_file=None):
     """Retrieves credentials using an isolated, configurable lookup strategy:
     1. Explicit CLI arguments (--user, --pass)
@@ -459,11 +506,12 @@ def auto_heal_boot_params(token, target_images=None):
                     "autoinstall" in boot_params and 
                     "ds=nocloud-net" in boot_params and
                     "iso-url=" in boot_params and
-                    "modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp" in boot_params and
-                    "tpm_tis.interrupts=0" in boot_params and
-                    "apparmor=0" in boot_params and
-                    "console=tty1 console=ttyS0" in boot_params and
-                    "ramdisk_size=7500000" in boot_params
+                    f"modprobe.blacklist={BOOT_MODPROBE_BLACKLIST}" in boot_params and
+                    f"tpm_tis.interrupts={BOOT_TPM_INTERRUPTS}" in boot_params and
+                    f"apparmor={BOOT_APPARMOR}" in boot_params and
+                    BOOT_CONSOLE in boot_params and
+                    "ramdisk_size=" in boot_params and
+                    ("{{BASE_URL}}" in boot_params or "http://" in boot_params)
                 )
 
                 if not extracted:
@@ -483,18 +531,8 @@ def auto_heal_boot_params(token, target_images=None):
                 elif boot_method != "kernel" or distro != "ubuntu" or not has_correct_params or not enabled:
                     print(f"[!] Alert: GDC Image '{img.get('name')}' configuration is missing or clobbered! Healing...")
                     
-                    iso_name_no_ext = filename[:-4] if filename.endswith(".iso") else filename
-                    iso_url = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_HTTP_PORT}/isos/{filename}"
-                    seed_url = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_HTTP_PORT}/isos/{iso_name_no_ext}/iso/nocloud/"
-                    
-                    fixed_params = (
-                        f"boot=casper initrd=initrd ip=dhcp netboot=url "
-                        f"iso-url={iso_url} "
-                        f"root=/dev/ram0 ramdisk_size=7500000 autoinstall "
-                        f"apparmor=0 console=tty1 console=ttyS0 "
-                        f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp "
-                        f"ds=nocloud-net;s={seed_url}"
-                    )
+                    iso_size = img.get("size", 0)
+                    fixed_params = get_boot_params(filename, iso_size_bytes=iso_size)
                     
                     # Stage 1: Configure parameters but DO NOT ENABLE yet
                     stage1_data = {
@@ -1002,20 +1040,8 @@ def main():
         print("[-] Image already extracted. Skipping extraction phase.")
         
     # 6. Configure Boot Method & Custom Boot Parameters
-    iso_name_no_ext = filename[:-4] # strip '.iso'
-    
-    # Dynamic URLs matching user specifications
-    iso_url = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_HTTP_PORT}/isos/{filename}"
-    seed_url = f"http://{BOOTIMUS_API_HOST}:{BOOTIMUS_HTTP_PORT}/isos/{iso_name_no_ext}/iso/nocloud/"
-    
-    boot_params = (
-        f"boot=casper initrd=initrd ip=dhcp netboot=url "
-        f"iso-url={iso_url} "
-        f"root=/dev/ram0 ramdisk_size=7500000 autoinstall "
-        f"apparmor=0 console=tty1 console=ttyS0 "
-        f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp "
-        f"ds=nocloud-net;s={seed_url}"
-    )
+    iso_size = image_data.get("size", 0)
+    boot_params = get_boot_params(filename, iso_size_bytes=iso_size)
     
     print("[-] Updating boot method to 'kernel', setting distro to 'ubuntu', and configuring parameters...")
     update_data = {

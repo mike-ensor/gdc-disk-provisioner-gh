@@ -333,6 +333,36 @@
           "type": "boolean"
         }
       }
+    },
+    "boot_parameters": {
+      "type": "object",
+      "description": "Recommended Bootimus kernel parameters and PXE configuration for booting this ISO build.",
+      "properties": {
+        "boot_params": {
+          "type": "string",
+          "description": "Full recommended kernel command-line arguments for Bootimus."
+        },
+        "boot_method": {
+          "type": "string",
+          "description": "Recommended Bootimus bootloader method (e.g. kernel)."
+        },
+        "distro": {
+          "type": "string",
+          "description": "Target distribution identifier (e.g. ubuntu)."
+        },
+        "ramdisk_size": {
+          "type": "string",
+          "description": "Recommended or dynamically calculated ramdisk size in KiB."
+        },
+        "iso_url": {
+          "type": "string",
+          "description": "Templated or static ISO download URL."
+        },
+        "seed_url": {
+          "type": "string",
+          "description": "Templated or static Subiquity nocloud seed URL."
+        }
+      }
     }
   }
 }

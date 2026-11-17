@@ -870,6 +870,31 @@ def main():
                 })
         stage["tests"] = tests_list
 
+    # Calculate recommended Bootimus PXE boot parameters
+    effective_iso_size = report["metadata"].get("local_iso_size_bytes", 0) or local_iso_size_bytes
+    ramdisk_floor_kib = 7500000
+    ramdisk_headroom_kib = 1572864  # 1.5 GiB buffer
+    calculated_ramdisk_kib = str(max(ramdisk_floor_kib, (effective_iso_size // 1024) + ramdisk_headroom_kib)) if effective_iso_size > 0 else "7500000"
+    iso_url_template = "{{BASE_URL}}/isos/{{FILENAME}}"
+    seed_url_template = "{{BASE_URL}}/isos/{{CACHE_DIR}}/iso/nocloud/"
+    recommended_boot_params = (
+        f"boot=casper initrd=initrd ip=dhcp netboot=url "
+        f"iso-url={iso_url_template} "
+        f"root=/dev/ram0 ramdisk_size={calculated_ramdisk_kib} autoinstall "
+        f"apparmor=0 console=tty1 console=ttyS0 "
+        f"tpm_tis.interrupts=0 modprobe.blacklist=pcie_mp2_amd,amd_sfh,ccp "
+        f"ds=nocloud-net;s={seed_url_template}"
+    )
+
+    report["boot_parameters"] = {
+        "boot_params": recommended_boot_params,
+        "boot_method": "kernel",
+        "distro": "ubuntu",
+        "ramdisk_size": calculated_ramdisk_kib,
+        "iso_url": iso_url_template,
+        "seed_url": seed_url_template
+    }
+
     # Save canonical JSON build report
     json_path = os.path.join(output_dir, f"{report_stem}.json")
     with open(json_path, "w") as jf:
@@ -965,6 +990,15 @@ def main():
 * **GCS Upload Verified:** `{report["deployment_verification"]["verified_on_gcs"]}`
 * **Destination GCS Path:** `{report["deployment_verification"]["gcs_path"]}`
 * **Local-to-Remote Footprint Verification:** `{report["deployment_verification"]["sha256_matches"]}`
+
+## 7. Recommended Bootimus PXE Boot Parameters
+* **Target Distribution:** `{report["boot_parameters"]["distro"]}`
+* **Bootloader Method:** `{report["boot_parameters"]["boot_method"]}` (direct kernel/initrd network extraction)
+* **Calculated Ramdisk Capacity:** `{calculated_ramdisk_kib} KiB` (~{round(int(calculated_ramdisk_kib) / (1024 * 1024), 2)} GiB)
+* **Kernel Command-Line Arguments:**
+```bash
+{recommended_boot_params}
+```
 """
 
     # Group test outcomes by category dynamically
@@ -984,7 +1018,7 @@ def main():
             grouped_cats[cat].append(t)
 
     # Append the comprehensive dynamic validation suites section
-    md_content += "\n## 7. Unified Test Cases & Validation Suite\n"
+    md_content += "\n## 8. Unified Test Cases & Validation Suite\n"
     for cat_name, tests_list in grouped_cats.items():
         if not tests_list:
             continue
@@ -998,7 +1032,7 @@ def main():
     # Check for failing logs to render
     failing_stages = [st for stage in report["stages"] if (st := stage) and stage["status"] == "FAILED"]
     if failing_stages:
-        md_content += "\n## 8. Build Failure Diagnostics & Logs\n"
+        md_content += "\n## 9. Build Failure Diagnostics & Logs\n"
         for fstage in failing_stages:
             md_content += f"\n> [!] **Failing Stage ID:** `{fstage['stage_id']}` ({fstage['name']})\n"
             if fstage["error_logs"]:

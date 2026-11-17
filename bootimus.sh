@@ -268,5 +268,30 @@ if [[ "${ACTION}" == "LIST" || "${ACTION}" == "CHECK_AUTH" ]]; then
 elif [[ "${ACTION}" == "NEXT_BOOT" || "${ACTION}" == "CLEAR_NEXT_BOOT" ]]; then
     exec "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" "${ALL_ARGS[@]}"
 else
-    exec "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" "${ISO_FILENAME}" "${EXTRA_ARGS[@]}"
+    "${PYTHON_BIN}" "${PROJECT_ROOT}/src/build/bootimus.py" "${ISO_FILENAME}" "${EXTRA_ARGS[@]}"
+
+    # ==========================================
+    # Final Readiness & Stability Verification Gate
+    # ==========================================
+    echo ""
+    echo "=============================================================================="
+    echo "[-] Performing final readiness check on Bootimus..."
+    echo "=============================================================================="
+
+    BOOTIMUS_VERIFIED=false
+    MAX_VERIFY_ATTEMPTS=20
+    for (( attempt=1; attempt<=MAX_VERIFY_ATTEMPTS; attempt++ )); do
+        if "${PYTHON_BIN}" "${PROJECT_ROOT}/test/bin/check-bootimus-settings.py" "${ISO_FILENAME}" "${EXTRA_ARGS[@]}"; then
+            echo -e "\033[92m[x] Final Verification: Image '${ISO_FILENAME}' is READY (extracted, enabled, boot parameters locked).\033[0m"
+            BOOTIMUS_VERIFIED=true
+            break
+        fi
+        echo "    Waiting 5s for Bootimus settings to settle... (${attempt}/${MAX_VERIFY_ATTEMPTS})"
+        sleep 5
+    done
+
+    if [[ "${BOOTIMUS_VERIFIED}" != "true" ]]; then
+        echo -e "\033[91m[!] Error: Final Bootimus readiness check failed for '${ISO_FILENAME}'.\033[0m" >&2
+        exit 1
+    fi
 fi
