@@ -1,0 +1,574 @@
+name: ISO Build
+ 
+# Builds, validates and publishes the GDC bootstrap ISO.
+#
+#   prepare        -> resolves version / environment profile / builder tag / backend, validates inputs
+#   builder-image  -> ensures the iso-builder image (tagged by Dockerfile hash) exists in GAR;
+#                     built by Cloud Build (upstream src/build/build.sh flow) or by runner Docker
+#   iso            -> runs the upstream cloudbuild.yaml pipeline, then attaches the build report
+#                     + provenance to the workflow run
+#   mirror-azure   -> optional copy of the ISO to Azure Blob (vars.ISO_AZURE_MIRROR_ENABLED == 'true')
+#
+# Build backends (input build_backend, default vars.ISO_BUILD_BACKEND || cloud-build):
+#   cloud-build  -> gcloud builds submit --config cloudbuild.yaml (same as upstream build.sh --cloud).
+#                   The runner only submits and polls; the ISO is built in Google Cloud next to the
+#                   GCS buckets, so the 3 GB source ISO and the dependency cache never leave GCP.
+#   self-hosted  -> .github/scripts/cloudbuild_local.py runs the SAME cloudbuild.yaml steps with
+#                   Docker on our runner (fallback when Cloud Build is unavailable).
+#
+# Triggers:
+#   - workflow_dispatch: dev/debug builds for any committed src/build/<env>.env profile
+#   - tag X.Y.Z:         release (non-debug) ISO for the default environment
+#
+# Required configuration (see docs/FORGE_CICD.md):
+#   vars.GCP_PROJECT_ID, vars.GCP_REGION and either
+#     vars.GCP_WORKLOAD_IDENTITY_PROVIDER + vars.GCP_SERVICE_ACCOUNT (preferred, keyless) or
+#     secrets.GCP_SA_KEY_NONPROD (JSON key fallback)
+#   Secret Manager secrets <prefix>-temporary-installer-password, <prefix>-companion-api-key,
+#   <prefix>-step-provisioner-password in vars.GCP_PROJECT_ID.
+ 
+on:
+  workflow_dispatch:
+    inputs:
+      iso_environment:
+        description: "ISO environment profile (src/build/<name>.env)"
+        required: true
+        default: forge-dev
+        type: string
+      iso_version:
+        description: "ISO version (X.Y.Z or X.Y.Z-suffix). Empty = GitVersion (e.g. <VERSION>-dev.<commits>)"
+        required: false
+        default: ""
+        type: string
+      debug_mode:
+        description: "Build a debug ISO (verbose console, debug suffix)"
+        required: true
+        default: true
+        type: boolean
+      gdc_companion:
+        description: "Bake GDC Companion telemetry into the ISO"
+        required: true
+        default: true
+        type: boolean
+      customer_assets_uri:
+        description: "Optional customer assets tarball (gs:// or https://)"
+        required: false
+        default: ""
+        type: string
+      iso_profile:
+        description: "Optional Companion ISO profile name recorded in the build report"
+        required: false
+        default: ""
+        type: string
+      build_backend:
+        description: "Where the ISO is built"
+        required: true
+        default: cloud-build
+        type: choice
+        options:
+cloud-build
+self-hosted
+  push:
+    tags:
+"[0-9]+.[0-9]+.[0-9]+"
+ 
+permissions:
+  contents: read
+  id-token: write # Workload Identity Federation to GCP
+ 
+concurrency:
+  # Never run two builds for the same environment at once (they share GCS paths and retention).
+  group: iso-build-${{ inputs.iso_environment || vars.ISO_DEFAULT_ENVIRONMENT || 'forge-dev' }}
+  cancel-in-progress: false
+ 
+env:
+  CLOUDSDK_CONFIG: ${{ github.workspace }}/.gcloud
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+  BUILDER_REPOSITORY: ${{ vars.ISO_BUILDER_GAR_REPOSITORY || 'gdc-build-images' }}
+  BUILD_BACKEND: ${{ inputs.build_backend || vars.ISO_BUILD_BACKEND || 'cloud-build' }}
+  # Optional dedicated Cloud Build service account (email); empty = project default.
+  CLOUDBUILD_SA: ${{ vars.CLOUDBUILD_SERVICE_ACCOUNT }}
+ 
+jobs:
+  prepare:
+    name: Resolve build parameters
+    runs-on:
+      group: hce
+      labels: [hce, Linux, self-hosted]
+    timeout-minutes: 10
+    outputs:
+      iso_environment: ${{ steps.resolve.outputs.iso_environment }}
+      iso_version: ${{ steps.resolve.outputs.iso_version }}
+      debug_mode: ${{ steps.resolve.outputs.debug_mode }}
+      gdc_companion: ${{ steps.resolve.outputs.gdc_companion }}
+      builder_tag: ${{ steps.resolve.outputs.builder_tag }}
+      gcs_bucket: ${{ steps.resolve.outputs.gcs_bucket }}
+      blessed_bucket: ${{ steps.resolve.outputs.blessed_bucket }}
+      source_iso_filename: ${{ steps.resolve.outputs.source_iso_filename }}
+      iso_name_prefix: ${{ steps.resolve.outputs.iso_name_prefix }}
+      iso_name: ${{ steps.resolve.outputs.iso_name }}
+      build_backend: ${{ steps.resolve.outputs.build_backend }}
+    steps:
+name: Checkout
+        uses: actions/checkout@v4.1.0
+        with:
+          fetch-depth: 0 # GitVersion needs the full history and tags
+ 
+      # Dispatch builds without iso_version are versioned by GitVersion (GitVersion.yml); VERSION is
+      # the next-version baseline so numbering follows upstream. Tag builds use the tag (a detached
+      # HEAD confuses GitVersion). Runs as the runner user with /nocache: no root-owned files in .git.
+name: Calculate version (GitVersion)
+        id: gitversion
+        if: github.event_name == 'workflow_dispatch' && inputs.iso_version == ''
+        env:
+          GITVERSION_IMAGE: ${{ vars.GITVERSION_IMAGE || 'gittools/gitversion:6.8.2' }}
+          DOCKERHUB_USER: ${{ vars.AM_ORG_DOCKERHUB_DOCKER_USER }}
+          DOCKERHUB_PASSWORD: ${{ secrets.AM_ORG_DOCKERHUB_DOCKER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          next="$(tr -d '[:space:]' < VERSION)"
+          [[ "${next}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::VERSION must contain X.Y.Z (found '${next}')."; exit 1; }
+          # Job-scoped Docker config: the login never lands in the shared runner's ~/.docker.
+          export DOCKER_CONFIG="${RUNNER_TEMP}/gitversion-docker"
+          trap 'docker logout >/dev/null 2>&1 || true' EXIT
+          if [[ -n "${DOCKERHUB_USER}" && -n "${DOCKERHUB_PASSWORD}" ]]; then
+            echo "${DOCKERHUB_PASSWORD}" | docker login -u "${DOCKERHUB_USER}" --password-stdin >/dev/null
+          fi
+          # /showvariable prints a single value, so no jq is needed (not every runner has it).
+          gitversion() {
+            docker run --rm --user "$(id -u):$(id -g)" -v "${PWD}:/repo" "${GITVERSION_IMAGE}" \
+              /repo /nocache /overrideconfig "next-version=${next}" /showvariable "$1" | tr -d '[:space:]'
+          }
+          semver="$(gitversion SemVer)"
+          [[ "${semver}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::Unexpected GitVersion SemVer '${semver}'."; exit 1; }
+          echo "semver=${semver}" >> "${GITHUB_OUTPUT}"
+          echo "GitVersion: ${semver} ($(gitversion InformationalVersion))"
+ 
+name: Resolve and validate parameters
+        id: resolve
+        # SECURITY_NOTE: user inputs are passed through env (never interpolated into the
+        # script body) and validated against allow-list patterns before use.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          IN_ENVIRONMENT: ${{ inputs.iso_environment || vars.ISO_DEFAULT_ENVIRONMENT || 'forge-dev' }}
+          IN_VERSION: ${{ inputs.iso_version }}
+          GITVERSION_SEMVER: ${{ steps.gitversion.outputs.semver }}
+          IN_DEBUG: ${{ inputs.debug_mode }}
+          IN_COMPANION: ${{ inputs.gdc_companion }}
+          IN_ASSETS_URI: ${{ inputs.customer_assets_uri }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+ 
+          [[ -n "${GCP_PROJECT_ID}" ]] || fail "Repository variable GCP_PROJECT_ID is not set."
+          [[ "${BUILD_BACKEND}" =~ ^(cloud-build|self-hosted)$ ]] || fail "Invalid build backend '${BUILD_BACKEND}'."
+          [[ "${IN_ENVIRONMENT}" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || fail "Invalid iso_environment '${IN_ENVIRONMENT}'."
+          profile="src/build/${IN_ENVIRONMENT}.env"
+          [[ -f "${profile}" ]] || fail "Environment profile ${profile} is not committed."
+          if grep -v '^[[:space:]]*#' "${profile}" | grep -q 'REPLACE_ME'; then
+            fail "${profile} still contains <REPLACE_ME> placeholders."
+          fi
+ 
+          if [[ "${EVENT_NAME}" == "push" ]]; then
+            version="${REF_NAME}"
+            debug="false"
+            companion="TRUE"
+          else
+            version="${IN_VERSION:-${GITVERSION_SEMVER}}"
+            debug="${IN_DEBUG}"
+            [[ "${IN_COMPANION}" == "true" ]] && companion="TRUE" || companion="FALSE"
+          fi
+          [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || fail "Invalid ISO version '${version}'."
+          if [[ -n "${IN_ASSETS_URI}" ]] && ! [[ "${IN_ASSETS_URI}" =~ ^(gs|https)://[A-Za-z0-9._~:/?#@!\$\&\'()*+,\;=%-]+$ ]]; then
+            fail "customer_assets_uri must be a gs:// or https:// URI."
+          fi
+ 
+          # Resolve profile values exactly as the build does: build.env, then the profile.
+          # shellcheck disable=SC2016 # expansion must happen inside the clean subshell
+          eval "$(env -i bash -c 'set -a; . src/build/build.env; . "$1";
+            printf "p_gcs=%q\np_blessed=%q\np_src=%q\np_prefix=%q\n" \
+              "${GCS_BUCKET:-}" "${ISO_BLESSED_GCS_BUCKET:-}" "${SOURCE_ISO_FILENAME:-}" "${ISO_NAME_PREFIX:-}"' _ "${profile}")"
+          gcs_bucket="${p_gcs#gs://}"
+          blessed_bucket="${p_blessed#gs://}"
+          [[ "${gcs_bucket}" =~ ^[a-z0-9][a-z0-9._-]{1,221}$ ]] || fail "GCS_BUCKET in ${profile} is invalid."
+ 
+          suffix=""
+          [[ "${companion}" == "FALSE" ]] && suffix="-no-comp"
+          [[ "${debug}" == "true" ]] && suffix="${suffix}-debug"
+          iso_name="${p_prefix}-v${version}${suffix}.iso"
+          builder_tag="df-$(sha256sum src/build/Dockerfile | cut -c1-12)"
+ 
+          {
+            echo "iso_environment=${IN_ENVIRONMENT}"
+            echo "iso_version=${version}"
+            echo "debug_mode=${debug}"
+            echo "gdc_companion=${companion}"
+            echo "builder_tag=${builder_tag}"
+            echo "gcs_bucket=${gcs_bucket}"
+            echo "blessed_bucket=${blessed_bucket}"
+            echo "source_iso_filename=${p_src}"
+            echo "iso_name_prefix=${p_prefix}"
+            echo "iso_name=${iso_name}"
+            echo "build_backend=${BUILD_BACKEND}"
+          } >> "${GITHUB_OUTPUT}"
+ 
+          {
+            echo "### ISO build parameters"
+            echo "| Parameter | Value |"
+            echo "|---|---|"
+            echo "| Environment | \${IN_ENVIRONMENT}\ |"
+            echo "| Version | \${version}\ |"
+            echo "| Debug | \${debug}\ |"
+            echo "| Companion | \${companion}\ |"
+            echo "| ISO | \gs://${gcs_bucket}/sync/${iso_name}\ |"
+            echo "| GitVersion SemVer | \${GITVERSION_SEMVER:-n/a (explicit version or tag)}\ |"
+            echo "| Builder image tag | \${builder_tag}\ |"
+            echo "| Build backend | \${BUILD_BACKEND}\ |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+ 
+  builder-image:
+    name: Ensure iso-builder image
+    needs: prepare
+    runs-on:
+      group: hce
+      labels: [hce, Linux, self-hosted]
+    timeout-minutes: 40
+    steps:
+name: Checkout
+        uses: actions/checkout@v4.1.0
+        with:
+          fetch-depth: 1
+ 
+      # Keyless Workload Identity Federation when configured, JSON key otherwise.
+name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          credentials_json: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER == '' && secrets.GCP_SA_KEY_NONPROD || '' }}
+ 
+name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          # gcloud beta builds submit streams Cloud Logging output, which plain builds submit cannot.
+          install_components: beta
+ 
+name: Build and push builder image if missing
+        env:
+          BUILDER_TAG: ${{ needs.prepare.outputs.builder_tag }}
+          BACKEND: ${{ needs.prepare.outputs.build_backend }}
+          STAGING_DIR: ${{ vars.CLOUDBUILD_STAGING_DIR }}
+        run: |
+          set -euo pipefail
+          image="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${BUILDER_REPOSITORY}/iso-builder"
+          if gcloud artifacts docker images describe "${image}:${BUILDER_TAG}" --project "${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+            echo "Builder image ${image}:${BUILDER_TAG} already exists."
+            exit 0
+          fi
+          if [[ "${BACKEND}" == "cloud-build" ]]; then
+            # Same as upstream src/build/build.sh (Cloud Build builds and pushes the image), with an
+            # explicit config because a custom build service account requires CLOUD_LOGGING_ONLY.
+            config="${RUNNER_TEMP}/builder-image.cloudbuild.yaml"
+            cat > "${config}" <<'YAML'
+          steps:
+name: gcr.io/cloud-builders/docker
+              args: ["build", "--pull", "-t", "${_IMAGE}", "."]
+          images: ["${_IMAGE}"]
+          timeout: 1800s
+          options:
+            logging: CLOUD_LOGGING_ONLY
+          YAML
+            extra=()
+            [[ -n "${STAGING_DIR}" ]] && extra+=(--gcs-source-staging-dir "${STAGING_DIR}")
+            [[ -n "${CLOUDBUILD_SA}" ]] && extra+=(--service-account "projects/${GCP_PROJECT_ID}/serviceAccounts/${CLOUDBUILD_SA}")
+            gcloud beta builds submit src/build \
+              --project "${GCP_PROJECT_ID}" \
+              --region "${GCP_REGION}" \
+              --config "${config}" \
+              --substitutions "_IMAGE=${image}:${BUILDER_TAG}" \
+              "${extra[@]}"
+          else
+            export DOCKER_CONFIG="${RUNNER_TEMP}/docker-config"
+            gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+            docker build --pull -t "${image}:${BUILDER_TAG}" src/build
+            docker push "${image}:${BUILDER_TAG}"
+            docker image rm "${image}:${BUILDER_TAG}" || true
+          fi
+          echo "Published builder image \${image}:${BUILDER_TAG}\ (${BACKEND})" >> "${GITHUB_STEP_SUMMARY}"
+ 
+  iso:
+    name: Build ISO (${{ needs.prepare.outputs.build_backend }})
+    needs: [prepare, builder-image]
+    runs-on:
+      group: hce
+      labels: [hce, Linux, self-hosted]
+    timeout-minutes: 60
+    steps:
+name: Checkout
+        uses: actions/checkout@v4.1.0
+        with:
+          fetch-depth: 1
+ 
+      # Keyless Workload Identity Federation when configured, JSON key otherwise.
+name: Authenticate to GCP
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          credentials_json: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER == '' && secrets.GCP_SA_KEY_NONPROD || '' }}
+ 
+name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+ 
+name: Prepare substitutions
+        env:
+          ISO_ENVIRONMENT: ${{ needs.prepare.outputs.iso_environment }}
+          ISO_VERSION: ${{ needs.prepare.outputs.iso_version }}
+          DEBUG_MODE: ${{ needs.prepare.outputs.debug_mode }}
+          GDC_COMPANION: ${{ needs.prepare.outputs.gdc_companion }}
+          BUILDER_TAG: ${{ needs.prepare.outputs.builder_tag }}
+          GCS_BUCKET: ${{ needs.prepare.outputs.gcs_bucket }}
+          BLESSED_BUCKET: ${{ needs.prepare.outputs.blessed_bucket }}
+          SOURCE_ISO_FILENAME: ${{ needs.prepare.outputs.source_iso_filename }}
+          ISO_NAME_PREFIX: ${{ needs.prepare.outputs.iso_name_prefix }}
+          ISO_PROFILE: ${{ inputs.iso_profile }}
+          CUSTOMER_ASSETS_URI: ${{ inputs.customer_assets_uri }}
+          GIT_BRANCH: ${{ github.ref_name }}
+          GIT_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "${ISO_PROFILE}" == "@@" ]] || ! [[ "${ISO_PROFILE}" =~ ^[A-Za-z0-9._-]*$ ]]; then
+            echo "::error::Invalid iso_profile."; exit 1
+          fi
+          subs=(
+            "_PROJECT_ID=${GCP_PROJECT_ID}"
+            "_REGION=${GCP_REGION}"
+            "_BUILD_VERSION=${BUILDER_TAG}"
+            "_ISO_ENVIRONMENT=${ISO_ENVIRONMENT}"
+            "_ISO_VERSION=${ISO_VERSION}"
+            "_GDC_DEBUG_MODE=${DEBUG_MODE}"
+            "_GDC_COMPANION=${GDC_COMPANION}"
+            "_GCS_BUCKET_NAME=${GCS_BUCKET}"
+            "_ISO_BLESSED_GCS_BUCKET=${BLESSED_BUCKET}"
+            "_SOURCE_ISO_FILENAME=${SOURCE_ISO_FILENAME}"
+            "_ISO_NAME_PREFIX=${ISO_NAME_PREFIX}"
+            "_ISO_PROFILE=${ISO_PROFILE}"
+            "_CUSTOMER_ASSETS_URI=${CUSTOMER_ASSETS_URI}"
+            "_GIT_BRANCH=${GIT_BRANCH}"
+            "_GIT_COMMIT=${GIT_COMMIT}"
+          )
+          # Non-secret values only; credentials come from Secret Manager (availableSecrets).
+          printf '%s\n' "${subs[@]}" > "${RUNNER_TEMP}/cloudbuild-substitutions.txt"
+ 
+name: Submit Cloud Build
+        id: submit
+        if: needs.prepare.outputs.build_backend == 'cloud-build'
+        env:
+          STAGING_DIR: ${{ vars.CLOUDBUILD_STAGING_DIR }}
+        run: |
+          export PROJECT_ID="h0d735e3eedce4c1ca96f719f8"
+          export REGION="us-east4"
+          export GCS_BUCKET="gs://h0d735e3eedce4c1ca96f719f8-gdc-disk-provisioner-isos"
+          export ISO_BLESSED_GCS_BUCKET="gs://h0d735e3eedce4c1ca96f719f8-gdc-disk-provisioner-isos"
+          export BUILD_VERSION="1.0.1"
+          ./build.sh --env forge-dev --version "${ISO_VERSION}" --yes --skip-tests
+ 
+name: Wait for Cloud Build
+        if: needs.prepare.outputs.build_backend == 'cloud-build'
+        env:
+          BUILD_ID: ${{ steps.submit.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 55 * 60))
+          status="QUEUED"
+          while (( SECONDS < deadline )); do
+            status="$(gcloud builds describe "${BUILD_ID}" --project "${GCP_PROJECT_ID}" --region "${GCP_REGION}" --format 'value(status)')"
+            case "${status}" in
+              SUCCESS) echo "Cloud Build ${BUILD_ID} succeeded."; exit 0 ;;
+              FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
+                echo "::error::Cloud Build ${BUILD_ID} finished with status ${status}."
+                gcloud builds log "${BUILD_ID}" --project "${GCP_PROJECT_ID}" --region "${GCP_REGION}" 2>&1 | tail -n 200 || true
+                exit 1 ;;
+              *) echo "$(date -u +%H:%M:%S) status=${status}"; sleep 30 ;;
+            esac
+          done
+          echo "::error::Timed out waiting for Cloud Build ${BUILD_ID} (last status ${status})."
+          exit 1
+ 
+name: Cancel Cloud Build on workflow cancellation
+        if: cancelled() && steps.submit.outputs.build_id != ''
+        env:
+          BUILD_ID: ${{ steps.submit.outputs.build_id }}
+        run: gcloud builds cancel "${BUILD_ID}" --project "${GCP_PROJECT_ID}" --region "${GCP_REGION}" || true
+ 
+      # The runner host's python3 may lack ensurepip/venv; use a toolcache Python instead.
+name: Set up Python (self-hosted backend)
+        if: needs.prepare.outputs.build_backend == 'self-hosted'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+ 
+      # Self-hosted backend: run the same cloudbuild.yaml steps with Docker on this runner.
+name: Run cloudbuild.yaml on runner
+        if: needs.prepare.outputs.build_backend == 'self-hosted'
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          command -v docker >/dev/null || { echo "::error::Docker is required for the self-hosted backend."; exit 1; }
+          export DOCKER_CONFIG="${RUNNER_TEMP}/docker-config"
+          gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+          python3 -m venv "${RUNNER_TEMP}/cb-venv"
+          "${RUNNER_TEMP}/cb-venv/bin/pip" install -q "PyYAML>=6.0.1"
+          args=()
+          while IFS= read -r sub; do args+=(--substitution "${sub}"); done < "${RUNNER_TEMP}/cloudbuild-substitutions.txt"
+          "${RUNNER_TEMP}/cb-venv/bin/python" .github/scripts/cloudbuild_local.py \
+            --config cloudbuild.yaml \
+            --workspace "${GITHUB_WORKSPACE}" \
+            --project "${GCP_PROJECT_ID}" \
+            --location "${GCP_REGION}" \
+            "${args[@]}"
+ 
+name: Fetch build report
+        env:
+          GCS_BUCKET: ${{ needs.prepare.outputs.gcs_bucket }}
+          ISO_VERSION: ${{ needs.prepare.outputs.iso_version }}
+          ISO_NAME: ${{ needs.prepare.outputs.iso_name }}
+          ISO_ENVIRONMENT: ${{ needs.prepare.outputs.iso_environment }}
+          CREDENTIALS_FILE: ${{ steps.auth.outputs.credentials_file_path }}
+          SIGNED_URL_HOURS: ${{ vars.ISO_GCS_SIGNED_URL_HOURS || '24' }}
+          GCP_SERVICE_ACCOUNT: ${{ vars.GCP_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          mkdir -p iso-report
+          gcloud storage objects describe "gs://${GCS_BUCKET}/sync/${ISO_NAME}" \
+            --format 'value(size,md5_hash)' > iso-report/iso-object.txt
+          read -r iso_size iso_md5 < iso-report/iso-object.txt || true
+          # generate_build_report.py writes build-report-<env>-v<ver> plus a legacy build-report-v<ver> copy.
+          report=""
+          for stem in "build-report-${ISO_ENVIRONMENT}-v${ISO_VERSION}" "build-report-v${ISO_VERSION}"; do
+            if gcloud storage cp "gs://${GCS_BUCKET}/reports/build-reports/${stem}.*" iso-report/ 2>/dev/null; then
+              report="${stem}"; break
+            fi
+          done
+ 
+          console="https://console.cloud.google.com/storage/browser/_details/${GCS_BUCKET}/sync/${ISO_NAME}?project=${…
+          signed=""
+          # SECURITY_NOTE: signed URLs are time-limited bearer links (max 7 days); 0 disables them.
+          if [[ "${SIGNED_URL_HOURS}" =~ ^[0-9]+$ ]] && (( SIGNED_URL_HOURS > 0 && SIGNED_URL_HOURS <= 168 )); then
+            if [[ -f "${CREDENTIALS_FILE}" ]] && grep -q '"type": *"service_account"' "${CREDENTIALS_FILE}"; then
+              signed="$(gcloud storage sign-url "gs://${GCS_BUCKET}/sync/${ISO_NAME}" \
+                --private-key-file "${CREDENTIALS_FILE}" --duration "${SIGNED_URL_HOURS}h" \
+                --format 'value(signed_url)' 2>/dev/null)" || signed=""
+            elif [[ -n "${GCP_SERVICE_ACCOUNT}" ]]; then
+              # Keyless (WIF): needs roles/iam.serviceAccountTokenCreator on the SA itself.
+              signed="$(gcloud storage sign-url "gs://${GCS_BUCKET}/sync/${ISO_NAME}" \
+                --impersonate-service-account "${GCP_SERVICE_ACCOUNT}" --duration "${SIGNED_URL_HOURS}h" \
+                --format 'value(signed_url)' 2>/dev/null)" || signed=""
+            fi
+            [[ -n "${signed}" ]] || echo "::warning::Could not create a GCS signed URL for the ISO (see docs/FORGE_CICD.md)."
+          fi
+          {
+            echo "### ISO download"
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Object | \gs://${GCS_BUCKET}/sync/${ISO_NAME}\ |"
+            echo "| Size / MD5 | \${iso_size:-?}\ bytes / \${iso_md5:-?}\ |"
+            echo "| Console | [${ISO_NAME}](${console}) |"
+            echo "| Download (Google login with bucket access) | [download](https://storage.cloud.google.com/${GCS_BUCKET}/sync/${ISO_NAME}) |"
+            [[ -n "${signed}" ]] && echo "| Signed URL (no login, ${SIGNED_URL_HOURS} h) | [download](${signed}) |"
+            echo "| CLI | \gcloud storage cp gs://${GCS_BUCKET}/sync/${ISO_NAME} .\ |"
+            if [[ -n "${report}" ]]; then
+              echo "| Build report | [${report}.md](https://console.cloud.google.com/storage/browser/_details/${GCS_BUCKET}/reports/build-reports/${rep… / [json](https://console.cloud.google.com/storage/browser/_details/${GCS_BUCKET}/reports/build-reports/${rep… |"
+            fi
+            echo "| Bucket | [${GCS_BUCKET}](https://console.cloud.google.com/storage/browser/${GCS_BUCKET}?project=${GCP_PROJECT_ID}) |"
+            echo ""
+          } >> "${GITHUB_STEP_SUMMARY}"
+          if [[ -n "${report}" && -f "iso-report/${report}.md" ]]; then
+            cat "iso-report/${report}.md" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+ 
+name: Upload build report
+        uses: actions/upload-artifact@v4.1.0
+        with:
+          name: iso-build-report-${{ needs.prepare.outputs.iso_version }}
+          path: iso-report
+          if-no-files-found: warn
+ 
+      # The self-hosted backend leaves multi-GB ISO workspaces behind; free the runner disk.
+name: Clean build workspace
+        if: always() && needs.prepare.outputs.build_backend == 'self-hosted'
+        run: rm -rf build-workspace .cache "${RUNNER_TEMP}/cb-venv" "${RUNNER_TEMP}/docker-config"
+ 
+  mirror-azure:
+    name: Mirror ISO to Azure Blob
+    needs: [prepare, iso]
+    if: vars.ISO_AZURE_MIRROR_ENABLED == 'true'
+    runs-on:
+      group: hce
+      labels: [hce, Linux, self-hosted]
+    timeout-minutes: 60
+    steps:
+      # Keyless Workload Identity Federation when configured, JSON key otherwise.
+name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          credentials_json: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER == '' && secrets.GCP_SA_KEY_NONPROD || '' }}
+ 
+name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+ 
+name: Copy ISO to Azure Blob Storage
+        env:
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+          AZURE_STORAGE_CONTAINER: ${{ vars.AZURE_STORAGE_CONTAINER_NAME }}
+          AZURE_CONFIG_DIR: ${{ runner.temp }}/.azure
+          GCS_BUCKET: ${{ needs.prepare.outputs.gcs_bucket }}
+          ISO_NAME: ${{ needs.prepare.outputs.iso_name }}
+          ISO_VERSION: ${{ needs.prepare.outputs.iso_version }}
+          ISO_ENVIRONMENT: ${{ needs.prepare.outputs.iso_environment }}
+          SAS_EXPIRY_HOURS: ${{ vars.AZURE_SAS_EXPIRY_HOURS || '48' }}
+          KONG_EXTERNAL_HOST: ${{ vars.KONG_EXTERNAL_HOST || 'scqa.honeywellforge.com' }}
+        run: |
+          set -euo pipefail
+          [[ "${SAS_EXPIRY_HOURS}" =~ ^[0-9]{1,3}$ ]] || { echo "::error::AZURE_SAS_EXPIRY_HOURS must be 1-999."; exit 1; }
+          workdir="${RUNNER_TEMP}/iso-mirror"
+          mkdir -p "${workdir}"
+          trap 'rm -rf "${workdir}"' EXIT
+          gcloud storage cp "gs://${GCS_BUCKET}/sync/${ISO_NAME}" "${workdir}/${ISO_NAME}"
+          (cd "${workdir}" && sha256sum "${ISO_NAME}" > "${ISO_NAME}.sha256")
+          if ! command -v az >/dev/null 2>&1; then
+            curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+          fi
+          blob_prefix="gdc-disk-provisioner/${ISO_ENVIRONMENT}/${ISO_VERSION}"
+          for f in "${ISO_NAME}" "${ISO_NAME}.sha256"; do
+            az storage blob upload \
+              --connection-string "${AZURE_STORAGE_CONNECTION_STRING}" \
+              --container-name "${AZURE_STORAGE_CONTAINER}" \
+              --file "${workdir}/${f}" \
+              --name "${blob_prefix}/${f}" \
+              --overwrite --only-show-errors
+          done
+          # SECURITY_NOTE: read-only, HTTPS-only, time-limited SAS per blob; the account key stays in
+          # the connection-string secret. SAS URLs are bearer links: share them carefully.
+          expiry="$(date -u -d "+${SAS_EXPIRY_HOURS} hours" '+%Y-%m-%dT%H:%MZ')"
+          {
+            echo "### Azure Blob mirror"
+            echo "Container \${AZURE_STORAGE_CONTAINER}\, prefix \${blob_prefix}/\. Links expire ${expiry} (${SAS_EXPIRY_HOURS} h)."
+            echo ""
+            echo "| Blob | SAS download | External (Kong) |"
+            echo "|---|---|---|"
+          } >> "${GITHUB_STEP_SUMMARY}"
+          for f in "${ISO_NAME}" "${ISO_NAME}.sha256"; do
+            sas_url="$(az storage blob generate-sas \
+              --connection-string "${AZURE_STORAGE_CONNECTION_STRING}" \
+              --container-name "${AZURE_STORAGE_CONTAINER}" --name "${blob_prefix}/${f}" \
+              --permissions r --expiry "${expiry}" --https-only --full-uri --output tsv --only-show-errors)"
+            echo "::add-mask::${sas_url#*\?}"
+            kong_url="$(echo "${sas_url}" | sed -E "s#^(https?://)[^/]+(/.*)\$#\1${KONG_EXTERNAL_HOST%/}/devicefiledownload\2#")"
+            echo "| \${f}\ | [download](${sas_url}) | [download](${kong_url}) |" >> "${GITHUB_STEP_SUMMARY}"
+          done
