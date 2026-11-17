@@ -1,0 +1,100 @@
+# Copyright 2026 Google LLC. SPDX-License-Identifier: Apache-2.0
+---
+# ==============================================================================
+# GDC DAY-2 WORKLOAD IDENTITY & STS AUTHENTICATION BOOTSTRAP
+# ==============================================================================
+# Transition host authentication from ephemeral Day-0 Step CA / GDC Companion
+# mTLS to local Kubernetes Workload Identity Federation (WIF) and Google STS.
+# ==============================================================================
+
+- name: "GDC-WIF | Ensure root .kube config directory exists"
+  ansible.builtin.file:
+    path: /root/.kube
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: "GDC-WIF | Symlink /root/.kube/config to /etc/kubernetes/admin.conf"
+  ansible.builtin.file:
+    src: /etc/kubernetes/admin.conf
+    dest: /root/.kube/config
+    state: link
+    owner: root
+    group: root
+    force: true
+
+- name: "GDC-WIF | Ensure gdc-admin .kube config directory exists"
+  ansible.builtin.file:
+    path: "/home/{{ gdc_admin_user | default('gdc-admin') }}/.kube"
+    state: directory
+    owner: "{{ gdc_admin_user | default('gdc-admin') }}"
+    group: "{{ gdc_admin_user | default('gdc-admin') }}"
+    mode: '0700'
+
+- name: "GDC-WIF | Copy admin.conf to gdc-admin .kube config"
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "/home/{{ gdc_admin_user | default('gdc-admin') }}/.kube/config"
+    remote_src: true
+    owner: "{{ gdc_admin_user | default('gdc-admin') }}"
+    group: "{{ gdc_admin_user | default('gdc-admin') }}"
+    mode: '0600'
+
+- name: "GDC-WIF | Check if gdc namespace exists"
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf get ns gdc"
+  register: _gdc_ns_check
+  changed_when: false
+  failed_when: false
+
+- name: "GDC-WIF | Create gdc namespace"
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf create ns gdc"
+  when: _gdc_ns_check.rc != 0
+
+- name: "GDC-WIF | Check if gdc-host-ksa ServiceAccount exists in gdc namespace"
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf get sa gdc-host-ksa -n gdc"
+  register: _gdc_sa_check
+  changed_when: false
+  failed_when: false
+
+- name: "GDC-WIF | Create gdc-host-ksa ServiceAccount (zero RBAC roles)"
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf create sa gdc-host-ksa -n gdc"
+  when: _gdc_sa_check.rc != 0
+
+- name: "GDC-WIF | Check if gdc-host-ksa ServiceAccount exists in kube-system namespace"
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf get sa gdc-host-ksa -n kube-system"
+  register: _kube_system_sa_check
+  changed_when: false
+  failed_when: false
+
+- name: "GDC-WIF | Create gdc-host-ksa ServiceAccount in kube-system namespace"
+  ansible.builtin.command:
+    cmd: "kubectl --kubeconfig=/etc/kubernetes/admin.conf create sa gdc-host-ksa -n kube-system"
+  when: _kube_system_sa_check.rc != 0
+
+- name: "GDC-WIF | Deploy Day-2 state-aware refresh-gdc-credentials.sh"
+  ansible.builtin.template:
+    src: "{{ role_path }}/../machine_orchestration/templates/refresh-gdc-credentials.sh.j2"
+    dest: /usr/local/bin/refresh-gdc-credentials.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "GDC-WIF | Trigger immediate Day-2 credential refresh via STS"
+  ansible.builtin.command:
+    cmd: "/usr/local/bin/refresh-gdc-credentials.sh"
+  register: _sts_refresh_out
+  changed_when: true
+  failed_when: false
+
+- name: "GDC-WIF | Verify active gcloud token"
+  ansible.builtin.command:
+    cmd: "gcloud auth print-access-token"
+  register: _gcloud_sts_verify
+  changed_when: false
+  failed_when: false

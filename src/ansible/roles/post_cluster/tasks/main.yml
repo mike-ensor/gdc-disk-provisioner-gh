@@ -51,6 +51,10 @@
   ansible.builtin.include_tasks: cert_manager_pki.yml
   tags: ["corp-cert"]
 
+- name: "GDC-POST | Bootstrap Day-2 Host Workload Identity & STS Authentication"
+  ansible.builtin.include_tasks: workload_identity.yml
+  tags: ["workload-identity", "sts"]
+
 - name: "GDC-POST | Execute ConfigSync and RootSync deployment"
   ansible.builtin.include_tasks: config_sync.yml
 

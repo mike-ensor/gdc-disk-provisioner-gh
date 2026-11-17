@@ -27,9 +27,15 @@ class TestRefreshCredentialsFallback(unittest.TestCase):
         
         mock_run = os.path.join(temp_dir, "run")
         mock_var = os.path.join(temp_dir, "var")
+        mock_etc = os.path.join(temp_dir, "etc")
         os.makedirs(os.path.join(mock_run, "gdc-auth"))
         os.makedirs(os.path.join(mock_var, "gdc-install/keys"))
         os.makedirs(os.path.join(mock_var, "gdc-install/state"))
+        os.makedirs(os.path.join(mock_etc, "kubernetes"))
+
+        if mock_env.get("HAS_K8S_CLUSTER"):
+            with open(os.path.join(mock_etc, "kubernetes/admin.conf"), "w") as f:
+                f.write("mock-kubeconfig")
         
         # Setup files based on env
         if mock_env.get("HAS_MANUAL_FACTS"):
@@ -55,6 +61,7 @@ class TestRefreshCredentialsFallback(unittest.TestCase):
         # Modify script to use our mock paths
         test_script = self.script_content.replace("/run/", f"{mock_run}/")
         test_script = test_script.replace("/var/", f"{mock_var}/")
+        test_script = test_script.replace("/etc/kubernetes/", f"{mock_etc}/kubernetes/")
         
         # Prepend mock commands
         mock_header = f"""#!/bin/bash
@@ -76,6 +83,16 @@ class TestRefreshCredentialsFallback(unittest.TestCase):
         step() {{
             echo "mock step"
         }}
+
+        kubectl() {{
+            if [[ "$*" == *"get nodes"* ]]; then
+                return 0
+            elif [[ "$*" == *"create token"* ]]; then
+                echo "mock-ksa-jwt-token"
+            else
+                return 0
+            fi
+        }}
         
         curl() {{
             {curl_mock}
@@ -84,6 +101,7 @@ class TestRefreshCredentialsFallback(unittest.TestCase):
         export -f cat
         export -f ip
         export -f step
+        export -f kubectl
         export -f curl
         """
         
@@ -161,6 +179,73 @@ class TestRefreshCredentialsFallback(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("ERROR: Failed to fetch a valid access token", result.stderr)
         temp_obj.cleanup()
+
+    def test_scenario_g_k8s_sts_succeeds(self):
+        # Scenario G: Cluster is up -> uses K8s Workload Identity STS exchange to write token
+        curl_mock = '''
+        if [[ "$*" == *"sts.googleapis.com"* ]]; then
+            echo '{"access_token":"mock-sts-federated-token","token_type":"Bearer","expires_in":3600}'
+        elif [[ "$*" == *"iamcredentials.googleapis.com"* ]]; then
+            echo '{"accessToken":"mock-sts-gcp-token","expireTime":"2026-11-16T02:00:00Z"}'
+        else
+            echo "HTTP 404"
+        fi
+        '''
+        mock_env = {"HAS_K8S_CLUSTER": True}
+        result, mock_run, temp_obj = self.run_script(mock_env, curl_mock)
+        if result.returncode != 0:
+            print("STDOUT:", result.stdout)
+            print("STDERR:", result.stderr)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Kubernetes Workload Identity & STS", result.stdout)
+        
+        with open(os.path.join(mock_run, "gdc-auth/access_token"), "r") as f:
+            token = f.read().strip()
+        self.assertEqual(token, "mock-sts-gcp-token")
+        temp_obj.cleanup()
+
+    def test_scenario_h_k8s_sts_offline_fallback(self):
+        # Scenario H: Cluster is up, but STS endpoint is offline (WAN outage) -> uses fresh local token (< 50m)
+        curl_mock = 'echo "curl: (6) Could not resolve host: sts.googleapis.com" >&2; return 1'
+        mock_env = {"HAS_K8S_CLUSTER": True, "HAS_ACCESS_TOKEN": True, "TOKEN_IS_OLD": False}
+        result, _, temp_obj = self.run_script(mock_env, curl_mock)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("WARN: STS token exchange unreachable (WAN offline)", result.stdout)
+        temp_obj.cleanup()
+
+    def test_template_renders_without_explicit_vars(self):
+        # Verify template renders without raising UndefinedError when optional variables are omitted
+        import jinja2
+        with open(TEMPLATE_PATH, "r") as f:
+            template_content = f.read()
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        rendered = env.from_string(template_content).render()
+        self.assertIn("https://step-ca.gdc-labs.com", rendered)
+        self.assertIn("https://gdc-companion.gdc-labs.com/", rendered)
+
+    def test_post_cluster_workload_identity_template_path(self):
+        # Verify workload_identity.yml references a valid template path relative to role_path
+        import yaml
+        wif_task_path = os.path.join(PROJECT_ROOT, "src/ansible/roles/post_cluster/tasks/workload_identity.yml")
+        with open(wif_task_path, "r") as f:
+            tasks = yaml.safe_load(f)
+
+        deploy_task = next(
+            t for t in tasks
+            if isinstance(t, dict) and t.get("name") == "GDC-WIF | Deploy Day-2 state-aware refresh-gdc-credentials.sh"
+        )
+        template_src = deploy_task["ansible.builtin.template"]["src"]
+
+        # Simulate role_path: src/ansible/roles/post_cluster
+        role_dir = os.path.join(PROJECT_ROOT, "src/ansible/roles/post_cluster")
+        resolved_src = template_src.replace("{{ role_path }}", role_dir)
+        norm_resolved = os.path.normpath(resolved_src)
+
+        self.assertTrue(
+            os.path.isfile(norm_resolved),
+            f"Template path in workload_identity.yml did not resolve to a file: {norm_resolved}"
+        )
+        self.assertEqual(norm_resolved, os.path.normpath(TEMPLATE_PATH))
 
 if __name__ == '__main__':
     unittest.main()

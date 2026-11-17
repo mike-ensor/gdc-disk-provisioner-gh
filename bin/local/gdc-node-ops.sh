@@ -995,6 +995,7 @@ EOF
         echo "  Target nodes:  ${targets[*]}"
         echo "  SSH User:      ${ssh_user}"
         echo "  Re-issue cert: ${reissue_cert}"
+        echo "  Auth Protocol: Dynamic (Day-2 K8s STS if cluster active, Day-0 Step CA if pre-cluster)"
         if [[ "${reissue_cert}" == "true" ]]; then
             echo "  Step CA URL:   ${step_ca_url}"
             echo "  Provisioner:   ${step_prov_name}"
@@ -1028,6 +1029,14 @@ EOF
         if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "${ssh_opts[@]}" "${ssh_user}@$ip" "echo 'OK'" &>/dev/null; then
             echo "  [!] ERROR: Cannot connect to $ip as ${ssh_user}. Skipping."
             continue
+        fi
+
+        local is_post_cluster=false
+        if ssh "${ssh_opts[@]}" "${ssh_user}@$ip" "test -f /etc/kubernetes/admin.conf && sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes" &>/dev/null; then
+            is_post_cluster=true
+            echo "  [+] Active Kubernetes cluster detected on $ip (Day-2 STS Workload Identity active)."
+        else
+            echo "  [-] Node $ip operating in Pre-Cluster mode (Day-0 Step CA / Companion mTLS)."
         fi
 
         if [[ "${reissue_cert}" == "true" ]]; then
