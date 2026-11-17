@@ -11,7 +11,7 @@ Thumbs.db
 .git-workspace
 .worktrees/
 .review/
-.github/
+#.github/
 
 # Project-specific / generic outputs
 dist/
